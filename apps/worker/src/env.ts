@@ -1,11 +1,10 @@
 // Binding surface for the combined Worker. Owned by the Phase 0 seed —
 // tasks extend behavior in their own modules, not here, unless their PLAN.md
 // scope says otherwise.
+import type { FinalizeMessage } from "@orange-replay/shared";
 import type { SessionRecorder } from "./do/session-recorder.ts";
 
-// TODO(T1.6): replace with `import type { FinalizeMessage } from "@orange-replay/shared"`
-// once T1.1 lands the shared contract.
-export type FinalizeMessage = Record<string, unknown>;
+export type { FinalizeMessage };
 
 export interface Env {
   SESSION: DurableObjectNamespace<SessionRecorder>;
