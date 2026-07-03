@@ -38,8 +38,8 @@ describe("worker harness", () => {
     expect(body).toEqual({ do: "pong", r2: true, kv: true, d1: 1 });
   });
 
-  it("hides test routes without the flag via 501 modules", async () => {
+  it("rejects a header-less ingest post at the edge", async () => {
     const res = await worker.fetch("/v1/ingest", { method: "POST" });
-    expect(res.status).toBe(501);
+    expect(res.status).toBe(400);
   });
 });

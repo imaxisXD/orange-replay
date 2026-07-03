@@ -1,3 +1,4 @@
+import { request as httpRequest, type IncomingMessage } from "node:http";
 import { fileURLToPath } from "node:url";
 import { manifestKey, sessionPrefix, type SessionManifest } from "@orange-replay/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
@@ -155,12 +156,21 @@ describe("dashboard api", () => {
   });
 
   it("returns the durable object's live response status", async () => {
-    const res = await worker.fetch(
-      `/api/v1/projects/${assetProjectId}/sessions/${assetSessionId}/live`,
-      { headers: { ...authHeaders(), upgrade: "websocket" } },
+    const res = await requestLiveUpgrade(
+      `/api/v1/projects/${assetProjectId}/sessions/${assetSessionId}/live?token=${token}`,
     );
 
-    expect([501, 404]).toContain(res.status);
+    expect(res.status).toBe(404);
+    expect(JSON.parse(res.body)).toEqual({ error: "not_found" });
+  });
+
+  it("rejects a wrong live query token before reaching the durable object", async () => {
+    const res = await requestLiveUpgrade(
+      `/api/v1/projects/${assetProjectId}/sessions/${assetSessionId}/live?token=wrong-token`,
+    );
+
+    expect(res.status).toBe(401);
+    expect(JSON.parse(res.body)).toEqual({ error: "unauthorized" });
   });
 });
 
@@ -171,6 +181,58 @@ interface SessionsResponse {
 
 function authHeaders(): Record<string, string> {
   return { authorization: `Bearer ${token}` };
+}
+
+interface HttpResponse {
+  status: number;
+  body: string;
+}
+
+function requestLiveUpgrade(path: string): Promise<HttpResponse> {
+  return new Promise((resolve, reject) => {
+    const request = httpRequest(
+      {
+        hostname: worker.address,
+        port: worker.port,
+        method: "GET",
+        path,
+        headers: {
+          Connection: "Upgrade",
+          Upgrade: "websocket",
+        },
+      },
+      (response) => {
+        readHttpResponse(response).then(resolve, reject);
+      },
+    );
+
+    request.on("upgrade", (response, socket) => {
+      socket.destroy();
+      resolve({
+        status: response.statusCode ?? 0,
+        body: "",
+      });
+    });
+    request.on("error", reject);
+    request.end();
+  });
+}
+
+function readHttpResponse(response: IncomingMessage): Promise<HttpResponse> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+
+    response.on("data", (chunk: Buffer | string) => {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    });
+    response.on("error", reject);
+    response.on("end", () => {
+      resolve({
+        status: response.statusCode ?? 0,
+        body: Buffer.concat(chunks).toString("utf8"),
+      });
+    });
+  });
 }
 
 async function getSessions(query = ""): Promise<SessionsResponse> {

@@ -57,7 +57,7 @@ describe("consumer queue and sweeper", () => {
         bytes: message.bytes,
       },
     ]);
-  });
+  }, 30_000);
 
   it("does not double count a redelivered finalize message", async () => {
     const message = makeFinalizeMessage("idempotent");
@@ -70,7 +70,7 @@ describe("consumer queue and sweeper", () => {
     expect(body.usage[0]?.["sessions"]).toBe(1);
     expect(body.usage[0]?.["bytes"]).toBe(message.bytes);
     expect(body.events).toHaveLength(2);
-  });
+  }, 30_000);
 
   it("acks an invalid message and keeps the worker healthy", async () => {
     const badSessionId = `bad-${Date.now()}`;

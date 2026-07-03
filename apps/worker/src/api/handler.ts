@@ -50,7 +50,7 @@ async function routeRequest(
     return Response.json({ ok: true });
   }
 
-  const auth = await checkAuth(request, env);
+  const auth = await checkAuth(request, url, env);
   if (!auth.ok) return jsonError(auth.error, auth.status);
 
   const sessionsMatch = /^\/api\/v1\/projects\/([^/]+)\/sessions$/.exec(url.pathname);
@@ -186,6 +186,7 @@ function proxyLiveSession(
 
 async function checkAuth(
   request: Request,
+  url: URL,
   env: Env,
 ): Promise<{ ok: true } | { ok: false; status: 401 | 503; error: string }> {
   if (!env.DEV_API_TOKEN) {
@@ -194,12 +195,24 @@ async function checkAuth(
 
   const header = request.headers.get("authorization");
   const prefix = "Bearer ";
-  if (!header?.startsWith(prefix)) {
+  let actualToken: string | null = null;
+
+  if (header !== null) {
+    if (!header.startsWith(prefix)) {
+      return { ok: false, status: 401, error: "unauthorized" };
+    }
+    actualToken = header.slice(prefix.length);
+  } else if (isLiveRoute(url.pathname)) {
+    // v1 dev-token transport for WebSocket clients — production replaces this with short-lived signed tickets minted over REST (Phase 3).
+    actualToken = url.searchParams.get("token");
+  }
+
+  if (actualToken === null) {
     return { ok: false, status: 401, error: "unauthorized" };
   }
 
   const expected = encoder.encode(env.DEV_API_TOKEN);
-  const actual = encoder.encode(header.slice(prefix.length));
+  const actual = encoder.encode(actualToken);
   if (expected.byteLength !== actual.byteLength) {
     return { ok: false, status: 401, error: "unauthorized" };
   }
@@ -212,6 +225,10 @@ async function checkAuth(
   }
 
   return { ok: true };
+}
+
+function isLiveRoute(pathname: string): boolean {
+  return /^\/api\/v1\/projects\/[^/]+\/sessions\/[^/]+\/live$/.test(pathname);
 }
 
 function parseProjectSessionIds(
