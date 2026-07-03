@@ -303,13 +303,18 @@ export class SessionRecorder extends DurableObject<Env> {
   }
 
   private pendingBatchCount(): number {
-    return this.ctx.storage.sql.exec<CountRow>("SELECT COUNT(*) AS count FROM batches").one().count;
+    return this.ctx.storage.sql
+      .exec<CountRow>("SELECT COUNT(*) AS count FROM batches WHERE body IS NOT NULL")
+      .one().count;
   }
 
   private pendingBatchRows(): BatchRow[] {
     return this.ctx.storage.sql
       .exec<BatchRow>(
-        "SELECT tab, seq, t0, t1, bytes, flags, events, body FROM batches ORDER BY t0, tab, seq",
+        `SELECT tab, seq, t0, t1, bytes, flags, events, body
+          FROM batches
+          WHERE body IS NOT NULL
+          ORDER BY t0, tab, seq`,
       )
       .toArray();
   }
@@ -397,7 +402,11 @@ export class SessionRecorder extends DurableObject<Env> {
     );
 
     for (const row of rows) {
-      this.ctx.storage.sql.exec("DELETE FROM batches WHERE tab = ? AND seq = ?", row.tab, row.seq);
+      this.ctx.storage.sql.exec(
+        "UPDATE batches SET body = NULL WHERE tab = ? AND seq = ? AND body IS NOT NULL",
+        row.tab,
+        row.seq,
+      );
     }
 
     if (this.sessionState !== null) {

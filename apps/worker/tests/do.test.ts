@@ -73,6 +73,68 @@ describe("SessionRecorder Durable Object", () => {
     expect(Buffer.from(segmentBatch(parsed, 0))).toEqual(payload);
   });
 
+  it("dedupes an already flushed batch for the whole session", async () => {
+    const projectId = "project-flushed-dedupe";
+    const sessionId = "session-flushed-dedupe";
+    const batches: AppendInput[] = [
+      {
+        projectId,
+        sessionId,
+        tab: "tab-a",
+        seq: 0,
+        payload: randomBytes(1500),
+        t0: 2500,
+        events: [{ t: 2501, k: "custom", d: "unique-0" }],
+      },
+      {
+        projectId,
+        sessionId,
+        tab: "tab-a",
+        seq: 1,
+        payload: randomBytes(1500),
+        t0: 2600,
+        events: [{ t: 2601, k: "custom", d: "unique-1" }],
+      },
+      {
+        projectId,
+        sessionId,
+        tab: "tab-b",
+        seq: 0,
+        payload: randomBytes(1500),
+        t0: 2700,
+        events: [{ t: 2701, k: "custom", d: "unique-2" }],
+      },
+    ];
+
+    for (const batch of batches) {
+      await append(batch);
+    }
+
+    const afterFlush = await readDebug(projectId, sessionId);
+    expect(afterFlush.bufferedBytes).toBe(0);
+    expect(afterFlush.pendingBatches).toBe(0);
+    expect(afterFlush.segmentCount).toBe(1);
+
+    const duplicate = batches[1];
+    if (duplicate === undefined) {
+      throw new Error("duplicate batch was not prepared");
+    }
+
+    await append(duplicate);
+
+    const afterDuplicate = await readDebug(projectId, sessionId);
+    expect(afterDuplicate.pendingBatches).toBe(afterFlush.pendingBatches);
+    expect(afterDuplicate.bufferedBytes).toBe(afterFlush.bufferedBytes);
+    expect(afterDuplicate.segmentCount).toBe(afterFlush.segmentCount);
+
+    const manifestBytes = await waitForR2Bytes(manifestKey(projectId, sessionId));
+    const manifest = JSON.parse(new TextDecoder().decode(manifestBytes)) as SessionManifest;
+
+    expect(manifest.counts.batches).toBe(batches.length);
+    expect(manifest.counts.events).toBe(batches.length);
+    expect(manifest.timeline.map((event) => event.d)).toEqual(["unique-0", "unique-1", "unique-2"]);
+  });
+
   it("finalizes an idle session into a manifest", async () => {
     const projectId = "project-finalize";
     const sessionId = "session-finalize";
