@@ -1,0 +1,38 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "orange-replay",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-01",
+  "observability": {
+    "enabled": true,
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "SESSION", "class_name": "SessionRecorder" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SessionRecorder"] }],
+  "r2_buckets": [{ "binding": "RECORDINGS", "bucket_name": "orange-replay-recordings" }],
+  "kv_namespaces": [{ "binding": "CONFIG", "id": "local-config" }],
+  "d1_databases": [
+    {
+      "binding": "IDX_00",
+      "database_name": "orange-replay-idx-00",
+      "database_id": "local-idx-00",
+      "migrations_dir": "migrations",
+    },
+  ],
+  "queues": {
+    "producers": [{ "binding": "FINALIZE_QUEUE", "queue": "or-session-finalized" }],
+    "consumers": [
+      {
+        "queue": "or-session-finalized",
+        "max_batch_size": 100,
+        "max_batch_timeout": 5,
+        "max_retries": 10,
+        "dead_letter_queue": "or-dlq",
+      },
+    ],
+  },
+  "triggers": {
+    "crons": ["17 3 * * *"],
+  },
+}

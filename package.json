@@ -8,6 +8,7 @@
     "prepare": "vp config"
   },
   "devDependencies": {
+    "@types/node": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:"
   },

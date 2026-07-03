@@ -30,7 +30,7 @@ Analytics Engine verification, Pipelines → Iceberg lake, Vectorize/AI features
    - Identity fields when known: `project_id, org_id, session_id, tab, seq`.
    - Service-specific business fields, e.g. ingest: `bytes_in, flags, live, quota_state, kv_hit`; DO: `buffered_bytes, batch_count, segment_n, flush_reason, viewer_count, alarm_kind`; consumer: `attempts, rows_written, dlq`; API: `route, cache_hit`.
    - `request_id` (UUIDv7) minted at ingest/API edge, propagated via `x-or-request-id` into DO RPCs and queue messages.
-6. **Testing**: unit tests colocated per package; Workers code tested with `@cloudflare/vitest-pool-workers` (fallback: `unstable_dev` if pool-workers and Vite Plus' vitest conflict — record the decision); SDK tested with happy-dom + Playwright e2e against `wrangler dev`.
+6. **Testing** (decided in Phase 0 — `@cloudflare/vitest-pool-workers` is incompatible with Vite Plus' vitest 4, "runner not supported"): pure decision logic lives in plain functions unit-tested under `vp test`; worker behavior is integration-tested via `unstable_dev` booting the real worker (see `apps/worker/tests/harness.test.ts` for the canonical pattern) against guarded `/__test/*` routes enabled by `DEV_TEST_ROUTES=1`. tsconfig split: `src/` is workers-typed, `tests/` is node-typed (`tests/tsconfig.json`) — never mix the two type worlds in one config. SDK tested with happy-dom + Playwright e2e against `wrangler dev`.
 7. **Security**: authz on every API route (dev token for now), R2 key validation (no traversal), prepared statements only, size caps enforced, CORS exact.
 
 ## Execution model
@@ -47,6 +47,8 @@ Git init + initial commit (worktrees need HEAD) · Vite Plus monorepo scaffold (
 **Gate**: `vp check` passes; smoke agent returns.
 
 ## Phase 1 — Spine (Workflow W1)
+
+Phase 0 seeded `apps/worker` with the **final router** (`src/index.ts`), `env.ts` (bindings + `shardDb`), `wrangler.jsonc`, and the `/__test/*` dispatch (`src/test/harness-routes.ts`) — these are seed-owned and final. Each fan-out task owns exactly its module directory plus its own test-route file (`src/test/do-routes.ts` → T1.2, `ingest-routes.ts` → T1.3, `consumer-routes.ts` → T1.4, `api-routes.ts` → T1.5), so parallel worktrees never touch a shared file. T1.6 therefore shrinks to: D1 migrations SQL, local seed script, `.dev.vars` template, replacing the `FinalizeMessage` placeholder in `env.ts` with the shared import, and any integration glue the merge reveals.
 
 | Task | Scope                                                                                                                                                                                           | Depends       |
 | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |

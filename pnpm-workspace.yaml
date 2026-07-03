@@ -29,3 +29,7 @@ minimumReleaseAgeExclude:
   - "@voidzero-dev/vite-plus-win32-arm64-msvc@0.2.2"
   - "@voidzero-dev/vite-plus-win32-x64-msvc@0.2.2"
   - vite-plus@0.2.2
+allowBuilds:
+  esbuild: true
+  sharp: true
+  workerd: true
