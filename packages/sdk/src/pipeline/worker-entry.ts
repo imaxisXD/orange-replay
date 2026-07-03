@@ -60,9 +60,35 @@ export function installWorkerEntry(
   };
 }
 
-export function makeWorkerEntrySource(workerCoreUrl: string): string {
+const WORKER_CORE_SOURCE = `
+const encoder = new TextEncoder();
+
+async function serializeAndCompressBatch(events) {
+  const plainBytes = encoder.encode(JSON.stringify(events));
+
+  if (typeof CompressionStream !== "function") {
+    return { payload: plainBytes, uncompressed: true };
+  }
+
+  try {
+    const body = new Response(plainBytes).body;
+    if (body === null) {
+      return { payload: plainBytes, uncompressed: true };
+    }
+
+    const compressed = await new Response(
+      body.pipeThrough(new CompressionStream("gzip")),
+    ).arrayBuffer();
+    return { payload: new Uint8Array(compressed), uncompressed: false };
+  } catch {
+    return { payload: plainBytes, uncompressed: true };
+  }
+}
+`;
+
+export function makeWorkerEntrySource(workerCoreSource = WORKER_CORE_SOURCE): string {
   return `
-import { serializeAndCompressBatch } from ${JSON.stringify(workerCoreUrl)};
+${workerCoreSource}
 
 const events = [];
 

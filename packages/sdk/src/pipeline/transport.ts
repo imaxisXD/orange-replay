@@ -105,6 +105,45 @@ export class Transport {
     return { sent: false, dropped: true, attempts };
   }
 
+  queueBatchSync(batch: TransportBatch): boolean {
+    const beaconQueued = this.tryBeacon(batch.body);
+    let fetchQueued = false;
+
+    try {
+      const response = this.fetchFn(`${this.config.ingestUrl}/v1/ingest`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/octet-stream",
+          [HDR_KEY]: this.config.key,
+          [HDR_SESSION]: batch.index.s,
+          [HDR_TAB]: batch.index.tab,
+          [HDR_SEQ]: String(batch.index.seq),
+          [HDR_FLAGS]: String(batch.flags),
+        },
+        body: batch.body as unknown as BodyInit,
+        keepalive: true,
+      });
+      fetchQueued = true;
+
+      void response
+        .then(async (result) => {
+          if (!result.ok) {
+            return;
+          }
+
+          const ack = await readAck(result);
+          if (ack.closed === true) {
+            this.onClosed?.();
+          }
+        })
+        .catch(() => undefined);
+    } catch {
+      return beaconQueued;
+    }
+
+    return beaconQueued || fetchQueued;
+  }
+
   private tryBeacon(body: Uint8Array): boolean {
     try {
       return (

@@ -1,8 +1,10 @@
+import { MAX_SEQ } from "@orange-replay/shared/constants";
 import { uuidv7 } from "@orange-replay/shared/uuid";
 
 const SESSION_STORAGE_KEY = "or:s";
 const TAB_STORAGE_KEY = "or:t";
 const LAST_ACTIVITY_STORAGE_KEY = "or:last";
+const SEQ_STORAGE_KEY = "or:q";
 const SESSION_COOKIE = "or_s";
 
 export const SESSION_IDLE_MS = 30 * 60 * 1000;
@@ -31,7 +33,7 @@ export class SessionManager {
   private currentSessionId: string;
   private currentTabId: string;
   private lastActivity: number;
-  private seq = 0;
+  private seq: number;
 
   constructor(options: SessionManagerOptions) {
     this.projectRef = options.projectRef;
@@ -51,6 +53,10 @@ export class SessionManager {
       cookieSession ?? (sessionIsIdle ? this.makeId() : storedSession) ?? this.makeId();
     this.currentTabId = safeGet(this.storage, TAB_STORAGE_KEY) ?? this.makeId().slice(0, 12);
     this.lastActivity = sessionIsIdle ? nowMs : (storedLastActivity ?? nowMs);
+    this.seq =
+      !sessionIsIdle && storedSession === this.currentSessionId
+        ? (parseStoredSeq(safeGet(this.storage, SEQ_STORAGE_KEY)) ?? 0)
+        : 0;
 
     this.persist();
   }
@@ -85,6 +91,7 @@ export class SessionManager {
   nextSeq(): number {
     const seq = this.seq;
     this.seq += 1;
+    safeSet(this.storage, SEQ_STORAGE_KEY, String(this.seq));
     return seq;
   }
 
@@ -99,6 +106,7 @@ export class SessionManager {
     safeSet(this.storage, SESSION_STORAGE_KEY, this.currentSessionId);
     safeSet(this.storage, TAB_STORAGE_KEY, this.currentTabId);
     safeSet(this.storage, LAST_ACTIVITY_STORAGE_KEY, String(this.lastActivity));
+    safeSet(this.storage, SEQ_STORAGE_KEY, String(this.seq));
     this.writeCookieSession();
   }
 
@@ -174,4 +182,17 @@ function parseStoredNumber(value: string | null): number | undefined {
 
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseStoredSeq(value: string | null): number | undefined {
+  if (value === null || !/^\d+$/.test(value)) {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0 || parsed > MAX_SEQ) {
+    return undefined;
+  }
+
+  return parsed;
 }

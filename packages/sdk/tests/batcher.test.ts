@@ -29,4 +29,21 @@ describe("Batcher", () => {
 
     expect(batcher.pagehideChunkCounts()).toEqual([2, 1, 1]);
   });
+
+  it("takes the newest pagehide slice that fits and drops older events", () => {
+    const batcher = new Batcher({ pagehideRawFlushBytes: 60 });
+    batcher.addEstimatedBytes(50);
+    batcher.addEstimatedBytes(25);
+    batcher.addEstimatedBytes(20);
+
+    expect(batcher.takeNewestPagehideBatch()).toEqual({
+      startIndex: 1,
+      eventCount: 2,
+      rawBytes: 45,
+      droppedCount: 1,
+      droppedRawBytes: 50,
+      totalRawBytes: 95,
+    });
+    expect(batcher.eventCount()).toBe(0);
+  });
 });

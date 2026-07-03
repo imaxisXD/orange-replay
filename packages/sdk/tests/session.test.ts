@@ -124,6 +124,75 @@ describe("SessionManager", () => {
     expect(session.nextSeq()).toBe(0);
   });
 
+  it("continues the per-tab sequence after a same-tab re-init", () => {
+    const storage = new MemoryStorage();
+    const cookieDocument = new CookieDocument();
+    const ids = ["session-one", "tab-one"];
+    const makeId = () => ids.shift() ?? "extra-id";
+    const first = new SessionManager({
+      projectRef: "project",
+      now: () => START_TIME,
+      storage,
+      document: cookieDocument,
+      makeId,
+    });
+
+    expect(first.nextSeq()).toBe(0);
+    expect(first.nextSeq()).toBe(1);
+
+    const second = new SessionManager({
+      projectRef: "project",
+      now: () => START_TIME + 100,
+      storage,
+      document: cookieDocument,
+      makeId,
+    });
+
+    expect(second.sessionId).toBe("session-one");
+    expect(second.tabId).toBe("tab-one");
+    expect(second.nextSeq()).toBe(2);
+  });
+
+  it("resets the persisted sequence when the session rotates", () => {
+    const storage = new MemoryStorage();
+    const cookieDocument = new CookieDocument();
+    const ids = ["session-one", "tab-one", "session-two"];
+    const makeId = () => ids.shift() ?? "extra-id";
+    const session = new SessionManager({
+      projectRef: "project",
+      now: () => START_TIME,
+      storage,
+      document: cookieDocument,
+      makeId,
+    });
+
+    expect(session.nextSeq()).toBe(0);
+    session.rotate();
+
+    expect(session.sessionId).toBe("session-two");
+    expect(session.nextSeq()).toBe(0);
+  });
+
+  it("starts at sequence 0 when stored sequence is corrupted", () => {
+    const storage = new MemoryStorage();
+    storage.setItem("or:s", "session-one");
+    storage.setItem("or:t", "tab-one");
+    storage.setItem("or:last", String(START_TIME));
+    storage.setItem("or:q", "not-a-number");
+
+    const session = new SessionManager({
+      projectRef: "project",
+      now: () => START_TIME + 100,
+      storage,
+      document: new CookieDocument(),
+      makeId: () => "extra-id",
+    });
+
+    expect(session.sessionId).toBe("session-one");
+    expect(session.tabId).toBe("tab-one");
+    expect(session.nextSeq()).toBe(0);
+  });
+
   it("builds a session URL from a base path", () => {
     const session = new SessionManager({
       projectRef: "project-a",

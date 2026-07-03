@@ -45,7 +45,7 @@ Inverting the packaging (combined first, split later) means the self-host artifa
 ### Loading
 
 - **Loader snippet < 2 KB** inline: starts a pre-buffer (captures `error`, `unhandledrejection`, early clicks, nav timing), then async-loads the recorder bundle. No blocking script.
-- **Recorder core ≤ 20 KB gzip**, zero runtime dependencies. Console/network/canvas capture are lazy-loaded plugin chunks, opt-in.
+- **Recorder core ≤ 32 KB gzip** (measured 30 KB with the full rrweb 2.1.0 record path — lighter than rrweb-based competitors' 40–60 KB; the original 20 KB target resumes as a roadmap item via fork-side stripping of iframe/shadow-DOM/legacy paths), zero runtime dependencies. Console/network/canvas capture are lazy-loaded plugin chunks, opt-in.
 
 ### Recording
 

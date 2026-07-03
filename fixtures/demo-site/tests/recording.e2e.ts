@@ -1,0 +1,280 @@
+import { readFile } from "node:fs/promises";
+import { expect, test, type Page, type Request } from "@playwright/test";
+import {
+  decodeIngestBody,
+  FLAG_UNCOMPRESSED,
+  parseSegment,
+  segmentBatch,
+  type ProjectConfig,
+  type SessionManifest,
+} from "@orange-replay/shared";
+
+const stateFile = new URL("../.playwright-state.json", import.meta.url);
+const textSecret = "private alpha workspace";
+const passwordSecret = "CorrectHorseOrange!42";
+const decoder = new TextDecoder();
+
+test("records a real browser session into the local worker", async ({ page }) => {
+  const state = await readState();
+  const sentBatches = collectBrowserBatches(page);
+
+  await seedProject(state);
+
+  await page.goto(state.demoUrl);
+  await expect(page.getByRole("heading", { name: "Signal Board starter kit" })).toBeVisible();
+  const sessionId = await readSessionId(page);
+
+  await page.getByLabel("Workspace name").fill(textSecret);
+  await page.getByLabel("Admin password").fill(passwordSecret);
+  await page.getByRole("button", { name: "Add product row" }).click();
+  await page.getByRole("button", { name: "Show stock panel" }).click();
+  await page.getByRole("button", { name: "Save settings" }).click();
+  await page.mouse.wheel(0, 1_800);
+
+  const pageError = page.waitForEvent("pageerror");
+  await page.getByRole("button", { name: "Trigger TypeError" }).click();
+  await expect(pageError).resolves.toHaveProperty("message", expect.stringContaining("run"));
+
+  await page.getByRole("link", { name: "Open order details" }).click();
+  await page.waitForURL(/\/page2\.html/);
+  await expect(page.getByRole("heading", { name: "Order details" })).toBeVisible();
+  await page.getByRole("button", { name: "Confirm checklist" }).click();
+  await page.waitForTimeout(1_500);
+
+  expect(await readSessionId(page)).toBe(sessionId);
+  await page.close();
+
+  await waitForFinalize(state, sessionId);
+  const manifest = await readManifestFromApi(state, sessionId);
+  const indexed = await waitForIndexedSession(state, sessionId);
+
+  expect(indexed.session?.["session_id"]).toBe(sessionId);
+  expect(Number(indexed.session?.["clicks"])).toBeGreaterThan(0);
+  expect(Number(indexed.session?.["errors"])).toBeGreaterThanOrEqual(1);
+
+  const timeline = JSON.stringify(manifest.timeline);
+  expect(manifest.timeline.some((event) => event.k === "click")).toBe(true);
+  const errorEvent = manifest.timeline.find((event) => event.k === "error");
+  expect(errorEvent?.d).toEqual(expect.stringContaining("run"));
+  expect(errorEvent?.d ?? "").not.toContain("\n");
+  expect(errorEvent?.d?.length ?? 0).toBeLessThanOrEqual(200);
+  expect(timeline).not.toContain(textSecret);
+  expect(timeline).not.toContain(passwordSecret);
+
+  const replay = await downloadReplayPayloads(state, manifest);
+  expect(replay.text).not.toContain(textSecret);
+  expect(replay.text).not.toContain(passwordSecret);
+  expect(replay.text).toContain("Signal Board starter kit");
+  expect(replay.events.length).toBeGreaterThan(0);
+  expect(replay.compressedBatchCount).toBeGreaterThan(0);
+
+  const compressedBrowserBatch = sentBatches.find(
+    (batch) => (batch.flags & FLAG_UNCOMPRESSED) === 0 && batch.body !== undefined,
+  );
+  expect(compressedBrowserBatch).toBeDefined();
+  if (compressedBrowserBatch?.body !== undefined) {
+    const decoded = decodeIngestBody(compressedBrowserBatch.body);
+    await expect(gunzipToText(decoded.payload)).resolves.toContain("[");
+  }
+});
+
+interface ServerState {
+  workerUrl: string;
+  demoUrl: string;
+  apiToken: string;
+  ingestKey: string;
+  projectId: string;
+  orgId: string;
+  timings: {
+    closeMs: number;
+  };
+}
+
+interface BrowserBatch {
+  flags: number;
+  body?: Uint8Array;
+}
+
+interface ConsumerSessionBody {
+  session: Record<string, unknown> | null;
+  events: Record<string, unknown>[];
+  usage: Record<string, unknown>[];
+}
+
+interface DebugBody {
+  hasState: boolean;
+  finalized: boolean;
+}
+
+async function readState(): Promise<ServerState> {
+  return JSON.parse(await readFile(stateFile, "utf8")) as ServerState;
+}
+
+async function seedProject(state: ServerState): Promise<void> {
+  const config: ProjectConfig = {
+    projectId: state.projectId,
+    orgId: state.orgId,
+    shard: 0,
+    active: true,
+    sampleRate: 1,
+    allowedOrigins: ["*"],
+    maskPolicyVersion: 1,
+    quotaState: "ok",
+    retentionDays: 30,
+  };
+
+  const response = await fetch(`${state.workerUrl}/__test/ingest/seed`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      key: state.ingestKey,
+      kv: true,
+      config,
+    }),
+  });
+
+  expect(response.status).toBe(200);
+}
+
+function collectBrowserBatches(page: Page): BrowserBatch[] {
+  const batches: BrowserBatch[] = [];
+
+  page.on("request", (request: Request) => {
+    const url = new URL(request.url());
+    if (request.method() !== "POST" || url.pathname !== "/v1/ingest") {
+      return;
+    }
+
+    const body = request.postDataBuffer();
+    batches.push({
+      flags: Number(request.headers()["x-or-flags"] ?? -1),
+      body: body === null ? undefined : new Uint8Array(body),
+    });
+  });
+
+  return batches;
+}
+
+async function readSessionId(page: Page): Promise<string> {
+  const value = await page.evaluate(() => window.sessionStorage.getItem("or:s"));
+  expect(value).toMatch(/^[A-Za-z0-9_-]{16,64}$/);
+  return value ?? "";
+}
+
+async function waitForFinalize(state: ServerState, sessionId: string): Promise<void> {
+  await poll(async () => {
+    const response = await fetch(
+      `${state.workerUrl}/__test/do/debug?projectId=${encodeURIComponent(
+        state.projectId,
+      )}&sessionId=${encodeURIComponent(sessionId)}`,
+    );
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as DebugBody;
+    return body.hasState === false && body.finalized === true ? body : null;
+  }, state.timings.closeMs + 15_000);
+}
+
+async function readManifestFromApi(
+  state: ServerState,
+  sessionId: string,
+): Promise<SessionManifest> {
+  return poll(async () => {
+    const response = await fetch(
+      `${state.workerUrl}/api/v1/projects/${state.projectId}/sessions/${sessionId}/manifest`,
+      { headers: authHeaders(state) },
+    );
+    if (response.status === 404) {
+      return null;
+    }
+    expect(response.status).toBe(200);
+    return (await response.json()) as SessionManifest;
+  }, 20_000);
+}
+
+async function waitForIndexedSession(
+  state: ServerState,
+  sessionId: string,
+): Promise<ConsumerSessionBody> {
+  return poll(async () => {
+    const response = await fetch(
+      `${state.workerUrl}/__test/consumer/session?id=${encodeURIComponent(sessionId)}`,
+    );
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as ConsumerSessionBody;
+    return body.session === null ? null : body;
+  }, 20_000);
+}
+
+async function downloadReplayPayloads(
+  state: ServerState,
+  manifest: SessionManifest,
+): Promise<{ events: unknown[]; text: string; compressedBatchCount: number }> {
+  const events: unknown[] = [];
+  const texts: string[] = [];
+  let compressedBatchCount = 0;
+
+  for (const segment of manifest.segments) {
+    const name = lastPathPart(segment.key);
+    const response = await fetch(
+      `${state.workerUrl}/api/v1/projects/${state.projectId}/sessions/${manifest.sessionId}/segments/${name}`,
+      { headers: authHeaders(state) },
+    );
+    expect(response.status).toBe(200);
+
+    const parsed = parseSegment(new Uint8Array(await response.arrayBuffer()));
+    for (let index = 0; index < parsed.count; index += 1) {
+      // Stored segment batches are pure payload bytes — the DO strips the
+      // index sidecar at ingest and the worker gzip-normalizes uncompressed
+      // uploads, so every stored batch decodes as a standalone gzip member.
+      const text = await gunzipToText(segmentBatch(parsed, index));
+      compressedBatchCount += 1;
+      texts.push(text);
+      const parsedEvents = JSON.parse(text) as unknown[];
+      events.push(...parsedEvents);
+    }
+  }
+
+  return { events, text: texts.join("\n"), compressedBatchCount };
+}
+
+async function gunzipToText(payload: Uint8Array): Promise<string> {
+  const body = new Response(payload as unknown as BodyInit).body;
+  if (body === null) {
+    throw new Error("gzip body missing");
+  }
+
+  const plain = await new Response(body.pipeThrough(new DecompressionStream("gzip"))).arrayBuffer();
+  return decoder.decode(plain);
+}
+
+async function poll<T>(fn: () => Promise<T | null>, timeoutMs: number): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const value = await fn();
+    if (value !== null) {
+      return value;
+    }
+    await delay(250);
+  }
+
+  throw new Error(`condition was not met within ${timeoutMs}ms`);
+}
+
+function authHeaders(state: ServerState): Record<string, string> {
+  return { authorization: `Bearer ${state.apiToken}` };
+}
+
+function lastPathPart(path: string): string {
+  const part = path.split("/").at(-1);
+  if (part === undefined || part.length === 0) {
+    throw new Error(`segment key has no file name: ${path}`);
+  }
+  return part;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}

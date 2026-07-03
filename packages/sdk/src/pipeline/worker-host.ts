@@ -51,8 +51,7 @@ export class WorkerHost {
 
     try {
       // CSP caveat: sites that block blob workers through worker-src use the degraded path.
-      const workerCoreUrl = new URL("./worker-core.ts", import.meta.url).href;
-      const workerSource = makeWorkerEntrySource(workerCoreUrl);
+      const workerSource = makeWorkerEntrySource();
       const blob = new Blob([workerSource], { type: "text/javascript" });
       this.objectUrl = createObjectUrl(blob);
       this.worker = new WorkerCtor(this.objectUrl, {

@@ -15,6 +15,13 @@ export interface TakenBatch {
   rawBytes: number;
 }
 
+export interface PagehideTakenBatch extends TakenBatch {
+  startIndex: number;
+  droppedCount: number;
+  droppedRawBytes: number;
+  totalRawBytes: number;
+}
+
 export interface BatcherOptions {
   flushMs?: number;
   rawFlushBytes?: number;
@@ -110,6 +117,36 @@ export class Batcher {
     };
   }
 
+  takeNewestPagehideBatch(): PagehideTakenBatch {
+    const totalRawBytes = this.currentRawBytes();
+    let startIndex = this.eventRawBytes.length;
+    let rawBytes = 0;
+
+    for (let index = this.eventRawBytes.length - 1; index >= 0; index -= 1) {
+      const bytes = this.eventRawBytes[index] ?? 0;
+      if (rawBytes + bytes > this.pagehideRawFlushBytes) {
+        break;
+      }
+
+      rawBytes += bytes;
+      startIndex = index;
+    }
+
+    const droppedBytes = this.eventRawBytes.slice(0, startIndex);
+    const eventCount = this.eventRawBytes.length - startIndex;
+    this.eventRawBytes.splice(0);
+    this.lastFlushAt = this.now();
+
+    return {
+      startIndex,
+      eventCount,
+      rawBytes,
+      droppedCount: startIndex,
+      droppedRawBytes: sum(droppedBytes),
+      totalRawBytes,
+    };
+  }
+
   recordCompressedSize(rawBytes: number, compressedBytes: number): void {
     if (rawBytes <= 0 || compressedBytes <= 0) {
       return;
@@ -133,6 +170,10 @@ export class Batcher {
 
   getFlushMs(): number {
     return this.flushMs;
+  }
+
+  getPagehideRawFlushBytes(): number {
+    return this.pagehideRawFlushBytes;
   }
 
   reset(): void {

@@ -1,0 +1,17 @@
+{
+  "name": "@orange-replay/demo-site",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "e2e": "playwright test --config playwright.config.ts"
+  },
+  "dependencies": {
+    "@orange-replay/sdk": "workspace:*",
+    "@orange-replay/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.57.0",
+    "playwright": "^1.57.0"
+  }
+}

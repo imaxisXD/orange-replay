@@ -68,6 +68,10 @@ export class BackpressureController {
     return this.dropped;
   }
 
+  recordDropped(count: number): void {
+    this.dropped += Math.max(0, Math.floor(count));
+  }
+
   resetCurrentBytes(): void {
     this.currentBytes = 0;
   }

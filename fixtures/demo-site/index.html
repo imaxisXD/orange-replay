@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Orange Replay Demo</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/">Orange Replay</a>
+      <nav aria-label="Main navigation">
+        <a href="#capture">Capture</a>
+        <a href="#stock">Stock</a>
+        <a href="/page2.html?token=remove-me#private">Open order details</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero" id="capture">
+        <div>
+          <p class="eyebrow">Product analytics</p>
+          <h1>Signal Board starter kit</h1>
+          <p>
+            Capture-safe analytics for checkout teams that need replay proof without seeing customer
+            secrets.
+          </p>
+          <div class="hero-actions">
+            <button type="button" data-add-row>Add product row</button>
+            <button type="button" data-open-panel>Show stock panel</button>
+          </div>
+        </div>
+        <aside class="product-panel" aria-label="Product summary">
+          <span class="status">Live</span>
+          <strong>Checkout health</strong>
+          <p>34 active carts, 3 payment retries, 1 release note pending.</p>
+        </aside>
+      </section>
+
+      <section class="form-card" aria-labelledby="team-form-title">
+        <h2 id="team-form-title">Team access form</h2>
+        <form>
+          <label for="workspace-name">Workspace name</label>
+          <input id="workspace-name" name="workspaceName" type="text" autocomplete="off" />
+
+          <div data-orange-block class="blocked-field">
+            <label for="admin-password">Admin password</label>
+            <input id="admin-password" name="adminPassword" type="password" autocomplete="off" />
+          </div>
+
+          <button type="button" data-save-settings>Save settings</button>
+        </form>
+      </section>
+
+      <section class="stock-panel" id="stock" aria-live="polite">
+        <h2>Warehouse stock timeline</h2>
+        <p>
+          Every row below is regular page text. The e2e expects this copy to appear in the decoded
+          replay payload.
+        </p>
+        <ul data-stock-list>
+          <li>North warehouse packed 18 orders.</li>
+          <li>South warehouse moved a delayed order to review.</li>
+          <li>West warehouse marked express stock as ready.</li>
+        </ul>
+      </section>
+
+      <section class="long-copy">
+        <h2>Release notes</h2>
+        <p>
+          Scroll depth matters for replay triage, so this section gives the page enough height for a
+          real scroll event in Chromium.
+        </p>
+        <div class="note-grid">
+          <article>Inventory sync is now checked every minute.</article>
+          <article>Payment retries are grouped by browser and route.</article>
+          <article>Support teams can compare checkout steps without raw input values.</article>
+          <article>Privacy defaults block sensitive form areas before network send.</article>
+          <article>Shipping alerts show which warehouse changed the order state.</article>
+          <article>QA can trace uncaught browser errors back to user actions.</article>
+          <article>Managers can review trend lines without opening full recordings.</article>
+          <article>Developers can replay failed sessions with the matching timeline.</article>
+        </div>
+      </section>
+
+      <section class="danger-zone">
+        <h2>Failure lab</h2>
+        <button type="button" data-throw-error>Trigger TypeError</button>
+      </section>
+    </main>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

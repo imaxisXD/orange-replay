@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Orange Replay Demo - Order Details</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/">Orange Replay</a>
+      <nav aria-label="Main navigation">
+        <a href="/">Back to board</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero compact">
+        <div>
+          <p class="eyebrow">Order details</p>
+          <h1>Order details</h1>
+          <p>Customer-facing notes stay masked, but the replay still captures page structure.</p>
+          <button type="button" data-confirm-checklist>Confirm checklist</button>
+        </div>
+        <aside class="product-panel" aria-label="Checklist summary">
+          <span class="status">Review</span>
+          <strong>Three checks left</strong>
+          <p>Address, payment retry, and packing lane are waiting on review.</p>
+        </aside>
+      </section>
+
+      <section class="stock-panel">
+        <h2>Page two audit trail</h2>
+        <p>Order details page loaded through a normal browser navigation.</p>
+      </section>
+    </main>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

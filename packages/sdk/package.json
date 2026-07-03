@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "files": [
+    "dist",
     "src"
   ],
   "type": "module",
@@ -11,7 +12,8 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "build": "node -e \"console.log('sdk exports TypeScript source; no package build step')\"",
+    "build": "node scripts/build-browser.mjs",
+    "budget": "node scripts/check-budgets.mjs",
     "test": "vp test",
     "check": "vp check"
   },

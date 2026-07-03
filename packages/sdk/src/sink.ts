@@ -47,16 +47,27 @@ interface EventMeta {
   rawBytes: number;
 }
 
+interface InFlightBatch {
+  seq: number;
+  rrwebEvents: eventWithTime[];
+  eventMetas: EventMeta[];
+  indexEvents: IndexEvent[];
+  finalQueued: boolean;
+}
+
 export class WorkerSink implements Sink {
   private readonly config: RecorderConfig;
   private readonly session: SessionManager;
   private readonly window: Window;
   private readonly workerHost: WorkerHost;
   private readonly transport: Transport;
+  private readonly encoder = new TextEncoder();
   private readonly indexEvents = new IndexEventBuffer();
   private readonly batcher: Batcher;
   private readonly backpressure = new BackpressureController();
+  private rrwebEvents: eventWithTime[] = [];
   private eventMetas: EventMeta[] = [];
+  private inFlightBatches: InFlightBatch[] = [];
   private currentUrl: string;
   private timerId: number | undefined;
   private stopped = false;
@@ -103,6 +114,7 @@ export class WorkerSink implements Sink {
     }
 
     const decision = this.batcher.addEstimatedBytes(rawBytes);
+    this.rrwebEvents.push(event);
     this.eventMetas.push({ timestamp: event.timestamp, rawBytes });
     this.backpressure.addCurrentBytes(rawBytes);
     this.workerHost.addEvents([event]);
@@ -150,8 +162,18 @@ export class WorkerSink implements Sink {
   }
 
   private flushInternal(reason: InternalFlushReason): Promise<void> {
+    if (reason === "pagehide") {
+      this.clearTimer();
+      this.flushFinalBatchesSync();
+      return this.flushing ?? Promise.resolve();
+    }
+
     if (this.flushing !== undefined) {
-      if (reason === "threshold" || reason === "pagehide") {
+      if (reason === "visibility") {
+        this.flushFinalBatchesSync();
+      }
+
+      if (reason === "threshold") {
         this.needsFollowUpFlush = true;
       }
       return this.flushing;
@@ -186,24 +208,6 @@ export class WorkerSink implements Sink {
       return;
     }
 
-    if (reason === "pagehide") {
-      const chunks = this.batcher.pagehideChunkCounts();
-      if (chunks.length === 0) {
-        await this.flushOne(reason, 0, indexEvents);
-        return;
-      }
-
-      let first = true;
-      for (const count of chunks) {
-        const closed = await this.flushOne(reason, count, first ? indexEvents : []);
-        first = false;
-        if (closed) {
-          return;
-        }
-      }
-      return;
-    }
-
     await this.flushOne(reason, this.eventMetas.length, indexEvents);
   }
 
@@ -213,6 +217,7 @@ export class WorkerSink implements Sink {
     indexEvents: IndexEvent[],
   ): Promise<boolean> {
     const taken = this.batcher.takeBatch(eventCount);
+    const rrwebEvents = this.rrwebEvents.splice(0, taken.eventCount);
     const eventMetas = this.eventMetas.splice(0, taken.eventCount);
 
     if (eventMetas.length === 0 && indexEvents.length === 0) {
@@ -223,42 +228,173 @@ export class WorkerSink implements Sink {
 
     const seq = this.session.nextSeq();
     const index = this.buildIndex(seq, eventMetas, indexEvents);
-    const batch = await this.workerHost.flushBatch({ eventCount: taken.eventCount });
-    const flags = batch.uncompressed ? FLAG_UNCOMPRESSED : 0;
-    const body = encodeIngestBody(index, batch.payload);
+    const inFlight: InFlightBatch = {
+      seq,
+      rrwebEvents,
+      eventMetas,
+      indexEvents,
+      finalQueued: false,
+    };
+    this.inFlightBatches.push(inFlight);
 
-    this.backpressure.addPendingBytes(body.byteLength);
-    const result = await this.transport.sendBatch({
-      body,
-      index,
-      flags,
-      keepalive: reason === "pagehide",
-    });
-    this.backpressure.removePendingBytes(body.byteLength);
-    this.batcher.recordCompressedSize(taken.rawBytes, batch.payload.byteLength);
+    try {
+      const batch = await this.workerHost.flushBatch({ eventCount: taken.eventCount });
+      const flags = batch.uncompressed ? FLAG_UNCOMPRESSED : 0;
+      const body = encodeIngestBody(index, batch.payload);
 
-    if (result.ack !== undefined) {
-      this.batcher.retuneFromAck(result.ack);
+      this.backpressure.addPendingBytes(body.byteLength);
+      const result = await this.transport.sendBatch({
+        body,
+        index,
+        flags,
+        keepalive: false,
+      });
+      this.backpressure.removePendingBytes(body.byteLength);
+      this.batcher.recordCompressedSize(taken.rawBytes, batch.payload.byteLength);
 
-      if (result.ack.closed === true) {
-        this.session.rotate();
-        this.resetPipeline();
-        return true;
+      if (result.ack !== undefined) {
+        this.batcher.retuneFromAck(result.ack);
+
+        if (result.ack.closed === true) {
+          this.session.rotate();
+          this.resetPipeline();
+          return true;
+        }
       }
+
+      return false;
+    } finally {
+      this.inFlightBatches = this.inFlightBatches.filter((batch) => batch !== inFlight);
+    }
+  }
+
+  private flushFinalBatchesSync(): void {
+    for (const batch of this.inFlightBatches) {
+      if (batch.finalQueued) {
+        continue;
+      }
+
+      const finalBatch = this.buildSyncFinalBatch(
+        batch.seq,
+        batch.rrwebEvents,
+        batch.eventMetas,
+        batch.indexEvents,
+      );
+      if (finalBatch !== null) {
+        this.queueSyncFinalBatch(finalBatch);
+      }
+
+      batch.finalQueued = true;
     }
 
-    return false;
+    const hasCurrentBatch = this.eventMetas.length > 0 || this.indexEvents.count() > 0;
+    const currentBatch = this.takeCurrentFinalBatch();
+    if (hasCurrentBatch) {
+      this.workerHost.reset();
+    }
+
+    if (currentBatch !== null) {
+      this.queueSyncFinalBatch(currentBatch);
+    }
+  }
+
+  private takeCurrentFinalBatch(): { body: Uint8Array; index: BatchIndex } | null {
+    const indexEvents = this.indexEvents.drain();
+    const taken = this.batcher.takeNewestPagehideBatch();
+    const eventMetas = this.eventMetas.slice(taken.startIndex, taken.startIndex + taken.eventCount);
+    const rrwebEvents = this.rrwebEvents.slice(
+      taken.startIndex,
+      taken.startIndex + taken.eventCount,
+    );
+
+    this.eventMetas = [];
+    this.rrwebEvents = [];
+    this.backpressure.removeCurrentBytes(taken.totalRawBytes);
+    this.backpressure.recordDropped(taken.droppedCount);
+
+    if (eventMetas.length === 0 && indexEvents.length === 0) {
+      return null;
+    }
+
+    const seq = this.session.nextSeq();
+    return this.buildSyncFinalBatch(seq, rrwebEvents, eventMetas, indexEvents);
+  }
+
+  private buildSyncFinalBatch(
+    seq: number,
+    rrwebEvents: readonly eventWithTime[],
+    eventMetas: readonly EventMeta[],
+    indexEvents: readonly IndexEvent[],
+  ): { body: Uint8Array; index: BatchIndex } | null {
+    let keptEvents = [...rrwebEvents];
+    let keptMetas = [...eventMetas];
+    let keptIndexEvents = [...indexEvents];
+    let droppedEvents = 0;
+    let body = this.encodeSyncFinalBody(seq, keptEvents, keptMetas, keptIndexEvents);
+
+    while (body.byteLength > this.batcher.getPagehideRawFlushBytes()) {
+      if (keptEvents.length > 0) {
+        keptEvents = keptEvents.slice(1);
+        keptMetas = keptMetas.slice(1);
+        droppedEvents += 1;
+      } else if (keptIndexEvents.length > 0) {
+        keptIndexEvents = keptIndexEvents.slice(1);
+      } else {
+        break;
+      }
+
+      body = this.encodeSyncFinalBody(seq, keptEvents, keptMetas, keptIndexEvents);
+    }
+
+    if (droppedEvents > 0) {
+      this.backpressure.recordDropped(droppedEvents);
+    }
+
+    if (keptEvents.length === 0 && keptIndexEvents.length === 0) {
+      return null;
+    }
+
+    const index = this.buildIndex(seq, keptMetas, keptIndexEvents);
+    return { body, index };
+  }
+
+  private encodeSyncFinalBody(
+    seq: number,
+    rrwebEvents: readonly eventWithTime[],
+    eventMetas: readonly EventMeta[],
+    indexEvents: readonly IndexEvent[],
+  ): Uint8Array {
+    const index = this.buildIndex(seq, eventMetas, indexEvents);
+    const payload = this.encoder.encode(JSON.stringify(rrwebEvents));
+    return encodeIngestBody(index, payload);
+  }
+
+  private queueSyncFinalBatch(batch: { body: Uint8Array; index: BatchIndex }): void {
+    this.backpressure.addPendingBytes(batch.body.byteLength);
+    this.transport.queueBatchSync({
+      body: batch.body,
+      index: batch.index,
+      flags: FLAG_UNCOMPRESSED,
+      keepalive: true,
+    });
+    this.backpressure.removePendingBytes(batch.body.byteLength);
   }
 
   private resetPipeline(): void {
+    this.rrwebEvents = [];
     this.eventMetas = [];
+    this.inFlightBatches = [];
     this.indexEvents.drain();
     this.batcher.reset();
     this.backpressure.resetCurrentBytes();
     this.workerHost.reset();
   }
 
-  private buildIndex(seq: number, rrwebEvents: EventMeta[], indexEvents: IndexEvent[]): BatchIndex {
+  private buildIndex(
+    seq: number,
+    rrwebEvents: readonly EventMeta[],
+    indexEvents: readonly IndexEvent[],
+  ): BatchIndex {
     const times = eventTimesFromMeta(rrwebEvents, indexEvents);
     return {
       v: 1,
@@ -267,7 +403,7 @@ export class WorkerSink implements Sink {
       seq,
       t0: times.t0,
       t1: times.t1,
-      e: indexEvents,
+      e: [...indexEvents],
       u: this.currentUrl,
     };
   }

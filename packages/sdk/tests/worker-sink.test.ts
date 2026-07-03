@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
-import { FLAG_UNCOMPRESSED, HDR_FLAGS } from "@orange-replay/shared/constants";
+import { FLAG_UNCOMPRESSED, HDR_FLAGS, HDR_SEQ } from "@orange-replay/shared/constants";
 import { decodeIngestBody } from "@orange-replay/shared/wire";
+import { PAGEHIDE_RAW_FLUSH_BYTES } from "../src/pipeline/batcher.ts";
+import type { WorkerHost } from "../src/pipeline/worker-host.ts";
 import { WorkerSink } from "../src/sink.ts";
 import { SessionManager, type StorageLike } from "../src/session.ts";
 import type { RecorderConfig } from "../src/types.ts";
@@ -92,6 +94,76 @@ describe("WorkerSink degraded path", () => {
   });
 });
 
+describe("WorkerSink pagehide final flush", () => {
+  it("queues a wire-valid uncompressed body synchronously", async () => {
+    const sendBeacon = installSendBeacon(() => true);
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      return new Response(JSON.stringify({ ok: true, live: false, flushMs: 15_000 }));
+    });
+    const workerHost = makeWorkerHost();
+    const session = makeSession(["session-one", "tab-one"]);
+    const sink = new WorkerSink({ config, session, window, fetch: fetchMock, workerHost });
+
+    sink.addRrwebEvent(makeEvent(10, "initial"));
+    sink.addIndexEvent({ t: 12, k: "error", d: "Cannot read properties of undefined (run)" });
+
+    const flushed = sink.flush("pagehide");
+
+    expect(sendBeacon).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(workerHost.flushBatch).not.toHaveBeenCalled();
+
+    const beaconBody = sendBeacon.mock.calls[0]?.[1];
+    expect(beaconBody).toBeInstanceOf(Uint8Array);
+    const decoded = decodeIngestBody(beaconBody as Uint8Array);
+    expect(decoded.index).toMatchObject({
+      s: "session-one",
+      tab: "tab-one",
+      seq: 0,
+      e: [{ t: 12, k: "error", d: "Cannot read properties of undefined (run)" }],
+    });
+    expect(JSON.parse(decoder.decode(decoded.payload))).toHaveLength(1);
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      [HDR_FLAGS]: String(FLAG_UNCOMPRESSED),
+      [HDR_SEQ]: "0",
+    });
+
+    await flushed;
+  });
+
+  it("keeps the newest fitting events under the pagehide budget and counts drops", async () => {
+    const sendBeacon = installSendBeacon(() => true);
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      return new Response(JSON.stringify({ ok: true, live: false, flushMs: 15_000 }));
+    });
+    const session = makeSession(["session-one", "tab-one"]);
+    const sink = new WorkerSink({
+      config,
+      session,
+      window,
+      fetch: fetchMock,
+      workerHost: makeWorkerHost(),
+    });
+
+    sink.addRrwebEvent(makeEvent(1, "old", "x".repeat(40_000)));
+    sink.addRrwebEvent(makeEvent(2, "middle", "m".repeat(1_000)));
+    sink.addRrwebEvent(makeEvent(3, "newest", "n".repeat(1_000)));
+    sink.addIndexEvent({ t: 4, k: "error", d: "latest sidecar event" });
+
+    await sink.flush("pagehide");
+
+    const body = sendBeacon.mock.calls[0]?.[1] as Uint8Array;
+    expect(body.byteLength).toBeLessThanOrEqual(PAGEHIDE_RAW_FLUSH_BYTES);
+    const decoded = decodeIngestBody(body);
+    const events = JSON.parse(decoder.decode(decoded.payload)) as Array<{
+      data?: { name?: string };
+    }>;
+    expect(events.map((event) => event.data?.name)).toEqual(["middle", "newest"]);
+    expect(decoded.index.e).toEqual([{ t: 4, k: "error", d: "latest sidecar event" }]);
+    expect(sink.droppedEventCount()).toBe(1);
+  });
+});
+
 async function gunzipToText(payload: Uint8Array): Promise<string> {
   const body = new Response(payload as unknown as BodyInit).body;
   if (body === null) {
@@ -110,4 +182,42 @@ function makeSession(ids: string[]): SessionManager {
     document,
     makeId: () => ids.shift() ?? "extra-id",
   });
+}
+
+function makeEvent(timestamp: number, name: string, value = ""): eventWithTime {
+  return {
+    type: 0,
+    timestamp,
+    data: { name, value },
+  } as eventWithTime;
+}
+
+function makeWorkerHost(): {
+  addEvents: ReturnType<typeof vi.fn>;
+  flushBatch: ReturnType<typeof vi.fn>;
+  reset: ReturnType<typeof vi.fn>;
+  stop: ReturnType<typeof vi.fn>;
+} & WorkerHost {
+  return {
+    addEvents: vi.fn(),
+    flushBatch: vi.fn(async () => {
+      throw new Error("worker flush should not run during pagehide");
+    }),
+    reset: vi.fn(),
+    stop: vi.fn(),
+  } as unknown as {
+    addEvents: ReturnType<typeof vi.fn>;
+    flushBatch: ReturnType<typeof vi.fn>;
+    reset: ReturnType<typeof vi.fn>;
+    stop: ReturnType<typeof vi.fn>;
+  } & WorkerHost;
+}
+
+function installSendBeacon(send: (url: string, body?: BodyInit | null) => boolean) {
+  const sendBeacon = vi.fn(send);
+  Object.defineProperty(window.navigator, "sendBeacon", {
+    configurable: true,
+    value: sendBeacon,
+  });
+  return sendBeacon;
 }
