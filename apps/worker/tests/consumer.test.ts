@@ -1,0 +1,269 @@
+import { fileURLToPath } from "node:url";
+import { manifestKey, sessionPrefix, type FinalizeMessage } from "@orange-replay/shared";
+import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
+import { unstable_dev } from "wrangler";
+
+const workerDir = fileURLToPath(new URL("..", import.meta.url));
+const pollDelayMs = 100;
+
+let worker: Awaited<ReturnType<typeof unstable_dev>>;
+
+beforeAll(async () => {
+  worker = await unstable_dev(`${workerDir}src/index.ts`, {
+    config: `${workerDir}wrangler.jsonc`,
+    vars: { DEV_TEST_ROUTES: "1" },
+    persist: false,
+    experimental: { disableExperimentalWarning: true },
+  });
+
+  const res = await worker.fetch("/__test/consumer/seed-schema", { method: "POST" });
+  expect(res.status).toBe(200);
+}, 120_000);
+
+afterAll(async () => {
+  await worker?.stop();
+});
+
+interface ConsumerSessionBody {
+  session: Record<string, unknown> | null;
+  events: Record<string, unknown>[];
+  usage: Record<string, unknown>[];
+}
+
+describe("consumer queue and sweeper", () => {
+  it("indexes a valid finalize message", async () => {
+    const message = makeFinalizeMessage("valid");
+
+    await sendFinalizeMessage(message);
+    const body = await waitForSession(message.sessionId);
+
+    expect(body.session?.["session_id"]).toBe(message.sessionId);
+    expect(body.session?.["project_id"]).toBe(message.projectId);
+    expect(body.session?.["org_id"]).toBe(message.orgId);
+    expect(body.session?.["expires_at"]).toBe(message.endedAt + 30 * 86_400_000);
+    expect(body.session?.["clicks"]).toBe(4);
+    expect(body.session?.["errors"]).toBe(1);
+    expect(body.session?.["segment_count"]).toBe(2);
+    expect(body.session?.["manifest_key"]).toBe(message.manifestKey);
+
+    expect(body.events).toHaveLength(2);
+    expect(body.events[0]?.["kind"]).toBe("error");
+    expect(String(body.events[0]?.["detail"])).toHaveLength(200);
+    expect(body.usage).toEqual([
+      {
+        org_id: message.orgId,
+        month: "2026-01",
+        sessions: 1,
+        bytes: message.bytes,
+      },
+    ]);
+  });
+
+  it("does not double count a redelivered finalize message", async () => {
+    const message = makeFinalizeMessage("idempotent");
+
+    await sendFinalizeMessage(message);
+    await waitForSession(message.sessionId);
+    await sendFinalizeMessage(message);
+    const body = await waitForStableUsage(message.sessionId);
+
+    expect(body.usage[0]?.["sessions"]).toBe(1);
+    expect(body.usage[0]?.["bytes"]).toBe(message.bytes);
+    expect(body.events).toHaveLength(2);
+  });
+
+  it("acks an invalid message and keeps the worker healthy", async () => {
+    const badSessionId = `bad-${Date.now()}`;
+
+    await sendFinalizeMessage({ type: "session.finalized", sessionId: badSessionId });
+
+    const root = await worker.fetch("/");
+    expect(root.status).toBe(200);
+    const body = await readSession(badSessionId);
+    expect(body.session).toBeNull();
+    expect(body.events).toEqual([]);
+  });
+
+  it("sweeps expired sessions and leaves live sessions alone", async () => {
+    const now = Date.now();
+    const expired = makeSessionRow("expired", now - 60_000);
+    const live = makeSessionRow("live", now + 60_000);
+    const expiredPrefix = sessionPrefix(
+      String(expired["project_id"]),
+      String(expired["session_id"]),
+    );
+    const livePrefix = sessionPrefix(String(live["project_id"]), String(live["session_id"]));
+    const expiredKeys = [`${expiredPrefix}/manifest.json`, `${expiredPrefix}/seg-000001.ors`];
+    const liveKey = `${livePrefix}/manifest.json`;
+
+    await seedSession(expired, expiredKeys, [
+      { t: now - 2_000, kind: "error", detail: "old error" },
+    ]);
+    await seedSession(live, [liveKey], [{ t: now, kind: "custom", detail: "keep me" }]);
+    await expectR2Object(expiredKeys[0] ?? "", true);
+    await expectR2Object(expiredKeys[1] ?? "", true);
+    await expectR2Object(liveKey, true);
+
+    const sweep = await worker.fetch("/__test/consumer/sweep", { method: "POST" });
+    expect(sweep.status).toBe(200);
+
+    const expiredBody = await readSession(String(expired["session_id"]));
+    expect(expiredBody.session).toBeNull();
+    expect(expiredBody.events).toEqual([]);
+    await expectR2Object(expiredKeys[0] ?? "", false);
+    await expectR2Object(expiredKeys[1] ?? "", false);
+
+    const liveBody = await readSession(String(live["session_id"]));
+    expect(liveBody.session?.["session_id"]).toBe(live["session_id"]);
+    expect(liveBody.events).toHaveLength(1);
+    await expectR2Object(liveKey, true);
+  });
+});
+
+function makeFinalizeMessage(name: string): FinalizeMessage {
+  const sessionId = `session-${name}-${Date.now()}`;
+  const projectId = `project-${name}`;
+  const orgId = `org-${name}`;
+  const startedAt = Date.UTC(2026, 0, 15, 10, 0, 0);
+  const endedAt = startedAt + 12_345;
+
+  return {
+    type: "session.finalized",
+    sessionId,
+    projectId,
+    orgId,
+    shard: 0,
+    requestId: `request-${name}`,
+    manifestKey: manifestKey(projectId, sessionId),
+    startedAt,
+    endedAt,
+    bytes: 12_345,
+    segments: 2,
+    counts: {
+      batches: 3,
+      events: 10,
+      clicks: 4,
+      errors: 1,
+      rages: 1,
+      navs: 2,
+    },
+    attrs: {
+      country: "US",
+      region: "CA",
+      city: "San Francisco",
+      device: "desktop",
+      browser: "Chrome",
+      os: "macOS",
+      entryUrl: "/checkout",
+      urlCount: 3,
+    },
+    retentionDays: 30,
+    events: [
+      { t: startedAt + 100, k: "error", d: "e".repeat(250) },
+      { t: startedAt + 200, k: "custom", d: "checked out" },
+    ],
+  };
+}
+
+function makeSessionRow(name: string, expiresAt: number): Record<string, unknown> {
+  const sessionId = `sweep-${name}-${Date.now()}`;
+  const projectId = `sweep-project-${name}`;
+  const now = Date.now();
+
+  return {
+    session_id: sessionId,
+    project_id: projectId,
+    org_id: `sweep-org-${name}`,
+    started_at: now - 10_000,
+    ended_at: now - 1_000,
+    duration_ms: 9_000,
+    country: "US",
+    region: "CA",
+    city: "San Francisco",
+    device: "desktop",
+    browser: "Chrome",
+    os: "macOS",
+    entry_url: "/",
+    url_count: 1,
+    clicks: 1,
+    errors: 0,
+    rages: 0,
+    navs: 1,
+    bytes: 100,
+    segment_count: 1,
+    flags: 0,
+    manifest_key: manifestKey(projectId, sessionId),
+    expires_at: expiresAt,
+  };
+}
+
+async function sendFinalizeMessage(message: unknown): Promise<void> {
+  const res = await worker.fetch("/__test/consumer/send", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ message }),
+  });
+  expect(res.status).toBe(200);
+}
+
+async function seedSession(
+  session: Record<string, unknown>,
+  r2Keys: string[],
+  events: Record<string, unknown>[],
+): Promise<void> {
+  const res = await worker.fetch("/__test/consumer/seed-session", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ session, r2Keys, events }),
+  });
+  expect(res.status).toBe(200);
+}
+
+async function waitForSession(sessionId: string): Promise<ConsumerSessionBody> {
+  const deadline = Date.now() + 15_000;
+
+  while (Date.now() < deadline) {
+    const body = await readSession(sessionId);
+    if (body.session !== null) return body;
+    await delay(pollDelayMs);
+  }
+
+  throw new Error(`session ${sessionId} did not appear`);
+}
+
+async function waitForStableUsage(sessionId: string): Promise<ConsumerSessionBody> {
+  const deadline = Date.now() + 15_000;
+  const stableUntil = Date.now() + 1_500;
+  let lastBody: ConsumerSessionBody | undefined;
+
+  while (Date.now() < deadline) {
+    const body = await readSession(sessionId);
+    lastBody = body;
+    const sessions = body.usage[0]?.["sessions"];
+    if (sessions !== 1) {
+      throw new Error(`usage for ${sessionId} changed to ${String(sessions)}`);
+    }
+    if (Date.now() >= stableUntil) return body;
+    await delay(pollDelayMs);
+  }
+
+  if (lastBody !== undefined) return lastBody;
+  throw new Error(`usage for ${sessionId} was not readable`);
+}
+
+async function readSession(sessionId: string): Promise<ConsumerSessionBody> {
+  const res = await worker.fetch(`/__test/consumer/session?id=${encodeURIComponent(sessionId)}`);
+  expect(res.status).toBe(200);
+  return (await res.json()) as ConsumerSessionBody;
+}
+
+async function expectR2Object(key: string, exists: boolean): Promise<void> {
+  const res = await worker.fetch(`/__test/consumer/r2?key=${encodeURIComponent(key)}`);
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { exists: boolean };
+  expect(body.exists).toBe(exists);
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
