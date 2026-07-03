@@ -1,0 +1,7 @@
+# Copy to .dev.vars for local development (never committed).
+# Bearer token for the dashboard API (v1 auth).
+DEV_API_TOKEN=dev-local-token
+# "1" enables /__test/* routes (seeding, debug). Never set in production.
+DEV_TEST_ROUTES=1
+# Optional: shrink DO timing thresholds for manual testing, e.g.
+# TEST_TIMINGS={"segmentFlushMs":2000,"flushTailMs":3000,"closeMs":10000}
