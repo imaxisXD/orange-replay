@@ -15,6 +15,9 @@
     "test": "vp test",
     "check": "vp check"
   },
+  "dependencies": {
+    "zod": "4.4.3"
+  },
   "devDependencies": {
     "@types/node": "catalog:",
     "typescript": "catalog:",
