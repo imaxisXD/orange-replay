@@ -17,6 +17,13 @@ export interface Env {
   DEV_API_TOKEN?: string;
   /** "1" enables /__test/* routes. Never set in production config. */
   DEV_TEST_ROUTES?: string;
+  /**
+   * JSON override for DO timing thresholds, honored only when
+   * DEV_TEST_ROUTES === "1": { segmentFlushMs?, segmentFlushBytes?,
+   * flushTailMs?, closeMs? }. Lets integration tests shrink the 30-minute
+   * idle windows to seconds.
+   */
+  TEST_TIMINGS?: string;
 }
 
 /**
