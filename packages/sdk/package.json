@@ -1,32 +1,27 @@
 {
-  "name": "@orange-replay/shared",
+  "name": "@orange-replay/sdk",
   "version": "0.0.0",
   "private": true,
   "files": [
-    "dist"
+    "src"
   ],
   "type": "module",
-  "sideEffects": false,
   "exports": {
     ".": "./src/index.ts",
-    "./constants": "./src/constants.ts",
-    "./types": "./src/types.ts",
-    "./wire": "./src/wire.ts",
-    "./uuid": "./src/uuid.ts",
-    "./logger": "./src/logger.ts",
-    "./schemas": "./src/schemas.ts",
     "./package.json": "./package.json"
   },
   "scripts": {
-    "build": "vp pack",
+    "build": "node -e \"console.log('sdk exports TypeScript source; no package build step')\"",
     "test": "vp test",
     "check": "vp check"
   },
   "dependencies": {
-    "zod": "4.4.3"
+    "@orange-replay/rrweb-fork": "workspace:*",
+    "@orange-replay/shared": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "jsdom": "^29.1.1",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:"
