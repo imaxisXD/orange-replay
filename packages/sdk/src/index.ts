@@ -1,5 +1,6 @@
 import type { IndexEvent } from "@orange-replay/shared/types";
 import type { eventWithTime } from "@orange-replay/rrweb-fork";
+import { markSdkInternalError } from "./internal-error.ts";
 import { Recorder } from "./recorder.ts";
 import { shouldSampleSession } from "./sampling.ts";
 import { SessionManager } from "./session.ts";
@@ -98,8 +99,16 @@ function noopHandle(getUrl?: (base?: string) => string): OrangeReplayHandle {
 }
 
 function startSessionTouchListeners(win: Window, session: SessionManager): () => void {
+  let warned = false;
   const touch = () => {
-    session.touch();
+    try {
+      session.touch();
+    } catch (error) {
+      if (!warned) {
+        warned = true;
+        console.warn("Orange Replay session update failed.", markSdkInternalError(error));
+      }
+    }
   };
   const events = ["click", "keydown", "scroll", "visibilitychange"];
 

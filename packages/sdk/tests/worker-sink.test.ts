@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { FLAG_UNCOMPRESSED, HDR_FLAGS, HDR_SEQ } from "@orange-replay/shared/constants";
 import { decodeIngestBody } from "@orange-replay/shared/wire";
 import { PAGEHIDE_RAW_FLUSH_BYTES } from "../src/pipeline/batcher.ts";
+import type { WorkerBatchResult } from "../src/pipeline/worker-core.ts";
 import type { WorkerHost } from "../src/pipeline/worker-host.ts";
 import { WorkerSink } from "../src/sink.ts";
 import { SessionManager, type StorageLike } from "../src/session.ts";
@@ -109,13 +110,13 @@ describe("WorkerSink pagehide final flush", () => {
 
     const flushed = sink.flush("pagehide");
 
-    expect(sendBeacon).toHaveBeenCalledTimes(1);
+    expect(sendBeacon).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(workerHost.flushBatch).not.toHaveBeenCalled();
 
-    const beaconBody = sendBeacon.mock.calls[0]?.[1];
-    expect(beaconBody).toBeInstanceOf(Uint8Array);
-    const decoded = decodeIngestBody(beaconBody as Uint8Array);
+    const fetchBody = fetchMock.mock.calls[0]?.[1]?.body;
+    expect(fetchBody).toBeInstanceOf(Uint8Array);
+    const decoded = decodeIngestBody(fetchBody as Uint8Array);
     expect(decoded.index).toMatchObject({
       s: "session-one",
       tab: "tab-one",
@@ -152,7 +153,8 @@ describe("WorkerSink pagehide final flush", () => {
 
     await sink.flush("pagehide");
 
-    const body = sendBeacon.mock.calls[0]?.[1] as Uint8Array;
+    expect(sendBeacon).not.toHaveBeenCalled();
+    const body = fetchMock.mock.calls[0]?.[1]?.body as Uint8Array;
     expect(body.byteLength).toBeLessThanOrEqual(PAGEHIDE_RAW_FLUSH_BYTES);
     const decoded = decodeIngestBody(body);
     const events = JSON.parse(decoder.decode(decoded.payload)) as Array<{
@@ -160,6 +162,151 @@ describe("WorkerSink pagehide final flush", () => {
     }>;
     expect(events.map((event) => event.data?.name)).toEqual(["middle", "newest"]);
     expect(decoded.index.e).toEqual([{ t: 4, k: "error", d: "latest sidecar event" }]);
+    expect(sink.droppedEventCount()).toBe(1);
+  });
+
+  it("does not re-stringify the whole final batch once per dropped event", async () => {
+    const fetchMock = vi.fn<typeof fetch>(() => new Promise<Response>(() => {}));
+    const session = makeSession(["session-one", "tab-one"]);
+    const sink = new WorkerSink({
+      config,
+      session,
+      window,
+      fetch: fetchMock,
+      workerHost: makeWorkerHost(),
+    });
+    const stringifySpy = vi.spyOn(JSON, "stringify");
+
+    for (let index = 0; index < 180; index += 1) {
+      sink.addRrwebEvent(makeEvent(index, `event-${index}`, "x".repeat(900)));
+    }
+
+    await sink.flush("pagehide");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(stringifySpy.mock.calls.length).toBeLessThan(20);
+    expect(sink.droppedEventCount()).toBeGreaterThan(0);
+  });
+
+  it("keeps total pagehide sync bodies under one keepalive budget", async () => {
+    const fetchMock = vi.fn<typeof fetch>(() => new Promise<Response>(() => {}));
+    const workerHost = makeWorkerHost();
+    const session = makeSession(["session-one", "tab-one"]);
+    const sink = new WorkerSink({ config, session, window, fetch: fetchMock, workerHost });
+
+    sink.addRrwebEvent(makeEvent(1, "current", "x".repeat(10_000)));
+    await sink.flush("pagehide");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = fetchMock.mock.calls[0]?.[1]?.body as Uint8Array;
+    expect(body.byteLength).toBeLessThanOrEqual(PAGEHIDE_RAW_FLUSH_BYTES);
+  });
+});
+
+describe("WorkerSink worker failures", () => {
+  it("retries a rejected worker flush through the inline fallback path", async () => {
+    const event = makeEvent(10, "retry");
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      return new Response(JSON.stringify({ ok: true, live: false, flushMs: 15_000 }));
+    });
+    const workerHost = makeRetryWorkerHost(event);
+    const session = makeSession(["session-one", "tab-one"]);
+    const sink = new WorkerSink({ config, session, window, fetch: fetchMock, workerHost });
+
+    sink.addRrwebEvent(event);
+    await sink.flush("manual");
+
+    expect(workerHost.reset).toHaveBeenCalledTimes(1);
+    expect(workerHost.addEvents).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const decoded = decodeIngestBody(fetchMock.mock.calls[0]?.[1]?.body as Uint8Array);
+    expect(JSON.parse(decoder.decode(decoded.payload))).toEqual([event]);
+  });
+
+  it("catches unrecoverable worker flush errors and disables the sink once", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const fetchMock = vi.fn<typeof fetch>();
+    const workerHost = makeFailingWorkerHost();
+    const session = makeSession(["session-one", "tab-one"]);
+    const sink = new WorkerSink({ config, session, window, fetch: fetchMock, workerHost });
+
+    sink.addRrwebEvent(makeEvent(10, "bad"));
+    await expect(sink.flush("manual")).resolves.toBeUndefined();
+    sink.addRrwebEvent(makeEvent(11, "ignored"));
+    await sink.flush("manual");
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(workerHost.stop).toHaveBeenCalledTimes(1);
+    expect(sink.droppedEventCount()).toBe(1);
+  });
+});
+
+describe("WorkerSink async visibility flushes", () => {
+  it("does not take the destructive sync pagehide path while a flush is in flight", async () => {
+    const sendBeacon = installSendBeacon(() => true);
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      return new Response(JSON.stringify({ ok: true, live: false, flushMs: 15_000 }));
+    });
+    const pendingWorker = makePendingWorkerHost();
+    const session = makeSession(["session-one", "tab-one"]);
+    const sink = new WorkerSink({
+      config,
+      session,
+      window,
+      fetch: fetchMock,
+      workerHost: pendingWorker.workerHost,
+    });
+
+    sink.addRrwebEvent(makeEvent(10, "visible"));
+    const firstFlush = sink.flush("manual");
+    const secondFlush = sink.flush("visibility");
+
+    expect(sendBeacon).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(pendingWorker.workerHost.reset).not.toHaveBeenCalled();
+
+    pendingWorker.resolve({
+      payload: new TextEncoder().encode(JSON.stringify([makeEvent(10, "visible")])),
+      uncompressed: true,
+    });
+    await firstFlush;
+    await secondFlush;
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[1]?.keepalive).toBe(false);
+  });
+});
+
+describe("WorkerSink server and transport drops", () => {
+  it("stops sending after the server returns a drop ack", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      return new Response(JSON.stringify({ ok: true, live: false, flushMs: 15_000, drop: true }), {
+        status: 202,
+      });
+    });
+    const workerHost = makeResolvedWorkerHost();
+    const session = makeSession(["session-one", "tab-one"]);
+    const sink = new WorkerSink({ config, session, window, fetch: fetchMock, workerHost });
+
+    sink.addRrwebEvent(makeEvent(10, "before-drop"));
+    await sink.flush("manual");
+    sink.addRrwebEvent(makeEvent(11, "after-drop"));
+    await sink.flush("manual");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(workerHost.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it("counts batches dropped by transport failures", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response("bad key", { status: 401 }));
+    const workerHost = makeResolvedWorkerHost();
+    const session = makeSession(["session-one", "tab-one"]);
+    const sink = new WorkerSink({ config, session, window, fetch: fetchMock, workerHost });
+
+    sink.addRrwebEvent(makeEvent(10, "dropped"));
+    await sink.flush("manual");
+
     expect(sink.droppedEventCount()).toBe(1);
   });
 });
@@ -211,6 +358,102 @@ function makeWorkerHost(): {
     reset: ReturnType<typeof vi.fn>;
     stop: ReturnType<typeof vi.fn>;
   } & WorkerHost;
+}
+
+function makeRetryWorkerHost(event: eventWithTime): {
+  addEvents: ReturnType<typeof vi.fn>;
+  flushBatch: ReturnType<typeof vi.fn>;
+  reset: ReturnType<typeof vi.fn>;
+  stop: ReturnType<typeof vi.fn>;
+} & WorkerHost {
+  return {
+    addEvents: vi.fn(),
+    flushBatch: vi
+      .fn()
+      .mockRejectedValueOnce(new Error("worker failed"))
+      .mockResolvedValueOnce({
+        payload: new TextEncoder().encode(JSON.stringify([event])),
+        uncompressed: true,
+      } satisfies WorkerBatchResult),
+    reset: vi.fn(),
+    stop: vi.fn(),
+  } as unknown as {
+    addEvents: ReturnType<typeof vi.fn>;
+    flushBatch: ReturnType<typeof vi.fn>;
+    reset: ReturnType<typeof vi.fn>;
+    stop: ReturnType<typeof vi.fn>;
+  } & WorkerHost;
+}
+
+function makeFailingWorkerHost(): {
+  addEvents: ReturnType<typeof vi.fn>;
+  flushBatch: ReturnType<typeof vi.fn>;
+  reset: ReturnType<typeof vi.fn>;
+  stop: ReturnType<typeof vi.fn>;
+} & WorkerHost {
+  return {
+    addEvents: vi.fn(),
+    flushBatch: vi.fn().mockRejectedValue(new Error("worker failed")),
+    reset: vi.fn(),
+    stop: vi.fn(),
+  } as unknown as {
+    addEvents: ReturnType<typeof vi.fn>;
+    flushBatch: ReturnType<typeof vi.fn>;
+    reset: ReturnType<typeof vi.fn>;
+    stop: ReturnType<typeof vi.fn>;
+  } & WorkerHost;
+}
+
+function makeResolvedWorkerHost(): {
+  addEvents: ReturnType<typeof vi.fn>;
+  flushBatch: ReturnType<typeof vi.fn>;
+  reset: ReturnType<typeof vi.fn>;
+  stop: ReturnType<typeof vi.fn>;
+} & WorkerHost {
+  return {
+    addEvents: vi.fn(),
+    flushBatch: vi.fn(async () => {
+      return {
+        payload: new TextEncoder().encode(JSON.stringify([])),
+        uncompressed: true,
+      } satisfies WorkerBatchResult;
+    }),
+    reset: vi.fn(),
+    stop: vi.fn(),
+  } as unknown as {
+    addEvents: ReturnType<typeof vi.fn>;
+    flushBatch: ReturnType<typeof vi.fn>;
+    reset: ReturnType<typeof vi.fn>;
+    stop: ReturnType<typeof vi.fn>;
+  } & WorkerHost;
+}
+
+function makePendingWorkerHost(): {
+  workerHost: {
+    addEvents: ReturnType<typeof vi.fn>;
+    flushBatch: ReturnType<typeof vi.fn>;
+    reset: ReturnType<typeof vi.fn>;
+    stop: ReturnType<typeof vi.fn>;
+  } & WorkerHost;
+  resolve: (result: WorkerBatchResult) => void;
+} {
+  let resolveFlush: (result: WorkerBatchResult) => void = () => undefined;
+  const flushPromise = new Promise<WorkerBatchResult>((resolve) => {
+    resolveFlush = resolve;
+  });
+  const workerHost = {
+    addEvents: vi.fn(),
+    flushBatch: vi.fn(() => flushPromise),
+    reset: vi.fn(),
+    stop: vi.fn(),
+  } as unknown as {
+    addEvents: ReturnType<typeof vi.fn>;
+    flushBatch: ReturnType<typeof vi.fn>;
+    reset: ReturnType<typeof vi.fn>;
+    stop: ReturnType<typeof vi.fn>;
+  } & WorkerHost;
+
+  return { workerHost, resolve: resolveFlush };
 }
 
 function installSendBeacon(send: (url: string, body?: BodyInit | null) => boolean) {

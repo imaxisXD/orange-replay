@@ -1,4 +1,5 @@
 import type { eventWithTime } from "@orange-replay/rrweb-fork";
+import { markSdkInternalError } from "../internal-error.ts";
 import { serializeAndCompressBatch, type WorkerBatchResult } from "./worker-core.ts";
 import { makeWorkerEntrySource } from "./worker-entry.ts";
 
@@ -7,18 +8,23 @@ interface WorkerHostOptions {
   warn?: (message: string) => void;
   createObjectUrl?: (blob: Blob) => string;
   revokeObjectUrl?: (url: string) => void;
+  flushTimeoutMs?: number;
 }
 
 interface PendingFlush {
   resolve: (result: WorkerBatchResult) => void;
   reject: (error: unknown) => void;
+  eventCount?: number;
+  timeoutId: ReturnType<typeof setTimeout>;
 }
 
 interface BatchMessage {
   type: "batch";
   id: number;
-  payload: ArrayBuffer;
-  uncompressed: boolean;
+  payload?: ArrayBuffer;
+  uncompressed?: boolean;
+  droppedEventCount?: number;
+  error?: string;
 }
 
 interface FlushOptions {
@@ -26,10 +32,12 @@ interface FlushOptions {
 }
 
 let warnedAboutDegradedMode = false;
+const DEFAULT_FLUSH_TIMEOUT_MS = 10_000;
 
 export class WorkerHost {
   private readonly warn?: (message: string) => void;
   private readonly revokeObjectUrl: (url: string) => void;
+  private readonly flushTimeoutMs: number;
   private readonly pending = new Map<number, PendingFlush>();
   private readonly inlineEvents: eventWithTime[] = [];
   private worker: Worker | undefined;
@@ -40,6 +48,7 @@ export class WorkerHost {
   constructor(options: WorkerHostOptions = {}) {
     this.warn = options.warn ?? ((message) => console.warn(message));
     this.revokeObjectUrl = options.revokeObjectUrl ?? URL.revokeObjectURL.bind(URL);
+    this.flushTimeoutMs = cleanTimeoutMs(options.flushTimeoutMs);
 
     const WorkerCtor = options.WorkerCtor ?? safeWorkerCtor();
     const createObjectUrl = options.createObjectUrl ?? safeCreateObjectUrl();
@@ -62,9 +71,10 @@ export class WorkerHost {
         this.handleWorkerMessage(event.data);
       };
       this.worker.onerror = (event) => {
-        this.rejectPending(event.error ?? new Error("Orange Replay worker failed."));
+        this.handleWorkerFailure(event.error ?? new Error("Orange Replay worker failed."));
       };
     } catch {
+      this.revokeWorkerUrl();
       this.useDegradedMode();
     }
   }
@@ -84,7 +94,8 @@ export class WorkerHost {
     }
 
     const eventList = [...events];
-    this.worker.postMessage({ type: "add", events: eventList }, findTransferables(eventList));
+    this.inlineEvents.push(...eventList);
+    this.worker.postMessage({ type: "add", events: eventList });
   }
 
   async flushBatch(options: FlushOptions = {}): Promise<WorkerBatchResult> {
@@ -100,7 +111,17 @@ export class WorkerHost {
     this.nextId += 1;
 
     const result = new Promise<WorkerBatchResult>((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      const timeoutId = setTimeout(() => {
+        const pending = this.pending.get(id);
+        if (pending === undefined) {
+          return;
+        }
+
+        this.pending.delete(id);
+        this.moveToInlineMode();
+        pending.reject(markSdkInternalError(new Error("Orange Replay worker flush timed out.")));
+      }, this.flushTimeoutMs);
+      this.pending.set(id, { resolve, reject, eventCount, timeoutId });
     });
 
     this.worker.postMessage({ type: "flush", id, take: eventCount });
@@ -122,10 +143,7 @@ export class WorkerHost {
     this.rejectPending(new Error("Orange Replay worker stopped."));
     this.inlineEvents.splice(0);
 
-    if (this.objectUrl !== undefined) {
-      this.revokeObjectUrl(this.objectUrl);
-      this.objectUrl = undefined;
-    }
+    this.revokeWorkerUrl();
   }
 
   private useDegradedMode(): void {
@@ -144,17 +162,75 @@ export class WorkerHost {
     }
 
     this.pending.delete(message.id);
+    clearTimeout(pending.timeoutId);
+
+    if (message.error !== undefined) {
+      this.moveToInlineMode();
+      pending.reject(markSdkInternalError(new Error(message.error)));
+      return;
+    }
+
+    if (message.payload === undefined || message.uncompressed === undefined) {
+      this.moveToInlineMode();
+      pending.reject(
+        markSdkInternalError(new Error("Orange Replay worker returned an invalid batch.")),
+      );
+      return;
+    }
+
+    const take = pending.eventCount ?? this.inlineEvents.length;
+    this.inlineEvents.splice(0, take);
     pending.resolve({
       payload: new Uint8Array(message.payload),
       uncompressed: message.uncompressed,
+      droppedEventCount: message.droppedEventCount,
     });
   }
 
   private rejectPending(error: unknown): void {
     for (const pending of this.pending.values()) {
-      pending.reject(error);
+      clearTimeout(pending.timeoutId);
+      pending.reject(markSdkInternalError(error));
     }
     this.pending.clear();
+  }
+
+  private handleWorkerFailure(error: unknown): void {
+    this.moveToInlineMode();
+    const pendingEntries = [...this.pending.values()];
+    this.pending.clear();
+
+    for (const pending of pendingEntries) {
+      clearTimeout(pending.timeoutId);
+      this.flushInlineEvents(pending.eventCount).then(pending.resolve, (inlineError) => {
+        pending.reject(markSdkInternalError(inlineError ?? error));
+      });
+    }
+  }
+
+  private async flushInlineEvents(eventCount: number | undefined): Promise<WorkerBatchResult> {
+    const take = eventCount ?? this.inlineEvents.length;
+    const events = this.inlineEvents.splice(0, take);
+    return serializeAndCompressBatch(events);
+  }
+
+  private moveToInlineMode(): void {
+    if (this.worker !== undefined) {
+      this.worker.terminate();
+      this.worker = undefined;
+    }
+
+    this.revokeWorkerUrl();
+    this.useDegradedMode();
+  }
+
+  private revokeWorkerUrl(): void {
+    if (this.objectUrl === undefined) {
+      return;
+    }
+
+    this.revokeObjectUrl(this.objectUrl);
+    this.objectUrl = undefined;
   }
 }
 
@@ -248,6 +324,14 @@ function safeCreateObjectUrl(): ((blob: Blob) => string) | undefined {
 function cleanEventCount(value: number | undefined): number | undefined {
   if (value === undefined || !Number.isFinite(value) || value < 0) {
     return undefined;
+  }
+
+  return Math.floor(value);
+}
+
+function cleanTimeoutMs(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value) || value <= 0) {
+    return DEFAULT_FLUSH_TIMEOUT_MS;
   }
 
   return Math.floor(value);

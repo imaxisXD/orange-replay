@@ -20,6 +20,20 @@ describe("Batcher", () => {
     expect(batcher.addEstimatedBytes(41).shouldFlush).toBe(true);
   });
 
+  it("keeps a running raw byte total across takes and resets", () => {
+    const batcher = new Batcher();
+    batcher.addEstimatedBytes(10);
+    batcher.addEstimatedBytes(20);
+    batcher.addEstimatedBytes(30);
+
+    expect(batcher.currentRawBytes()).toBe(60);
+    expect(batcher.takeBatch(2)).toMatchObject({ eventCount: 2, rawBytes: 30 });
+    expect(batcher.currentRawBytes()).toBe(30);
+
+    batcher.reset();
+    expect(batcher.currentRawBytes()).toBe(0);
+  });
+
   it("splits pagehide batches under the keepalive raw byte target", () => {
     const batcher = new Batcher({ pagehideRawFlushBytes: 60 });
     batcher.addEstimatedBytes(30);

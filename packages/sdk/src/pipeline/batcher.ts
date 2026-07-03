@@ -34,6 +34,7 @@ export class Batcher {
   private readonly pagehideRawFlushBytes: number;
   private readonly now: () => number;
   private readonly eventRawBytes: number[] = [];
+  private totalRawBytes = 0;
   private flushMs: number;
   private lastFlushAt: number;
   private compressionRatio = 1;
@@ -56,11 +57,11 @@ export class Batcher {
   addEstimatedBytes(rawBytes: number): BatchDecision {
     const cleanBytes = Math.max(0, Math.floor(rawBytes));
     this.eventRawBytes.push(cleanBytes);
-    const totalRawBytes = this.currentRawBytes();
+    this.totalRawBytes += cleanBytes;
 
     return {
       rawBytes: cleanBytes,
-      shouldFlush: totalRawBytes >= this.rawFlushBytes,
+      shouldFlush: this.totalRawBytes >= this.rawFlushBytes,
     };
   }
 
@@ -109,16 +110,18 @@ export class Batcher {
         ? this.eventRawBytes.length
         : Math.max(0, Math.min(this.eventRawBytes.length, Math.floor(eventCount)));
     const bytes = this.eventRawBytes.splice(0, take);
+    const rawBytes = sum(bytes);
+    this.totalRawBytes -= rawBytes;
     this.lastFlushAt = this.now();
 
     return {
       eventCount: take,
-      rawBytes: sum(bytes),
+      rawBytes,
     };
   }
 
   takeNewestPagehideBatch(): PagehideTakenBatch {
-    const totalRawBytes = this.currentRawBytes();
+    const totalRawBytes = this.totalRawBytes;
     let startIndex = this.eventRawBytes.length;
     let rawBytes = 0;
 
@@ -135,6 +138,7 @@ export class Batcher {
     const droppedBytes = this.eventRawBytes.slice(0, startIndex);
     const eventCount = this.eventRawBytes.length - startIndex;
     this.eventRawBytes.splice(0);
+    this.totalRawBytes = 0;
     this.lastFlushAt = this.now();
 
     return {
@@ -161,7 +165,7 @@ export class Batcher {
   }
 
   currentRawBytes(): number {
-    return sum(this.eventRawBytes);
+    return this.totalRawBytes;
   }
 
   eventCount(): number {
@@ -178,6 +182,7 @@ export class Batcher {
 
   reset(): void {
     this.eventRawBytes.splice(0);
+    this.totalRawBytes = 0;
     this.lastFlushAt = this.now();
   }
 }

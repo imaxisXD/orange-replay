@@ -1,4 +1,5 @@
 import type { IndexEvent } from "@orange-replay/shared/types";
+import { isSdkInternalError } from "./internal-error.ts";
 import type { Sink } from "./sink.ts";
 import { buildClickDetail, normalizedCoords, scrubUrl, truncateDetail } from "./scrub.ts";
 import type { RecorderConfig } from "./types.ts";
@@ -151,6 +152,10 @@ export class Sidecar {
 
   private readonly onError = (event: Event): void => {
     const error = event as ErrorEvent;
+    if (isSdkInternalError(error.error)) {
+      return;
+    }
+
     const message = error.message || stringFromUnknown(error.error) || "error";
     this.sink.addIndexEvent({
       t: this.now(),
@@ -161,6 +166,10 @@ export class Sidecar {
 
   private readonly onUnhandledRejection = (event: Event): void => {
     const reason = (event as PromiseRejectionEvent).reason;
+    if (isSdkInternalError(reason)) {
+      return;
+    }
+
     this.sink.addIndexEvent({
       t: this.now(),
       k: "error",

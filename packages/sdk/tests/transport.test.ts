@@ -108,4 +108,27 @@ describe("Transport", () => {
 
     expect(onClosed).toHaveBeenCalledTimes(1);
   });
+
+  it("queues sync batches with fetch first and does not also send a beacon", () => {
+    const sendBeacon = vi.fn(() => true);
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(JSON.stringify({ ok: true, live: false, flushMs: 15_000 })));
+    const transport = new Transport({
+      config,
+      fetch: fetchMock,
+      navigator: { sendBeacon },
+    });
+
+    const queued = transport.queueBatchSync({
+      body: new Uint8Array([1]),
+      index,
+      flags: 0,
+      keepalive: true,
+    });
+
+    expect(queued).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(sendBeacon).not.toHaveBeenCalled();
+  });
 });

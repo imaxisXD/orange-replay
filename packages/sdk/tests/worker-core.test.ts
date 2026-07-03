@@ -32,6 +32,22 @@ describe("worker core", () => {
     expect(result.uncompressed).toBe(true);
     expect(JSON.parse(decoder.decode(result.payload))).toEqual(events);
   });
+
+  it("drops only events that cannot be JSON encoded", async () => {
+    vi.stubGlobal("CompressionStream", undefined);
+    const goodEvent = { type: 0, timestamp: 10, data: { href: "/plain" } } as eventWithTime;
+    const badEvent = {
+      type: 0,
+      timestamp: 11,
+      data: { amount: 10n },
+    } as unknown as eventWithTime;
+
+    const result = await serializeAndCompressBatch([goodEvent, badEvent]);
+
+    expect(result.uncompressed).toBe(true);
+    expect(result.droppedEventCount).toBe(1);
+    expect(JSON.parse(decoder.decode(result.payload))).toEqual([goodEvent]);
+  });
 });
 
 async function gunzipToText(payload: Uint8Array): Promise<string> {

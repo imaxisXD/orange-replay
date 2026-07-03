@@ -106,9 +106,6 @@ export class Transport {
   }
 
   queueBatchSync(batch: TransportBatch): boolean {
-    const beaconQueued = this.tryBeacon(batch.body);
-    let fetchQueued = false;
-
     try {
       const response = this.fetchFn(`${this.config.ingestUrl}/v1/ingest`, {
         method: "POST",
@@ -123,7 +120,6 @@ export class Transport {
         body: batch.body as unknown as BodyInit,
         keepalive: true,
       });
-      fetchQueued = true;
 
       void response
         .then(async (result) => {
@@ -138,10 +134,10 @@ export class Transport {
         })
         .catch(() => undefined);
     } catch {
-      return beaconQueued;
+      return this.tryBeacon(batch.body);
     }
 
-    return beaconQueued || fetchQueued;
+    return true;
   }
 
   private tryBeacon(body: Uint8Array): boolean {
