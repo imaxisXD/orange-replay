@@ -2,19 +2,17 @@ import {
   finalizeMessageSchema,
   startWideEvent,
   type FinalizeMessage,
-  type IndexEvent,
   type WideEventOutcome,
 } from "@orange-replay/shared";
 import { shardDb, type Env } from "../env.ts";
 import {
-  chunkList,
   durationMsFromTimes,
   expiresAtFromEndedAt,
   truncateEventDetail,
   usageMonthFromStartedAt,
 } from "./helpers.ts";
 
-const EVENT_INSERT_BATCH_SIZE = 100;
+const QUEUE_MAX_RETRIES = 10; // Must match wrangler.jsonc queue max_retries.
 
 interface IndexSessionResult {
   inserted: boolean;
@@ -44,6 +42,7 @@ async function handleFinalizeMessage(message: Message<FinalizeMessage>, env: Env
     attempts: message.attempts,
     inserted: false,
     events_written: 0,
+    dlq: false,
   });
 
   try {
@@ -70,8 +69,10 @@ async function handleFinalizeMessage(message: Message<FinalizeMessage>, env: Env
     });
     message.ack();
   } catch (err) {
-    outcome = "server_error";
+    const lastAllowedAttempt = message.attempts >= QUEUE_MAX_RETRIES;
+    outcome = lastAllowedAttempt ? "dropped" : "server_error";
     wideEvent.fail(err);
+    wideEvent.set({ dlq: lastAllowedAttempt });
     message.retry({ delaySeconds: retryDelaySeconds(message.attempts) });
   } finally {
     wideEvent.emit(outcome);
@@ -84,114 +85,111 @@ export async function indexSession(
 ): Promise<IndexSessionResult> {
   const db = shardDb(env, finalizeMessage.shard);
   const expiresAt = expiresAtFromEndedAt(finalizeMessage.endedAt, finalizeMessage.retentionDays);
-  const inserted = await db
-    .prepare(
-      `INSERT INTO sessions (
-        session_id,
-        project_id,
-        org_id,
-        started_at,
-        ended_at,
-        duration_ms,
-        country,
-        region,
-        city,
-        device,
-        browser,
-        os,
-        entry_url,
-        url_count,
-        clicks,
-        errors,
-        rages,
-        navs,
-        bytes,
-        segment_count,
-        flags,
-        manifest_key,
-        expires_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(session_id) DO NOTHING`,
-    )
-    .bind(
-      finalizeMessage.sessionId,
-      finalizeMessage.projectId,
-      finalizeMessage.orgId,
-      finalizeMessage.startedAt,
-      finalizeMessage.endedAt,
-      durationMsFromTimes(finalizeMessage.startedAt, finalizeMessage.endedAt),
-      finalizeMessage.attrs.country ?? null,
-      finalizeMessage.attrs.region ?? null,
-      finalizeMessage.attrs.city ?? null,
-      finalizeMessage.attrs.device ?? null,
-      finalizeMessage.attrs.browser ?? null,
-      finalizeMessage.attrs.os ?? null,
-      finalizeMessage.attrs.entryUrl ?? null,
-      finalizeMessage.attrs.urlCount ?? 0,
-      finalizeMessage.counts.clicks,
-      finalizeMessage.counts.errors,
-      finalizeMessage.counts.rages,
-      finalizeMessage.counts.navs,
-      finalizeMessage.bytes,
-      finalizeMessage.segments,
-      0,
-      finalizeMessage.manifestKey,
-      expiresAt,
-    )
-    .run();
+  const statements = [
+    db
+      .prepare(
+        `INSERT INTO sessions (
+          session_id,
+          project_id,
+          org_id,
+          started_at,
+          ended_at,
+          duration_ms,
+          country,
+          region,
+          city,
+          device,
+          browser,
+          os,
+          entry_url,
+          url_count,
+          clicks,
+          errors,
+          rages,
+          navs,
+          bytes,
+          segment_count,
+          flags,
+          manifest_key,
+          expires_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(session_id) DO NOTHING`,
+      )
+      .bind(
+        finalizeMessage.sessionId,
+        finalizeMessage.projectId,
+        finalizeMessage.orgId,
+        finalizeMessage.startedAt,
+        finalizeMessage.endedAt,
+        durationMsFromTimes(finalizeMessage.startedAt, finalizeMessage.endedAt),
+        finalizeMessage.attrs.country ?? null,
+        finalizeMessage.attrs.region ?? null,
+        finalizeMessage.attrs.city ?? null,
+        finalizeMessage.attrs.device ?? null,
+        finalizeMessage.attrs.browser ?? null,
+        finalizeMessage.attrs.os ?? null,
+        finalizeMessage.attrs.entryUrl ?? null,
+        finalizeMessage.attrs.urlCount ?? 0,
+        finalizeMessage.counts.clicks,
+        finalizeMessage.counts.errors,
+        finalizeMessage.counts.rages,
+        finalizeMessage.counts.navs,
+        finalizeMessage.bytes,
+        finalizeMessage.segments,
+        finalizeMessage.flags,
+        finalizeMessage.manifestKey,
+        expiresAt,
+      ),
+    db
+      .prepare(
+        `INSERT INTO usage_monthly (org_id, month, sessions, bytes)
+        SELECT ?, ?, 1, ?
+        WHERE (SELECT changes()) > 0
+        ON CONFLICT(org_id, month) DO UPDATE SET
+          sessions = sessions + 1,
+          bytes = bytes + excluded.bytes`,
+      )
+      .bind(
+        finalizeMessage.orgId,
+        usageMonthFromStartedAt(finalizeMessage.startedAt),
+        finalizeMessage.bytes,
+      ),
+  ];
 
-  if (inserted.meta.changes === 0) {
-    return { inserted: false, eventsWritten: 0 };
+  if (finalizeMessage.events.length > 0) {
+    const eventValues = finalizeMessage.events.map(() => "(?, ?, ?, ?)").join(", ");
+    statements.push(
+      db
+        .prepare(
+          `WITH incoming(session_id, t, kind, detail) AS (
+            VALUES ${eventValues}
+          )
+          INSERT OR IGNORE INTO session_events (session_id, t, kind, detail)
+          SELECT session_id, t, kind, detail
+          FROM incoming
+          WHERE (SELECT changes()) > 0`,
+        )
+        .bind(
+          ...finalizeMessage.events.flatMap((event) => [
+            finalizeMessage.sessionId,
+            event.t,
+            event.k,
+            truncateEventDetail(event.d),
+          ]),
+        ),
+    );
   }
 
-  await db
-    .prepare(
-      `INSERT INTO usage_monthly (org_id, month, sessions, bytes)
-      VALUES (?, ?, 1, ?)
-      ON CONFLICT(org_id, month) DO UPDATE SET
-        sessions = sessions + 1,
-        bytes = bytes + excluded.bytes`,
-    )
-    .bind(
-      finalizeMessage.orgId,
-      usageMonthFromStartedAt(finalizeMessage.startedAt),
-      finalizeMessage.bytes,
-    )
-    .run();
+  const results = await db.batch(statements);
+  const inserted = results[0]?.meta.changes ?? 0;
+  const eventsWritten = results[2]?.meta.changes ?? 0;
 
-  const eventsWritten = await insertSessionEvents(
-    db,
-    finalizeMessage.sessionId,
-    finalizeMessage.events,
-  );
-  return { inserted: true, eventsWritten };
+  return {
+    inserted: inserted > 0,
+    eventsWritten,
+  };
 }
 
 function retryDelaySeconds(attempts: number): number {
   return Math.min(30 * 2 ** attempts, 3_600);
-}
-
-async function insertSessionEvents(
-  db: D1Database,
-  sessionId: string,
-  events: readonly IndexEvent[],
-): Promise<number> {
-  let eventsWritten = 0;
-
-  for (const chunk of chunkList(events, EVENT_INSERT_BATCH_SIZE)) {
-    const statements = chunk.map((event) =>
-      db
-        .prepare(
-          `INSERT OR IGNORE INTO session_events (session_id, t, kind, detail)
-          VALUES (?, ?, ?, ?)`,
-        )
-        .bind(sessionId, event.t, event.k, truncateEventDetail(event.d)),
-    );
-    const results = await db.batch(statements);
-    for (const result of results) {
-      eventsWritten += result.meta.changes;
-    }
-  }
-
-  return eventsWritten;
 }

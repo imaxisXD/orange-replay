@@ -279,6 +279,7 @@ async function postIngest(input: {
   origin?: string;
 }): Promise<Response> {
   const headers = ingestHeaders(input.key, input.sessionId, input.tab, input.seq, input.flags);
+  headers["content-length"] = String(input.body.byteLength);
   if (input.origin !== undefined) {
     headers["origin"] = input.origin;
   }

@@ -44,6 +44,7 @@ describe("consumer queue and sweeper", () => {
     expect(body.session?.["clicks"]).toBe(4);
     expect(body.session?.["errors"]).toBe(1);
     expect(body.session?.["segment_count"]).toBe(2);
+    expect(body.session?.["flags"]).toBe(message.flags);
     expect(body.session?.["manifest_key"]).toBe(message.manifestKey);
 
     expect(body.events).toHaveLength(2);
@@ -71,6 +72,24 @@ describe("consumer queue and sweeper", () => {
     expect(body.usage[0]?.["bytes"]).toBe(message.bytes);
     expect(body.events).toHaveLength(2);
   }, 30_000);
+
+  it("rolls back the whole index when a later statement fails", async () => {
+    const message = makeFinalizeMessage("rollback");
+    await failEventInsert(message.sessionId);
+
+    const res = await worker.fetch("/__test/consumer/index-now", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message }),
+    });
+    expect(res.status).toBe(500);
+
+    const body = await readSession(message.sessionId);
+    const usage = await readUsage(message.orgId);
+    expect(body.session).toBeNull();
+    expect(body.events).toEqual([]);
+    expect(usage).toEqual([]);
+  });
 
   it("acks an invalid message and keeps the worker healthy", async () => {
     const badSessionId = `bad-${Date.now()}`;
@@ -118,6 +137,21 @@ describe("consumer queue and sweeper", () => {
     expect(liveBody.events).toHaveLength(1);
     await expectR2Object(liveKey, true);
   });
+
+  it("keeps event rows when a session delete fails during sweep", async () => {
+    const now = Date.now();
+    const expired = makeSessionRow("deletefail", now - 60_000);
+
+    await seedSession(expired, [], [{ t: now - 2_000, kind: "error", detail: "keep event" }]);
+    await failSessionDelete(String(expired["session_id"]));
+
+    const sweep = await worker.fetch("/__test/consumer/sweep", { method: "POST" });
+    expect(sweep.status).toBe(500);
+
+    const body = await readSession(String(expired["session_id"]));
+    expect(body.session?.["session_id"]).toBe(expired["session_id"]);
+    expect(body.events).toHaveLength(1);
+  });
 });
 
 function makeFinalizeMessage(name: string): FinalizeMessage {
@@ -139,6 +173,7 @@ function makeFinalizeMessage(name: string): FinalizeMessage {
     endedAt,
     bytes: 12_345,
     segments: 2,
+    flags: 6,
     counts: {
       batches: 3,
       events: 10,
@@ -206,6 +241,22 @@ async function sendFinalizeMessage(message: unknown): Promise<void> {
   expect(res.status).toBe(200);
 }
 
+async function failEventInsert(sessionId: string): Promise<void> {
+  const res = await worker.fetch(
+    `/__test/consumer/fail-event-insert?id=${encodeURIComponent(sessionId)}`,
+    { method: "POST" },
+  );
+  expect(res.status).toBe(200);
+}
+
+async function failSessionDelete(sessionId: string): Promise<void> {
+  const res = await worker.fetch(
+    `/__test/consumer/fail-session-delete?id=${encodeURIComponent(sessionId)}`,
+    { method: "POST" },
+  );
+  expect(res.status).toBe(200);
+}
+
 async function seedSession(
   session: Record<string, unknown>,
   r2Keys: string[],
@@ -255,6 +306,13 @@ async function readSession(sessionId: string): Promise<ConsumerSessionBody> {
   const res = await worker.fetch(`/__test/consumer/session?id=${encodeURIComponent(sessionId)}`);
   expect(res.status).toBe(200);
   return (await res.json()) as ConsumerSessionBody;
+}
+
+async function readUsage(orgId: string): Promise<Record<string, unknown>[]> {
+  const res = await worker.fetch(`/__test/consumer/usage?org=${encodeURIComponent(orgId)}`);
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { usage: Record<string, unknown>[] };
+  return body.usage;
 }
 
 async function expectR2Object(key: string, exists: boolean): Promise<void> {

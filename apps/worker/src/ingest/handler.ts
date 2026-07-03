@@ -5,6 +5,7 @@ import {
   configKvKey,
   decodeIngestBody,
   startWideEvent,
+  uuidv7,
   WireError,
 } from "@orange-replay/shared";
 import type { EdgeAttrs, IngestAck, ProjectConfig, WideEventOutcome } from "@orange-replay/shared";
@@ -17,6 +18,7 @@ import {
   MAX_INGEST_BODY_BYTES,
   mapConfigRowToProjectConfig,
   parseProjectConfig,
+  readBodyCapped,
   readContentLength,
   sanitizeBatchIndexEvents,
   sha256Hex,
@@ -44,7 +46,7 @@ async function handleIngestPost(
   env: Env,
   ctx: ExecutionContext,
 ): Promise<Response> {
-  const requestId = crypto.randomUUID();
+  const requestId = uuidv7();
   const event = startWideEvent("worker", "ingest.batch", requestId);
   let statusCode = 500;
   let outcome: WideEventOutcome = "server_error";
@@ -65,12 +67,17 @@ async function handleIngestPost(
     let cleanedFlags = flags;
     event.set({ session_id: sessionId, tab, seq, flags: cleanedFlags });
 
+    // Content-Length is optional (proxies may re-chunk requests) but when
+    // present it must be sane — and the body read below is size-capped either
+    // way, so a chunked upload can never buffer more than the cap.
     const contentLength = readContentLength(request.headers);
-    if (contentLength !== undefined) {
-      event.set({ bytes_in: contentLength });
-      if (contentLength > MAX_INGEST_BODY_BYTES) {
+    if (contentLength.ok) {
+      event.set({ bytes_in: contentLength.value });
+      if (contentLength.value > MAX_INGEST_BODY_BYTES) {
         return finish({ error: "ingest body is too large" }, 413, "client_error");
       }
+    } else if (contentLength.malformed) {
+      return finish({ error: contentLength.error }, 400, "client_error");
     }
 
     const keyHash = await sha256Hex(key);
@@ -103,11 +110,11 @@ async function handleIngestPost(
       );
     }
 
-    const bodyBytes = new Uint8Array(await request.arrayBuffer());
-    event.set({ bytes_in: bodyBytes.byteLength });
-    if (bodyBytes.byteLength > MAX_INGEST_BODY_BYTES) {
+    const bodyBytes = await readBodyCapped(request.body, MAX_INGEST_BODY_BYTES);
+    if (bodyBytes === null) {
       return finish({ error: "ingest body is too large" }, 413, "client_error");
     }
+    event.set({ bytes_in: bodyBytes.byteLength });
 
     let decoded: ReturnType<typeof decodeIngestBody>;
     try {

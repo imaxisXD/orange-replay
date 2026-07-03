@@ -113,18 +113,61 @@ export function validateIngestHeaders(headers: Headers): HeaderValidationResult 
   return { ok: true, value: { key, sessionId, tab, seq, flags } };
 }
 
-export function readContentLength(headers: Headers): number | undefined {
+export function readContentLength(
+  headers: Headers,
+): { ok: true; value: number } | { ok: false; malformed: boolean; error: string } {
   const raw = headers.get("content-length");
-  if (raw === null || !INTEGER_PATTERN.test(raw)) {
-    return undefined;
+  if (raw === null) {
+    return { ok: false, malformed: false, error: "content-length is absent" };
+  }
+  if (!INTEGER_PATTERN.test(raw)) {
+    return { ok: false, malformed: true, error: "content-length must be a valid integer" };
   }
 
   const value = Number(raw);
   if (!Number.isSafeInteger(value) || value < 0) {
-    return undefined;
+    return { ok: false, malformed: true, error: "content-length must be a valid integer" };
   }
 
-  return value;
+  return { ok: true, value };
+}
+
+/**
+ * Reads a request body while enforcing a byte cap — a chunked upload without
+ * Content-Length can never buffer more than `cap` bytes. Returns null when
+ * the cap is exceeded.
+ */
+export async function readBodyCapped(
+  body: ReadableStream<Uint8Array> | null,
+  cap: number,
+): Promise<Uint8Array | null> {
+  if (body === null) {
+    return new Uint8Array(0);
+  }
+
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    total += value.byteLength;
+    if (total > cap) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+
+  const output = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    output.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return output;
 }
 
 export async function sha256Hex(value: string): Promise<string> {

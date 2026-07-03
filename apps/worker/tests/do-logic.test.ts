@@ -147,6 +147,7 @@ describe("SessionRecorder pure logic", () => {
       navs: 1,
     });
     expect(manifest.bytes).toBe(90);
+    expect(manifest.flags).toBe(3);
     expect(manifest.endedAt).toBe(1800);
     expect(manifest.attrs).toEqual({ country: "US", entryUrl: "/home", urlCount: 2 });
     expect(manifest.enc).toEqual({ k: "key-1" });
@@ -198,6 +199,7 @@ describe("SessionRecorder pure logic", () => {
       endedAt: 2,
       bytes: 3,
       segments: 1,
+      flags: 0,
       counts: { batches: 1, events: 200, clicks: 0, errors: 200, rages: 0, navs: 0 },
       attrs: {},
       retentionDays: 30,

@@ -143,6 +143,7 @@ export const finalizeMessageSchema: z.ZodType<FinalizeMessage> = z
     endedAt: z.number(),
     bytes: z.number().int().nonnegative(),
     segments: z.number().int().nonnegative(),
+    flags: z.number().int().nonnegative(),
     counts: sessionCountsSchema,
     attrs: sessionAttrsSchema,
     retentionDays: z.number().int().nonnegative(),

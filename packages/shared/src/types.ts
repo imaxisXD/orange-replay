@@ -96,6 +96,7 @@ export interface FinalizeMessage {
   endedAt: number;
   bytes: number;
   segments: number;
+  flags: number;
   counts: SessionCounts;
   attrs: SessionManifest["attrs"];
   retentionDays: number;

@@ -7,13 +7,20 @@ import {
   MAX_SEQ,
   type BatchIndex,
 } from "@orange-replay/shared";
-import { describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   mapConfigRowToProjectConfig,
   parseProjectConfig,
+  readContentLength,
   sanitizeBatchIndexEvents,
   validateIngestHeaders,
 } from "../src/ingest/helpers.ts";
+import { handleIngest } from "../src/ingest/handler.ts";
+import type { Env } from "../src/env.ts";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("ingest header validation", () => {
   it("accepts valid headers and defaults flags to zero", () => {
@@ -85,6 +92,46 @@ describe("ingest header validation", () => {
         }),
       ),
     ).toEqual({ ok: false, error: `${HDR_FLAGS} must be a non-negative integer` });
+  });
+
+  it("rejects missing or invalid content lengths", async () => {
+    // Missing content-length is tolerated (proxies re-chunk; the capped body
+    // read enforces the size limit instead) — only malformed values reject.
+    expect(readContentLength(new Headers())).toEqual({
+      ok: false,
+      malformed: false,
+      error: "content-length is absent",
+    });
+    expect(readContentLength(new Headers({ "content-length": "chunked" }))).toEqual({
+      ok: false,
+      malformed: true,
+      error: "content-length must be a valid integer",
+    });
+    expect(readContentLength(new Headers({ "content-length": "10" }))).toEqual({
+      ok: true,
+      value: 10,
+    });
+
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const response = await handleIngest(
+      new Request("https://replay.test/v1/ingest", {
+        method: "POST",
+        headers: {
+          [HDR_KEY]: "raw-key",
+          [HDR_SESSION]: "session_12345678",
+          [HDR_TAB]: "tab_1",
+          [HDR_SEQ]: "0",
+          "content-length": "not-a-number",
+        },
+      }),
+      {} as Env,
+      {} as Parameters<typeof handleIngest>[2],
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "content-length must be a valid integer",
+    });
   });
 });
 

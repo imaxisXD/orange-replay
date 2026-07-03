@@ -57,7 +57,7 @@ export interface SessionRow {
 
 export interface SessionListOptions {
   limit: number;
-  before?: number;
+  before?: SessionCursor;
   country?: string;
   browser?: string;
   hasErrors: boolean;
@@ -65,6 +65,11 @@ export interface SessionListOptions {
 }
 
 export type SessionQueryValue = string | number;
+
+export interface SessionCursor {
+  startedAt: number;
+  sessionId?: string;
+}
 
 export interface SessionsQuery {
   sql: string;
@@ -87,7 +92,7 @@ export function parseSessionListQuery(params: URLSearchParams): ParsedSessionLis
   const parsedLimit = parsePositiveInteger(params.get("limit"), "limit");
   if (!parsedLimit.ok) return parsedLimit;
 
-  const parsedBefore = parseOptionalInteger(params.get("before"), "before", 0);
+  const parsedBefore = parseOptionalCursor(params.get("before"));
   if (!parsedBefore.ok) return parsedBefore;
 
   const parsedMinDuration = parseOptionalInteger(
@@ -118,8 +123,13 @@ export function buildSessionsQuery(projectId: string, options: SessionListOption
   const bindings: SessionQueryValue[] = [projectId];
 
   if (options.before !== undefined) {
-    whereClauses.push("started_at < ?");
-    bindings.push(options.before);
+    if (options.before.sessionId === undefined) {
+      whereClauses.push("started_at < ?");
+      bindings.push(options.before.startedAt);
+    } else {
+      whereClauses.push("(started_at < ? OR (started_at = ? AND session_id < ?))");
+      bindings.push(options.before.startedAt, options.before.startedAt, options.before.sessionId);
+    }
   }
 
   if (options.country !== undefined) {
@@ -144,9 +154,15 @@ export function buildSessionsQuery(projectId: string, options: SessionListOption
   bindings.push(options.limit);
 
   return {
-    sql: `SELECT ${sessionRowColumns.join(", ")} FROM sessions INDEXED BY idx_sessions_project_time WHERE ${whereClauses.join(" AND ")} ORDER BY started_at DESC LIMIT ?`,
+    sql: `SELECT ${sessionRowColumns.join(", ")} FROM sessions INDEXED BY idx_sessions_project_time WHERE ${whereClauses.join(" AND ")} ORDER BY started_at DESC, session_id DESC LIMIT ?`,
     bindings,
   };
+}
+
+export function encodeSessionCursor(
+  session: Pick<SessionRow, "started_at" | "session_id">,
+): string {
+  return `${session.started_at}:${session.session_id}`;
 }
 
 export function outcomeForStatus(status: number): "success" | "client_error" | "server_error" {
@@ -178,4 +194,31 @@ function parseOptionalInteger(
     return { ok: false, error: `invalid_${name}` };
   }
   return { ok: true, value: parsed };
+}
+
+function parseOptionalCursor(
+  value: string | null,
+): { ok: true; value?: SessionCursor } | { ok: false; error: string } {
+  if (value === null || value === "") return { ok: true };
+
+  if (/^[0-9]+$/.test(value)) {
+    const parsed = Number(value);
+    if (!Number.isSafeInteger(parsed)) {
+      return { ok: false, error: "invalid_before" };
+    }
+    return { ok: true, value: { startedAt: parsed } };
+  }
+
+  const separator = value.indexOf(":");
+  if (separator < 1 || separator === value.length - 1) {
+    return { ok: false, error: "invalid_before" };
+  }
+
+  const startedAt = Number(value.slice(0, separator));
+  const sessionId = value.slice(separator + 1);
+  if (!Number.isSafeInteger(startedAt) || startedAt < 0 || !isValidPathId(sessionId)) {
+    return { ok: false, error: "invalid_before" };
+  }
+
+  return { ok: true, value: { startedAt, sessionId } };
 }

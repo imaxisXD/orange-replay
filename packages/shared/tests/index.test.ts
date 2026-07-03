@@ -11,10 +11,12 @@ import {
   segmentBatch,
   segmentKey,
   sessionPrefix,
+  uuidv7,
+  finalizeMessageSchema,
   sessionManifestSchema,
   startWideEvent,
 } from "../src/index.ts";
-import type { BatchIndex, SessionManifest } from "../src/index.ts";
+import type { BatchIndex, FinalizeMessage, SessionManifest } from "../src/index.ts";
 
 const encoder = new TextEncoder();
 
@@ -145,6 +147,23 @@ describe("constants", () => {
   });
 });
 
+describe("uuidv7", () => {
+  it("sets the RFC 9562 version and variant bits", () => {
+    const id = uuidv7();
+
+    expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  });
+
+  it("keeps the millisecond timestamp in sortable prefix order", () => {
+    vi.spyOn(Date, "now").mockReturnValueOnce(1_000).mockReturnValueOnce(1_002);
+
+    const first = uuidv7();
+    const second = uuidv7();
+
+    expect(first.slice(0, 13) < second.slice(0, 13)).toBe(true);
+  });
+});
+
 describe("schemas", () => {
   it("validates batch indexes and manifests", () => {
     const batch: BatchIndex = {
@@ -174,6 +193,29 @@ describe("schemas", () => {
 
     expect(batchIndexSchema.parse(batch)).toEqual(batch);
     expect(sessionManifestSchema.parse(manifest)).toEqual(manifest);
+  });
+
+  it("validates finalize messages with session flags", () => {
+    const message: FinalizeMessage = {
+      type: "session.finalized",
+      sessionId: "session",
+      projectId: "project",
+      orgId: "org",
+      shard: 0,
+      requestId: "request",
+      manifestKey: "p/project/session/manifest.json",
+      startedAt: 1,
+      endedAt: 2,
+      bytes: 3,
+      segments: 1,
+      flags: 5,
+      counts: { batches: 1, events: 1, clicks: 0, errors: 1, rages: 0, navs: 0 },
+      attrs: {},
+      retentionDays: 30,
+      events: [{ t: 1, k: "error", d: "failed" }],
+    };
+
+    expect(finalizeMessageSchema.parse(message)).toEqual(message);
   });
 });
 

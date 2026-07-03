@@ -704,6 +704,7 @@ export class SessionRecorder extends DurableObject<Env> {
         endedAt: manifest.endedAt,
         bytes: manifest.bytes,
         segments: manifest.segments.length,
+        flags: manifest.flags,
         counts: manifest.counts,
         attrs: manifest.attrs,
         retentionDays: state.retentionDays,

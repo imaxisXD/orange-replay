@@ -8,6 +8,7 @@ import type { SessionRow } from "../src/api/helpers.ts";
 const workerDir = fileURLToPath(new URL("..", import.meta.url));
 const token = "test-token";
 const listProjectId = "api_list_project";
+const sameTimeProjectId = "api_same_time_project";
 const assetProjectId = "api_asset_project";
 const assetSessionId = "api_asset_session";
 const segmentName = "seg-000001.ors";
@@ -79,7 +80,7 @@ describe("dashboard api", () => {
       "api_mid",
       "api_old",
     ]);
-    expect(all.nextBefore).toBe(1000);
+    expect(all.nextBefore).toBe("1000:api_old");
 
     const withErrors = await getSessions("has_errors=1");
     expect(withErrors.sessions.map((session) => session.session_id)).toEqual([
@@ -100,11 +101,29 @@ describe("dashboard api", () => {
   it("paginates sessions with the before cursor", async () => {
     const firstPage = await getSessions("limit=1");
     expect(firstPage.sessions.map((session) => session.session_id)).toEqual(["api_new"]);
-    expect(firstPage.nextBefore).toBe(3000);
+    expect(firstPage.nextBefore).toBe("3000:api_new");
 
     const secondPage = await getSessions(`limit=1&before=${firstPage.nextBefore}`);
     expect(secondPage.sessions.map((session) => session.session_id)).toEqual(["api_mid"]);
-    expect(secondPage.nextBefore).toBe(2000);
+    expect(secondPage.nextBefore).toBe("2000:api_mid");
+  });
+
+  it("paginates sessions that share the same millisecond", async () => {
+    const seen: string[] = [];
+    let before = "";
+
+    for (;;) {
+      const query = before.length === 0 ? "limit=1" : `limit=1&before=${before}`;
+      const page = await getSessions(query, sameTimeProjectId);
+      const session = page.sessions[0];
+      if (session === undefined) break;
+
+      seen.push(session.session_id);
+      if (page.nextBefore === null || seen.length >= 3) break;
+      before = page.nextBefore;
+    }
+
+    expect(seen).toEqual(["same_c", "same_b", "same_a"]);
   });
 
   it("streams manifests byte exact", async () => {
@@ -176,7 +195,7 @@ describe("dashboard api", () => {
 
 interface SessionsResponse {
   sessions: SessionRow[];
-  nextBefore: number | null;
+  nextBefore: string | null;
 }
 
 function authHeaders(): Record<string, string> {
@@ -235,9 +254,9 @@ function readHttpResponse(response: IncomingMessage): Promise<HttpResponse> {
   });
 }
 
-async function getSessions(query = ""): Promise<SessionsResponse> {
+async function getSessions(query = "", projectId = listProjectId): Promise<SessionsResponse> {
   const suffix = query.length > 0 ? `?${query}` : "";
-  const res = await worker.fetch(`/api/v1/projects/${listProjectId}/sessions${suffix}`, {
+  const res = await worker.fetch(`/api/v1/projects/${projectId}/sessions${suffix}`, {
     headers: authHeaders(),
   });
 
@@ -280,6 +299,20 @@ async function seedListSessions(): Promise<void> {
   ];
 
   for (const session of sessions) {
+    await seedSession(session, makeManifest(session, []), []);
+  }
+
+  const sameTimeSessions = ["same_a", "same_b", "same_c"].map((sessionId) =>
+    makeSession({
+      session_id: sessionId,
+      project_id: sameTimeProjectId,
+      started_at: 6000,
+      ended_at: 6500,
+      duration_ms: 500,
+    }),
+  );
+
+  for (const session of sameTimeSessions) {
     await seedSession(session, makeManifest(session, []), []);
   }
 }

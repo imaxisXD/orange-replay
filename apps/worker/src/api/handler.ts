@@ -1,7 +1,14 @@
-import { HDR_REQUEST_ID, manifestKey, sessionPrefix, startWideEvent } from "@orange-replay/shared";
+import {
+  HDR_REQUEST_ID,
+  manifestKey,
+  sessionPrefix,
+  startWideEvent,
+  uuidv7,
+} from "@orange-replay/shared";
 import { shardDb, type Env } from "../env.ts";
 import {
   buildSessionsQuery,
+  encodeSessionCursor,
   isValidPathId,
   isValidSegmentName,
   outcomeForStatus,
@@ -17,7 +24,7 @@ export async function handleApi(
   ctx: ExecutionContext,
 ): Promise<Response> {
   const url = new URL(request.url);
-  const requestId = request.headers.get(HDR_REQUEST_ID) ?? crypto.randomUUID();
+  const requestId = request.headers.get(HDR_REQUEST_ID) ?? uuidv7();
   const route = routeName(url.pathname);
   const wideEvent = startWideEvent("worker", "api.request", requestId);
   let statusCode = 500;
@@ -114,7 +121,7 @@ async function listSessions(url: URL, env: Env, projectId: string): Promise<Resp
 
   return Response.json({
     sessions,
-    nextBefore: lastSession?.started_at ?? null,
+    nextBefore: lastSession === undefined ? null : encodeSessionCursor(lastSession),
   });
 }
 

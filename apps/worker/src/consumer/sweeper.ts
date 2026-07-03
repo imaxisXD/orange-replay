@@ -1,4 +1,9 @@
-import { sessionPrefix, startWideEvent, type WideEventOutcome } from "@orange-replay/shared";
+import {
+  sessionPrefix,
+  startWideEvent,
+  uuidv7,
+  type WideEventOutcome,
+} from "@orange-replay/shared";
 import { shardDb, type Env } from "../env.ts";
 import { chunkList } from "./helpers.ts";
 
@@ -17,7 +22,8 @@ interface SweepTotals {
 }
 
 export async function sweepExpiredSessions(env: Env): Promise<void> {
-  const wideEvent = startWideEvent("worker", "consumer.sweep");
+  const requestId = uuidv7();
+  const wideEvent = startWideEvent("worker", "consumer.sweep", requestId);
   const totals: SweepTotals = { sessionsDeleted: 0, objectsDeleted: 0 };
   let outcome: WideEventOutcome = "success";
 
@@ -33,8 +39,7 @@ export async function sweepExpiredSessions(env: Env): Promise<void> {
         totals.objectsDeleted += await deleteSessionObjects(env.RECORDINGS, row);
       }
 
-      totals.sessionsDeleted += await deleteRowsForSessions(db, "sessions", rows);
-      await deleteRowsForSessions(db, "session_events", rows);
+      totals.sessionsDeleted += await deleteRowsForSessions(db, rows);
 
       if (rows.length < SESSION_SELECT_LIMIT) break;
     }
@@ -89,7 +94,6 @@ async function deleteSessionObjects(bucket: R2Bucket, row: ExpiredSessionRow): P
 
 async function deleteRowsForSessions(
   db: D1Database,
-  tableName: "sessions" | "session_events",
   rows: readonly ExpiredSessionRow[],
 ): Promise<number> {
   let rowsDeleted = 0;
@@ -97,11 +101,13 @@ async function deleteRowsForSessions(
   for (const chunk of chunkList(rows, D1_DELETE_CHUNK_SIZE)) {
     const sessionIds = chunk.map((row) => row.sessionId);
     const placeholders = sessionIds.map(() => "?").join(", ");
-    const result = await db
-      .prepare(`DELETE FROM ${tableName} WHERE session_id IN (${placeholders})`)
-      .bind(...sessionIds)
-      .run();
-    rowsDeleted += result.meta.changes;
+    const results = await db.batch([
+      db
+        .prepare(`DELETE FROM session_events WHERE session_id IN (${placeholders})`)
+        .bind(...sessionIds),
+      db.prepare(`DELETE FROM sessions WHERE session_id IN (${placeholders})`).bind(...sessionIds),
+    ]);
+    rowsDeleted += results[1]?.meta.changes ?? 0;
   }
 
   return rowsDeleted;
