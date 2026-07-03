@@ -3,7 +3,7 @@ import type { eventWithTime } from "@orange-replay/rrweb-fork";
 import { Recorder } from "./recorder.ts";
 import { shouldSampleSession } from "./sampling.ts";
 import { SessionManager } from "./session.ts";
-import { InlineSink } from "./sink.ts";
+import { InlineSink, WorkerSink } from "./sink.ts";
 import { Sidecar } from "./sidecar.ts";
 import type { InitOptions, OrangeReplayHandle } from "./types.ts";
 import { resolveInitOptions } from "./types.ts";
@@ -34,7 +34,10 @@ export function init(options: InitOptions): OrangeReplayHandle {
       return noopHandle((base) => session.getSessionUrl(base ?? config.ingestUrl));
     }
 
-    const sink = new InlineSink({ config, session, window });
+    const sink =
+      config.transport === "inline"
+        ? new InlineSink({ config, session, window })
+        : new WorkerSink({ config, session, window });
     const sidecar = new Sidecar({ config, sink, now: () => Date.now(), window });
     const recorder = new Recorder({ config, sink });
     const stopTouchListeners = startSessionTouchListeners(window, session);

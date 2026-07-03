@@ -1,0 +1,148 @@
+import {
+  HDR_FLAGS,
+  HDR_KEY,
+  HDR_SEQ,
+  HDR_SESSION,
+  HDR_TAB,
+  SDK_FLUSH_DEFAULT_MS,
+} from "@orange-replay/shared/constants";
+import type { BatchIndex, IngestAck } from "@orange-replay/shared/types";
+import type { RecorderConfig } from "../types.ts";
+
+export interface TransportBatch {
+  body: Uint8Array;
+  index: BatchIndex;
+  flags: number;
+  keepalive: boolean;
+}
+
+export interface TransportResult {
+  sent: boolean;
+  dropped: boolean;
+  attempts: number;
+  ack?: IngestAck;
+}
+
+export interface TransportOptions {
+  config: RecorderConfig;
+  fetch?: typeof fetch;
+  navigator?: Pick<Navigator, "sendBeacon">;
+  wait?: (ms: number) => Promise<void>;
+  onClosed?: () => void;
+}
+
+const BASE_RETRY_MS = 2_000;
+const MAX_RETRY_MS = 60_000;
+const MAX_ATTEMPTS = 5;
+
+export class Transport {
+  private readonly config: RecorderConfig;
+  private readonly fetchFn: typeof fetch;
+  private readonly navigator?: Pick<Navigator, "sendBeacon">;
+  private readonly wait: (ms: number) => Promise<void>;
+  private readonly onClosed?: () => void;
+
+  constructor(options: TransportOptions) {
+    this.config = options.config;
+    this.fetchFn = options.fetch ?? fetch.bind(globalThis);
+    this.navigator = options.navigator;
+    this.wait = options.wait ?? defaultWait;
+    this.onClosed = options.onClosed;
+  }
+
+  async sendBatch(batch: TransportBatch): Promise<TransportResult> {
+    let attempts = 0;
+
+    while (attempts < MAX_ATTEMPTS) {
+      attempts += 1;
+
+      try {
+        const response = await this.fetchFn(`${this.config.ingestUrl}/v1/ingest`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/octet-stream",
+            [HDR_KEY]: this.config.key,
+            [HDR_SESSION]: batch.index.s,
+            [HDR_TAB]: batch.index.tab,
+            [HDR_SEQ]: String(batch.index.seq),
+            [HDR_FLAGS]: String(batch.flags),
+          },
+          body: batch.body as unknown as BodyInit,
+          keepalive: batch.keepalive,
+        });
+
+        if (response.status >= 500) {
+          if (attempts >= MAX_ATTEMPTS) {
+            return { sent: false, dropped: true, attempts };
+          }
+          await this.wait(retryDelayMs(attempts));
+          continue;
+        }
+
+        if (response.status >= 400) {
+          return { sent: false, dropped: true, attempts };
+        }
+
+        const ack = await readAck(response);
+        if (ack.closed === true) {
+          this.onClosed?.();
+        }
+
+        return { sent: true, dropped: false, attempts, ack };
+      } catch {
+        if (batch.keepalive && this.tryBeacon(batch.body)) {
+          return { sent: true, dropped: false, attempts };
+        }
+
+        if (attempts >= MAX_ATTEMPTS) {
+          return { sent: false, dropped: true, attempts };
+        }
+
+        await this.wait(retryDelayMs(attempts));
+      }
+    }
+
+    return { sent: false, dropped: true, attempts };
+  }
+
+  private tryBeacon(body: Uint8Array): boolean {
+    try {
+      return (
+        this.navigator?.sendBeacon(
+          `${this.config.ingestUrl}/v1/ingest`,
+          body as unknown as BodyInit,
+        ) === true
+      );
+    } catch {
+      return false;
+    }
+  }
+}
+
+export async function readAck(response: Response): Promise<IngestAck> {
+  try {
+    const parsed = (await response.json()) as Partial<IngestAck>;
+    return {
+      ok: parsed.ok === true,
+      live: parsed.live === true,
+      flushMs:
+        typeof parsed.flushMs === "number" && Number.isFinite(parsed.flushMs)
+          ? parsed.flushMs
+          : SDK_FLUSH_DEFAULT_MS,
+      drop: parsed.drop === true,
+      closed: parsed.closed === true,
+    };
+  } catch {
+    return { ok: response.ok, live: false, flushMs: SDK_FLUSH_DEFAULT_MS };
+  }
+}
+
+function retryDelayMs(attemptsAlreadyUsed: number): number {
+  return Math.min(MAX_RETRY_MS, BASE_RETRY_MS * 2 ** (attemptsAlreadyUsed - 1));
+}
+
+function defaultWait(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}

@@ -3,6 +3,7 @@ import { SDK_FLUSH_DEFAULT_MS } from "@orange-replay/shared/constants";
 export interface InitOptions {
   key: string;
   ingestUrl: string;
+  transport?: "worker" | "inline";
   sampleRate?: number;
   maskTextSelector?: string;
   blockSelector?: string;
@@ -15,6 +16,7 @@ export interface RecorderConfig {
   key: string;
   ingestUrl: string;
   projectRef: string;
+  transport?: "worker" | "inline";
   sampleRate: number;
   maskTextSelector?: string;
   blockSelector?: string;
@@ -34,6 +36,7 @@ export function resolveInitOptions(options: InitOptions): RecorderConfig {
     key: options.key,
     ingestUrl: trimTrailingSlash(options.ingestUrl),
     projectRef: options.key,
+    transport: options.transport === "inline" ? "inline" : "worker",
     sampleRate: clampSampleRate(options.sampleRate ?? 1),
     maskTextSelector: cleanOptionalString(options.maskTextSelector),
     blockSelector: cleanOptionalString(options.blockSelector),
