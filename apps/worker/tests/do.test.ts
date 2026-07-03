@@ -48,9 +48,11 @@ describe("SessionRecorder Durable Object", () => {
 
     expect(debug).toEqual({
       hasState: true,
+      finalized: false,
       bufferedBytes: payloadA.byteLength + payloadB.byteLength + payloadC.byteLength,
       pendingBatches: 3,
       segmentCount: 0,
+      stateBytes: expect.any(Number),
     });
   });
 
@@ -139,6 +141,9 @@ describe("SessionRecorder Durable Object", () => {
     const projectId = "project-finalize";
     const sessionId = "session-finalize";
     const payload = bytes("finalize-payload");
+    // Timestamps must sit inside the server clamp window (A5), or they get
+    // clamped to receive time and exact assertions break.
+    const base = Date.now();
 
     await append({
       projectId,
@@ -146,12 +151,12 @@ describe("SessionRecorder Durable Object", () => {
       tab: "tab-a",
       seq: 0,
       payload,
-      t0: 3000,
+      t0: base,
       events: [
-        { t: 3010, k: "click" },
-        { t: 3020, k: "error", d: "failed" },
-        { t: 3030, k: "custom", d: "checkout" },
-        { t: 3040, k: "nav" },
+        { t: base + 10, k: "click" },
+        { t: base + 20, k: "error", d: "failed" },
+        { t: base + 30, k: "custom", d: "checkout" },
+        { t: base + 40, k: "nav" },
       ],
     });
 
@@ -165,8 +170,8 @@ describe("SessionRecorder Durable Object", () => {
       {
         key: segmentKey(projectId, sessionId, 1),
         bytes: expect.any(Number),
-        t0: 3000,
-        t1: 3050,
+        t0: base,
+        t1: base + 50,
         batches: 1,
       },
     ]);
@@ -180,6 +185,7 @@ describe("SessionRecorder Durable Object", () => {
     });
     expect(manifest.timeline.map((event) => event.k)).toEqual(["click", "error", "custom", "nav"]);
     expect(debug.hasState).toBe(false);
+    expect(debug.finalized).toBe(true);
   });
 
   it("returns closed for a late post-finalize batch", async () => {
@@ -199,6 +205,54 @@ describe("SessionRecorder Durable Object", () => {
     expect(result.live).toBe(false);
   });
 
+  it("does not let a late seq-zero batch overwrite finalized R2 objects", async () => {
+    const projectId = "project-finalize-immutable";
+    const sessionId = "session-finalize-immutable";
+    const payload = randomBytes(5000);
+
+    await append({ projectId, sessionId, tab: "tab-a", seq: 0, payload, t0: 4100 });
+    await forceFinalize(projectId, sessionId);
+
+    const segmentBefore = await readR2Bytes(segmentKey(projectId, sessionId, 1));
+    const manifestBefore = await readR2Bytes(manifestKey(projectId, sessionId));
+    const result = await append({
+      projectId,
+      sessionId,
+      tab: "tab-late",
+      seq: 0,
+      payload: randomBytes(6000),
+      t0: 4200,
+    });
+    const segmentAfter = await readR2Bytes(segmentKey(projectId, sessionId, 1));
+    const manifestAfter = await readR2Bytes(manifestKey(projectId, sessionId));
+
+    expect(result.closed).toBe(true);
+    expect(Buffer.from(segmentAfter)).toEqual(Buffer.from(segmentBefore));
+    expect(Buffer.from(manifestAfter)).toEqual(Buffer.from(manifestBefore));
+  });
+
+  it("purges the finalized tombstone after the purge alarm", async () => {
+    const projectId = "project-tombstone-purge";
+    const sessionId = "session-tombstone-purge";
+
+    await append({
+      projectId,
+      sessionId,
+      tab: "tab-a",
+      seq: 0,
+      payload: bytes("purge"),
+      t0: 4300,
+    });
+    await forceFinalize(projectId, sessionId);
+
+    const finalizedDebug = await readDebug(projectId, sessionId);
+    expect(finalizedDebug.finalized).toBe(true);
+
+    const purgedDebug = await pollDebug(projectId, sessionId, (body) => !body.finalized, 10_000);
+    expect(purgedDebug.hasState).toBe(false);
+    expect(purgedDebug.finalized).toBe(false);
+  }, 15_000);
+
   it("keeps gzip-like payload bytes unchanged", async () => {
     const projectId = "project-exact-bytes";
     const sessionId = "session-exact-bytes";
@@ -213,6 +267,143 @@ describe("SessionRecorder Durable Object", () => {
 
     expect(Buffer.from(segmentBatch(parsed, 0))).toEqual(payload);
   });
+
+  it("skips empty stored bodies so a poison row cannot wedge finalize", async () => {
+    const projectId = "project-empty-poison";
+    const sessionId = "session-empty-poison";
+    const payload = bytes("valid-after-empty");
+
+    await seedBatches({
+      projectId,
+      sessionId,
+      tab: "tab-a",
+      startSeq: 0,
+      count: 1,
+      payloadBytes: 0,
+      t0: 6000,
+    });
+    await append({ projectId, sessionId, tab: "tab-a", seq: 1, payload, t0: 6010 });
+
+    const manifestBytes = await waitForR2Bytes(manifestKey(projectId, sessionId));
+    const manifest = JSON.parse(new TextDecoder().decode(manifestBytes)) as SessionManifest;
+    const parsed = parseSegment(await readR2Bytes(segmentKey(projectId, sessionId, 1)));
+
+    expect(manifest.counts.batches).toBe(1);
+    expect(parsed.count).toBe(1);
+    // hex-normalize: Buffer vs Uint8Array are structurally unequal to toEqual
+    expect(Buffer.from(segmentBatch(parsed, 0)).toString("hex")).toBe(
+      Buffer.from(payload).toString("hex"),
+    );
+  });
+
+  it("flushes more than one max-sized chunk in a single snapshot", async () => {
+    const projectId = "project-multi-chunk";
+    const sessionId = "session-multi-chunk";
+    const batchCount = 4097;
+
+    await seedBatches({
+      projectId,
+      sessionId,
+      tab: "tab-a",
+      startSeq: 0,
+      count: batchCount,
+      payloadBytes: 1,
+      t0: 7000,
+    });
+    const flushResult = await flush(projectId, sessionId);
+
+    expect(flushResult?.batches).toBe(batchCount);
+
+    const first = parseSegment(await readR2Bytes(segmentKey(projectId, sessionId, 1)));
+    const second = parseSegment(await readR2Bytes(segmentKey(projectId, sessionId, 2)));
+    const payloadValues: number[] = [];
+    for (let index = 0; index < first.count; index += 1) {
+      payloadValues.push(segmentBatch(first, index)[0] ?? 0);
+    }
+    for (let index = 0; index < second.count; index += 1) {
+      payloadValues.push(segmentBatch(second, index)[0] ?? 0);
+    }
+
+    expect(first.count).toBe(4096);
+    expect(second.count).toBe(1);
+    expect(payloadValues).toEqual(
+      Array.from({ length: batchCount }, (_, index) => (index % 251) + 1),
+    );
+  });
+
+  it("uses server receive time for session bounds when client time is far in the future", async () => {
+    const projectId = "project-server-time";
+    const sessionId = "session-server-time";
+    const receivedAt = Date.now();
+
+    await append({
+      projectId,
+      sessionId,
+      tab: "tab-a",
+      seq: 0,
+      payload: bytes("future-time"),
+      t0: receivedAt,
+      t1: receivedAt + 5 * 365 * 24 * 60 * 60 * 1000,
+      receivedAt,
+    });
+    await forceFinalize(projectId, sessionId);
+
+    const manifestBytes = await readR2Bytes(manifestKey(projectId, sessionId));
+    const manifest = JSON.parse(new TextDecoder().decode(manifestBytes)) as SessionManifest;
+
+    expect(manifest.startedAt).toBe(receivedAt);
+    expect(manifest.endedAt).toBeLessThanOrEqual(receivedAt + 60_000);
+    expect(manifest.durationMs).toBeGreaterThanOrEqual(0);
+    expect(manifest.durationMs).toBeLessThanOrEqual(60_000);
+  });
+
+  it("does not lose a batch that races with finalize", async () => {
+    const projectId = "project-finalize-race";
+    const sessionId = "session-finalize-race";
+    const firstPayload = bytes("first");
+    const racePayload = bytes("race");
+
+    await append({ projectId, sessionId, tab: "tab-a", seq: 0, payload: firstPayload, t0: 8000 });
+    const finalizePromise = forceFinalize(projectId, sessionId);
+    const appendPromise = append({
+      projectId,
+      sessionId,
+      tab: "tab-a",
+      seq: 1,
+      payload: racePayload,
+      t0: 8010,
+    });
+    const appendResult = await appendPromise;
+    await finalizePromise;
+
+    const manifestBytes = await readR2Bytes(manifestKey(projectId, sessionId));
+    const manifest = JSON.parse(new TextDecoder().decode(manifestBytes)) as SessionManifest;
+    const payloads = await readManifestPayloads(manifest);
+
+    if (appendResult.closed) {
+      expect(payloads).not.toContain(Buffer.from(racePayload).toString("hex"));
+    } else {
+      expect(payloads).toContain(Buffer.from(racePayload).toString("hex"));
+    }
+  });
+
+  it("keeps state small when many navigations are recorded", async () => {
+    const projectId = "project-small-state";
+    const sessionId = "session-small-state";
+
+    const debug = await seedBatches({
+      projectId,
+      sessionId,
+      tab: "tab-a",
+      startSeq: 0,
+      count: 1500,
+      payloadBytes: 0,
+      t0: 9000,
+    });
+
+    expect(debug.hasState).toBe(true);
+    expect(debug.stateBytes).toBeLessThan(1000);
+  });
 });
 
 interface AppendInput {
@@ -222,14 +413,20 @@ interface AppendInput {
   seq: number;
   payload: Uint8Array;
   t0: number;
+  t1?: number;
+  receivedAt?: number;
+  url?: string;
   events?: BatchIndex["e"];
 }
 
 interface DebugBody {
   hasState: boolean;
+  finalized: boolean;
   bufferedBytes: number;
   pendingBatches: number;
   segmentCount: number;
+  stateBytes: number;
+  tombstonePurgeAt?: number;
 }
 
 interface AppendResultBody {
@@ -245,8 +442,8 @@ async function append(input: AppendInput): Promise<AppendResultBody> {
     tab: input.tab,
     seq: input.seq,
     t0: input.t0,
-    t1: input.t0 + 50,
-    u: `/page-${input.seq}`,
+    t1: input.t1 ?? input.t0 + 50,
+    u: input.url ?? `/page-${input.seq}`,
     e: input.events ?? [{ t: input.t0 + 1, k: "custom", d: `batch-${input.seq}` }],
   };
   const response = await worker.fetch("/__test/do/append", {
@@ -264,12 +461,67 @@ async function append(input: AppendInput): Promise<AppendResultBody> {
       index,
       payloadB64: Buffer.from(input.payload).toString("base64"),
       attrs: { country: "US" },
-      receivedAt: Date.now(),
+      receivedAt: input.receivedAt ?? Date.now(),
     }),
   });
 
   expect(response.status).toBe(200);
   return (await response.json()) as AppendResultBody;
+}
+
+async function seedBatches(input: {
+  projectId: string;
+  sessionId: string;
+  tab: string;
+  startSeq: number;
+  count: number;
+  payloadBytes: number;
+  t0: number;
+}): Promise<DebugBody> {
+  const response = await worker.fetch("/__test/do/seed-batches", {
+    method: "POST",
+    body: JSON.stringify({
+      requestId: `req-${input.projectId}-${input.sessionId}-seed`,
+      projectId: input.projectId,
+      orgId: "org",
+      shard: 0,
+      retentionDays: 7,
+      sessionId: input.sessionId,
+      tab: input.tab,
+      startSeq: input.startSeq,
+      count: input.count,
+      payloadBytes: input.payloadBytes,
+      t0: input.t0,
+      receivedAt: Date.now(),
+      flags: 0,
+      attrs: { country: "US" },
+    }),
+  });
+
+  expect(response.status).toBe(200);
+  return (await response.json()) as DebugBody;
+}
+
+async function flush(
+  projectId: string,
+  sessionId: string,
+): Promise<{ reason: string; bytes: number; batches: number } | null> {
+  const response = await worker.fetch("/__test/do/flush", {
+    method: "POST",
+    body: JSON.stringify({ projectId, sessionId }),
+  });
+
+  expect(response.status).toBe(200);
+  return (await response.json()) as { reason: string; bytes: number; batches: number } | null;
+}
+
+async function forceFinalize(projectId: string, sessionId: string): Promise<void> {
+  const response = await worker.fetch("/__test/do/finalize", {
+    method: "POST",
+    body: JSON.stringify({ projectId, sessionId }),
+  });
+
+  expect(response.status).toBe(200);
 }
 
 async function readDebug(projectId: string, sessionId: string): Promise<DebugBody> {
@@ -299,6 +551,35 @@ async function waitForR2Bytes(key: string): Promise<Uint8Array> {
   }
 
   throw new Error(`R2 object was not written: ${key}`);
+}
+
+async function pollDebug(
+  projectId: string,
+  sessionId: string,
+  ready: (body: DebugBody) => boolean,
+  deadlineMs: number,
+): Promise<DebugBody> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < deadlineMs) {
+    const body = await readDebug(projectId, sessionId);
+    if (ready(body)) {
+      return body;
+    }
+    await sleep(100);
+  }
+
+  throw new Error(`debug state did not match within ${deadlineMs}ms`);
+}
+
+async function readManifestPayloads(manifest: SessionManifest): Promise<string[]> {
+  const payloads: string[] = [];
+  for (const segment of manifest.segments) {
+    const parsed = parseSegment(await readR2Bytes(segment.key));
+    for (let index = 0; index < parsed.count; index += 1) {
+      payloads.push(Buffer.from(segmentBatch(parsed, index)).toString("hex"));
+    }
+  }
+  return payloads;
 }
 
 function bytes(value: string): Uint8Array {

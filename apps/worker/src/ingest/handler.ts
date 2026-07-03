@@ -1,5 +1,6 @@
 import {
   FLAG_UNCOMPRESSED,
+  MAX_COMPRESSED_BATCH_BYTES,
   SDK_FLUSH_DEFAULT_MS,
   configKvKey,
   decodeIngestBody,
@@ -17,6 +18,7 @@ import {
   mapConfigRowToProjectConfig,
   parseProjectConfig,
   readContentLength,
+  sanitizeBatchIndexEvents,
   sha256Hex,
   validateIngestHeaders,
 } from "./helpers.ts";
@@ -122,11 +124,29 @@ async function handleIngestPost(
       return finish({ error: mismatchError }, 400, "client_error");
     }
 
+    const sanitized = sanitizeBatchIndexEvents(decoded.index);
+    if (sanitized.eventsDropped > 0) {
+      event.set({ events_dropped: sanitized.eventsDropped });
+    }
+
     let payload = decoded.payload;
+    const payloadSizeError = validatePayloadSize(payload);
+    if (payloadSizeError !== null) {
+      return finish(payloadSizeError.body, payloadSizeError.status, "client_error");
+    }
+
     if ((flags & FLAG_UNCOMPRESSED) !== 0) {
       payload = await gzipPayload(payload);
       cleanedFlags = flags - FLAG_UNCOMPRESSED;
       event.set({ flags: cleanedFlags });
+      const compressedPayloadSizeError = validatePayloadSize(payload);
+      if (compressedPayloadSizeError !== null) {
+        return finish(
+          compressedPayloadSizeError.body,
+          compressedPayloadSizeError.status,
+          "client_error",
+        );
+      }
     }
 
     const attrs = attrsFromRequest(request);
@@ -144,7 +164,7 @@ async function handleIngestPost(
       tab,
       seq,
       flags: cleanedFlags,
-      index: decoded.index,
+      index: sanitized.index,
       payload,
       attrs,
       receivedAt: Date.now(),
@@ -170,6 +190,21 @@ async function handleIngestPost(
     event.set({ status_code: statusCode });
     event.emit(outcome);
   }
+}
+
+function validatePayloadSize(payload: Uint8Array): {
+  body: { error: string };
+  status: number;
+} | null {
+  if (payload.byteLength === 0) {
+    return { body: { error: "ingest payload is empty" }, status: 400 };
+  }
+
+  if (payload.byteLength > MAX_COMPRESSED_BATCH_BYTES) {
+    return { body: { error: "ingest payload is too large" }, status: 413 };
+  }
+
+  return null;
 }
 
 async function loadProjectConfig(

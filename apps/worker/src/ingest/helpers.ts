@@ -10,7 +10,7 @@ import {
   MAX_SEQ,
   projectConfigSchema,
 } from "@orange-replay/shared";
-import type { ProjectConfig } from "@orange-replay/shared";
+import type { BatchIndex, IndexEvent, IndexEventKind, ProjectConfig } from "@orange-replay/shared";
 
 export const MAX_INGEST_BODY_BYTES = MAX_COMPRESSED_BATCH_BYTES + MAX_INDEX_JSON_BYTES;
 
@@ -61,6 +61,19 @@ export interface ProjectConfigRow {
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
 const TAB_ID_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
 const INTEGER_PATTERN = /^[0-9]+$/;
+const MAX_EVENTS_PER_BATCH = 200;
+const MAX_EVENT_DETAIL_CHARS = 200;
+const MAX_EVENT_META_KEYS = 16;
+const INDEX_EVENT_KINDS = new Set<IndexEventKind>([
+  "click",
+  "rage",
+  "error",
+  "nav",
+  "custom",
+  "input",
+  "scroll",
+  "vital",
+]);
 
 const encoder = new TextEncoder();
 
@@ -153,6 +166,31 @@ export function mapConfigRowToProjectConfig(row: ProjectConfigRow | null): Proje
   return parseProjectConfig(candidate);
 }
 
+export function sanitizeBatchIndexEvents(index: BatchIndex): {
+  index: BatchIndex;
+  eventsDropped: number;
+} {
+  const events: IndexEvent[] = [];
+  let eventsDropped = 0;
+
+  for (const event of index.e as unknown[]) {
+    if (events.length >= MAX_EVENTS_PER_BATCH) {
+      eventsDropped += 1;
+      continue;
+    }
+
+    const cleanEvent = sanitizeIndexEvent(event);
+    if (cleanEvent === null) {
+      eventsDropped += 1;
+      continue;
+    }
+
+    events.push(cleanEvent);
+  }
+
+  return { index: { ...index, e: events }, eventsDropped };
+}
+
 function readIntegerHeader(
   headers: Headers,
   name: string,
@@ -213,6 +251,64 @@ function nullableString(value: unknown): string | undefined | null {
   }
 
   return typeof value === "string" ? value : null;
+}
+
+function sanitizeIndexEvent(value: unknown): IndexEvent | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const t = value["t"];
+  const k = value["k"];
+  if (typeof t !== "number" || !Number.isFinite(t)) {
+    return null;
+  }
+  if (typeof k !== "string" || !INDEX_EVENT_KINDS.has(k as IndexEventKind)) {
+    return null;
+  }
+
+  const event: IndexEvent = { t, k: k as IndexEventKind };
+  const detail = value["d"];
+  if (typeof detail === "string") {
+    event.d = detail.slice(0, MAX_EVENT_DETAIL_CHARS);
+  }
+
+  const meta = sanitizeEventMeta(value["m"]);
+  if (meta !== undefined) {
+    event.m = meta;
+  }
+
+  return event;
+}
+
+function sanitizeEventMeta(value: unknown): Record<string, string | number> | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const entries = Object.entries(value);
+  if (entries.length > MAX_EVENT_META_KEYS) {
+    return undefined;
+  }
+
+  const output: Record<string, string | number> = {};
+  for (const [key, item] of entries) {
+    if (typeof item !== "string" && typeof item !== "number") {
+      return undefined;
+    }
+
+    if (typeof item === "number" && !Number.isFinite(item)) {
+      return undefined;
+    }
+
+    output[key] = item;
+  }
+
+  return output;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function bytesToHex(bytes: Uint8Array): string {

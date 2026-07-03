@@ -183,6 +183,61 @@ describe("ingest route", () => {
     expect(res.status).toBe(413);
   });
 
+  it("rejects an empty payload after the sidecar separator", async () => {
+    const key = "empty-payload-key";
+    await seedKey(key, makeConfig(), true);
+    const sessionId = nextSessionId("empty");
+    const res = await postIngest({
+      key,
+      sessionId,
+      tab: "tab_empty",
+      seq: 0,
+      body: makeBody(sessionId, "tab_empty", 0, new Uint8Array()),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "ingest payload is empty" });
+  });
+
+  it("rejects payloads over the compressed batch cap even when the sidecar is small", async () => {
+    const key = "payload-large-key";
+    await seedKey(key, makeConfig(), true);
+    const sessionId = nextSessionId("payloadlarge");
+    const res = await postIngest({
+      key,
+      sessionId,
+      tab: "tab_payload_large",
+      seq: 0,
+      body: makeBody(
+        sessionId,
+        "tab_payload_large",
+        0,
+        new Uint8Array(MAX_COMPRESSED_BATCH_BYTES + 1),
+      ),
+    });
+
+    expect(res.status).toBe(413);
+    expect(await res.json()).toEqual({ error: "ingest payload is too large" });
+  });
+
+  it("rejects a sidecar where t0 is after t1", async () => {
+    const key = "bad-time-key";
+    await seedKey(key, makeConfig(), true);
+    const sessionId = nextSessionId("badtime");
+    const index = makeIndex(sessionId, "tab_bad_time", 0);
+    index.t0 = 20;
+    index.t1 = 10;
+    const res = await postIngest({
+      key,
+      sessionId,
+      tab: "tab_bad_time",
+      seq: 0,
+      body: encodeIngestBody(index, payloadBytes),
+    });
+
+    expect(res.status).toBe(400);
+  });
+
   it("gzips uncompressed fallback payloads before appending", async () => {
     const key = "plain-key";
     await seedKey(key, makeConfig(), true);

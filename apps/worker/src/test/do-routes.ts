@@ -1,9 +1,15 @@
 import type { Env } from "../env.ts";
 import type { AppendArgs, AppendResult } from "../do/contract.ts";
+import type { TestSeedBatchesArgs } from "../do/session-recorder.ts";
 
 interface TestAppendBody extends Omit<AppendArgs, "payload" | "receivedAt"> {
   payloadB64: string;
   receivedAt?: number;
+}
+
+interface SessionRequestBody {
+  projectId: string;
+  sessionId: string;
 }
 
 export async function handleDoTestRoutes(
@@ -23,6 +29,24 @@ export async function handleDoTestRoutes(
     });
 
     return Response.json(result);
+  }
+
+  if (request.method === "POST" && url.pathname === "/__test/do/seed-batches") {
+    const body = (await request.json()) as TestSeedBatchesArgs;
+    return Response.json(
+      await sessionStub(env, body.projectId, body.sessionId).seedBatchesForTest(body),
+    );
+  }
+
+  if (request.method === "POST" && url.pathname === "/__test/do/flush") {
+    const body = (await request.json()) as SessionRequestBody;
+    return Response.json(await sessionStub(env, body.projectId, body.sessionId).flushForTest());
+  }
+
+  if (request.method === "POST" && url.pathname === "/__test/do/finalize") {
+    const body = (await request.json()) as SessionRequestBody;
+    await sessionStub(env, body.projectId, body.sessionId).finalizeForTest();
+    return Response.json({ ok: true });
   }
 
   if (request.method === "GET" && url.pathname === "/__test/do/r2") {

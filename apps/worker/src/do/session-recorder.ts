@@ -5,15 +5,28 @@ import {
   segmentKey,
   startWideEvent,
 } from "@orange-replay/shared";
-import type { FinalizeMessage, IndexEvent, SegmentRef } from "@orange-replay/shared";
+import type {
+  EdgeAttrs,
+  FinalizeMessage,
+  IndexEvent,
+  SegmentRef,
+  WideEventOutcome,
+} from "@orange-replay/shared";
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "../env.ts";
 import type { AppendArgs, AppendResult } from "./contract.ts";
 import {
   buildSessionManifest,
+  capFinalizeMessageToBudget,
+  chunkForSegments,
+  clampIndexForStorage,
+  countTimelineEvents,
   decideSegmentFlush,
   filterFinalizeEvents,
+  nextAlarmAfterAlarm,
   resolveSessionTiming,
+  shouldDropForSessionCap,
+  shouldSetAlarm,
   sdkFlushMs,
 } from "./session-logic.ts";
 import type { SegmentFlushReason, SegmentForManifest, SessionState } from "./session-logic.ts";
@@ -55,9 +68,12 @@ interface SegmentRow {
 
 interface DebugState {
   hasState: boolean;
+  finalized: boolean;
   bufferedBytes: number;
   pendingBatches: number;
   segmentCount: number;
+  stateBytes: number;
+  tombstonePurgeAt?: number;
 }
 
 interface SegmentFlushResult {
@@ -66,8 +82,32 @@ interface SegmentFlushResult {
   batches: number;
 }
 
+export interface TestSeedBatchesArgs {
+  requestId: string;
+  projectId: string;
+  orgId: string;
+  shard: number;
+  retentionDays: number;
+  sessionId: string;
+  tab: string;
+  startSeq: number;
+  count: number;
+  payloadBytes: number;
+  t0: number;
+  receivedAt: number;
+  flags: number;
+  attrs: EdgeAttrs;
+}
+
+interface FinalizedTombstone {
+  finalized: true;
+  finalizedAt: number;
+  firstRequestId: string;
+}
+
 export class SessionRecorder extends DurableObject<Env> {
   private sessionState: SessionState | null = null;
+  private finalizedTombstone: FinalizedTombstone | null = null;
   private alarmAt: number | null = null;
   private activeFlush: Promise<SegmentFlushResult | null> | null = null;
 
@@ -75,7 +115,9 @@ export class SessionRecorder extends DurableObject<Env> {
     super(ctx, env);
     this.createSchema();
     void ctx.blockConcurrencyWhile(async () => {
-      this.sessionState = this.loadSessionState();
+      const stored = this.loadStoredState();
+      this.sessionState = stored.state;
+      this.finalizedTombstone = stored.tombstone;
       this.alarmAt = await ctx.storage.getAlarm();
     });
   }
@@ -88,6 +130,8 @@ export class SessionRecorder extends DurableObject<Env> {
     const event = startWideEvent("worker", "do.append", args.requestId);
     const timing = resolveSessionTiming(this.env.DEV_TEST_ROUTES, this.env.TEST_TIMINGS);
     let result: AppendResult = { live: false, closed: false, flushMs: sdkFlushMs(false) };
+    let outcome: WideEventOutcome = "success";
+    let dropReason: "session_closed" | "session_cap" | undefined;
     let duplicate = false;
     let flushReason: SegmentFlushReason | undefined;
     let viewerCount = 0;
@@ -95,13 +139,44 @@ export class SessionRecorder extends DurableObject<Env> {
 
     try {
       let state = this.sessionState;
+      if (this.finalizedTombstone !== null) {
+        outcome = "dropped";
+        dropReason = "session_closed";
+        result = { live: false, closed: true, flushMs: sdkFlushMs(false) };
+        return result;
+      }
+
       if (state === null) {
         if (args.seq !== 0) {
+          outcome = "dropped";
+          dropReason = "session_closed";
           result = { live: false, closed: true, flushMs: sdkFlushMs(false) };
           return result;
         }
 
         state = createFreshState(args);
+      }
+
+      const clampedIndex = clampIndexForStorage(args.index, state.startedAt, args.receivedAt);
+      duplicate = this.batchExists(args.tab, args.seq);
+      viewerCount = this.ctx.getWebSockets("viewer").length;
+
+      if (duplicate) {
+        result = { live: viewerCount > 0, closed: false, flushMs: sdkFlushMs(viewerCount > 0) };
+        return result;
+      }
+
+      if (
+        shouldDropForSessionCap({
+          totalPayloadBytes: state.totalPayloadBytes,
+          batchCount: state.batchCount,
+          payloadBytes: args.payload.byteLength,
+        })
+      ) {
+        outcome = "dropped";
+        dropReason = "session_cap";
+        result = { live: viewerCount > 0, closed: false, flushMs: sdkFlushMs(viewerCount > 0) };
+        return result;
       }
 
       const insert = this.ctx.storage.sql.exec(
@@ -110,27 +185,26 @@ export class SessionRecorder extends DurableObject<Env> {
           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         args.tab,
         args.seq,
-        args.index.t0,
-        args.index.t1,
+        clampedIndex.t0,
+        clampedIndex.t1,
         args.payload.byteLength,
         args.flags,
-        JSON.stringify(args.index.e),
+        JSON.stringify(clampedIndex.e),
         exactArrayBuffer(args.payload),
       );
       duplicate = insert.rowsWritten === 0;
-      viewerCount = this.ctx.getWebSockets("viewer").length;
 
       if (duplicate) {
         result = { live: viewerCount > 0, closed: false, flushMs: sdkFlushMs(viewerCount > 0) };
         return result;
       }
 
-      updateStateWithBatch(state, args);
+      updateStateWithBatch(state, args, clampedIndex);
       this.sessionState = state;
       this.persistState(state);
       bufferedBytes = state.bufferedBytes;
 
-      viewerCount = this.broadcastBatch(args);
+      viewerCount = this.broadcastBatch({ ...args, index: clampedIndex });
 
       const pendingBatches = this.pendingBatchCount();
       const flushDecision = decideSegmentFlush({
@@ -153,6 +227,7 @@ export class SessionRecorder extends DurableObject<Env> {
       result = { live: viewerCount > 0, closed: false, flushMs: sdkFlushMs(viewerCount > 0) };
       return result;
     } catch (err) {
+      outcome = "server_error";
       event.fail(err);
       throw err;
     } finally {
@@ -169,26 +244,119 @@ export class SessionRecorder extends DurableObject<Env> {
       if (flushReason !== undefined) {
         event.set({ flush_reason: flushReason });
       }
-      event.emit();
+      if (dropReason !== undefined) {
+        event.set({ reason: dropReason });
+      }
+      event.emit(outcome);
     }
   }
 
   async debug(): Promise<DebugState> {
+    const timing = resolveSessionTiming(this.env.DEV_TEST_ROUTES, this.env.TEST_TIMINGS);
+    const stateBytes = this.stateBytes();
     return {
       hasState: this.sessionState !== null,
+      finalized: this.finalizedTombstone !== null,
       bufferedBytes: this.sessionState?.bufferedBytes ?? 0,
       pendingBatches: this.pendingBatchCount(),
       segmentCount: this.sessionState?.segmentCount ?? this.segmentRows().length,
+      stateBytes,
+      ...(this.finalizedTombstone === null
+        ? {}
+        : { tombstonePurgeAt: this.finalizedTombstone.finalizedAt + timing.closeMs * 4 }),
     };
   }
 
+  private stateBytes(): number {
+    const value = this.sessionState ?? this.finalizedTombstone;
+    return value === null ? 0 : new TextEncoder().encode(JSON.stringify(value)).byteLength;
+  }
+
+  async seedBatchesForTest(args: TestSeedBatchesArgs): Promise<DebugState> {
+    if (this.finalizedTombstone !== null) {
+      return this.debug();
+    }
+
+    let state = this.sessionState;
+    if (state === null) {
+      state = createFreshState({
+        ...args,
+        seq: args.startSeq,
+        index: testIndex(args.sessionId, args.tab, args.startSeq, args.t0),
+        payload: makeTestPayload(args.payloadBytes, args.startSeq),
+      });
+    }
+
+    for (let offset = 0; offset < args.count; offset += 1) {
+      const seq = args.startSeq + offset;
+      if (this.batchExists(args.tab, seq)) {
+        continue;
+      }
+
+      const payload = makeTestPayload(args.payloadBytes, seq);
+      const index = clampIndexForStorage(
+        testIndex(args.sessionId, args.tab, seq, args.t0 + offset),
+        state.startedAt,
+        args.receivedAt,
+      );
+
+      this.ctx.storage.sql.exec(
+        `INSERT OR IGNORE INTO batches
+          (tab, seq, t0, t1, bytes, flags, events, body)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        args.tab,
+        seq,
+        index.t0,
+        index.t1,
+        payload.byteLength,
+        args.flags,
+        JSON.stringify(index.e),
+        exactArrayBuffer(payload),
+      );
+
+      updateStateWithBatch(state, { ...args, seq, index, payload }, index);
+    }
+
+    this.sessionState = state;
+    this.persistState(state);
+    return this.debug();
+  }
+
+  async flushForTest(): Promise<SegmentFlushResult | null> {
+    return await this.flushSegment("tail_flush");
+  }
+
+  async finalizeForTest(): Promise<void> {
+    await this.finalize();
+  }
+
   override async alarm(): Promise<void> {
-    const event = startWideEvent("worker", "do.alarm", this.sessionState?.firstRequestId);
+    const event = startWideEvent(
+      "worker",
+      "do.alarm",
+      this.sessionState?.firstRequestId ?? this.finalizedTombstone?.firstRequestId,
+    );
     const timing = resolveSessionTiming(this.env.DEV_TEST_ROUTES, this.env.TEST_TIMINGS);
-    let alarmKind: "tail_flush" | "close" | "noop" = "noop";
+    let alarmKind: "tail_flush" | "close" | "purge_tombstone" | "noop" = "noop";
 
     try {
       this.alarmAt = null;
+      if (this.finalizedTombstone !== null) {
+        const purgeAt = this.finalizedTombstone.finalizedAt + timing.closeMs * 4;
+        if (Date.now() >= purgeAt) {
+          alarmKind = "purge_tombstone";
+          await this.ctx.storage.deleteAll();
+          this.sessionState = null;
+          this.finalizedTombstone = null;
+          this.alarmAt = null;
+          this.createSchema();
+          return;
+        }
+
+        await this.setAlarmIfUseful(purgeAt, timing.flushTailMs);
+        return;
+      }
+
       const state = this.sessionState;
       if (state === null) {
         return;
@@ -209,7 +377,12 @@ export class SessionRecorder extends DurableObject<Env> {
       }
 
       if (this.sessionState !== null) {
-        await this.setAlarmIfUseful(state.lastActivity + timing.closeMs, timing.flushTailMs);
+        const desiredAt = nextAlarmAfterAlarm({
+          lastActivity: this.sessionState.lastActivity,
+          pendingBatches: this.pendingBatchCount(),
+          timing,
+        });
+        await this.setAlarmIfUseful(desiredAt, timing.flushTailMs);
       }
     } catch (err) {
       event.fail(err);
@@ -282,15 +455,23 @@ export class SessionRecorder extends DurableObject<Env> {
     `);
   }
 
-  private loadSessionState(): SessionState | null {
+  private loadStoredState(): {
+    state: SessionState | null;
+    tombstone: FinalizedTombstone | null;
+  } {
     const row = this.ctx.storage.sql
       .exec<StateRow>("SELECT v FROM state WHERE id = 1")
       .toArray()[0];
     if (row === undefined) {
-      return null;
+      return { state: null, tombstone: null };
     }
 
-    return JSON.parse(row.v) as SessionState;
+    const parsed = JSON.parse(row.v) as unknown;
+    if (isFinalizedTombstone(parsed)) {
+      return { state: null, tombstone: parsed };
+    }
+
+    return { state: parsed as SessionState, tombstone: null };
   }
 
   private persistState(state: SessionState): void {
@@ -306,6 +487,14 @@ export class SessionRecorder extends DurableObject<Env> {
     return this.ctx.storage.sql
       .exec<CountRow>("SELECT COUNT(*) AS count FROM batches WHERE body IS NOT NULL")
       .one().count;
+  }
+
+  private batchExists(tab: string, seq: number): boolean {
+    return (
+      this.ctx.storage.sql
+        .exec<CountRow>("SELECT COUNT(*) AS count FROM batches WHERE tab = ? AND seq = ?", tab, seq)
+        .one().count > 0
+    );
   }
 
   private pendingBatchRows(): BatchRow[] {
@@ -377,31 +566,11 @@ export class SessionRecorder extends DurableObject<Env> {
       return null;
     }
 
-    const bodies = rows.map((row) => new Uint8Array(row.body));
-    const bodyBytes = rows.reduce((total, row) => total + row.bytes, 0);
-    const segment = buildSegment(bodies);
-    const events = rows
-      .flatMap((row) => parseEvents(row.events))
-      .toSorted((left, right) => left.t - right.t);
-    const nextSegmentNumber = state.segmentCount + 1;
-    const key = segmentKey(state.projectId, state.sessionId, nextSegmentNumber);
-    const t0 = Math.min(...rows.map((row) => row.t0));
-    const t1 = Math.max(...rows.map((row) => row.t1));
+    const emptyRows = rows.filter((row) => row.bytes === 0 || row.body.byteLength === 0);
+    const segmentRows = rows.filter((row) => row.bytes > 0 && row.body.byteLength > 0);
+    const emptyBytes = emptyRows.reduce((total, row) => total + row.bytes, 0);
 
-    await this.env.RECORDINGS.put(key, segment);
-
-    this.ctx.storage.sql.exec(
-      "INSERT INTO segments (n, key, bytes, t0, t1, batches, events) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      nextSegmentNumber,
-      key,
-      segment.byteLength,
-      t0,
-      t1,
-      rows.length,
-      JSON.stringify(events),
-    );
-
-    for (const row of rows) {
+    for (const row of emptyRows) {
       this.ctx.storage.sql.exec(
         "UPDATE batches SET body = NULL WHERE tab = ? AND seq = ? AND body IS NOT NULL",
         row.tab,
@@ -409,34 +578,89 @@ export class SessionRecorder extends DurableObject<Env> {
       );
     }
 
-    if (this.sessionState !== null) {
-      this.sessionState.bufferedBytes = Math.max(0, this.sessionState.bufferedBytes - bodyBytes);
-      this.sessionState.segmentCount = Math.max(this.sessionState.segmentCount, nextSegmentNumber);
-      this.sessionState.lastFlushAt = Date.now();
-      this.persistState(this.sessionState);
+    if (segmentRows.length === 0) {
+      state.bufferedBytes = Math.max(0, state.bufferedBytes - emptyBytes);
+      state.lastFlushAt = Date.now();
+      this.persistState(state);
+      return null;
     }
 
-    return { reason, bytes: segment.byteLength, batches: rows.length };
+    let totalSegmentBytes = 0;
+    let totalBatches = 0;
+    let flushedBodyBytes = emptyBytes;
+
+    for (const chunk of chunkForSegments(segmentRows)) {
+      const bodies = chunk.map((row) => new Uint8Array(row.body));
+      const bodyBytes = chunk.reduce((total, row) => total + row.bytes, 0);
+      const segment = buildSegment(bodies);
+      const events = chunk
+        .flatMap((row) => parseEvents(row.events))
+        .toSorted((left, right) => left.t - right.t);
+      const nextSegmentNumber = state.segmentCount + 1;
+      const key = segmentKey(state.projectId, state.sessionId, nextSegmentNumber);
+      const t0 = Math.min(...chunk.map((row) => row.t0));
+      const t1 = Math.max(...chunk.map((row) => row.t1));
+
+      const written = await this.env.RECORDINGS.put(key, segment, {
+        onlyIf: { etagDoesNotMatch: "*" },
+      });
+      if (written === null) {
+        throw new Error(`R2 object already exists: ${key}`);
+      }
+
+      this.ctx.storage.sql.exec(
+        "INSERT INTO segments (n, key, bytes, t0, t1, batches, events) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        nextSegmentNumber,
+        key,
+        segment.byteLength,
+        t0,
+        t1,
+        chunk.length,
+        JSON.stringify(events),
+      );
+
+      for (const row of chunk) {
+        this.ctx.storage.sql.exec(
+          "UPDATE batches SET body = NULL WHERE tab = ? AND seq = ? AND body IS NOT NULL",
+          row.tab,
+          row.seq,
+        );
+      }
+
+      flushedBodyBytes += bodyBytes;
+      totalSegmentBytes += segment.byteLength;
+      totalBatches += chunk.length;
+      state.bufferedBytes = Math.max(0, state.bufferedBytes - flushedBodyBytes);
+      state.segmentCount = nextSegmentNumber;
+      state.lastFlushAt = Date.now();
+      this.persistState(state);
+      flushedBodyBytes = 0;
+    }
+
+    return { reason, bytes: totalSegmentBytes, batches: totalBatches };
   }
 
   private async setAlarmIfUseful(desiredAt: number, flushTailMs: number): Promise<void> {
     const now = Date.now();
-    if (
-      this.alarmAt === null ||
-      this.alarmAt <= now ||
-      this.alarmAt > desiredAt + 2 * flushTailMs
-    ) {
+    if (shouldSetAlarm({ alarmAt: this.alarmAt, now, desiredAt, flushTailMs })) {
       await this.ctx.storage.setAlarm(desiredAt);
       this.alarmAt = desiredAt;
     }
   }
 
   private async finalize(): Promise<void> {
+    await this.ctx.blockConcurrencyWhile(async () => {
+      await this.finalizeLocked();
+    });
+  }
+
+  private async finalizeLocked(): Promise<void> {
     const stateBeforeFlush = this.sessionState;
     const event = startWideEvent("worker", "do.finalize", stateBeforeFlush?.firstRequestId);
     let segmentCount = 0;
     let bytes = 0;
     let batchCount = 0;
+    let timelineEventsDropped = 0;
 
     try {
       if (stateBeforeFlush === null) {
@@ -449,17 +673,26 @@ export class SessionRecorder extends DurableObject<Env> {
         return;
       }
 
-      const manifest = buildSessionManifest(state, this.segmentRowsForManifest());
+      const segmentsForManifest = this.segmentRowsForManifest();
+      const manifest = buildSessionManifest(state, segmentsForManifest);
       segmentCount = manifest.segments.length;
       bytes = manifest.bytes;
       batchCount = manifest.counts.batches;
+      timelineEventsDropped = Math.max(
+        0,
+        countTimelineEvents(segmentsForManifest) - manifest.timeline.length,
+      );
       const key = manifestKey(state.projectId, state.sessionId);
 
-      await this.env.RECORDINGS.put(key, JSON.stringify(manifest), {
+      const manifestWritten = await this.env.RECORDINGS.put(key, JSON.stringify(manifest), {
         httpMetadata: { contentType: "application/json" },
+        onlyIf: { etagDoesNotMatch: "*" },
       });
+      if (manifestWritten === null) {
+        throw new Error(`R2 object already exists: ${key}`);
+      }
 
-      const message: FinalizeMessage = {
+      const message = capFinalizeMessageToBudget({
         type: "session.finalized",
         sessionId: state.sessionId,
         projectId: state.projectId,
@@ -475,7 +708,7 @@ export class SessionRecorder extends DurableObject<Env> {
         attrs: manifest.attrs,
         retentionDays: state.retentionDays,
         events: filterFinalizeEvents(manifest.timeline),
-      };
+      } satisfies FinalizeMessage);
 
       await this.env.FINALIZE_QUEUE.send(message, { contentType: "json" });
 
@@ -487,16 +720,34 @@ export class SessionRecorder extends DurableObject<Env> {
         }
       }
 
-      await this.ctx.storage.deleteAll();
-      await this.ctx.storage.deleteAlarm();
+      const finalizedAt = Date.now();
+      const tombstone: FinalizedTombstone = {
+        finalized: true,
+        finalizedAt,
+        firstRequestId: state.firstRequestId,
+      };
+      this.ctx.storage.sql.exec("DELETE FROM batches");
+      this.ctx.storage.sql.exec("DELETE FROM segments");
+      this.ctx.storage.sql.exec("DELETE FROM state");
+      this.ctx.storage.sql.exec(
+        "INSERT INTO state (id, v) VALUES (1, ?)",
+        JSON.stringify(tombstone),
+      );
       this.sessionState = null;
-      this.alarmAt = null;
-      this.createSchema();
+      this.finalizedTombstone = tombstone;
+      const timing = resolveSessionTiming(this.env.DEV_TEST_ROUTES, this.env.TEST_TIMINGS);
+      await this.ctx.storage.setAlarm(finalizedAt + timing.closeMs * 4);
+      this.alarmAt = finalizedAt + timing.closeMs * 4;
     } catch (err) {
       event.fail(err);
       throw err;
     } finally {
-      event.set({ segments: segmentCount, bytes, batch_count: batchCount });
+      event.set({
+        segments: segmentCount,
+        bytes,
+        batch_count: batchCount,
+        timeline_events_dropped: timelineEventsDropped,
+      });
       event.emit();
     }
   }
@@ -530,28 +781,28 @@ function createFreshState(args: AppendArgs): SessionState {
     flags: 0,
     attrs: args.attrs,
     firstRequestId: args.requestId,
-    urls: [],
     urlCount: 0,
   };
 }
 
-function updateStateWithBatch(state: SessionState, args: AppendArgs): void {
+function updateStateWithBatch(
+  state: SessionState,
+  args: AppendArgs,
+  clampedIndex: AppendArgs["index"],
+): void {
   state.lastActivity = args.receivedAt;
   state.bufferedBytes += args.payload.byteLength;
   state.totalPayloadBytes += args.payload.byteLength;
   state.batchCount += 1;
   state.flags |= args.flags;
 
-  if (args.index.u !== undefined && args.index.u.length > 0) {
-    state.entryUrl ??= args.index.u;
-    if (!state.urls.includes(args.index.u)) {
-      state.urls.push(args.index.u);
-    }
-    state.urlCount = state.urls.length;
+  if (clampedIndex.u !== undefined && clampedIndex.u.length > 0) {
+    state.entryUrl ??= clampedIndex.u;
+    state.urlCount += 1;
   }
 
-  if (args.index.enc?.k !== undefined) {
-    state.encKeyId = args.index.enc.k;
+  if (clampedIndex.enc?.k !== undefined) {
+    state.encKeyId = clampedIndex.enc.k;
   }
 }
 
@@ -562,4 +813,37 @@ function exactArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 function parseEvents(raw: string): IndexEvent[] {
   const parsed = JSON.parse(raw) as unknown;
   return Array.isArray(parsed) ? (parsed as IndexEvent[]) : [];
+}
+
+function isFinalizedTombstone(value: unknown): value is FinalizedTombstone {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return (
+    candidate["finalized"] === true &&
+    typeof candidate["finalizedAt"] === "number" &&
+    Number.isFinite(candidate["finalizedAt"]) &&
+    typeof candidate["firstRequestId"] === "string"
+  );
+}
+
+function testIndex(sessionId: string, tab: string, seq: number, t0: number): AppendArgs["index"] {
+  return {
+    v: 1,
+    s: sessionId,
+    tab,
+    seq,
+    t0,
+    t1: t0 + 1,
+    u: `/seed-${seq}`,
+    e: [{ t: t0, k: "custom", d: `seed-${seq}` }],
+  };
+}
+
+function makeTestPayload(size: number, seq: number): Uint8Array {
+  const payload = new Uint8Array(Math.max(0, size));
+  payload.fill((seq % 251) + 1);
+  return payload;
 }

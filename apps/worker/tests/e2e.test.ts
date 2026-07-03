@@ -31,6 +31,9 @@ const projectId = "pe2e";
 const orgId = "oe2e";
 const sessionId = "sess-e2e-000000000001";
 const liveSessionId = "sess-e2e-live-00000001";
+const hostileSessionId = "sess-e2e-hostile-0001";
+// Inside the A5 server clamp window so exact timeline assertions hold.
+const hostileBase = Date.now();
 
 let worker: Awaited<ReturnType<typeof unstable_dev>>;
 let sentBatches: SentBatch[] = [];
@@ -184,6 +187,33 @@ describe("a session lives and is replayed", () => {
     expect(seenPayloads).toEqual(expectedPayloads);
   }, 30_000);
 
+  it("accepts a hostile sidecar after sanitizing events", async () => {
+    const batch = makeHostileBatch();
+    const res = await postIngest(batch);
+    expect(res.status).toBe(200);
+
+    await delay(timings.closeMs + 600);
+    const manifest = await poll(async () => {
+      const response = await worker.fetch(
+        `/__test/do/r2?key=${encodeURIComponent(manifestKey(projectId, hostileSessionId))}`,
+      );
+      if (response.status !== 200) return null;
+      return (await response.json()) as SessionManifest;
+    }, 15_000);
+    const indexed = await poll(async () => {
+      const body = await readConsumerSession(hostileSessionId);
+      return body.session === null ? null : body;
+    }, 20_000);
+
+    expect(indexed.session?.["session_id"]).toBe(hostileSessionId);
+    expect(manifest.timeline).toEqual([
+      { t: hostileBase + 10, k: "error", d: "E".repeat(200), m: { code: "E_BAD", count: 1 } },
+      { t: hostileBase + 20, k: "custom", d: "ok" },
+      { t: hostileBase + 30, k: "custom", d: "deep-meta" },
+    ]);
+    expect(indexed.events.map((event) => event["kind"])).toEqual(["error", "custom", "custom"]);
+  }, 45_000);
+
   it("streams live batches over the public WebSocket route", async () => {
     const first = makeLiveBatch(0);
     const firstRes = await postIngest(first);
@@ -322,6 +352,34 @@ function makeLiveBatch(seq: number): SentBatch {
     url: `/live/${seq}`,
     events: [{ t: 5_010 + seq * 100, k: "custom", d: `live-${seq}` }],
   });
+}
+
+function makeHostileBatch(): SentBatch {
+  const payload = randomBytes(512);
+  const index = {
+    v: 1,
+    s: hostileSessionId,
+    tab: "hostileTab",
+    seq: 0,
+    t0: hostileBase,
+    t1: hostileBase + 100,
+    e: [
+      { t: hostileBase + 10, k: "error", d: "E".repeat(260), m: { code: "E_BAD", count: 1 } },
+      { t: hostileBase + 20, k: "custom", d: "ok", m: { nested: { no: true } } },
+      { t: hostileBase + 25, k: "wrong-kind", d: "drop" },
+      { t: hostileBase + 30, k: "custom", d: "deep-meta", m: { nested: { no: true } } },
+      ...Array.from({ length: 10_000 }, () => 0),
+    ],
+  } as BatchIndex;
+
+  return {
+    sessionId: hostileSessionId,
+    tab: "hostileTab",
+    seq: 0,
+    index,
+    payload,
+    body: encodeIngestBody(index, payload),
+  };
 }
 
 function makeBatch(input: {

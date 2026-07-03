@@ -1,8 +1,17 @@
-import { HDR_FLAGS, HDR_KEY, HDR_SEQ, HDR_SESSION, HDR_TAB, MAX_SEQ } from "@orange-replay/shared";
+import {
+  HDR_FLAGS,
+  HDR_KEY,
+  HDR_SEQ,
+  HDR_SESSION,
+  HDR_TAB,
+  MAX_SEQ,
+  type BatchIndex,
+} from "@orange-replay/shared";
 import { describe, expect, it } from "vite-plus/test";
 import {
   mapConfigRowToProjectConfig,
   parseProjectConfig,
+  sanitizeBatchIndexEvents,
   validateIngestHeaders,
 } from "../src/ingest/helpers.ts";
 
@@ -154,5 +163,48 @@ describe("ingest config row mapping", () => {
         shard: 0,
       }),
     ).toBeNull();
+  });
+});
+
+describe("ingest sidecar event sanitizing", () => {
+  it("keeps only sane events and counts dropped entries", () => {
+    const hostileIndex = {
+      v: 1,
+      s: "session_12345678",
+      tab: "tab_1",
+      seq: 0,
+      t0: 1,
+      t1: 2,
+      e: [
+        { t: 1, k: "click", d: "x".repeat(250), m: { a: "ok", b: 2 } },
+        { t: Number.NaN, k: "error" },
+        { t: 2, k: "bad-kind" },
+        { t: 3, k: "custom", m: { nested: { nope: true } } },
+        {
+          t: 4,
+          k: "custom",
+          m: Object.fromEntries(Array.from({ length: 17 }, (_, index) => [`k${index}`, "x"])),
+        },
+        ...Array.from({ length: 205 }, (_, index) => ({
+          t: 10 + index,
+          k: "nav",
+          d: `nav-${index}`,
+        })),
+      ],
+    };
+
+    const sanitized = sanitizeBatchIndexEvents(hostileIndex as BatchIndex);
+
+    expect(sanitized.eventsDropped).toBe(10);
+    expect(sanitized.index.e).toHaveLength(200);
+    expect(sanitized.index.e[0]).toEqual({
+      t: 1,
+      k: "click",
+      d: "x".repeat(200),
+      m: { a: "ok", b: 2 },
+    });
+    expect(sanitized.index.e[1]).toEqual({ t: 3, k: "custom" });
+    expect(sanitized.index.e[2]).toEqual({ t: 4, k: "custom" });
+    expect(sanitized.index.e.every((event) => Number.isFinite(event.t))).toBe(true);
   });
 });
