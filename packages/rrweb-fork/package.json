@@ -1,26 +1,25 @@
 {
-  "name": "@orange-replay/shared",
+  "name": "@orange-replay/rrweb-fork",
   "version": "0.0.0",
   "private": true,
   "files": [
-    "dist"
+    "src",
+    "LICENSE",
+    "UPSTREAM.md"
   ],
   "type": "module",
-  "sideEffects": false,
   "exports": {
     ".": "./src/index.ts",
     "./package.json": "./package.json"
   },
   "scripts": {
-    "build": "vp pack",
+    "build": "node -e \"console.log('rrweb fork exports TypeScript source; no package build step')\"",
     "test": "vp test",
     "check": "vp check"
   },
-  "dependencies": {
-    "zod": "4.4.3"
-  },
   "devDependencies": {
     "@types/node": "catalog:",
+    "jsdom": "^29.1.1",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:"

@@ -9,3 +9,4 @@ test-results/
 playwright-report/
 .vite-cache/
 .claude/
+.pnpm-store/
