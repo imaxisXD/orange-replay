@@ -1,6 +1,7 @@
 import { createBrowserRouter, Navigate } from "react-router";
 import type { ReactNode } from "react";
 import { AppShell } from "@/routes/app-shell";
+import { InstallPage } from "@/routes/install";
 import { LoginPage } from "@/routes/login";
 import { LivePage } from "@/routes/live";
 import { RequireAuth } from "@/routes/require-auth";
@@ -61,6 +62,10 @@ export const router = createBrowserRouter([
           {
             path: "settings",
             element: <SettingsPage />,
+          },
+          {
+            path: "install",
+            element: <InstallPage />,
           },
           {
             path: "*",

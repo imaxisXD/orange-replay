@@ -20,6 +20,7 @@ const assetSessionId = "api_asset_session";
 const liveProjectId = "api_live_project";
 const installProjectId = "api_install_project";
 const configProjectId = "api_config_project";
+const keysProjectId = "api_keys_project";
 const segmentName = "seg-000001.ors";
 const segmentBytes = new Uint8Array([0, 1, 2, 3, 254, 255]);
 
@@ -87,6 +88,7 @@ describe("dashboard api", () => {
       `/api/v1/projects/${listProjectId}/live`,
       `/api/v1/projects/${listProjectId}/config`,
       `/api/v1/projects/${listProjectId}/install-status`,
+      `/api/v1/projects/${listProjectId}/keys`,
     ];
 
     for (const path of paths) {
@@ -268,6 +270,7 @@ describe("dashboard api", () => {
     const before = await getProjectConfig(configProjectId);
     expect(before.version).toBe(1);
     expect(before.sampleRate).toBe(1);
+    expect(before.retentionDays).toBe(30);
 
     const invalid = await worker.fetch(`/api/v1/projects/${configProjectId}/config`, {
       method: "PUT",
@@ -280,6 +283,7 @@ describe("dashboard api", () => {
 
     const update = {
       sampleRate: 0.25,
+      retentionDays: 45,
       allowedOrigins: ["https://app.example"],
       maskPolicyVersion: 2,
       maskRules: [{ selector: ".secret", action: "block" as const }],
@@ -303,6 +307,7 @@ describe("dashboard api", () => {
     expect(savedConfig).toMatchObject({
       projectId: configProjectId,
       sampleRate: 0.25,
+      retentionDays: 45,
       allowedOrigins: ["https://app.example"],
       maskPolicyVersion: 2,
       maskRules: [{ selector: ".secret", action: "block" }],
@@ -317,6 +322,29 @@ describe("dashboard api", () => {
 
     const cached = await readConfigCache(keyHash);
     expect(cached).toEqual(savedConfig);
+  });
+
+  it("lists write key audit rows without plaintext keys", async () => {
+    const keyHash = await seedIngestKey(
+      "api-keys-key",
+      makeProjectConfig({ projectId: keysProjectId }),
+      false,
+    );
+
+    const res = await worker.fetch(`/api/v1/projects/${keysProjectId}/keys`, {
+      headers: authHeaders(),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      keys: [
+        {
+          key_hash: keyHash,
+          active: true,
+          created_at: expect.any(Number),
+        },
+      ],
+    });
   });
 
   it("returns the durable object's live response status", async () => {

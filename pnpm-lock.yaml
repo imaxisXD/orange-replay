@@ -243,6 +243,9 @@ importers:
       '@orange-replay/player':
         specifier: workspace:*
         version: link:../../packages/player
+      '@orange-replay/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
       '@orange-replay/shared':
         specifier: workspace:*
         version: link:../../packages/shared

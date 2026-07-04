@@ -19,6 +19,7 @@ import {
 } from "./helpers.ts";
 import {
   parseProjectConfigUpdate,
+  readProjectKeys,
   readStoredProjectConfig,
   writeStoredProjectConfig,
 } from "./project-config.ts";
@@ -99,6 +100,14 @@ async function routeRequest(
     if (!projectId || !isValidPathId(projectId)) return jsonError("invalid_path_id", 400);
     wideEvent.set({ project_id: projectId });
     return getInstallStatus(env, projectId, requestId);
+  }
+
+  const keysMatch = /^\/api\/v1\/projects\/([^/]+)\/keys$/.exec(url.pathname);
+  if (request.method === "GET" && keysMatch) {
+    const projectId = keysMatch[1];
+    if (!projectId || !isValidPathId(projectId)) return jsonError("invalid_path_id", 400);
+    wideEvent.set({ project_id: projectId });
+    return getProjectKeys(env, projectId, wideEvent);
   }
 
   const manifestMatch = /^\/api\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/manifest$/.exec(
@@ -187,6 +196,16 @@ async function getInstallStatus(env: Env, projectId: string, requestId: string):
   });
   if (!response.ok) return jsonError("presence_unavailable", 503);
   return Response.json(await response.json());
+}
+
+async function getProjectKeys(
+  env: Env,
+  projectId: string,
+  wideEvent: ReturnType<typeof startWideEvent>,
+): Promise<Response> {
+  const keys = await readProjectKeys(env, projectId);
+  wideEvent.set({ key_count: keys.length });
+  return Response.json({ keys });
 }
 
 async function listSessions(url: URL, env: Env, projectId: string): Promise<Response> {
@@ -362,6 +381,7 @@ function routeName(pathname: string): string {
   if (/^\/api\/v1\/projects\/[^/]+\/install-status$/.test(pathname)) {
     return "install_status";
   }
+  if (/^\/api\/v1\/projects\/[^/]+\/keys$/.test(pathname)) return "project_keys";
   if (/^\/api\/v1\/projects\/[^/]+\/sessions\/[^/]+\/manifest$/.test(pathname)) {
     return "manifest";
   }

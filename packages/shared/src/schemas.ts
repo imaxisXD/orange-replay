@@ -110,7 +110,7 @@ const projectConfigObject = z
     maskRules: maskRulesSchema.optional(),
     capture: captureTogglesSchema.optional(),
     quotaState: z.enum(["ok", "soft", "exceeded"]),
-    retentionDays: z.number().int().nonnegative(),
+    retentionDays: z.number().int().min(1).max(365),
     jurisdiction: z.enum(["eu", "fedramp"]).optional(),
     version: z.number().int().nonnegative().optional(),
   })
@@ -147,6 +147,7 @@ export const storedProjectConfigSchema: z.ZodType<StoredProjectConfig> = project
 export const projectConfigUpdateSchema: z.ZodType<ProjectConfigUpdate> = z
   .object({
     sampleRate: z.number().min(0).max(1),
+    retentionDays: z.number().int().min(1).max(365),
     allowedOrigins: z.array(z.string().min(1).max(500)).max(100),
     maskPolicyVersion: z.number().int().nonnegative(),
     maskRules: maskRulesSchema.max(200),

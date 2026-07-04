@@ -1,4 +1,9 @@
-import type { SessionManifest } from "@orange-replay/shared/types";
+import type {
+  ProjectConfigUpdate,
+  ProjectKeysResponse,
+  SessionManifest,
+  StoredProjectConfig,
+} from "@orange-replay/shared/types";
 
 export const tokenStorageKey = "or:token";
 
@@ -60,6 +65,10 @@ export interface LiveSessionsResponse {
 
 export interface HealthResponse {
   ok: boolean;
+}
+
+export interface InstallStatusResponse {
+  firstEventAt: number | null;
 }
 
 export type AuthRedirectReason = "unauthorized" | "auth_unavailable";
@@ -130,6 +139,36 @@ export async function fetchLiveSessions(projectId: string): Promise<LiveSessions
   });
 }
 
+export async function fetchProjectConfig(projectId: string): Promise<StoredProjectConfig> {
+  return requestJson<StoredProjectConfig>(`/api/v1/projects/${encodePathPart(projectId)}/config`, {
+    auth: true,
+  });
+}
+
+export async function saveProjectConfig(
+  projectId: string,
+  update: ProjectConfigUpdate,
+): Promise<StoredProjectConfig> {
+  return requestJson<StoredProjectConfig>(`/api/v1/projects/${encodePathPart(projectId)}/config`, {
+    auth: true,
+    method: "PUT",
+    body: update,
+  });
+}
+
+export async function fetchProjectKeys(projectId: string): Promise<ProjectKeysResponse> {
+  return requestJson<ProjectKeysResponse>(`/api/v1/projects/${encodePathPart(projectId)}/keys`, {
+    auth: true,
+  });
+}
+
+export async function fetchInstallStatus(projectId: string): Promise<InstallStatusResponse> {
+  return requestJson<InstallStatusResponse>(
+    `/api/v1/projects/${encodePathPart(projectId)}/install-status`,
+    { auth: true },
+  );
+}
+
 export async function getManifest(projectId: string, sessionId: string): Promise<SessionManifest> {
   const path = `/api/v1/projects/${encodePathPart(projectId)}/sessions/${encodePathPart(
     sessionId,
@@ -160,6 +199,8 @@ export function buildSessionListUrl(projectId: string, params: ListSessionsParam
 
 interface RequestOptions {
   auth: boolean;
+  body?: unknown;
+  method?: string;
   redirectOnAuthError?: boolean;
   token?: string;
 }
@@ -172,9 +213,16 @@ async function requestJson<T>(path: string, options: RequestOptions): Promise<T>
     headers.set("authorization", `Bearer ${token}`);
   }
 
+  const init: RequestInit = { headers };
+  if (options.method !== undefined) init.method = options.method;
+  if (options.body !== undefined) {
+    headers.set("content-type", "application/json");
+    init.body = JSON.stringify(options.body);
+  }
+
   let response: Response;
   try {
-    response = await fetch(path, { headers });
+    response = await fetch(path, init);
   } catch (error) {
     throw new ApiError(readErrorMessage(error, "Could not reach the API."), 0, "network_error");
   }

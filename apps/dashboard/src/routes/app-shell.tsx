@@ -86,6 +86,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
           <TopNavTab label="Sessions" to={`/projects/${projectId}/sessions`} />
           <TopNavTab label="Live" to={`/projects/${projectId}/live`} />
           <TopNavTab label="Settings" to={`/projects/${projectId}/settings`} />
+          <TopNavTab label="Install" to={`/projects/${projectId}/install`} />
         </nav>
       </header>
 

@@ -10,6 +10,7 @@ import type {
   MaskRule,
   ProjectConfig,
   ProjectConfigUpdate,
+  ProjectKeyAudit,
   StoredProjectConfig,
 } from "@orange-replay/shared";
 import { shardDb } from "../env.ts";
@@ -71,6 +72,13 @@ interface KeyRow {
   active: number;
 }
 
+interface ProjectKeyAuditRow {
+  [key: string]: unknown;
+  key_hash: string;
+  active: number;
+  created_at: number;
+}
+
 export function parseProjectConfigUpdate(
   input: unknown,
 ): { ok: true; value: ProjectConfigUpdate } | { ok: false; error: string } {
@@ -113,6 +121,7 @@ export async function writeStoredProjectConfig(
     .prepare(
       `UPDATE projects
         SET sample_rate = ?,
+          retention_days = ?,
           allowed_origins = ?,
           mask_policy_version = ?,
           mask_rules = ?,
@@ -124,6 +133,7 @@ export async function writeStoredProjectConfig(
     )
     .bind(
       update.sampleRate,
+      update.retentionDays,
       JSON.stringify(update.allowedOrigins),
       update.maskPolicyVersion,
       JSON.stringify(update.maskRules),
@@ -145,6 +155,24 @@ export async function writeStoredProjectConfig(
 
   await writeConfigCacheForProject(env, stored);
   return stored;
+}
+
+export async function readProjectKeys(env: Env, projectId: string): Promise<ProjectKeyAudit[]> {
+  const rows = await shardDb(env, 0)
+    .prepare(
+      `SELECT key_hash, active, created_at
+        FROM keys
+        WHERE project_id = ?
+        ORDER BY created_at DESC, key_hash ASC`,
+    )
+    .bind(projectId)
+    .all<ProjectKeyAuditRow>();
+
+  return (rows.results ?? []).map((row) => ({
+    key_hash: row.key_hash,
+    active: row.active === 1,
+    created_at: row.created_at,
+  }));
 }
 
 async function ensureProjectConfigColumns(db: D1Database): Promise<void> {
