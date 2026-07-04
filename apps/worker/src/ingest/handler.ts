@@ -9,6 +9,7 @@ import {
   uuidv7,
   WireError,
 } from "@orange-replay/shared";
+import { shouldSampleSession } from "@orange-replay/shared/sampling";
 import type { EdgeAttrs, IngestAck, ProjectConfig, WideEventOutcome } from "@orange-replay/shared";
 import type { AppendArgs } from "../do/contract.ts";
 import { setWorkerLoggerVersion, shardDb } from "../env.ts";
@@ -126,6 +127,19 @@ async function handleIngestPost(
 
     if (config.quotaState === "exceeded") {
       event.set({ live: false });
+      return finish(
+        { ok: true, live: false, flushMs: SDK_FLUSH_DEFAULT_MS, drop: true } satisfies IngestAck,
+        202,
+        "dropped",
+      );
+    }
+
+    // Server-side sampling re-check (ARCHITECTURE §2): the SDK already makes
+    // this deterministic decision client-side; re-deriving it here means a
+    // client that ignores sampleRate cannot force ingestion of out-of-sample
+    // sessions. Same shared FNV-1a decision, so honest clients never see it.
+    if (!shouldSampleSession(sessionId, config.sampleRate)) {
+      event.set({ live: false, drop_reason: "sampled_out" });
       return finish(
         { ok: true, live: false, flushMs: SDK_FLUSH_DEFAULT_MS, drop: true } satisfies IngestAck,
         202,

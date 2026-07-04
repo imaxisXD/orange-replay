@@ -15,7 +15,8 @@
     "./uuid": "./src/uuid.ts",
     "./logger": "./src/logger.ts",
     "./schemas": "./src/schemas.ts",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./sampling": "./src/sampling.ts"
   },
   "scripts": {
     "build": "vp pack",

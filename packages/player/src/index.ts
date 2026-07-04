@@ -6,13 +6,7 @@ export {
   segmentFileName,
 } from "./api.ts";
 export { PlayerEmitter } from "./emitter.ts";
-export {
-  acceptLiveFrame,
-  createLiveFrameState,
-  decodeLiveFrame,
-  liveFrameKey,
-  orderLiveFrames,
-} from "./live.ts";
+export { acceptLiveFrame, createLiveFrameState, decodeLiveFrame, liveFrameKey } from "./live.ts";
 export { ReplayOverlay } from "./overlay.ts";
 export { OrangePlayer } from "./player.ts";
 export {
@@ -21,14 +15,12 @@ export {
   RAGE_CLICK_WINDOW_MS,
   detectRageClickBursts,
 } from "./rage.ts";
-export { extractOverlayEvents, hasUserInteraction } from "./replay-events.ts";
+export { extractOverlayEvents } from "./replay-events.ts";
 export {
   chooseSegmentWindow,
   decodeSegmentEvents,
   findSegmentIndex,
   mergeReplayEvents,
-  mergeUniqueReplayEvents,
-  segmentRelativeRange,
   sliceSegmentBatches,
 } from "./segments.ts";
 export {

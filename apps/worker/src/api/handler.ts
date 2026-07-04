@@ -250,7 +250,9 @@ async function getManifest(env: Env, projectId: string, sessionId: string): Prom
   return new Response(object.body, {
     headers: secureHeaders({
       "content-type": "application/json",
-      "cache-control": "no-store",
+      // Manifests are written once at finalize and never mutate (immutable
+      // R2 create-only PUT), so they are as cacheable as segments.
+      "cache-control": "public, max-age=31536000, immutable",
     }),
   });
 }

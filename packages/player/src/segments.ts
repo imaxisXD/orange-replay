@@ -68,49 +68,8 @@ export function chooseSegmentWindow(
   };
 }
 
-export function segmentRelativeRange(
-  segment: SegmentRef,
-  startedAt: number,
-): {
-  startMs: number;
-  endMs: number;
-} {
-  return {
-    startMs: Math.max(0, segment.t0 - startedAt),
-    endMs: Math.max(0, segment.t1 - startedAt),
-  };
-}
-
 export function mergeReplayEvents(events: readonly ReplayEvent[]): ReplayEvent[] {
   return [...events].sort((left, right) => left.timestamp - right.timestamp);
-}
-
-export function mergeUniqueReplayEvents(
-  existing: readonly ReplayEvent[],
-  incoming: readonly ReplayEvent[],
-): ReplayEvent[] {
-  if (existing.length === 0) {
-    return mergeReplayEvents(incoming);
-  }
-
-  if (incoming.length === 0) {
-    return [...existing];
-  }
-
-  const seen = new Set(existing.map(eventKey));
-  const merged = [...existing];
-
-  for (const event of incoming) {
-    const key = eventKey(event);
-    if (seen.has(key)) {
-      continue;
-    }
-
-    seen.add(key);
-    merged.push(event);
-  }
-
-  return mergeReplayEvents(merged);
 }
 
 export function eventKey(event: ReplayEvent): string {

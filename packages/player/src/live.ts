@@ -92,34 +92,8 @@ export function decodeLiveFrame(bytes: ArrayBuffer | Uint8Array): LiveFrame {
   return decodeIngestBody(view);
 }
 
-export function orderLiveFrames(frames: readonly LiveFrame[]): LiveFrame[] {
-  const seen = new Set<string>();
-  const ordered: LiveFrame[] = [];
-
-  for (const frame of frames) {
-    const key = liveFrameKey(frame.index);
-    if (seen.has(key)) {
-      continue;
-    }
-
-    seen.add(key);
-    ordered.push(frame);
-  }
-
-  return ordered.sort(compareLiveFrames);
-}
-
 export function liveFrameKey(index: BatchIndex): string {
   return `${index.tab}:${index.seq}`;
-}
-
-function compareLiveFrames(left: LiveFrame, right: LiveFrame): number {
-  const tabOrder = left.index.tab.localeCompare(right.index.tab);
-  if (tabOrder !== 0) {
-    return tabOrder;
-  }
-
-  return left.index.seq - right.index.seq;
 }
 
 function pruneSeenKeys(seen: Set<string>): void {

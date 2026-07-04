@@ -7,6 +7,8 @@ const LAST_ACTIVITY_STORAGE_KEY = "or:last";
 const SEQ_STORAGE_KEY = "or:q";
 const SESSION_COOKIE = "or_s";
 
+// Mirrors the server's CLOSE_SESSION_AFTER_IDLE_MS (shared/constants.ts):
+// the client rotates ids at the same idle horizon the DO closes sessions.
 export const SESSION_IDLE_MS = 30 * 60 * 1000;
 export const TAB_CLAIM_GRACE_MS = 50;
 export const TOUCH_PERSIST_THROTTLE_MS = 5_000;

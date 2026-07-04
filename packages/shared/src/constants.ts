@@ -6,7 +6,6 @@ export const HDR_FLAGS = "x-or-flags";
 export const HDR_REQUEST_ID = "x-or-request-id";
 
 export const FLAG_UNCOMPRESSED = 1 << 0;
-export const FLAG_ENCRYPTED = 1 << 1;
 
 export const MAX_COMPRESSED_BATCH_BYTES = 1024 * 1024;
 export const MAX_INDEX_JSON_BYTES = 64 * 1024;

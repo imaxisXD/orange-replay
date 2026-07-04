@@ -10,6 +10,7 @@ import {
   MAX_INDEX_JSON_BYTES,
   SDK_FLUSH_DEFAULT_MS,
   encodeIngestBody,
+  hashToUnit,
 } from "@orange-replay/shared";
 import type { BatchIndex, IngestAck, ProjectConfig } from "@orange-replay/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
@@ -173,6 +174,44 @@ describe("ingest route", () => {
       hasState: false,
       pendingBatches: 0,
     });
+  });
+
+  it("re-checks sampling server-side and drops out-of-sample sessions", async () => {
+    const key = "sample-key";
+    // Deterministic: pick a rate strictly below/above this session's hash so
+    // the same shared FNV-1a decision falls on both sides of the line.
+    const sessionId = nextSessionId("sample");
+    const unit = hashToUnit(sessionId);
+    const config = makeConfig({ sampleRate: Math.max(unit - 0.0001, 0) });
+    await seedKey(key, config, true);
+    const dropped = await postIngest({
+      key,
+      sessionId,
+      tab: "tab_sample",
+      seq: 0,
+      body: makeBody(sessionId, "tab_sample", 0),
+    });
+    expect(dropped.status).toBe(202);
+    expect(((await dropped.json()) as IngestAck).drop).toBe(true);
+    expect(await readDoDebug(config.projectId, sessionId)).toMatchObject({
+      hasState: false,
+      pendingBatches: 0,
+    });
+
+    const inKey = "sample-key-in";
+    await seedKey(
+      inKey,
+      { ...makeConfig({ sampleRate: Math.min(unit + 0.0001, 1) }), projectId: config.projectId },
+      true,
+    );
+    const accepted = await postIngest({
+      key: inKey,
+      sessionId,
+      tab: "tab_sample",
+      seq: 0,
+      body: makeBody(sessionId, "tab_sample", 0),
+    });
+    expect(accepted.status).toBe(200);
   });
 
   it("rate limits runaway appends for one session", async () => {

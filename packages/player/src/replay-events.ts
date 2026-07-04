@@ -15,7 +15,6 @@ export interface ReplayOverlayEvents {
 const RRWEB_INCREMENTAL_EVENT = 3;
 const RRWEB_MOUSE_MOVE_SOURCE = 1;
 const RRWEB_MOUSE_INTERACTION_SOURCE = 2;
-const RRWEB_SCROLL_SOURCE = 3;
 const RRWEB_TOUCH_MOVE_SOURCE = 6;
 const RRWEB_CLICK_INTERACTION = 2;
 
@@ -49,20 +48,6 @@ export function extractOverlayEvents(
     cursor: cursor.sort((left, right) => left.timeMs - right.timeMs),
     clicks: clicks.sort((left, right) => left.timeMs - right.timeMs),
   };
-}
-
-export function hasUserInteraction(event: ReplayEvent): boolean {
-  if (event.type !== RRWEB_INCREMENTAL_EVENT || !isRecord(event.data)) {
-    return false;
-  }
-
-  const source = event.data["source"];
-  return (
-    source === RRWEB_MOUSE_MOVE_SOURCE ||
-    source === RRWEB_MOUSE_INTERACTION_SOURCE ||
-    source === RRWEB_SCROLL_SOURCE ||
-    source === RRWEB_TOUCH_MOVE_SOURCE
-  );
 }
 
 function readMovePoints(event: ReplayEvent, startedAt: number): CursorPoint[] {

@@ -7,7 +7,6 @@ import {
   createLiveKeyframeBuffer,
   createLiveFrameState,
   decodeLiveFrame,
-  orderLiveFrames,
   startWaitingForKeyframe,
 } from "../src/live.ts";
 import { EventType, IncrementalSource, type eventWithTime } from "rrweb";
@@ -19,19 +18,6 @@ describe("live frame handling", () => {
 
     expect(frame.index).toEqual(index);
     expect(Array.from(frame.payload)).toEqual([1, 2, 3]);
-  });
-
-  it("orders frames by tab and seq while tolerating duplicates", () => {
-    const frames = [
-      { index: makeIndex("tab-b", 2, 3_000), payload: new Uint8Array([4]) },
-      { index: makeIndex("tab-a", 2, 2_000), payload: new Uint8Array([2]) },
-      { index: makeIndex("tab-a", 1, 1_000), payload: new Uint8Array([1]) },
-      { index: makeIndex("tab-a", 1, 1_000), payload: new Uint8Array([1]) },
-    ];
-
-    expect(orderLiveFrames(frames).map((frame) => `${frame.index.tab}:${frame.index.seq}`)).toEqual(
-      ["tab-a:1", "tab-a:2", "tab-b:2"],
-    );
   });
 
   it("keeps duplicate live frames out of state", () => {
