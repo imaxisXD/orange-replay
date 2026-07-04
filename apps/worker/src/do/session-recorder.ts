@@ -5,6 +5,7 @@ import {
   manifestKey,
   segmentKey,
   startWideEvent,
+  uuidv7,
 } from "@orange-replay/shared";
 import type {
   EdgeAttrs,
@@ -15,6 +16,7 @@ import type {
 } from "@orange-replay/shared";
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "../env.ts";
+import { setWorkerLoggerVersion } from "../env.ts";
 import type { AppendArgs, AppendResult } from "./contract.ts";
 import { resolvePresenceTiming, shouldSendPresencePing } from "./presence-logic.ts";
 import {
@@ -77,6 +79,7 @@ interface DebugState {
   pendingBatches: number;
   segmentCount: number;
   stateBytes: number;
+  firstRequestId?: string;
   tombstonePurgeAt?: number;
 }
 
@@ -107,6 +110,15 @@ interface FinalizedTombstone {
   finalized: true;
   finalizedAt: number;
   firstRequestId: string;
+  projectId?: string;
+  orgId?: string;
+  sessionId?: string;
+}
+
+interface LiveSocketContext {
+  requestId?: string;
+  projectId?: string;
+  sessionId?: string;
 }
 
 export class SessionRecorder extends DurableObject<Env> {
@@ -118,6 +130,7 @@ export class SessionRecorder extends DurableObject<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    setWorkerLoggerVersion(env);
     this.createSchema();
     void ctx.blockConcurrencyWhile(async () => {
       const stored = this.loadStoredState();
@@ -288,6 +301,7 @@ export class SessionRecorder extends DurableObject<Env> {
     } finally {
       event.set({
         project_id: args.projectId,
+        org_id: args.orgId,
         session_id: args.sessionId,
         tab: args.tab,
         seq: args.seq,
@@ -323,6 +337,7 @@ export class SessionRecorder extends DurableObject<Env> {
       pendingBatches: this.pendingBatchCount(),
       segmentCount: this.sessionState?.segmentCount ?? this.segmentRows().length,
       stateBytes,
+      firstRequestId: this.sessionState?.firstRequestId ?? this.finalizedTombstone?.firstRequestId,
       ...(this.finalizedTombstone === null
         ? {}
         : { tombstonePurgeAt: this.finalizedTombstone.finalizedAt + timing.closeMs * 4 }),
@@ -400,6 +415,9 @@ export class SessionRecorder extends DurableObject<Env> {
     );
     const timing = resolveSessionTiming(this.env.DEV_TEST_ROUTES, this.env.TEST_TIMINGS);
     let alarmKind: "tail_flush" | "close" | "purge_tombstone" | "noop" = "noop";
+    let projectId = this.sessionState?.projectId ?? this.finalizedTombstone?.projectId;
+    let orgId = this.sessionState?.orgId ?? this.finalizedTombstone?.orgId;
+    let sessionId = this.sessionState?.sessionId ?? this.finalizedTombstone?.sessionId;
 
     try {
       this.alarmAt = null;
@@ -423,6 +441,9 @@ export class SessionRecorder extends DurableObject<Env> {
       if (state === null) {
         return;
       }
+      projectId = state.projectId;
+      orgId = state.orgId;
+      sessionId = state.sessionId;
 
       const now = Date.now();
       const idleMs = now - state.lastActivity;
@@ -450,14 +471,19 @@ export class SessionRecorder extends DurableObject<Env> {
       event.fail(err);
       throw err;
     } finally {
-      event.set({ alarm_kind: alarmKind });
+      event.set({
+        alarm_kind: alarmKind,
+        ...(projectId === undefined ? {} : { project_id: projectId }),
+        ...(orgId === undefined ? {} : { org_id: orgId }),
+        ...(sessionId === undefined ? {} : { session_id: sessionId }),
+      });
       event.emit();
     }
   }
 
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    const requestId = request.headers.get(HDR_REQUEST_ID) ?? crypto.randomUUID();
+    const requestId = request.headers.get(HDR_REQUEST_ID) ?? uuidv7();
     const event = startWideEvent("worker", "do.live_connect", requestId);
     const wantsLiveSocket =
       url.pathname.endsWith("/live") &&
@@ -483,6 +509,11 @@ export class SessionRecorder extends DurableObject<Env> {
       const client = pair[0];
       const server = pair[1];
       this.ctx.acceptWebSocket(server, ["viewer"]);
+      server.serializeAttachment({
+        requestId,
+        projectId,
+        sessionId,
+      } satisfies LiveSocketContext);
       this.requestCheckpointOnNextAppend();
       viewerCount = this.ctx.getWebSockets("viewer").length;
       server.send(
@@ -514,8 +545,64 @@ export class SessionRecorder extends DurableObject<Env> {
   }
 
   override webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
-    if (message === "ping") {
-      ws.send("pong");
+    const socketContext = readLiveSocketContext(ws);
+    const event = startWideEvent("worker", "do.live_message", socketContext.requestId ?? uuidv7());
+    let outcome: WideEventOutcome = "success";
+    const messageKind =
+      message === "ping" ? "ping" : typeof message === "string" ? "text" : "binary";
+
+    try {
+      if (message === "ping") {
+        ws.send("pong");
+      }
+    } catch (error) {
+      outcome = "server_error";
+      event.fail(error);
+      throw error;
+    } finally {
+      event.set({
+        ...liveSocketEventFields(socketContext),
+        message_kind: messageKind,
+        viewer_count: this.ctx.getWebSockets("viewer").length,
+      });
+      event.emit(outcome);
+    }
+  }
+
+  override webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): void {
+    const socketContext = readLiveSocketContext(ws);
+    const event = startWideEvent(
+      "worker",
+      "do.live_disconnect",
+      socketContext.requestId ?? uuidv7(),
+    );
+
+    try {
+      // The close callback has no cleanup work; it exists to emit the event in finally.
+    } finally {
+      event.set({
+        ...liveSocketEventFields(socketContext),
+        close_code: code,
+        close_reason: safeLogText(reason),
+        was_clean: wasClean,
+        viewer_count: this.ctx.getWebSockets("viewer").length,
+      });
+      event.emit("success");
+    }
+  }
+
+  override webSocketError(ws: WebSocket, error: unknown): void {
+    const socketContext = readLiveSocketContext(ws);
+    const event = startWideEvent("worker", "do.live_error", socketContext.requestId ?? uuidv7());
+
+    try {
+      event.fail(error);
+    } finally {
+      event.set({
+        ...liveSocketEventFields(socketContext),
+        viewer_count: this.ctx.getWebSockets("viewer").length,
+      });
+      event.emit("server_error");
     }
   }
 
@@ -836,6 +923,9 @@ export class SessionRecorder extends DurableObject<Env> {
         finalized: true,
         finalizedAt,
         firstRequestId: state.firstRequestId,
+        projectId: state.projectId,
+        orgId: state.orgId,
+        sessionId: state.sessionId,
       };
       this.ctx.storage.sql.exec("DELETE FROM batches");
       this.ctx.storage.sql.exec("DELETE FROM segments");
@@ -854,6 +944,13 @@ export class SessionRecorder extends DurableObject<Env> {
       throw err;
     } finally {
       event.set({
+        ...(stateBeforeFlush === null
+          ? {}
+          : {
+              project_id: stateBeforeFlush.projectId,
+              org_id: stateBeforeFlush.orgId,
+              session_id: stateBeforeFlush.sessionId,
+            }),
         segments: segmentCount,
         bytes,
         batch_count: batchCount,
@@ -1046,5 +1143,34 @@ function makeTestPayload(size: number, seq: number): Uint8Array {
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return safeLogText(error instanceof Error ? error.message : String(error));
+}
+
+function readLiveSocketContext(ws: WebSocket): LiveSocketContext {
+  const value = ws.deserializeAttachment();
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return {};
+  }
+
+  const record = value as Record<string, unknown>;
+  return {
+    requestId: readOptionalId(record["requestId"]),
+    projectId: readOptionalId(record["projectId"]),
+    sessionId: readOptionalId(record["sessionId"]),
+  };
+}
+
+function liveSocketEventFields(context: LiveSocketContext): Record<string, string> {
+  return {
+    ...(context.projectId === undefined ? {} : { project_id: context.projectId }),
+    ...(context.sessionId === undefined ? {} : { session_id: context.sessionId }),
+  };
+}
+
+function readOptionalId(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function safeLogText(value: string): string {
+  return value.length <= 200 ? value : value.slice(0, 200);
 }

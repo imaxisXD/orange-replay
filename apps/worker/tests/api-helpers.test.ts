@@ -96,7 +96,7 @@ describe("api helper decisions", () => {
 
 describe("api wide events", () => {
   it("logs the live route without the query token", async () => {
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const log = vi.spyOn(globalThis["console"], "log").mockImplementation(() => undefined);
     const request = new Request(
       "https://replay.test/api/v1/projects/project_1/sessions/session_1/live?token=secret-token",
     );

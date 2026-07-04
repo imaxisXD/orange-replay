@@ -5,6 +5,7 @@ import {
   encodeIngestBody,
   HDR_FLAGS,
   HDR_KEY,
+  HDR_REQUEST_ID,
   HDR_SEQ,
   HDR_SESSION,
   HDR_TAB,
@@ -39,6 +40,7 @@ let worker: Awaited<ReturnType<typeof unstable_dev>>;
 let sentBatches: SentBatch[] = [];
 let r2Manifest: SessionManifest | undefined;
 let indexedSession: ConsumerSessionBody | undefined;
+let firstIngestRequestId: string | undefined;
 
 beforeAll(async () => {
   worker = await unstable_dev(`${workerDir}src/index.ts`, {
@@ -75,10 +77,18 @@ describe("a session lives and is replayed", () => {
   it("records batches and accepts an idempotent duplicate", async () => {
     sentBatches = makeRecordedBatches();
 
-    for (const batch of sentBatches) {
+    for (const [index, batch] of sentBatches.entries()) {
       const res = await postIngest(batch);
       expect(res.status).toBe(200);
       expect((await res.json()) as IngestAck).toMatchObject({ ok: true });
+
+      if (index === 0) {
+        firstIngestRequestId = res.headers.get(HDR_REQUEST_ID) ?? undefined;
+        expect(firstIngestRequestId).toMatch(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+        );
+        expect((await readDebug(sessionId)).firstRequestId).toBe(firstIngestRequestId);
+      }
     }
 
     const duplicate = sentBatches.find((batch) => batch.tab === "tabA" && batch.seq === 1);
@@ -132,11 +142,22 @@ describe("a session lives and is replayed", () => {
     }, 20_000);
 
     const session = indexedSession.session;
+    const trace = await poll(async () => {
+      const body = await readFinalizeTrace(sessionId);
+      return body.trace === null ? null : body.trace;
+    }, 5_000);
+
     expect(session?.["session_id"]).toBe(sessionId);
     expect(session?.["clicks"]).toBe(3);
     expect(session?.["errors"]).toBe(1);
     expect(session?.["expires_at"]).toBe(manifest.endedAt + 30 * dayMs);
     expect(indexedSession.usage[0]?.["sessions"]).toBe(1);
+    expect(trace).toMatchObject({
+      requestId: requireFirstIngestRequestId(),
+      projectId,
+      orgId,
+      sessionId,
+    });
 
     const indexedEvents = indexedSession.events.map((event) => ({
       kind: event["kind"],
@@ -256,6 +277,16 @@ interface DebugBody {
   bufferedBytes: number;
   pendingBatches: number;
   segmentCount: number;
+  firstRequestId?: string;
+}
+
+interface FinalizeTraceBody {
+  trace: {
+    requestId: string;
+    projectId: string;
+    orgId: string;
+    sessionId: string;
+  } | null;
 }
 
 interface ConsumerSessionBody {
@@ -451,11 +482,26 @@ async function readConsumerSession(targetSessionId: string): Promise<ConsumerSes
   return (await res.json()) as ConsumerSessionBody;
 }
 
+async function readFinalizeTrace(targetSessionId: string): Promise<FinalizeTraceBody> {
+  const res = await worker.fetch(
+    `/__test/consumer/finalize-trace?id=${encodeURIComponent(targetSessionId)}`,
+  );
+  expect(res.status).toBe(200);
+  return (await res.json()) as FinalizeTraceBody;
+}
+
 function requireManifest(): SessionManifest {
   if (r2Manifest === undefined) {
     throw new Error("manifest was not loaded");
   }
   return r2Manifest;
+}
+
+function requireFirstIngestRequestId(): string {
+  if (firstIngestRequestId === undefined) {
+    throw new Error("first ingest request id was not captured");
+  }
+  return firstIngestRequestId;
 }
 
 function authHeaders(): Record<string, string> {

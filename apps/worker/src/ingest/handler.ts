@@ -1,5 +1,6 @@
 import {
   FLAG_UNCOMPRESSED,
+  HDR_REQUEST_ID,
   MAX_COMPRESSED_BATCH_BYTES,
   SDK_FLUSH_DEFAULT_MS,
   configKvKey,
@@ -10,7 +11,7 @@ import {
 } from "@orange-replay/shared";
 import type { EdgeAttrs, IngestAck, ProjectConfig, WideEventOutcome } from "@orange-replay/shared";
 import type { AppendArgs } from "../do/contract.ts";
-import { shardDb } from "../env.ts";
+import { setWorkerLoggerVersion, shardDb } from "../env.ts";
 import type { Env } from "../env.ts";
 import {
   MAX_INGEST_BODY_BYTES,
@@ -30,15 +31,28 @@ const CONFIG_READ_QUERY =
   "SELECT k.project_id AS projectId, k.active AS active, p.org_id AS orgId, p.retention_days AS retentionDays, p.jurisdiction AS jurisdiction, p.sample_rate AS sampleRate, p.allowed_origins AS allowedOrigins, p.mask_policy_version AS maskPolicyVersion, p.quota_state AS quotaState, o.shard AS shard FROM keys k JOIN projects p ON p.id = k.project_id JOIN orgs o ON o.id = p.org_id WHERE k.key_hash = ?";
 
 export function handleIngest(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  setWorkerLoggerVersion(env);
+
   if (request.method === "OPTIONS") {
     return Promise.resolve(
-      new Response(null, { status: 204, headers: ingestPreflightHeaders(request) }),
+      loggedIngestEdgeResponse(request, "http.preflight", "success", (requestId) => {
+        const headers = ingestPreflightHeaders(request);
+        headers.set(HDR_REQUEST_ID, requestId);
+        return { requestId, response: new Response(null, { status: 204, headers }) };
+      }),
     );
   }
 
   if (request.method !== "POST") {
     return Promise.resolve(
-      jsonResponse({ error: "method not allowed" }, 405, ingestPostHeaders(request)),
+      loggedIngestEdgeResponse(request, "ingest.rejected", "client_error", (requestId) => {
+        const headers = ingestPostHeaders(request);
+        headers.set(HDR_REQUEST_ID, requestId);
+        return {
+          requestId,
+          response: jsonResponse({ error: "method not allowed" }, 405, headers),
+        };
+      }),
     );
   }
 
@@ -55,10 +69,12 @@ async function handleIngestPost(
   let statusCode = 500;
   let outcome: WideEventOutcome = "server_error";
   let responseHeaders = ingestPostHeaders(request);
+  responseHeaders.set(HDR_REQUEST_ID, requestId);
 
   const finish = <Body>(body: Body, status: number, nextOutcome: WideEventOutcome): Response => {
     statusCode = status;
     outcome = nextOutcome;
+    responseHeaders.set(HDR_REQUEST_ID, requestId);
     return jsonResponse(body, status, responseHeaders);
   };
 
@@ -92,6 +108,7 @@ async function handleIngestPost(
     const config = configResult.config;
     if (config !== null) {
       responseHeaders = ingestPostHeaders(request, config.allowedOrigins);
+      responseHeaders.set(HDR_REQUEST_ID, requestId);
       event.set({
         project_id: config.projectId,
         org_id: config.orgId,
@@ -208,6 +225,35 @@ async function handleIngestPost(
   } finally {
     event.set({ status_code: statusCode });
     event.emit(outcome);
+  }
+}
+
+function loggedIngestEdgeResponse(
+  request: Request,
+  eventName: "http.preflight" | "ingest.rejected",
+  expectedOutcome: WideEventOutcome,
+  buildResponse: (requestId: string) => { requestId: string; response: Response },
+): Response {
+  const requestId = uuidv7();
+  const event = startWideEvent("worker", eventName, requestId);
+  let statusCode = 500;
+  let outcome: WideEventOutcome = "server_error";
+
+  try {
+    const built = buildResponse(requestId);
+    statusCode = built.response.status;
+    outcome = expectedOutcome;
+    return built.response;
+  } catch (error) {
+    event.fail(error);
+    throw error;
+  } finally {
+    event.set({
+      route: "/v1/ingest",
+      method: request.method,
+      status_code: statusCode,
+    });
+    event.emit(outcome === "server_error" ? outcome : expectedOutcome);
   }
 }
 

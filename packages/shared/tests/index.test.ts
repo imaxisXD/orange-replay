@@ -15,6 +15,7 @@ import {
   uuidv7,
   finalizeMessageSchema,
   sessionManifestSchema,
+  setWideEventVersion,
   startWideEvent,
 } from "../src/index.ts";
 import type { BatchIndex, FinalizeMessage, SessionManifest } from "../src/index.ts";
@@ -23,6 +24,7 @@ const encoder = new TextEncoder();
 
 afterEach(() => {
   vi.restoreAllMocks();
+  setWideEventVersion(undefined);
 });
 
 describe("ingest body wire format", () => {
@@ -225,7 +227,7 @@ describe("schemas", () => {
 
 describe("wide-event logger", () => {
   it("emits one console line with required base fields", () => {
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const log = vi.spyOn(globalThis["console"], "log").mockImplementation(() => undefined);
     const event = startWideEvent("shared", "unit.test", "req-1");
 
     event.set({ project_id: "project" });
@@ -248,8 +250,8 @@ describe("wide-event logger", () => {
   });
 
   it("emits failed events as server errors", () => {
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const log = vi.spyOn(globalThis["console"], "log").mockImplementation(() => undefined);
+    const error = vi.spyOn(globalThis["console"], "error").mockImplementation(() => undefined);
     const event = startWideEvent("shared", "unit.fail", "req-2");
 
     event.fail(new Error("write failed"));
@@ -262,5 +264,19 @@ describe("wide-event logger", () => {
 
     expect(parsed["outcome"]).toBe("server_error");
     expect(parsed["error_message"]).toBe("write failed");
+  });
+
+  it("uses the configured app version and truncates error messages", () => {
+    const error = vi.spyOn(globalThis["console"], "error").mockImplementation(() => undefined);
+    const event = startWideEvent("shared", "unit.version", "req-3");
+
+    setWideEventVersion("2026.7.4");
+    event.fail(new Error("x".repeat(600)));
+    event.emit();
+
+    const line = String(error.mock.calls[0]?.[0]);
+    const parsed = JSON.parse(line) as Record<string, unknown>;
+    expect(parsed["version"]).toBe("2026.7.4");
+    expect(String(parsed["error_message"])).toHaveLength(500);
   });
 });

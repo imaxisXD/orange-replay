@@ -4,7 +4,7 @@ import {
   type FinalizeMessage,
   type WideEventOutcome,
 } from "@orange-replay/shared";
-import { shardDb, type Env } from "../env.ts";
+import { setWorkerLoggerVersion, shardDb, type Env } from "../env.ts";
 import {
   durationMsFromTimes,
   expiresAtFromEndedAt,
@@ -24,6 +24,7 @@ export async function handleFinalizeBatch(
   env: Env,
   _ctx: ExecutionContext,
 ): Promise<void> {
+  setWorkerLoggerVersion(env);
   for (const message of batch.messages) {
     await handleFinalizeMessage(message, env);
   }
@@ -67,6 +68,7 @@ async function handleFinalizeMessage(message: Message<FinalizeMessage>, env: Env
       inserted: result.inserted,
       events_written: result.eventsWritten,
     });
+    await writeFinalizeTraceForTest(env, finalizeMessage);
     message.ack();
   } catch (err) {
     const lastAllowedAttempt = message.attempts >= QUEUE_MAX_RETRIES;
@@ -77,6 +79,26 @@ async function handleFinalizeMessage(message: Message<FinalizeMessage>, env: Env
   } finally {
     wideEvent.emit(outcome);
   }
+}
+
+async function writeFinalizeTraceForTest(env: Env, message: FinalizeMessage): Promise<void> {
+  if (env.DEV_TEST_ROUTES !== "1") {
+    return;
+  }
+
+  await env.CONFIG.put(
+    finalizeTraceKey(message.sessionId),
+    JSON.stringify({
+      requestId: message.requestId,
+      projectId: message.projectId,
+      orgId: message.orgId,
+      sessionId: message.sessionId,
+    }),
+  );
+}
+
+export function finalizeTraceKey(sessionId: string): string {
+  return `__test/finalize-request/${sessionId}`;
 }
 
 export async function indexSession(

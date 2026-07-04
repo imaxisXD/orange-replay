@@ -10,7 +10,7 @@ import {
 import type { LiveTicketResponse } from "@orange-replay/shared";
 import type { PresenceSession } from "../do/presence-logic.ts";
 import { liveSessionsFromPresenceRows } from "../do/presence-logic.ts";
-import { shardDb, type Env } from "../env.ts";
+import { setWorkerLoggerVersion, shardDb, type Env } from "../env.ts";
 import { readBodyCapped, readContentLength } from "../ingest/helpers.ts";
 import {
   buildSessionsQuery,
@@ -41,6 +41,7 @@ export async function handleApi(
   env: Env,
   ctx: ExecutionContext,
 ): Promise<Response> {
+  setWorkerLoggerVersion(env);
   const url = new URL(request.url);
   const requestId = request.headers.get(HDR_REQUEST_ID) ?? uuidv7();
   const route = routeName(url.pathname);

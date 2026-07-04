@@ -61,6 +61,7 @@
     "crons": ["17 3 * * *"],
   },
   "vars": {
+    "APP_VERSION": "dev",
     // DEV_API_TOKEN is created with `wrangler secret put DEV_API_TOKEN`.
     // Do not put the token value in this file.
   },

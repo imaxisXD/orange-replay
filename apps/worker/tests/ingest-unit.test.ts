@@ -112,7 +112,7 @@ describe("ingest header validation", () => {
       value: 10,
     });
 
-    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    vi.spyOn(globalThis["console"], "log").mockImplementation(() => undefined);
     const response = await handleIngest(
       new Request("https://replay.test/v1/ingest", {
         method: "POST",

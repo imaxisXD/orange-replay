@@ -2,6 +2,7 @@
 // tasks extend behavior in their own modules, not here, unless their PLAN.md
 // scope says otherwise.
 import type { FinalizeMessage } from "@orange-replay/shared";
+import { setWideEventVersion } from "@orange-replay/shared";
 import type { PresenceRegistry } from "./do/presence-registry.ts";
 import type { SessionRecorder } from "./do/session-recorder.ts";
 
@@ -17,6 +18,8 @@ export interface Env {
   TRENDS?: AnalyticsEngineDataset;
   /** Bearer token for dashboard API auth (v1). Set via .dev.vars / secret. */
   DEV_API_TOKEN?: string;
+  /** Build or deploy version included in every wide event. Defaults to "dev". */
+  APP_VERSION?: string;
   /** "1" enables /__test/* routes. Never set in production config. */
   DEV_TEST_ROUTES?: string;
   /**
@@ -33,4 +36,8 @@ export interface Env {
  */
 export function shardDb(env: Env, _shard: number): D1Database {
   return env.IDX_00;
+}
+
+export function setWorkerLoggerVersion(env: Pick<Env, "APP_VERSION">): void {
+  setWideEventVersion(env.APP_VERSION);
 }

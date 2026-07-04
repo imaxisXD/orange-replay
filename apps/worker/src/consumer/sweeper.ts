@@ -5,7 +5,7 @@ import {
   type WideEventOutcome,
 } from "@orange-replay/shared";
 import { isValidPathId } from "../api/helpers.ts";
-import { shardDb, type Env } from "../env.ts";
+import { setWorkerLoggerVersion, shardDb, type Env } from "../env.ts";
 import { chunkList } from "./helpers.ts";
 
 const SESSION_SELECT_LIMIT = 200;
@@ -23,6 +23,7 @@ interface SweepTotals {
 }
 
 export async function sweepExpiredSessions(env: Env): Promise<void> {
+  setWorkerLoggerVersion(env);
   const requestId = uuidv7();
   const wideEvent = startWideEvent("worker", "consumer.sweep", requestId);
   const totals: SweepTotals = { sessionsDeleted: 0, objectsDeleted: 0 };

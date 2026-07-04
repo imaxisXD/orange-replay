@@ -3,6 +3,9 @@
   "name": "orange-replay",
   "main": "src/index.ts",
   "compatibility_date": "2026-06-01",
+  "vars": {
+    "APP_VERSION": "dev",
+  },
   "observability": {
     "enabled": true,
   },

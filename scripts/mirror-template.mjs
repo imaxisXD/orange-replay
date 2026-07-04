@@ -199,7 +199,7 @@ function buildTemplateWrangler(source) {
   appendD1Databases(lines, source.d1_databases);
   appendQueues(lines, source.queues);
   appendTriggers(lines, source.triggers);
-  appendVars(lines);
+  appendVars(lines, source.vars);
   lines.push("}");
 
   return `${lines.join("\n")}\n`;
@@ -344,8 +344,14 @@ function appendTriggers(lines, triggers) {
   lines.push("  },");
 }
 
-function appendVars(lines) {
+function appendVars(lines, vars) {
   lines.push('  "vars": {');
+  const safeVars = Object.entries(vars ?? {}).filter(
+    ([key]) => !["DEV_API_TOKEN", "DEV_TEST_ROUTES", "TEST_TIMINGS"].includes(key),
+  );
+  for (const [key, value] of safeVars) {
+    lines.push(`    ${JSON.stringify(key)}: ${JSON.stringify(value)},`);
+  }
   lines.push("    // DEV_API_TOKEN is created with `wrangler secret put DEV_API_TOKEN`.");
   lines.push("    // Do not put the token value in this file.");
   lines.push("  },");

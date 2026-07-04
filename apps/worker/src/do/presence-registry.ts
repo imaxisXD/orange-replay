@@ -4,10 +4,12 @@ import {
   MAX_PRESENCE_ID_CHARS,
   MAX_PRESENCE_TEXT_CHARS,
   startWideEvent,
+  uuidv7,
 } from "@orange-replay/shared";
 import type { WideEventOutcome } from "@orange-replay/shared";
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "../env.ts";
+import { setWorkerLoggerVersion } from "../env.ts";
 import { resolvePresenceTiming } from "./presence-logic.ts";
 import type { PresenceSession } from "./presence-logic.ts";
 
@@ -61,12 +63,13 @@ export class PresenceRegistry extends DurableObject<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    setWorkerLoggerVersion(env);
     this.createSchema();
   }
 
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    const requestId = request.headers.get(HDR_REQUEST_ID) ?? crypto.randomUUID();
+    const requestId = request.headers.get(HDR_REQUEST_ID) ?? uuidv7();
     const event = startWideEvent("worker", "do.presence", requestId);
     let statusCode = 500;
     let outcome: WideEventOutcome = "server_error";
@@ -82,7 +85,7 @@ export class PresenceRegistry extends DurableObject<Env> {
       statusCode = response.status;
       return response;
     } finally {
-      event.set({ status_code: statusCode });
+      event.set({ route: safePresenceRoute(url.pathname), status_code: statusCode });
       event.emit(outcome);
     }
   }
@@ -411,6 +414,15 @@ function readOptionalString(
 
 function readFiniteNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? Math.floor(value) : null;
+}
+
+function safePresenceRoute(pathname: string): string {
+  if (pathname === "/ping") return "ping";
+  if (pathname === "/remove") return "remove";
+  if (pathname === "/list") return "list";
+  if (pathname === "/install-status") return "install_status";
+  if (pathname === "/debug") return "debug";
+  return "not_found";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

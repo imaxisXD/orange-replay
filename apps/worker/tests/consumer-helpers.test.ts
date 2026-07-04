@@ -36,8 +36,8 @@ describe("consumer helper logic", () => {
 
 describe("consumer wide events", () => {
   it("marks the final retry attempt as a DLQ drop", async () => {
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const log = vi.spyOn(globalThis["console"], "log").mockImplementation(() => undefined);
+    const error = vi.spyOn(globalThis["console"], "error").mockImplementation(() => undefined);
     const retry = vi.fn();
     const ack = vi.fn();
     const message = {
@@ -65,7 +65,7 @@ describe("consumer wide events", () => {
   });
 
   it("emits cron sweep logs with a UUIDv7 request id", async () => {
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const log = vi.spyOn(globalThis["console"], "log").mockImplementation(() => undefined);
     const env = makeEmptySweepEnv();
 
     await sweepExpiredSessions(env);

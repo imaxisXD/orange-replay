@@ -51,6 +51,7 @@ describe("SessionRecorder Durable Object", () => {
     expect(debug).toEqual({
       hasState: true,
       finalized: false,
+      firstRequestId: expect.any(String),
       bufferedBytes: payloadA.byteLength + payloadB.byteLength + payloadC.byteLength,
       pendingBatches: 3,
       segmentCount: 0,

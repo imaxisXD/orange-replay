@@ -15,6 +15,14 @@ declare global {
   var __OR_VERSION__: string | undefined;
 }
 
+const DEFAULT_VERSION = "dev";
+const MAX_ERROR_FIELD_CHARS = 500;
+
+export function setWideEventVersion(version: string | null | undefined): void {
+  globalThis.__OR_VERSION__ =
+    typeof version === "string" && version.trim().length > 0 ? version : DEFAULT_VERSION;
+}
+
 export function startWideEvent(
   service: string,
   event: string,
@@ -55,7 +63,7 @@ export function startWideEvent(
         request_id: requestId ?? "",
         outcome: finalOutcome,
         duration_ms: Math.max(0, nowMs() - startedAt),
-        version: globalThis.__OR_VERSION__ ?? "dev",
+        version: globalThis.__OR_VERSION__ ?? DEFAULT_VERSION,
       };
       const encodedLine = JSON.stringify(line);
 
@@ -76,12 +84,16 @@ function nowMs(): number {
 function errorFields(err: unknown): Record<string, string> {
   if (err instanceof Error) {
     return {
-      error_name: err.name,
-      error_message: err.message,
+      error_name: truncateErrorField(err.name),
+      error_message: truncateErrorField(err.message),
     };
   }
 
   return {
-    error_message: String(err),
+    error_message: truncateErrorField(String(err)),
   };
+}
+
+function truncateErrorField(value: string): string {
+  return value.length <= MAX_ERROR_FIELD_CHARS ? value : value.slice(0, MAX_ERROR_FIELD_CHARS);
 }

@@ -1,6 +1,6 @@
 import { finalizeMessageSchema } from "@orange-replay/shared";
 import { parseRecordingObjectKey } from "../api/helpers.ts";
-import { indexSession } from "../consumer/queue.ts";
+import { finalizeTraceKey, indexSession } from "../consumer/queue.ts";
 import { sweepExpiredSessions } from "../consumer/sweeper.ts";
 import type { Env } from "../env.ts";
 
@@ -63,6 +63,10 @@ export async function handleConsumerTestRoutes(
     return readSession(url, env);
   }
 
+  if (request.method === "GET" && path === "/__test/consumer/finalize-trace") {
+    return readFinalizeTrace(url, env);
+  }
+
   if (request.method === "GET" && path === "/__test/consumer/usage") {
     return readUsage(url, env);
   }
@@ -93,6 +97,16 @@ export async function handleConsumerTestRoutes(
   }
 
   return Response.json({ error: "not found" }, { status: 404 });
+}
+
+async function readFinalizeTrace(url: URL, env: Env): Promise<Response> {
+  const sessionId = url.searchParams.get("id");
+  if (sessionId === null || sessionId.length === 0) {
+    return Response.json({ error: "missing session id" }, { status: 400 });
+  }
+
+  const trace = await env.CONFIG.get(finalizeTraceKey(sessionId), { type: "json" });
+  return Response.json({ trace });
 }
 
 async function seedSchema(env: Env): Promise<Response> {
