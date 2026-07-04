@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 import type { SessionListItem } from "../src/lib/api";
-import { formatBytes, formatDuration, formatRelativeTime } from "../src/lib/format";
+import {
+  formatBytes,
+  formatDuration,
+  formatErrorCount,
+  formatRelativeTime,
+} from "../src/lib/format";
 import { appendUniqueSessions, canLoadMore } from "../src/lib/session-list";
 
 describe("format helpers", () => {
@@ -14,10 +19,19 @@ describe("format helpers", () => {
   });
 
   it("formats duration and bytes", () => {
-    expect(formatDuration(1_500)).toBe("2s");
-    expect(formatDuration(65_000)).toBe("1m 5s");
-    expect(formatBytes(512)).toBe("512 B");
-    expect(formatBytes(1_536)).toBe("1.5 KB");
+    expect(formatDuration(1_500)).toBe("0:02");
+    expect(formatDuration(22_000)).toBe("0:22");
+    expect(formatDuration(184_000)).toBe("3:04");
+    expect(formatDuration(612_000)).toBe("10:12");
+    expect(formatDuration(3_661_000)).toBe("1:01:01");
+    expect(formatBytes(512)).toBe("512B");
+    expect(formatBytes(145 * 1_024)).toBe("145K");
+    expect(formatBytes(512 * 1_024)).toBe("512K");
+    expect(formatBytes(1.1 * 1_024 * 1_024)).toBe("1.1M");
+    expect(formatBytes(3.3 * 1_024 * 1_024)).toBe("3.3M");
+    expect(formatBytes(10 * 1_024 * 1_024)).toBe("10M");
+    expect(formatErrorCount(1)).toBe("1 error");
+    expect(formatErrorCount(2)).toBe("2 errors");
   });
 });
 

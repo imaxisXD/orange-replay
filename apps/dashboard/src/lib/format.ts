@@ -30,23 +30,21 @@ export function formatAbsoluteTime(value: number): string {
 
 export function formatDuration(value: number): string {
   const seconds = Math.max(0, Math.round(value / 1_000));
-  if (seconds < 60) return `${seconds}s`;
-
   const minutes = Math.floor(seconds / 60);
   const remainingSeconds = seconds % 60;
-  if (minutes < 60)
-    return remainingSeconds === 0 ? `${minutes}m` : `${minutes}m ${remainingSeconds}s`;
+  if (minutes < 60) return `${minutes}:${padTimePart(remainingSeconds)}`;
 
   const hours = Math.floor(minutes / 60);
   const remainingMinutes = minutes % 60;
-  return remainingMinutes === 0 ? `${hours}h` : `${hours}h ${remainingMinutes}m`;
+  return `${hours}:${padTimePart(remainingMinutes)}:${padTimePart(remainingSeconds)}`;
 }
 
 export function formatBytes(value: number): string {
-  if (value < 1_024) return `${value} B`;
+  const bytes = Math.max(0, value);
+  if (bytes < 1_024) return `${Math.round(bytes)}B`;
 
-  const units = ["KB", "MB", "GB", "TB"];
-  let size = value / 1_024;
+  const units = ["K", "M", "G", "T"];
+  let size = bytes / 1_024;
   let unitIndex = 0;
 
   while (size >= 1_024 && unitIndex < units.length - 1) {
@@ -54,5 +52,15 @@ export function formatBytes(value: number): string {
     unitIndex += 1;
   }
 
-  return `${size >= 10 ? size.toFixed(0) : size.toFixed(1)} ${units[unitIndex]}`;
+  const roundedSize =
+    unitIndex === 0 ? size.toFixed(0) : size < 10 ? size.toFixed(1) : size.toFixed(0);
+  return `${roundedSize}${units[unitIndex]}`;
+}
+
+export function formatErrorCount(count: number): string {
+  return `${count} ${count === 1 ? "error" : "errors"}`;
+}
+
+function padTimePart(value: number): string {
+  return value.toString().padStart(2, "0");
 }

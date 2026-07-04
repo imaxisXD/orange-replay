@@ -32,7 +32,7 @@ import {
 } from "@/components/ui/table";
 import { Tooltip } from "@/components/ui/tooltip";
 import { ApiError, listSessions, type SessionListItem } from "@/lib/api";
-import { formatAbsoluteTime, formatBytes, formatDuration } from "@/lib/format";
+import { formatAbsoluteTime, formatBytes, formatDuration, formatErrorCount } from "@/lib/format";
 import { appendUniqueSessions, canLoadMore } from "@/lib/session-list";
 import { defaultProjectId } from "@/router";
 
@@ -226,6 +226,7 @@ export function SessionsPage() {
         {canLoadMore(nextBefore) && (
           <div className="flex justify-center border-t border-dashed border-dash px-4 py-3">
             <Button
+              className="rounded-lg border border-border bg-card text-[12.5px] font-medium text-foreground"
               disabled={loadState !== "idle"}
               loading={loadState === "loading_more"}
               onClick={() => void loadMore()}
@@ -251,8 +252,8 @@ function SessionRow({
 }) {
   const navigate = useNavigate();
   const href = `/projects/${projectId}/sessions/${session.session_id}`;
-  const country = formatCountry(session.country);
-  const metaParts = [country];
+  const location = formatLocation(session.country, session.city);
+  const metaParts = [location];
   if (session.clicks > 0) metaParts.push(`${session.clicks} clicks`);
 
   function openSession(): void {
@@ -282,7 +283,9 @@ function SessionRow({
       </TableCell>
       <TableCell>
         <div className="flex flex-wrap gap-[6px]">
-          {session.errors > 0 && <StatusPill kind="err">{session.errors} errors</StatusPill>}
+          {session.errors > 0 && (
+            <StatusPill kind="err">{formatErrorCount(session.errors)}</StatusPill>
+          )}
           {session.rages > 0 && <StatusPill kind="rage">{session.rages} rage</StatusPill>}
           {session.errors === 0 && session.rages === 0 && <StatusPill kind="ok">clean</StatusPill>}
         </div>
@@ -359,10 +362,15 @@ function entryPath(value: string | null): string {
   }
 }
 
-function formatCountry(country: string | null): string {
-  if (country === null || country.trim().length === 0) return "Unknown";
+function formatLocation(country: string | null, city: string | null): string {
+  const cleanCity = city?.trim() ?? "";
+  if (country === null || country.trim().length === 0) {
+    return cleanCity.length > 0 ? cleanCity : "Unknown";
+  }
+
   const code = country.trim().toUpperCase();
-  return `${flagForCountry(code)} ${code}`;
+  const label = cleanCity.length > 0 ? cleanCity : code;
+  return `${flagForCountry(code)} ${label}`;
 }
 
 function flagForCountry(code: string): string {

@@ -1,14 +1,16 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { Eye, EyeOff, KeyRound } from "lucide-react";
 import { BrandMark } from "@/components/brand-mark";
 import { Button } from "@/components/ui/button";
 import { InputField, InputGroup } from "@/components/ui/input-group";
-import { clearApiToken, health, setApiToken } from "@/lib/api";
+import { checkApiToken, setApiToken } from "@/lib/api";
 
 interface LoginState {
   returnTo?: string;
 }
+
+const rejectedTokenMessage = "That token was rejected. Check DEV_API_TOKEN and try again.";
 
 export function LoginPage() {
   const [token, setToken] = useState("");
@@ -19,6 +21,13 @@ export function LoginPage() {
   const location = useLocation();
   const state = location.state as LoginState | null;
   const returnTo = state?.returnTo ?? "/projects/p1/sessions";
+
+  useEffect(() => {
+    const reason = new URLSearchParams(location.search).get("reason");
+    if (reason === "unauthorized") {
+      setError(rejectedTokenMessage);
+    }
+  }, [location.search]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -31,19 +40,13 @@ export function LoginPage() {
 
     setIsChecking(true);
     setError("");
-    setApiToken(trimmedToken);
 
     try {
-      const result = await health();
-      if (!result.ok) {
-        throw new Error("The API is not ready.");
-      }
+      await checkApiToken(trimmedToken);
+      setApiToken(trimmedToken);
       void navigate(returnTo, { replace: true });
-    } catch (caughtError) {
-      clearApiToken();
-      setError(
-        caughtError instanceof Error ? caughtError.message : "Could not check the API. Try again.",
-      );
+    } catch {
+      setError(rejectedTokenMessage);
     } finally {
       setIsChecking(false);
     }

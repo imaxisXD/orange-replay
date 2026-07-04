@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import {
   ApiError,
   buildSessionListUrl,
+  checkApiToken,
   clearApiToken,
   getApiToken,
   health,
@@ -62,6 +63,16 @@ describe("api client", () => {
     expect(headers.get("authorization")).toBeNull();
   });
 
+  it("checks a typed token without saving it", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ sessions: [], nextBefore: null }));
+
+    await checkApiToken("typed-token");
+
+    const headers = readFetchHeaders();
+    expect(headers.get("authorization")).toBe("Bearer typed-token");
+    expect(getApiToken()).toBeNull();
+  });
+
   it("builds the sessions query string", () => {
     expect(
       buildSessionListUrl("project 1", {
@@ -86,6 +97,16 @@ describe("api client", () => {
     } satisfies Partial<ApiError>);
     expect(getApiToken()).toBeNull();
     expect(redirects).toEqual([{ status: 401, reason: "unauthorized" }]);
+  });
+
+  it("does not redirect when a typed token is rejected", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ error: "unauthorized" }, 401));
+
+    await expect(checkApiToken("bad-token")).rejects.toMatchObject({
+      status: 401,
+      code: "unauthorized",
+    } satisfies Partial<ApiError>);
+    expect(redirects).toEqual([]);
   });
 
   it("signals auth redirect on 503", async () => {

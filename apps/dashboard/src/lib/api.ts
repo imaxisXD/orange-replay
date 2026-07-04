@@ -92,6 +92,14 @@ export async function health(): Promise<HealthResponse> {
   return requestJson<HealthResponse>("/api/v1/health", { auth: false });
 }
 
+export async function checkApiToken(token: string): Promise<void> {
+  await requestJson<unknown>("/api/v1/projects/p1/sessions?limit=1", {
+    auth: true,
+    redirectOnAuthError: false,
+    token,
+  });
+}
+
 export async function listSessions(
   projectId: string,
   params: ListSessionsParams = {},
@@ -129,11 +137,13 @@ export function buildSessionListUrl(projectId: string, params: ListSessionsParam
 
 interface RequestOptions {
   auth: boolean;
+  redirectOnAuthError?: boolean;
+  token?: string;
 }
 
 async function requestJson<T>(path: string, options: RequestOptions): Promise<T> {
   const headers = new Headers({ accept: "application/json" });
-  const token = getApiToken();
+  const token = options.token ?? getApiToken();
 
   if (options.auth && token !== null && token.length > 0) {
     headers.set("authorization", `Bearer ${token}`);
@@ -146,7 +156,10 @@ async function requestJson<T>(path: string, options: RequestOptions): Promise<T>
     throw new ApiError(readErrorMessage(error, "Could not reach the API."), 0, "network_error");
   }
 
-  if (response.status === 401 || response.status === 503) {
+  if (
+    options.redirectOnAuthError !== false &&
+    (response.status === 401 || response.status === 503)
+  ) {
     handleAuthRedirect(response.status);
   }
 

@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/table";
 import { Tooltip } from "@/components/ui/tooltip";
 import { ApiError, getManifest } from "@/lib/api";
-import { formatBytes, formatDuration } from "@/lib/format";
+import { formatBytes, formatDuration, formatErrorCount } from "@/lib/format";
 import { defaultProjectId } from "@/router";
 
 export function SessionDetailPage() {
@@ -148,7 +148,7 @@ function ManifestHeader({ manifest }: { manifest: SessionManifest }) {
       </div>
 
       <div className="flex flex-wrap gap-2 px-[18px] pb-[15px]">
-        {errors > 0 && <StatusPill kind="err">{errors} errors</StatusPill>}
+        {errors > 0 && <StatusPill kind="err">{formatErrorCount(errors)}</StatusPill>}
         {rageClicks > 0 && <StatusPill kind="rage">{rageClicks} rage</StatusPill>}
         <StatusPill kind="neutral">{formatCountry(attrs.country)}</StatusPill>
         <StatusPill kind="neutral">
