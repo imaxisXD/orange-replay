@@ -186,6 +186,7 @@ async function handleIngestPost(
         live: result.live,
         closed: result.closed || undefined,
         flushMs: result.flushMs,
+        checkpoint: result.checkpoint || undefined,
       } satisfies IngestAck,
       200,
       "success",

@@ -64,6 +64,10 @@ declare module "@orange-replay/player" {
     connected: boolean;
   }
 
+  export interface WaitingKeyframeEvent {
+    waiting: boolean;
+  }
+
   export interface PlayerErrorEvent {
     message: string;
     error?: unknown;
@@ -81,6 +85,7 @@ declare module "@orange-replay/player" {
     buffering: BufferingEvent;
     ended: undefined;
     live: LiveEvent;
+    waiting_keyframe: WaitingKeyframeEvent;
     error: PlayerErrorEvent;
   }
 

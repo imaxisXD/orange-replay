@@ -263,6 +263,7 @@ function ReplayPlayerCard({
   const [skipIdle, setSkipIdle] = useState(false);
   const [playerError, setPlayerError] = useState<PlayerErrorEvent | null>(null);
   const [liveState, setLiveState] = useState({ following: mode === "live", connected: false });
+  const [waitingForKeyframe, setWaitingForKeyframe] = useState(mode === "live");
   const [retryKey, setRetryKey] = useState(0);
   const [flashKey, setFlashKey] = useState(0);
   const speedRef = useRef(speed);
@@ -364,6 +365,7 @@ function ReplayPlayerCard({
     setDurationMs(manifest.durationMs);
     setPlayerError(null);
     setLiveState({ following: mode === "live", connected: false });
+    setWaitingForKeyframe(mode === "live");
 
     const player = new OrangePlayer(container, {
       api: dashboardPlayerApi(manifest),
@@ -404,6 +406,9 @@ function ReplayPlayerCard({
       }),
       player.on("live", (event) => {
         setLiveState(event);
+      }),
+      player.on("waiting_keyframe", (event) => {
+        setWaitingForKeyframe(event.waiting);
       }),
       player.on("error", (event) => {
         setPlayerError(event);
@@ -518,7 +523,16 @@ function ReplayPlayerCard({
           </div>
         )}
 
-        {ready && buffering && playerError === null && (
+        {ready && isFollowing && waitingForKeyframe && playerError === null && (
+          <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-background/72">
+            <span className="live-pulse size-[9px] rounded-full bg-success" />
+            <span className="text-[13px] text-muted-foreground">
+              Connected live — waiting for the next keyframe…
+            </span>
+          </div>
+        )}
+
+        {ready && buffering && !waitingForKeyframe && playerError === null && (
           <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-background/72">
             <span className="size-8 animate-spin rounded-full border border-dash border-t-amber" />
             <span className="text-[13px] text-muted-foreground">Buffering…</span>

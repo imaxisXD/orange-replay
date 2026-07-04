@@ -149,6 +149,7 @@ export async function readAck(response: Response): Promise<IngestAck> {
           : SDK_FLUSH_DEFAULT_MS,
       drop: parsed.drop === true,
       closed: parsed.closed === true,
+      checkpoint: parsed.checkpoint === true,
     };
   } catch {
     return { ok: response.ok, live: false, flushMs: SDK_FLUSH_DEFAULT_MS };

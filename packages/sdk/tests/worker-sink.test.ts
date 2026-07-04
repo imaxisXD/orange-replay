@@ -349,6 +349,30 @@ describe("WorkerSink async visibility flushes", () => {
 });
 
 describe("WorkerSink server and transport drops", () => {
+  it("notifies when an ingest ack asks for a checkpoint", async () => {
+    const onCheckpointRequested = vi.fn();
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      return new Response(
+        JSON.stringify({ ok: true, live: true, flushMs: 4_000, checkpoint: true }),
+      );
+    });
+    const workerHost = makeResolvedWorkerHost();
+    const session = makeSession(["session-one", "tab-one"]);
+    const sink = new WorkerSink({
+      config,
+      session,
+      window,
+      fetch: fetchMock,
+      workerHost,
+      onCheckpointRequested,
+    });
+
+    sink.addRrwebEvent(makeEvent(10, "checkpoint"));
+    await sink.flush("manual");
+
+    expect(onCheckpointRequested).toHaveBeenCalledTimes(1);
+  });
+
   it("stops sending after the server returns a drop ack", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () => {
       return new Response(JSON.stringify({ ok: true, live: false, flushMs: 15_000, drop: true }), {

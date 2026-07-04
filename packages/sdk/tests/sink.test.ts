@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { FLAG_UNCOMPRESSED, HDR_FLAGS, HDR_SEQ } from "@orange-replay/shared/constants";
 import { decodeIngestBody } from "@orange-replay/shared/wire";
+import { CheckpointSnapshotLimiter } from "../src/checkpoint.ts";
 import { InlineSink } from "../src/sink.ts";
 import { SessionManager, type StorageLike } from "../src/session.ts";
 import type { RecorderConfig } from "../src/types.ts";
@@ -106,6 +107,38 @@ describe("InlineSink", () => {
 
     expect(session.sessionId).toBe("session-two");
     expect(session.nextSeq()).toBe(0);
+  });
+
+  it("uses checkpoint acks to request throttled full snapshots", async () => {
+    const takeFullSnapshot = vi.fn();
+    let now = 1_000;
+    const snapshots = new CheckpointSnapshotLimiter({
+      recorder: { takeFullSnapshot },
+      now: () => now,
+    });
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      return new Response(
+        JSON.stringify({ ok: true, live: true, flushMs: 4_000, checkpoint: true }),
+      );
+    });
+    const session = makeSession(["session-one", "tab-one"]);
+    const sink = new InlineSink({
+      config,
+      session,
+      window,
+      fetch: fetchMock,
+      onCheckpointRequested: () => snapshots.requestSnapshot(),
+    });
+
+    sink.addRrwebEvent({ type: 0, timestamp: 1, data: {} } as eventWithTime);
+    await sink.flush("manual");
+    sink.addRrwebEvent({ type: 0, timestamp: 2, data: {} } as eventWithTime);
+    await sink.flush("manual");
+    now += 5_000;
+    sink.addRrwebEvent({ type: 0, timestamp: 3, data: {} } as eventWithTime);
+    await sink.flush("manual");
+
+    expect(takeFullSnapshot).toHaveBeenCalledTimes(2);
   });
 });
 

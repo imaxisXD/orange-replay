@@ -2,7 +2,16 @@ import { Replayer } from "rrweb";
 import type { SegmentRef, SessionManifest } from "@orange-replay/shared/types";
 import { fetchSegmentBytes, liveSocketUrl, loadSession } from "./api.ts";
 import { PlayerEmitter } from "./emitter.ts";
-import { acceptLiveFrame, createLiveFrameState, type LiveFrameState } from "./live.ts";
+import {
+  acceptLiveEventsAfterKeyframe,
+  acceptLiveFrame,
+  createLiveFrameState,
+  createLiveKeyframeBuffer,
+  startWaitingForKeyframe,
+  stopWaitingForKeyframe,
+  type LiveFrameState,
+  type LiveKeyframeBuffer,
+} from "./live.ts";
 import { ReplayOverlay } from "./overlay.ts";
 import {
   chooseSegmentWindow,
@@ -37,6 +46,7 @@ export class OrangePlayer {
   private readonly loadedSegments = new Set<number>();
   private readonly loadingSegments = new Map<number, Promise<void>>();
   private readonly liveFrames: LiveFrameState = createLiveFrameState();
+  private readonly liveKeyframes: LiveKeyframeBuffer = createLiveKeyframeBuffer();
   private manifest: SessionManifest | undefined;
   private timeline: PlayerTimeline | undefined;
   private gaps: InactivityGap[] = [];
@@ -131,7 +141,9 @@ export class OrangePlayer {
     }
 
     this.following = true;
+    startWaitingForKeyframe(this.liveKeyframes);
     this.emitLive();
+    this.emitWaitingKeyframe();
     void this.readyPromise.then(
       () => {
         if (!this.destroyed) {
@@ -276,6 +288,10 @@ export class OrangePlayer {
       return;
     }
 
+    if (this.following && !this.liveKeyframes.started) {
+      return;
+    }
+
     this.replayer?.destroy();
     this.replayer = new Replayer([...this.events], {
       root: this.container,
@@ -300,7 +316,10 @@ export class OrangePlayer {
     this.overlay.bringToFront();
 
     if (this.following) {
-      this.replayer.startLive();
+      // Anchor the live baseline at the last buffered event: rrweb discards
+      // addEvent() payloads older than the baseline, so "now" would drop
+      // every frame that was recorded before it arrived here.
+      this.replayer.startLive(this.events.at(-1)?.timestamp);
     } else if (this.playing || this.playRequested) {
       this.replayer.play(this.playerOffset(this.currentMs));
     } else {
@@ -310,6 +329,11 @@ export class OrangePlayer {
 
   private startPlayback(): void {
     if (this.destroyed || this.manifest === undefined) {
+      return;
+    }
+
+    if (this.following && this.liveKeyframes.waiting) {
+      this.emitter.emit("buffering", { buffering: false });
       return;
     }
 
@@ -434,8 +458,7 @@ export class OrangePlayer {
       this.liveReconnectAttempt = 0;
       this.liveConnected = true;
       this.emitLive();
-      this.replayer?.startLive();
-      if (!this.playing) {
+      if (!this.playing && !this.liveKeyframes.waiting) {
         void this.play();
       }
     };
@@ -481,12 +504,30 @@ export class OrangePlayer {
     void this.worker
       .decodeBatch(frame.payload)
       .then((events) => {
-        this.addReplayEvents(events);
-        this.moveToLiveEdge(events);
+        const acceptedEvents = this.acceptLiveReplayEvents(events);
+        if (acceptedEvents.length === 0) {
+          return;
+        }
+
+        this.addReplayEvents(acceptedEvents);
+        this.moveToLiveEdge(acceptedEvents);
       })
       .catch((error) => {
         this.emitError("Could not decode live replay frame.", error);
       });
+  }
+
+  private acceptLiveReplayEvents(events: readonly ReplayEvent[]): ReplayEvent[] {
+    if (!this.following || this.liveKeyframes.started) {
+      return [...events];
+    }
+
+    const wasWaiting = this.liveKeyframes.waiting;
+    const acceptedEvents = acceptLiveEventsAfterKeyframe(this.liveKeyframes, events);
+    if (wasWaiting !== this.liveKeyframes.waiting) {
+      this.emitWaitingKeyframe();
+    }
+    return acceptedEvents;
   }
 
   private moveToLiveEdge(events: readonly ReplayEvent[]): void {
@@ -497,7 +538,9 @@ export class OrangePlayer {
 
     const lastTimestamp = Math.max(...events.map((event) => event.timestamp));
     this.currentMs = Math.max(this.currentMs, lastTimestamp - manifest.startedAt);
-    this.replayer?.startLive();
+    // Never re-arm startLive() here: each call resets rrweb's live baseline
+    // to "now", silently discarding every event recorded before this frame
+    // arrived. The baseline is anchored once in rebuildReplayer().
     if (!this.playing) {
       this.startPlayback();
     }
@@ -522,6 +565,7 @@ export class OrangePlayer {
   private disconnectLive(): void {
     this.following = false;
     this.liveConnected = false;
+    stopWaitingForKeyframe(this.liveKeyframes);
 
     if (this.liveReconnectTimer !== undefined) {
       clearTimeout(this.liveReconnectTimer);
@@ -535,6 +579,7 @@ export class OrangePlayer {
     }
 
     this.emitLive();
+    this.emitWaitingKeyframe();
   }
 
   private playerOffset(timeMs: number): number {
@@ -559,6 +604,12 @@ export class OrangePlayer {
     this.emitter.emit("live", {
       following: this.following,
       connected: this.liveConnected,
+    });
+  }
+
+  private emitWaitingKeyframe(): void {
+    this.emitter.emit("waiting_keyframe", {
+      waiting: this.liveKeyframes.waiting,
     });
   }
 

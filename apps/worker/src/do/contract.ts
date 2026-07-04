@@ -23,4 +23,5 @@ export interface AppendResult {
   live: boolean;
   closed: boolean;
   flushMs: number;
+  checkpoint?: boolean;
 }

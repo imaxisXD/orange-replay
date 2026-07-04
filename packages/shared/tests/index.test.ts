@@ -7,6 +7,7 @@ import {
   decodeIngestBody,
   encodeIngestBody,
   manifestKey,
+  ingestAckSchema,
   parseSegment,
   segmentBatch,
   segmentKey,
@@ -193,6 +194,9 @@ describe("schemas", () => {
 
     expect(batchIndexSchema.parse(batch)).toEqual(batch);
     expect(sessionManifestSchema.parse(manifest)).toEqual(manifest);
+    expect(
+      ingestAckSchema.parse({ ok: true, live: true, flushMs: 4_000, checkpoint: true }),
+    ).toEqual({ ok: true, live: true, flushMs: 4_000, checkpoint: true });
   });
 
   it("validates finalize messages with session flags", () => {

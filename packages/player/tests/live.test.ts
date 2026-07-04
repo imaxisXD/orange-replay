@@ -2,11 +2,15 @@ import { describe, expect, it } from "vite-plus/test";
 import type { BatchIndex } from "@orange-replay/shared/types";
 import { encodeIngestBody } from "@orange-replay/shared/wire";
 import {
+  acceptLiveEventsAfterKeyframe,
   acceptLiveFrame,
+  createLiveKeyframeBuffer,
   createLiveFrameState,
   decodeLiveFrame,
   orderLiveFrames,
+  startWaitingForKeyframe,
 } from "../src/live.ts";
+import { EventType, IncrementalSource, type eventWithTime } from "rrweb";
 
 describe("live frame handling", () => {
   it("decodes shared ingest bodies into live frames", () => {
@@ -38,6 +42,26 @@ describe("live frame handling", () => {
     expect(acceptLiveFrame(state, frame)).toBeNull();
     expect(state.frames).toHaveLength(1);
   });
+
+  it("waits for a full snapshot before accepting live replay events", () => {
+    const buffer = createLiveKeyframeBuffer();
+    startWaitingForKeyframe(buffer);
+
+    expect(acceptLiveEventsAfterKeyframe(buffer, [incrementalEvent(1)])).toEqual([]);
+    expect(buffer.waiting).toBe(true);
+    expect(buffer.started).toBe(false);
+
+    const meta = metaEvent(2);
+    const snapshot = fullSnapshotEvent(3);
+    const tail = incrementalEvent(4);
+    expect(acceptLiveEventsAfterKeyframe(buffer, [meta, snapshot, tail])).toEqual([
+      meta,
+      snapshot,
+      tail,
+    ]);
+    expect(buffer.waiting).toBe(false);
+    expect(buffer.started).toBe(true);
+  });
 });
 
 function makeIndex(tab: string, seq: number, time: number): BatchIndex {
@@ -50,4 +74,28 @@ function makeIndex(tab: string, seq: number, time: number): BatchIndex {
     t1: time,
     e: [{ t: time, k: "click" }],
   };
+}
+
+function metaEvent(timestamp: number): eventWithTime {
+  return {
+    type: EventType.Meta,
+    timestamp,
+    data: { href: "https://example.com", width: 1280, height: 720 },
+  } as eventWithTime;
+}
+
+function fullSnapshotEvent(timestamp: number): eventWithTime {
+  return {
+    type: EventType.FullSnapshot,
+    timestamp,
+    data: { node: { id: 1, type: 0 }, initialOffset: { left: 0, top: 0 } },
+  } as eventWithTime;
+}
+
+function incrementalEvent(timestamp: number): eventWithTime {
+  return {
+    type: EventType.IncrementalSnapshot,
+    timestamp,
+    data: { source: IncrementalSource.Mutation, texts: [], attributes: [], removes: [], adds: [] },
+  } as eventWithTime;
 }

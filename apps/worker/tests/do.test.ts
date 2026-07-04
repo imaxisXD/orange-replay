@@ -58,6 +58,43 @@ describe("SessionRecorder Durable Object", () => {
     });
   });
 
+  it("asks the next append for one live join checkpoint", async () => {
+    const projectId = "project-live-checkpoint";
+    const sessionId = "session-live-checkpoint";
+    const payload = bytes("payload-live-checkpoint");
+
+    await append({ projectId, sessionId, tab: "tab-a", seq: 0, payload, t0: 1500 });
+
+    const conn = openDoLiveSocket(projectId, sessionId);
+    try {
+      const helloMessage = await waitForSocketMessage(conn, "hello", 5_000);
+      const hello = parseTextMessage<{ type: string; sessionId: string }>(helloMessage);
+      expect(hello).toMatchObject({ type: "hello", sessionId });
+
+      const checkpointResult = await append({
+        projectId,
+        sessionId,
+        tab: "tab-a",
+        seq: 1,
+        payload,
+        t0: 1600,
+      });
+      expect(checkpointResult.checkpoint).toBe(true);
+
+      const normalResult = await append({
+        projectId,
+        sessionId,
+        tab: "tab-a",
+        seq: 2,
+        payload,
+        t0: 1700,
+      });
+      expect("checkpoint" in normalResult).toBe(false);
+    } finally {
+      conn.socket.close();
+    }
+  });
+
   it("flushes a segment when buffered bytes exceed the limit", async () => {
     const projectId = "project-size-flush";
     const sessionId = "session-size-flush";
@@ -579,6 +616,24 @@ interface AppendResultBody {
   live: boolean;
   closed: boolean;
   flushMs: number;
+  checkpoint?: boolean;
+}
+
+interface LiveSocket {
+  binaryType: string;
+  close(): void;
+  addEventListener(type: "message", listener: (event: { data: unknown }) => void): void;
+  addEventListener(type: "error" | "close", listener: () => void): void;
+}
+
+interface LiveSocketConstructor {
+  new (url: string): LiveSocket;
+}
+
+interface LiveConnection {
+  socket: LiveSocket;
+  queue: unknown[];
+  status: { errored: boolean; closed: boolean };
 }
 
 async function append(input: AppendInput): Promise<AppendResultBody> {
@@ -736,6 +791,59 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+function openDoLiveSocket(projectId: string, sessionId: string): LiveConnection {
+  const Socket = readWebSocketConstructor();
+  const socket = new Socket(
+    `ws://${worker.address}:${worker.port}/__test/do/live?projectId=${encodeURIComponent(projectId)}&sessionId=${encodeURIComponent(sessionId)}`,
+  );
+  socket.binaryType = "arraybuffer";
+  const queue: unknown[] = [];
+  const status = { errored: false, closed: false };
+  socket.addEventListener("message", (event) => {
+    queue.push(event.data);
+  });
+  socket.addEventListener("error", () => {
+    status.errored = true;
+  });
+  socket.addEventListener("close", () => {
+    status.closed = true;
+  });
+  return { socket, queue, status };
+}
+
+function readWebSocketConstructor(): LiveSocketConstructor {
+  const value = (globalThis as { WebSocket?: LiveSocketConstructor }).WebSocket;
+  if (value === undefined) {
+    throw new Error("global WebSocket is not available");
+  }
+  return value;
+}
+
+async function waitForSocketMessage(
+  conn: LiveConnection,
+  label: string,
+  timeoutMs: number,
+): Promise<unknown> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const next = conn.queue.shift();
+    if (next !== undefined) return next;
+    if (conn.status.errored) throw new Error(`live socket errored before ${label}`);
+    if (conn.status.closed) throw new Error(`live socket closed before ${label}`);
+    if (Date.now() >= deadline) {
+      throw new Error(`live socket did not receive ${label} within ${timeoutMs}ms`);
+    }
+    await sleep(25);
+  }
+}
+
+function parseTextMessage<T>(message: unknown): T {
+  if (typeof message !== "string") {
+    throw new Error("live socket message was not text");
+  }
+  return JSON.parse(message) as T;
 }
 
 interface PresenceListBody {

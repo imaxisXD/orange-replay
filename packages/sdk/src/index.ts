@@ -1,5 +1,6 @@
 import type { IndexEvent } from "@orange-replay/shared/types";
 import type { eventWithTime } from "@orange-replay/rrweb-fork";
+import { CheckpointSnapshotLimiter } from "./checkpoint.ts";
 import { markSdkInternalError } from "./internal-error.ts";
 import { Recorder } from "./recorder.ts";
 import { shouldSampleSession } from "./sampling.ts";
@@ -39,6 +40,10 @@ export function init(options: InitOptions): OrangeReplayHandle {
     let started = false;
     let stopRequested = false;
     let stopTouchListeners: (() => void) | undefined;
+    let checkpointSnapshots: CheckpointSnapshotLimiter | undefined;
+    const requestCheckpointSnapshot = () => {
+      checkpointSnapshots?.requestSnapshot();
+    };
     const rotateSession = () => {
       if (rotationPromise !== undefined) {
         return rotationPromise;
@@ -65,6 +70,7 @@ export function init(options: InitOptions): OrangeReplayHandle {
             onSessionClosed() {
               void rotateSession();
             },
+            onCheckpointRequested: requestCheckpointSnapshot,
           })
         : new WorkerSink({
             config,
@@ -73,9 +79,11 @@ export function init(options: InitOptions): OrangeReplayHandle {
             onSessionClosed() {
               void rotateSession();
             },
+            onCheckpointRequested: requestCheckpointSnapshot,
           });
     const sidecar = new Sidecar({ config, sink, now: () => Date.now(), window });
     const recorder = new Recorder({ config, sink });
+    checkpointSnapshots = new CheckpointSnapshotLimiter({ recorder });
     const startPromise = session.ready.then(() => {
       if (stopRequested) {
         return;

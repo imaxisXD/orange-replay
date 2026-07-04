@@ -5,6 +5,8 @@ import {
   MAX_BATCHES_PER_SEGMENT,
   SEGMENT_FLUSH_BYTES,
   SEGMENT_FLUSH_INTERVAL_MS,
+  SDK_FLUSH_DEFAULT_MS,
+  SDK_FLUSH_LIVE_MS,
   PRESENCE_HEARTBEAT_MS,
   PRESENCE_TTL_MS,
 } from "@orange-replay/shared";
@@ -20,6 +22,7 @@ import {
   MAX_MANIFEST_TIMELINE_EVENTS,
   nextAlarmAfterAlarm,
   resolveSessionTiming,
+  sdkFlushMs,
   shouldDropForSessionCap,
   shouldSetAlarm,
 } from "../src/do/session-logic.ts";
@@ -37,6 +40,8 @@ describe("SessionRecorder pure logic", () => {
       segmentFlushMs: SEGMENT_FLUSH_INTERVAL_MS,
       flushTailMs: FLUSH_TAIL_AFTER_IDLE_MS,
       closeMs: CLOSE_SESSION_AFTER_IDLE_MS,
+      sdkFlushMs: SDK_FLUSH_DEFAULT_MS,
+      sdkFlushLiveMs: SDK_FLUSH_LIVE_MS,
     });
 
     expect(
@@ -47,6 +52,8 @@ describe("SessionRecorder pure logic", () => {
           segmentFlushMs: 200,
           flushTailMs: 300,
           closeMs: 400,
+          sdkFlushMs: 500,
+          sdkFlushLiveMs: 250,
         }),
       ),
     ).toEqual({
@@ -54,7 +61,20 @@ describe("SessionRecorder pure logic", () => {
       segmentFlushMs: 200,
       flushTailMs: 300,
       closeMs: 400,
+      sdkFlushMs: 500,
+      sdkFlushLiveMs: 250,
     });
+  });
+
+  it("serves the sdk cadence from timing overrides", () => {
+    expect(sdkFlushMs(false)).toBe(SDK_FLUSH_DEFAULT_MS);
+    expect(sdkFlushMs(true)).toBe(SDK_FLUSH_LIVE_MS);
+    const timing = resolveSessionTiming(
+      "1",
+      JSON.stringify({ sdkFlushMs: 900, sdkFlushLiveMs: 450 }),
+    );
+    expect(sdkFlushMs(false, timing)).toBe(900);
+    expect(sdkFlushMs(true, timing)).toBe(450);
   });
 
   it("decides when buffered batches should flush", () => {
@@ -63,6 +83,8 @@ describe("SessionRecorder pure logic", () => {
       segmentFlushMs: 50,
       flushTailMs: 500,
       closeMs: 1000,
+      sdkFlushMs: SDK_FLUSH_DEFAULT_MS,
+      sdkFlushLiveMs: SDK_FLUSH_LIVE_MS,
     };
 
     expect(
@@ -322,6 +344,8 @@ describe("SessionRecorder pure logic", () => {
       segmentFlushMs: 100,
       flushTailMs: 500,
       closeMs: 5000,
+      sdkFlushMs: SDK_FLUSH_DEFAULT_MS,
+      sdkFlushLiveMs: SDK_FLUSH_LIVE_MS,
     };
 
     expect(nextAlarmAfterAlarm({ lastActivity: 1000, pendingBatches: 1, timing })).toBe(1500);

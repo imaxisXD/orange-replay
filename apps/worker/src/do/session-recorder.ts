@@ -131,7 +131,7 @@ export class SessionRecorder extends DurableObject<Env> {
   async appendBatch(args: AppendArgs): Promise<AppendResult> {
     const event = startWideEvent("worker", "do.append", args.requestId);
     const timing = resolveSessionTiming(this.env.DEV_TEST_ROUTES, this.env.TEST_TIMINGS);
-    let result: AppendResult = { live: false, closed: false, flushMs: sdkFlushMs(false) };
+    let result: AppendResult = { live: false, closed: false, flushMs: sdkFlushMs(false, timing) };
     let outcome: WideEventOutcome = "success";
     let dropReason: "session_closed" | "session_cap" | undefined;
     let duplicate = false;
@@ -139,13 +139,14 @@ export class SessionRecorder extends DurableObject<Env> {
     let viewerCount = 0;
     let bufferedBytes = this.sessionState?.bufferedBytes ?? 0;
     let presencePingError: string | undefined;
+    let checkpoint = false;
 
     try {
       let state = this.sessionState;
       if (this.finalizedTombstone !== null) {
         outcome = "dropped";
         dropReason = "session_closed";
-        result = { live: false, closed: true, flushMs: sdkFlushMs(false) };
+        result = { live: false, closed: true, flushMs: sdkFlushMs(false, timing) };
         return result;
       }
 
@@ -153,7 +154,7 @@ export class SessionRecorder extends DurableObject<Env> {
         if (args.seq !== 0) {
           outcome = "dropped";
           dropReason = "session_closed";
-          result = { live: false, closed: true, flushMs: sdkFlushMs(false) };
+          result = { live: false, closed: true, flushMs: sdkFlushMs(false, timing) };
           return result;
         }
 
@@ -165,7 +166,11 @@ export class SessionRecorder extends DurableObject<Env> {
       viewerCount = this.ctx.getWebSockets("viewer").length;
 
       if (duplicate) {
-        result = { live: viewerCount > 0, closed: false, flushMs: sdkFlushMs(viewerCount > 0) };
+        result = {
+          live: viewerCount > 0,
+          closed: false,
+          flushMs: sdkFlushMs(viewerCount > 0, timing),
+        };
         return result;
       }
 
@@ -178,7 +183,11 @@ export class SessionRecorder extends DurableObject<Env> {
       ) {
         outcome = "dropped";
         dropReason = "session_cap";
-        result = { live: viewerCount > 0, closed: false, flushMs: sdkFlushMs(viewerCount > 0) };
+        result = {
+          live: viewerCount > 0,
+          closed: false,
+          flushMs: sdkFlushMs(viewerCount > 0, timing),
+        };
         return result;
       }
 
@@ -198,7 +207,11 @@ export class SessionRecorder extends DurableObject<Env> {
       duplicate = insert.rowsWritten === 0;
 
       if (duplicate) {
-        result = { live: viewerCount > 0, closed: false, flushMs: sdkFlushMs(viewerCount > 0) };
+        result = {
+          live: viewerCount > 0,
+          closed: false,
+          flushMs: sdkFlushMs(viewerCount > 0, timing),
+        };
         return result;
       }
 
@@ -214,6 +227,11 @@ export class SessionRecorder extends DurableObject<Env> {
       ) {
         state.lastPresencePingAt = args.receivedAt;
         presencePingError = this.queuePresencePing(state, args.requestId, args.receivedAt);
+      }
+
+      checkpoint = state.checkpointRequested === true;
+      if (checkpoint) {
+        delete state.checkpointRequested;
       }
 
       this.sessionState = state;
@@ -240,7 +258,12 @@ export class SessionRecorder extends DurableObject<Env> {
       }
 
       viewerCount = this.ctx.getWebSockets("viewer").length;
-      result = { live: viewerCount > 0, closed: false, flushMs: sdkFlushMs(viewerCount > 0) };
+      result = {
+        live: viewerCount > 0,
+        closed: false,
+        flushMs: sdkFlushMs(viewerCount > 0, timing),
+        ...(checkpoint ? { checkpoint: true } : {}),
+      };
       return result;
     } catch (err) {
       outcome = "server_error";
@@ -257,6 +280,9 @@ export class SessionRecorder extends DurableObject<Env> {
         viewer_count: viewerCount,
         duplicate,
       });
+      if (checkpoint) {
+        event.set({ checkpoint: true });
+      }
       if (flushReason !== undefined) {
         event.set({ flush_reason: flushReason });
       }
@@ -426,6 +452,7 @@ export class SessionRecorder extends DurableObject<Env> {
     const client = pair[0];
     const server = pair[1];
     this.ctx.acceptWebSocket(server, ["viewer"]);
+    this.requestCheckpointOnNextAppend();
     server.send(
       JSON.stringify({
         type: "hello",
@@ -472,6 +499,17 @@ export class SessionRecorder extends DurableObject<Env> {
         events TEXT
       );
     `);
+  }
+
+  private requestCheckpointOnNextAppend(): void {
+    const state = this.sessionState;
+    if (state === null || state.checkpointRequested === true) {
+      return;
+    }
+
+    state.checkpointRequested = true;
+    this.sessionState = state;
+    this.persistState(state);
   }
 
   private loadStoredState(): {

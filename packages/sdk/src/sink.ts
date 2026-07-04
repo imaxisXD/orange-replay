@@ -39,6 +39,7 @@ export interface InlineSinkOptions {
   window: Window;
   fetch?: typeof fetch;
   onSessionClosed?: () => void;
+  onCheckpointRequested?: () => void;
 }
 
 export interface WorkerSinkOptions extends InlineSinkOptions {
@@ -77,6 +78,7 @@ export class WorkerSink implements Sink {
   private readonly workerHost: WorkerHost;
   private readonly transport: Transport;
   private readonly onSessionClosed?: () => void;
+  private readonly onCheckpointRequested?: () => void;
   private readonly encoder = new TextEncoder();
   private readonly indexEvents = new IndexEventBuffer();
   private readonly batcher: Batcher;
@@ -98,6 +100,7 @@ export class WorkerSink implements Sink {
     this.session = options.session;
     this.window = options.window;
     this.onSessionClosed = options.onSessionClosed;
+    this.onCheckpointRequested = options.onCheckpointRequested;
     this.currentUrl = scrubUrl(options.window.location.href, options.config.allowUrlParams);
     this.batcher = new Batcher({ flushMs: options.config.flushMs || SDK_FLUSH_DEFAULT_MS });
     this.workerHost =
@@ -305,6 +308,10 @@ export class WorkerSink implements Sink {
 
       if (result.ack !== undefined) {
         this.batcher.retuneFromAck(result.ack);
+
+        if (result.ack.checkpoint === true) {
+          this.onCheckpointRequested?.();
+        }
 
         if (result.ack.drop === true) {
           this.stopAfterServerDrop();
@@ -753,6 +760,7 @@ export class InlineSink implements Sink {
   private readonly window: Window;
   private readonly fetchFn: typeof fetch;
   private readonly onSessionClosed?: () => void;
+  private readonly onCheckpointRequested?: () => void;
   private readonly encoder = new TextEncoder();
   private readonly indexEvents = new IndexEventBuffer();
   private rrwebEvents: eventWithTime[] = [];
@@ -769,6 +777,7 @@ export class InlineSink implements Sink {
     this.window = options.window;
     this.fetchFn = options.fetch ?? options.window.fetch.bind(options.window);
     this.onSessionClosed = options.onSessionClosed;
+    this.onCheckpointRequested = options.onCheckpointRequested;
     this.currentUrl = scrubUrl(options.window.location.href, options.config.allowUrlParams);
     this.flushMs = options.config.flushMs || SDK_FLUSH_DEFAULT_MS;
   }
@@ -884,6 +893,10 @@ export class InlineSink implements Sink {
     });
 
     const ack = await readAck(response);
+    if (ack.checkpoint === true) {
+      this.onCheckpointRequested?.();
+    }
+
     if (ack.drop === true) {
       this.stopAfterServerDrop();
       return;

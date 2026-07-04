@@ -3,6 +3,7 @@ import { MAX_SEQ } from "./constants.ts";
 import type {
   BatchIndex,
   FinalizeMessage,
+  IngestAck,
   IndexEvent,
   ProjectConfigUpdate,
   ProjectConfig,
@@ -173,6 +174,17 @@ export const sessionManifestSchema: z.ZodType<SessionManifest> = z
     flags: z.number().int().nonnegative(),
     enc: encSchema.optional(),
     attrs: sessionAttrsSchema,
+  })
+  .strict();
+
+export const ingestAckSchema: z.ZodType<IngestAck> = z
+  .object({
+    ok: z.boolean(),
+    live: z.boolean(),
+    flushMs: z.number(),
+    drop: z.boolean().optional(),
+    closed: z.boolean().optional(),
+    checkpoint: z.boolean().optional(),
   })
   .strict();
 

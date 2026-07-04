@@ -154,4 +154,5 @@ export interface IngestAck {
   flushMs: number;
   drop?: boolean;
   closed?: boolean;
+  checkpoint?: boolean;
 }

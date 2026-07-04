@@ -76,6 +76,16 @@ export async function handleDoTestRoutes(
     return Response.json(await sessionStub(env, projectId, sessionId).debug());
   }
 
+  if (request.method === "GET" && url.pathname === "/__test/do/live") {
+    const projectId = url.searchParams.get("projectId");
+    const sessionId = url.searchParams.get("sessionId");
+    if (projectId === null || sessionId === null) {
+      return Response.json({ error: "missing_id" }, { status: 400 });
+    }
+
+    return sessionStub(env, projectId, sessionId).fetch(request);
+  }
+
   if (request.method === "POST" && url.pathname.startsWith("/__test/do/presence/")) {
     return callPresenceTestRoute(request, env, url.pathname);
   }

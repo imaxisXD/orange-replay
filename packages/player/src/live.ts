@@ -1,5 +1,7 @@
 import { decodeIngestBody } from "@orange-replay/shared/wire";
 import type { BatchIndex } from "@orange-replay/shared/types";
+import { EventType } from "rrweb";
+import type { ReplayEvent } from "./types.ts";
 
 export interface LiveFrame {
   index: BatchIndex;
@@ -11,11 +13,62 @@ export interface LiveFrameState {
   frames: LiveFrame[];
 }
 
+export interface LiveKeyframeBuffer {
+  waiting: boolean;
+  started: boolean;
+  events: ReplayEvent[];
+}
+
 export function createLiveFrameState(): LiveFrameState {
   return {
     seen: new Set(),
     frames: [],
   };
+}
+
+export function createLiveKeyframeBuffer(): LiveKeyframeBuffer {
+  return {
+    waiting: false,
+    started: false,
+    events: [],
+  };
+}
+
+export function startWaitingForKeyframe(buffer: LiveKeyframeBuffer): void {
+  buffer.waiting = true;
+  buffer.started = false;
+  buffer.events = [];
+}
+
+export function stopWaitingForKeyframe(buffer: LiveKeyframeBuffer): void {
+  buffer.waiting = false;
+  buffer.started = false;
+  buffer.events = [];
+}
+
+export function acceptLiveEventsAfterKeyframe(
+  buffer: LiveKeyframeBuffer,
+  events: readonly ReplayEvent[],
+): ReplayEvent[] {
+  if (!buffer.waiting || buffer.started) {
+    return [...events];
+  }
+
+  buffer.events.push(...events);
+  const snapshotIndex = buffer.events.findIndex(isFullSnapshotEvent);
+  if (snapshotIndex < 0) {
+    return [];
+  }
+
+  const startIndex =
+    snapshotIndex > 0 && isMetaEvent(buffer.events[snapshotIndex - 1])
+      ? snapshotIndex - 1
+      : snapshotIndex;
+  const acceptedEvents = buffer.events.slice(startIndex);
+  buffer.events = [];
+  buffer.started = true;
+  buffer.waiting = false;
+  return acceptedEvents;
 }
 
 export function acceptLiveFrame(
@@ -68,4 +121,12 @@ function compareLiveFrames(left: LiveFrame, right: LiveFrame): number {
   }
 
   return left.index.seq - right.index.seq;
+}
+
+function isFullSnapshotEvent(event: ReplayEvent): boolean {
+  return event.type === EventType.FullSnapshot;
+}
+
+function isMetaEvent(event: ReplayEvent | undefined): boolean {
+  return event?.type === EventType.Meta;
 }

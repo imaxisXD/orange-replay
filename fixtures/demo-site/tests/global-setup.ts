@@ -25,6 +25,7 @@ interface WranglerModule {
 const demoDir = fileURLToPath(new URL("..", import.meta.url));
 const repoDir = resolve(demoDir, "../..");
 const workerDir = resolve(repoDir, "apps/worker");
+const dashboardDir = resolve(repoDir, "apps/dashboard");
 const stateFile = fileURLToPath(new URL("../.playwright-state.json", import.meta.url));
 const apiToken = "demo-e2e-token";
 const ingestKey = "or_demo_e2e_key";
@@ -33,6 +34,13 @@ const timings = {
   segmentFlushBytes: 2048,
   flushTailMs: 700,
   closeMs: 3_000,
+  presenceTtlMs: 20_000,
+  presenceHeartbeatMs: 700,
+  // Keep the server-driven SDK cadence below closeMs: at the production
+  // default (15s) every lightly-active session finalizes between flushes
+  // under the shortened closeMs, so live rows could never persist.
+  sdkFlushMs: 1_000,
+  sdkFlushLiveMs: 500,
 };
 
 export default async function globalSetup(): Promise<() => Promise<void>> {
@@ -56,6 +64,9 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   const cspVite = await createDemoServer(workerUrl, true);
   await cspVite.listen(0);
   const cspDemoUrl = readViteUrl(cspVite);
+  const dashboardVite = await createDashboardServer(workerUrl);
+  await dashboardVite.listen(0);
+  const dashboardUrl = readViteUrl(dashboardVite);
 
   await writeFile(
     stateFile,
@@ -64,6 +75,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
         workerUrl,
         demoUrl,
         cspDemoUrl,
+        dashboardUrl,
         apiToken,
         ingestKey,
         projectId: "demo-e2e-project",
@@ -79,6 +91,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     await Promise.allSettled([
       vite.close(),
       cspVite.close(),
+      dashboardVite.close(),
       worker.stop(),
       rm(stateFile, { force: true }),
     ]);
@@ -101,6 +114,28 @@ async function createDemoServer(workerUrl: string, withCsp: boolean): Promise<Vi
   });
 
   return vite;
+}
+
+async function createDashboardServer(workerUrl: string): Promise<ViteDevServer> {
+  const previousWorkerUrl = process.env.VITE_WORKER_URL;
+  process.env.VITE_WORKER_URL = workerUrl;
+
+  try {
+    return await createServer({
+      root: dashboardDir,
+      configFile: resolve(dashboardDir, "vite.config.ts"),
+      logLevel: "warn",
+      server: {
+        host: "127.0.0.1",
+      },
+    });
+  } finally {
+    if (previousWorkerUrl === undefined) {
+      delete process.env.VITE_WORKER_URL;
+    } else {
+      process.env.VITE_WORKER_URL = previousWorkerUrl;
+    }
+  }
 }
 
 async function loadWrangler(): Promise<WranglerModule> {

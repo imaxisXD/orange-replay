@@ -22,6 +22,8 @@ export interface SessionTiming {
   segmentFlushMs: number;
   flushTailMs: number;
   closeMs: number;
+  sdkFlushMs: number;
+  sdkFlushLiveMs: number;
 }
 
 export interface SessionState {
@@ -44,6 +46,7 @@ export interface SessionState {
   urlCount: number;
   encKeyId?: string;
   lastPresencePingAt?: number;
+  checkpointRequested?: boolean;
 }
 
 export type AppendFlushReason = "bytes" | "interval";
@@ -71,6 +74,8 @@ export const defaultSessionTiming: SessionTiming = {
   segmentFlushMs: SEGMENT_FLUSH_INTERVAL_MS,
   flushTailMs: FLUSH_TAIL_AFTER_IDLE_MS,
   closeMs: CLOSE_SESSION_AFTER_IDLE_MS,
+  sdkFlushMs: SDK_FLUSH_DEFAULT_MS,
+  sdkFlushLiveMs: SDK_FLUSH_LIVE_MS,
 };
 
 export function resolveSessionTiming(
@@ -97,6 +102,8 @@ export function resolveSessionTiming(
     segmentFlushMs: readPositiveNumber(parsed["segmentFlushMs"], SEGMENT_FLUSH_INTERVAL_MS),
     flushTailMs: readPositiveNumber(parsed["flushTailMs"], FLUSH_TAIL_AFTER_IDLE_MS),
     closeMs: readPositiveNumber(parsed["closeMs"], CLOSE_SESSION_AFTER_IDLE_MS),
+    sdkFlushMs: readPositiveNumber(parsed["sdkFlushMs"], SDK_FLUSH_DEFAULT_MS),
+    sdkFlushLiveMs: readPositiveNumber(parsed["sdkFlushLiveMs"], SDK_FLUSH_LIVE_MS),
   };
 }
 
@@ -147,8 +154,8 @@ export function nextAlarmAfterAlarm(input: {
   return input.lastActivity + input.timing.closeMs;
 }
 
-export function sdkFlushMs(live: boolean): number {
-  return live ? SDK_FLUSH_LIVE_MS : SDK_FLUSH_DEFAULT_MS;
+export function sdkFlushMs(live: boolean, timing: SessionTiming = defaultSessionTiming): number {
+  return live ? timing.sdkFlushLiveMs : timing.sdkFlushMs;
 }
 
 export function buildSessionManifest(

@@ -17,6 +17,8 @@ export default defineConfig({
       "/api": {
         target: workerUrl,
         changeOrigin: true,
+        // Live session watching upgrades to a WebSocket on the same path.
+        ws: true,
       },
       "/v1": {
         target: workerUrl,

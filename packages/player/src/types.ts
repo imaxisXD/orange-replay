@@ -117,6 +117,10 @@ export interface LiveEvent {
   connected: boolean;
 }
 
+export interface WaitingKeyframeEvent {
+  waiting: boolean;
+}
+
 export interface PlayerErrorEvent {
   message: string;
   error?: unknown;
@@ -130,6 +134,7 @@ export interface OrangePlayerEventMap {
   buffering: BufferingEvent;
   ended: undefined;
   live: LiveEvent;
+  waiting_keyframe: WaitingKeyframeEvent;
   error: PlayerErrorEvent;
 }
 

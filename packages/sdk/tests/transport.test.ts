@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BatchIndex } from "@orange-replay/shared/types";
-import { Transport } from "../src/pipeline/transport.ts";
+import { readAck, Transport } from "../src/pipeline/transport.ts";
 import type { RecorderConfig } from "../src/types.ts";
 
 const config: RecorderConfig = {
@@ -112,6 +112,14 @@ describe("Transport", () => {
     });
 
     expect(onClosed).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps checkpoint acks in the parsed response", async () => {
+    const ack = await readAck(
+      new Response(JSON.stringify({ ok: true, live: true, flushMs: 4_000, checkpoint: true })),
+    );
+
+    expect(ack).toMatchObject({ ok: true, live: true, flushMs: 4_000, checkpoint: true });
   });
 
   it("queues sync batches with fetch first and does not also send a beacon", () => {
