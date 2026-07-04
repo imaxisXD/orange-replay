@@ -24,11 +24,10 @@ afterAll(async () => {
 });
 
 describe("worker harness", () => {
-  it("serves the root route", async () => {
+  it("does not expose a public root route", async () => {
     const res = await worker.fetch("/");
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { service: string; ok: boolean };
-    expect(body.service).toBe("orange-replay");
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: "not_found" });
   });
 
   it("exercises DO, Presence DO, R2, KV, and D1 bindings", async () => {

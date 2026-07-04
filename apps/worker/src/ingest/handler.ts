@@ -13,9 +13,9 @@ import type { AppendArgs } from "../do/contract.ts";
 import { shardDb } from "../env.ts";
 import type { Env } from "../env.ts";
 import {
-  INGEST_POST_HEADERS,
-  INGEST_PREFLIGHT_HEADERS,
   MAX_INGEST_BODY_BYTES,
+  ingestPostHeaders,
+  ingestPreflightHeaders,
   mapConfigRowToProjectConfig,
   parseProjectConfig,
   readBodyCapped,
@@ -31,11 +31,15 @@ const CONFIG_READ_QUERY =
 
 export function handleIngest(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   if (request.method === "OPTIONS") {
-    return Promise.resolve(new Response(null, { status: 204, headers: INGEST_PREFLIGHT_HEADERS }));
+    return Promise.resolve(
+      new Response(null, { status: 204, headers: ingestPreflightHeaders(request) }),
+    );
   }
 
   if (request.method !== "POST") {
-    return Promise.resolve(jsonResponse({ error: "method not allowed" }, 405));
+    return Promise.resolve(
+      jsonResponse({ error: "method not allowed" }, 405, ingestPostHeaders(request)),
+    );
   }
 
   return handleIngestPost(request, env, ctx);
@@ -50,11 +54,12 @@ async function handleIngestPost(
   const event = startWideEvent("worker", "ingest.batch", requestId);
   let statusCode = 500;
   let outcome: WideEventOutcome = "server_error";
+  let responseHeaders = ingestPostHeaders(request);
 
   const finish = <Body>(body: Body, status: number, nextOutcome: WideEventOutcome): Response => {
     statusCode = status;
     outcome = nextOutcome;
-    return jsonResponse(body, status);
+    return jsonResponse(body, status, responseHeaders);
   };
 
   try {
@@ -86,6 +91,7 @@ async function handleIngestPost(
 
     const config = configResult.config;
     if (config !== null) {
+      responseHeaders = ingestPostHeaders(request, config.allowedOrigins);
       event.set({
         project_id: config.projectId,
         org_id: config.orgId,
@@ -176,6 +182,11 @@ async function handleIngestPost(
       attrs,
       receivedAt: Date.now(),
     } satisfies AppendArgs);
+
+    if (result.rateLimited === true) {
+      event.set({ flags: cleanedFlags, live: result.live });
+      return finish({ error: "rate_limited" }, 429, "rate_limited");
+    }
 
     writeTrend(env, config.projectId, attrs.country, payload.byteLength);
     event.set({ flags: cleanedFlags, live: result.live });
@@ -371,6 +382,6 @@ function writeTrend(
   }
 }
 
-function jsonResponse(body: unknown, status: number): Response {
-  return Response.json(body, { status, headers: INGEST_POST_HEADERS });
+function jsonResponse(body: unknown, status: number, headers: Headers): Response {
+  return Response.json(body, { status, headers });
 }

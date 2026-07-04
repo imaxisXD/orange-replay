@@ -15,7 +15,6 @@ import type { BatchIndex, IndexEvent, IndexEventKind, ProjectConfig } from "@ora
 export const MAX_INGEST_BODY_BYTES = MAX_COMPRESSED_BATCH_BYTES + MAX_INDEX_JSON_BYTES;
 
 export const INGEST_PREFLIGHT_HEADERS = {
-  "access-control-allow-origin": "*",
   "access-control-allow-methods": "POST,OPTIONS",
   "access-control-allow-headers": [
     "content-type",
@@ -29,9 +28,37 @@ export const INGEST_PREFLIGHT_HEADERS = {
   "access-control-max-age": "86400",
 } as const;
 
-export const INGEST_POST_HEADERS = {
-  "access-control-allow-origin": "*",
+export const JSON_SECURITY_HEADERS = {
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "no-referrer",
 } as const;
+
+export function ingestPreflightHeaders(request: Request): Headers {
+  const headers = new Headers(INGEST_PREFLIGHT_HEADERS);
+  const origin = request.headers.get("origin");
+  headers.set("access-control-allow-origin", origin ?? "*");
+  if (origin !== null) {
+    headers.set("vary", "Origin");
+  }
+  return headers;
+}
+
+export function ingestPostHeaders(request: Request, allowedOrigins?: readonly string[]): Headers {
+  const headers = new Headers(JSON_SECURITY_HEADERS);
+
+  if (allowedOrigins === undefined || allowedOrigins.length === 0 || allowedOrigins.includes("*")) {
+    headers.set("access-control-allow-origin", "*");
+    return headers;
+  }
+
+  const origin = request.headers.get("origin");
+  if (origin !== null && allowedOrigins.includes(origin)) {
+    headers.set("access-control-allow-origin", origin);
+    headers.set("vary", "Origin");
+  }
+
+  return headers;
+}
 
 export interface ValidIngestHeaders {
   key: string;

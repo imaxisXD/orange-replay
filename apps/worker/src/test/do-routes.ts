@@ -1,4 +1,5 @@
 import { HDR_REQUEST_ID } from "@orange-replay/shared";
+import { isValidPathId, parseRecordingObjectKey } from "../api/helpers.ts";
 import type { Env } from "../env.ts";
 import type { AppendArgs, AppendResult } from "../do/contract.ts";
 import type { TestSeedBatchesArgs } from "../do/session-recorder.ts";
@@ -22,6 +23,9 @@ export async function handleDoTestRoutes(
 
   if (request.method === "POST" && url.pathname === "/__test/do/append") {
     const body = (await request.json()) as TestAppendBody;
+    if (!hasValidSessionIds(body)) {
+      return Response.json({ error: "invalid_id" }, { status: 400 });
+    }
     const stub = sessionStub(env, body.projectId, body.sessionId);
     const result: AppendResult = await stub.appendBatch({
       ...body,
@@ -34,6 +38,9 @@ export async function handleDoTestRoutes(
 
   if (request.method === "POST" && url.pathname === "/__test/do/seed-batches") {
     const body = (await request.json()) as TestSeedBatchesArgs;
+    if (!hasValidSessionIds(body)) {
+      return Response.json({ error: "invalid_id" }, { status: 400 });
+    }
     return Response.json(
       await sessionStub(env, body.projectId, body.sessionId).seedBatchesForTest(body),
     );
@@ -41,22 +48,29 @@ export async function handleDoTestRoutes(
 
   if (request.method === "POST" && url.pathname === "/__test/do/flush") {
     const body = (await request.json()) as SessionRequestBody;
+    if (!hasValidSessionIds(body)) {
+      return Response.json({ error: "invalid_id" }, { status: 400 });
+    }
     return Response.json(await sessionStub(env, body.projectId, body.sessionId).flushForTest());
   }
 
   if (request.method === "POST" && url.pathname === "/__test/do/finalize") {
     const body = (await request.json()) as SessionRequestBody;
+    if (!hasValidSessionIds(body)) {
+      return Response.json({ error: "invalid_id" }, { status: 400 });
+    }
     await sessionStub(env, body.projectId, body.sessionId).finalizeForTest();
     return Response.json({ ok: true });
   }
 
   if (request.method === "GET" && url.pathname === "/__test/do/r2") {
-    const key = url.searchParams.get("key");
-    if (key === null || !key.startsWith("p/")) {
+    const rawKey = url.searchParams.get("key");
+    const key = rawKey === null ? { ok: false as const } : parseRecordingObjectKey(rawKey);
+    if (!key.ok) {
       return Response.json({ error: "bad_key" }, { status: 400 });
     }
 
-    const object = await env.RECORDINGS.get(key);
+    const object = await env.RECORDINGS.get(key.key);
     if (object === null) {
       return Response.json({ error: "not_found" }, { status: 404 });
     }
@@ -67,23 +81,27 @@ export async function handleDoTestRoutes(
   }
 
   if (request.method === "GET" && url.pathname === "/__test/do/debug") {
-    const projectId = url.searchParams.get("projectId");
-    const sessionId = url.searchParams.get("sessionId");
-    if (projectId === null || sessionId === null) {
+    const ids = readSessionIds(
+      url.searchParams.get("projectId"),
+      url.searchParams.get("sessionId"),
+    );
+    if (!ids.ok) {
       return Response.json({ error: "missing_id" }, { status: 400 });
     }
 
-    return Response.json(await sessionStub(env, projectId, sessionId).debug());
+    return Response.json(await sessionStub(env, ids.projectId, ids.sessionId).debug());
   }
 
   if (request.method === "GET" && url.pathname === "/__test/do/live") {
-    const projectId = url.searchParams.get("projectId");
-    const sessionId = url.searchParams.get("sessionId");
-    if (projectId === null || sessionId === null) {
+    const ids = readSessionIds(
+      url.searchParams.get("projectId"),
+      url.searchParams.get("sessionId"),
+    );
+    if (!ids.ok) {
       return Response.json({ error: "missing_id" }, { status: 400 });
     }
 
-    return sessionStub(env, projectId, sessionId).fetch(request);
+    return sessionStub(env, ids.projectId, ids.sessionId).fetch(request);
   }
 
   if (request.method === "POST" && url.pathname.startsWith("/__test/do/presence/")) {
@@ -103,7 +121,7 @@ async function callPresenceTestRoute(
   pathname: string,
 ): Promise<Response> {
   const body = (await request.json()) as { projectId?: unknown };
-  if (typeof body.projectId !== "string" || body.projectId.length === 0) {
+  if (typeof body.projectId !== "string" || !isValidPathId(body.projectId)) {
     return Response.json({ error: "projectId is required" }, { status: 400 });
   }
 
@@ -132,4 +150,25 @@ function decodeBase64(value: string): Uint8Array {
   }
 
   return bytes;
+}
+
+function hasValidSessionIds(body: { projectId?: unknown; sessionId?: unknown }): boolean {
+  return (
+    typeof body.projectId === "string" &&
+    typeof body.sessionId === "string" &&
+    isValidPathId(body.projectId) &&
+    isValidPathId(body.sessionId)
+  );
+}
+
+function readSessionIds(
+  projectId: string | null,
+  sessionId: string | null,
+): { ok: true; projectId: string; sessionId: string } | { ok: false } {
+  const ok =
+    projectId !== null &&
+    sessionId !== null &&
+    isValidPathId(projectId) &&
+    isValidPathId(sessionId);
+  return ok ? { ok: true, projectId, sessionId } : { ok: false };
 }

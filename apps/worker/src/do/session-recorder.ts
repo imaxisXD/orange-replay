@@ -30,8 +30,10 @@ import {
   shouldDropForSessionCap,
   shouldSetAlarm,
   sdkFlushMs,
+  trackAppendRateLimit,
 } from "./session-logic.ts";
 import type { SegmentFlushReason, SegmentForManifest, SessionState } from "./session-logic.ts";
+import type { AppendRateLimitState } from "./session-logic.ts";
 
 type SqlRowValue = ArrayBuffer | string | number | null;
 
@@ -112,6 +114,7 @@ export class SessionRecorder extends DurableObject<Env> {
   private finalizedTombstone: FinalizedTombstone | null = null;
   private alarmAt: number | null = null;
   private activeFlush: Promise<SegmentFlushResult | null> | null = null;
+  private readonly appendRateLimit: AppendRateLimitState = { windowStartedAt: 0, count: 0 };
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -134,6 +137,7 @@ export class SessionRecorder extends DurableObject<Env> {
     let result: AppendResult = { live: false, closed: false, flushMs: sdkFlushMs(false, timing) };
     let outcome: WideEventOutcome = "success";
     let dropReason: "session_closed" | "session_cap" | undefined;
+    let rateLimited = false;
     let duplicate = false;
     let flushReason: SegmentFlushReason | undefined;
     let viewerCount = 0;
@@ -187,6 +191,18 @@ export class SessionRecorder extends DurableObject<Env> {
           live: viewerCount > 0,
           closed: false,
           flushMs: sdkFlushMs(viewerCount > 0, timing),
+        };
+        return result;
+      }
+
+      if (trackAppendRateLimit(this.appendRateLimit, args.receivedAt, timing)) {
+        outcome = "rate_limited";
+        rateLimited = true;
+        result = {
+          live: viewerCount > 0,
+          closed: false,
+          flushMs: sdkFlushMs(viewerCount > 0, timing),
+          rateLimited: true,
         };
         return result;
       }
@@ -279,6 +295,7 @@ export class SessionRecorder extends DurableObject<Env> {
         buffered_bytes: bufferedBytes,
         viewer_count: viewerCount,
         duplicate,
+        rate_limited: rateLimited,
       });
       if (checkpoint) {
         event.set({ checkpoint: true });
@@ -488,6 +505,7 @@ export class SessionRecorder extends DurableObject<Env> {
       event.set({
         status_code: statusCode,
         viewer_count: viewerCount,
+        auth: request.headers.get("x-or-live-auth") === "ticket" ? "ticket" : "direct",
         ...(projectId === undefined ? {} : { project_id: projectId }),
         ...(sessionId === undefined ? {} : { session_id: sessionId }),
       });

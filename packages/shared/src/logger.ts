@@ -1,4 +1,9 @@
-export type WideEventOutcome = "success" | "client_error" | "server_error" | "dropped";
+export type WideEventOutcome =
+  | "success"
+  | "client_error"
+  | "server_error"
+  | "dropped"
+  | "rate_limited";
 
 export interface WideEventLogger {
   set(fields: Record<string, unknown>): void;

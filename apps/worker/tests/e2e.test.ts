@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import {
   decodeIngestBody,
@@ -507,8 +507,11 @@ interface LiveConnection {
 
 function openLiveSocket(targetSessionId: string): LiveConnection {
   const Socket = readWebSocketConstructor();
+  const ticket = signLiveTicket(projectId, targetSessionId, Date.now() + 60_000);
   const socket = new Socket(
-    `ws://${worker.address}:${worker.port}/api/v1/projects/${projectId}/sessions/${targetSessionId}/live?token=${apiToken}`,
+    `ws://${worker.address}:${worker.port}/api/v1/projects/${projectId}/sessions/${targetSessionId}/live?ticket=${encodeURIComponent(
+      ticket,
+    )}`,
   );
   socket.binaryType = "arraybuffer";
   const queue: unknown[] = [];
@@ -523,6 +526,17 @@ function openLiveSocket(targetSessionId: string): LiveConnection {
     status.closed = true;
   });
   return { socket, queue, status };
+}
+
+function signLiveTicket(
+  targetProjectId: string,
+  targetSessionId: string,
+  expiresAt: number,
+): string {
+  const signature = createHmac("sha256", apiToken)
+    .update(`${targetProjectId}:${targetSessionId}:${expiresAt}`)
+    .digest("base64url");
+  return Buffer.from(`${expiresAt}.${signature}`).toString("base64url");
 }
 
 function readWebSocketConstructor(): LiveSocketConstructor {

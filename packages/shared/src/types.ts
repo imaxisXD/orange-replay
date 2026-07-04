@@ -129,6 +129,11 @@ export interface ProjectKeysResponse {
   keys: ProjectKeyAudit[];
 }
 
+export interface LiveTicketResponse {
+  ticket: string;
+  expiresAt: number;
+}
+
 export interface FinalizeMessage {
   type: "session.finalized";
   sessionId: string;

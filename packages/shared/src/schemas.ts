@@ -25,6 +25,7 @@ const indexEventKindSchema = z.enum([
 ]);
 
 const eventMetaSchema = z.record(z.string(), z.union([z.string(), z.number()]));
+const pathIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
 
 const indexEventSchema: z.ZodType<IndexEvent> = z
   .object({
@@ -101,8 +102,8 @@ export const captureTogglesSchema = z
 
 const projectConfigObject = z
   .object({
-    projectId: z.string(),
-    orgId: z.string(),
+    projectId: pathIdSchema,
+    orgId: pathIdSchema,
     shard: z.number().int().nonnegative(),
     active: z.boolean(),
     sampleRate: z.number().min(0).max(1),
@@ -191,9 +192,9 @@ export const ingestAckSchema: z.ZodType<IngestAck> = z
 export const finalizeMessageSchema: z.ZodType<FinalizeMessage> = z
   .object({
     type: z.literal("session.finalized"),
-    sessionId: z.string(),
-    projectId: z.string(),
-    orgId: z.string(),
+    sessionId: pathIdSchema,
+    projectId: pathIdSchema,
+    orgId: pathIdSchema,
     shard: z.number().int().nonnegative(),
     requestId: z.string(),
     manifestKey: z.string(),

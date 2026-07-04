@@ -1,4 +1,10 @@
-export { fetchSegmentBytes, liveSocketUrl, loadSession, segmentFileName } from "./api.ts";
+export {
+  fetchSegmentBytes,
+  liveSocketUrl,
+  loadSession,
+  mintLiveTicket,
+  segmentFileName,
+} from "./api.ts";
 export { PlayerEmitter } from "./emitter.ts";
 export {
   acceptLiveFrame,

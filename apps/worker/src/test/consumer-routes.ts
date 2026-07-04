@@ -1,4 +1,5 @@
 import { finalizeMessageSchema } from "@orange-replay/shared";
+import { parseRecordingObjectKey } from "../api/helpers.ts";
 import { indexSession } from "../consumer/queue.ts";
 import { sweepExpiredSessions } from "../consumer/sweeper.ts";
 import type { Env } from "../env.ts";
@@ -169,8 +170,8 @@ async function indexFinalizeMessageNow(request: Request, env: Env): Promise<Resp
 
   try {
     return Response.json(await indexSession(env, parsed.data));
-  } catch (error) {
-    return Response.json({ error: errorMessage(error) }, { status: 500 });
+  } catch {
+    return Response.json({ error: "index_failed" }, { status: 500 });
   }
 }
 
@@ -186,7 +187,8 @@ async function seedSession(request: Request, env: Env): Promise<Response> {
   if (!Array.isArray(r2Keys) || !r2Keys.every((key) => typeof key === "string")) {
     return Response.json({ error: "missing r2 keys" }, { status: 400 });
   }
-  if (!r2Keys.every((key) => key.startsWith("p/"))) {
+  const parsedKeys = r2Keys.map((key) => parseRecordingObjectKey(key));
+  if (!parsedKeys.every((key) => key.ok)) {
     return Response.json({ error: "bad r2 key" }, { status: 400 });
   }
 
@@ -200,8 +202,10 @@ async function seedSession(request: Request, env: Env): Promise<Response> {
   await insertSessionRow(env.IDX_00, session);
   await seedSessionEvents(env.IDX_00, session["session_id"], body["events"]);
 
-  for (const key of r2Keys) {
-    await env.RECORDINGS.put(key, "ok");
+  for (const key of parsedKeys) {
+    if (key.ok) {
+      await env.RECORDINGS.put(key.key, "ok");
+    }
   }
 
   return Response.json({ ok: true });
@@ -237,11 +241,12 @@ async function failSessionDelete(url: URL, env: Env): Promise<Response> {
 
 async function readR2Object(url: URL, env: Env): Promise<Response> {
   const key = url.searchParams.get("key");
-  if (key === null || !key.startsWith("p/")) {
+  const parsed = key === null ? { ok: false as const } : parseRecordingObjectKey(key);
+  if (!parsed.ok) {
     return Response.json({ error: "bad r2 key" }, { status: 400 });
   }
 
-  const object = await env.RECORDINGS.head(key);
+  const object = await env.RECORDINGS.head(parsed.key);
   return Response.json({ exists: object !== null });
 }
 
@@ -271,10 +276,6 @@ function readSafeSessionId(url: URL): string | null {
 
 function quoteSqlString(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function canBeNull(column: (typeof SESSION_COLUMNS)[number]): boolean {

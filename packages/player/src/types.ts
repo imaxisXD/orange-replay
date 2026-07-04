@@ -11,6 +11,7 @@ export interface PlayerApi {
   manifestUrl?: (params: SessionRequest) => string;
   segmentUrl?: (params: SegmentRequest) => string;
   liveUrl?: (params: LiveRequest) => string;
+  liveTicketUrl?: (params: SessionRequest) => string;
 }
 
 export interface SessionRequest {
@@ -25,7 +26,7 @@ export interface SegmentRequest extends SessionRequest {
 }
 
 export interface LiveRequest extends SessionRequest {
-  token: string;
+  ticket: string;
 }
 
 export interface LoadSessionOptions extends SessionRequest {}

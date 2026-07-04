@@ -1,5 +1,5 @@
 import { sessionManifestSchema } from "@orange-replay/shared/schemas";
-import type { SegmentRef, SessionManifest } from "@orange-replay/shared/types";
+import type { LiveTicketResponse, SegmentRef, SessionManifest } from "@orange-replay/shared/types";
 import type {
   LiveRequest,
   LoadSessionOptions,
@@ -47,6 +47,23 @@ export function liveSocketUrl(api: PlayerApiInput, options: LiveRequest): string
   return resolveApi(api).liveUrl(options);
 }
 
+export async function mintLiveTicket(
+  api: PlayerApiInput,
+  options: SessionRequest & { token: string },
+): Promise<LiveTicketResponse> {
+  const resolved = resolveApi(api);
+  const response = await resolved.fetchFn(resolved.liveTicketUrl(options), {
+    method: "POST",
+    headers: authHeaders(options.token),
+  });
+
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "Could not create a live ticket."));
+  }
+
+  return (await response.json()) as LiveTicketResponse;
+}
+
 export function segmentFileName(segment: SegmentRef): string {
   return segment.key.split("/").at(-1) ?? segment.key;
 }
@@ -56,6 +73,7 @@ interface ResolvedApi {
   manifestUrl: (params: SessionRequest) => string;
   segmentUrl: (params: SegmentRequest) => string;
   liveUrl: (params: LiveRequest) => string;
+  liveTicketUrl: (params: SessionRequest) => string;
 }
 
 function resolveApi(api: PlayerApiInput): ResolvedApi {
@@ -82,8 +100,14 @@ function resolveApi(api: PlayerApiInput): ResolvedApi {
         webSocketUrl(
           `${baseUrl}/api/v1/projects/${encodePath(params.projectId)}/sessions/${encodePath(
             params.sessionId,
-          )}/live?token=${encodeURIComponent(params.token)}`,
+          )}/live?ticket=${encodeURIComponent(params.ticket)}`,
         )),
+    liveTicketUrl:
+      apiObject.liveTicketUrl ??
+      ((params) =>
+        `${baseUrl}/api/v1/projects/${encodePath(params.projectId)}/sessions/${encodePath(
+          params.sessionId,
+        )}/live-ticket`),
   };
 }
 

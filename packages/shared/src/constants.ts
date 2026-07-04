@@ -10,6 +10,10 @@ export const FLAG_ENCRYPTED = 1 << 1;
 
 export const MAX_COMPRESSED_BATCH_BYTES = 1024 * 1024;
 export const MAX_INDEX_JSON_BYTES = 64 * 1024;
+export const MAX_CONFIG_UPDATE_BODY_BYTES = 64 * 1024;
+export const MAX_PRESENCE_BODY_BYTES = 8 * 1024;
+export const MAX_PRESENCE_ID_CHARS = 64;
+export const MAX_PRESENCE_TEXT_CHARS = 2048;
 export const MAX_BATCHES_PER_SEGMENT = 4096;
 export const MAX_SEQ = 10_000_000;
 
@@ -21,6 +25,9 @@ export const FLUSH_TAIL_AFTER_IDLE_MS = 120_000;
 export const CLOSE_SESSION_AFTER_IDLE_MS = 1_800_000;
 export const PRESENCE_TTL_MS = 60_000;
 export const PRESENCE_HEARTBEAT_MS = 20_000;
+export const SESSION_APPEND_RATE_LIMIT_COUNT = 30;
+export const SESSION_APPEND_RATE_LIMIT_WINDOW_MS = 10_000;
+export const LIVE_TICKET_TTL_MS = 60_000;
 
 export function sessionPrefix(projectId: string, sessionId: string): string {
   return `p/${projectId}/${sessionId}`;

@@ -1,3 +1,5 @@
+import { manifestKey, sessionPrefix } from "@orange-replay/shared";
+
 export const pathIdPattern = /^[A-Za-z0-9_-]{1,64}$/;
 export const segmentNamePattern = /^seg-\d{6}\.ors$/;
 
@@ -86,6 +88,30 @@ export function isValidPathId(value: string): boolean {
 
 export function isValidSegmentName(value: string): boolean {
   return segmentNamePattern.test(value);
+}
+
+export function parseRecordingObjectKey(value: string): { ok: true; key: string } | { ok: false } {
+  const match = /^p\/([^/]+)\/([^/]+)\/([^/]+)$/.exec(value);
+  if (match?.[1] === undefined || match[2] === undefined || match[3] === undefined) {
+    return { ok: false };
+  }
+
+  const projectId = match[1];
+  const sessionId = match[2];
+  const name = match[3];
+  if (!isValidPathId(projectId) || !isValidPathId(sessionId)) {
+    return { ok: false };
+  }
+
+  if (name === "manifest.json") {
+    return { ok: true, key: manifestKey(projectId, sessionId) };
+  }
+
+  if (!isValidSegmentName(name)) {
+    return { ok: false };
+  }
+
+  return { ok: true, key: `${sessionPrefix(projectId, sessionId)}/${name}` };
 }
 
 export function parseSessionListQuery(params: URLSearchParams): ParsedSessionListQuery {

@@ -4,6 +4,7 @@ import {
   uuidv7,
   type WideEventOutcome,
 } from "@orange-replay/shared";
+import { isValidPathId } from "../api/helpers.ts";
 import { shardDb, type Env } from "../env.ts";
 import { chunkList } from "./helpers.ts";
 
@@ -70,6 +71,10 @@ async function selectExpiredSessions(db: D1Database, now: number): Promise<Expir
 }
 
 async function deleteSessionObjects(bucket: R2Bucket, row: ExpiredSessionRow): Promise<number> {
+  if (!isValidPathId(row.projectId) || !isValidPathId(row.sessionId)) {
+    return 0;
+  }
+
   const prefix = `${sessionPrefix(row.projectId, row.sessionId)}/`;
   let cursor: string | undefined;
   let objectsDeleted = 0;

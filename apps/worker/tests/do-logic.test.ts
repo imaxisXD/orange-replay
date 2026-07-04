@@ -7,6 +7,8 @@ import {
   SEGMENT_FLUSH_INTERVAL_MS,
   SDK_FLUSH_DEFAULT_MS,
   SDK_FLUSH_LIVE_MS,
+  SESSION_APPEND_RATE_LIMIT_COUNT,
+  SESSION_APPEND_RATE_LIMIT_WINDOW_MS,
   PRESENCE_HEARTBEAT_MS,
   PRESENCE_TTL_MS,
 } from "@orange-replay/shared";
@@ -25,6 +27,7 @@ import {
   sdkFlushMs,
   shouldDropForSessionCap,
   shouldSetAlarm,
+  trackAppendRateLimit,
 } from "../src/do/session-logic.ts";
 import type { SegmentForManifest, SessionState } from "../src/do/session-logic.ts";
 import {
@@ -42,6 +45,8 @@ describe("SessionRecorder pure logic", () => {
       closeMs: CLOSE_SESSION_AFTER_IDLE_MS,
       sdkFlushMs: SDK_FLUSH_DEFAULT_MS,
       sdkFlushLiveMs: SDK_FLUSH_LIVE_MS,
+      appendRateLimitCount: SESSION_APPEND_RATE_LIMIT_COUNT,
+      appendRateLimitWindowMs: SESSION_APPEND_RATE_LIMIT_WINDOW_MS,
     });
 
     expect(
@@ -54,6 +59,8 @@ describe("SessionRecorder pure logic", () => {
           closeMs: 400,
           sdkFlushMs: 500,
           sdkFlushLiveMs: 250,
+          appendRateLimitCount: 2,
+          appendRateLimitWindowMs: 1000,
         }),
       ),
     ).toEqual({
@@ -63,6 +70,8 @@ describe("SessionRecorder pure logic", () => {
       closeMs: 400,
       sdkFlushMs: 500,
       sdkFlushLiveMs: 250,
+      appendRateLimitCount: 2,
+      appendRateLimitWindowMs: 1000,
     });
   });
 
@@ -85,6 +94,8 @@ describe("SessionRecorder pure logic", () => {
       closeMs: 1000,
       sdkFlushMs: SDK_FLUSH_DEFAULT_MS,
       sdkFlushLiveMs: SDK_FLUSH_LIVE_MS,
+      appendRateLimitCount: SESSION_APPEND_RATE_LIMIT_COUNT,
+      appendRateLimitWindowMs: SESSION_APPEND_RATE_LIMIT_WINDOW_MS,
     };
 
     expect(
@@ -116,6 +127,19 @@ describe("SessionRecorder pure logic", () => {
         timing,
       }),
     ).toEqual({ shouldFlush: false });
+  });
+
+  it("tracks append rate in memory without storage state", () => {
+    const state = { windowStartedAt: 0, count: 0 };
+    const timing = {
+      appendRateLimitCount: 2,
+      appendRateLimitWindowMs: 1000,
+    };
+
+    expect(trackAppendRateLimit(state, 100, timing)).toBe(false);
+    expect(trackAppendRateLimit(state, 200, timing)).toBe(false);
+    expect(trackAppendRateLimit(state, 300, timing)).toBe(true);
+    expect(trackAppendRateLimit(state, 1200, timing)).toBe(false);
   });
 
   it("assembles a manifest from segment rows", () => {
@@ -346,6 +370,8 @@ describe("SessionRecorder pure logic", () => {
       closeMs: 5000,
       sdkFlushMs: SDK_FLUSH_DEFAULT_MS,
       sdkFlushLiveMs: SDK_FLUSH_LIVE_MS,
+      appendRateLimitCount: SESSION_APPEND_RATE_LIMIT_COUNT,
+      appendRateLimitWindowMs: SESSION_APPEND_RATE_LIMIT_WINDOW_MS,
     };
 
     expect(nextAlarmAfterAlarm({ lastActivity: 1000, pendingBatches: 1, timing })).toBe(1500);

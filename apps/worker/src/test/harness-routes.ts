@@ -5,6 +5,7 @@
 //   /__test/ingest/*   -> T1.3 (ingest-routes.ts)
 //   /__test/consumer/* -> T1.4 (consumer-routes.ts)
 //   /__test/api/*      -> T1.5 (api-routes.ts)
+import { manifestKey } from "@orange-replay/shared";
 import type { Env } from "../env.ts";
 import { handleApiTestRoutes } from "./api-routes.ts";
 import { handleConsumerTestRoutes } from "./consumer-routes.ts";
@@ -39,7 +40,7 @@ async function harnessCheck(env: Env): Promise<Response> {
     body: JSON.stringify({ projectId: "harness" }),
   });
 
-  const key = "harness/check.bin";
+  const key = manifestKey("harness_project", "harness_session");
   await env.RECORDINGS.put(key, new Uint8Array([1, 2, 3]));
   const obj = await env.RECORDINGS.get(key);
   const r2 = obj !== null && (await obj.arrayBuffer()).byteLength === 3;

@@ -96,8 +96,8 @@ describe("consumer queue and sweeper", () => {
 
     await sendFinalizeMessage({ type: "session.finalized", sessionId: badSessionId });
 
-    const root = await worker.fetch("/");
-    expect(root.status).toBe(200);
+    const health = await worker.fetch("/api/v1/health");
+    expect(health.status).toBe(200);
     const body = await readSession(badSessionId);
     expect(body.session).toBeNull();
     expect(body.events).toEqual([]);

@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { request as httpRequest, type IncomingMessage } from "node:http";
 import { fileURLToPath } from "node:url";
 import {
@@ -21,6 +22,8 @@ const liveProjectId = "api_live_project";
 const installProjectId = "api_install_project";
 const configProjectId = "api_config_project";
 const keysProjectId = "api_keys_project";
+const ticketProjectId = "api_ticket_project";
+const ticketSessionId = "api_ticket_session";
 const segmentName = "seg-000001.ors";
 const segmentBytes = new Uint8Array([0, 1, 2, 3, 254, 255]);
 
@@ -59,6 +62,8 @@ describe("dashboard api", () => {
     const res = await worker.fetch("/api/v1/health");
 
     expect(res.status).toBe(200);
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(res.headers.get("referrer-policy")).toBe("no-referrer");
     expect(await res.json()).toEqual({ ok: true });
   });
 
@@ -164,6 +169,8 @@ describe("dashboard api", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("application/json");
     expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(res.headers.get("referrer-policy")).toBe("no-referrer");
     expect(await res.text()).toBe(assetManifestJson);
   });
 
@@ -176,6 +183,8 @@ describe("dashboard api", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("application/octet-stream");
     expect(res.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(res.headers.get("referrer-policy")).toBe("no-referrer");
     expect(Array.from(new Uint8Array(await res.arrayBuffer()))).toEqual(Array.from(segmentBytes));
   });
 
@@ -194,9 +203,11 @@ describe("dashboard api", () => {
   });
 
   it("requires websocket upgrade for live sessions", async () => {
+    const ticket = await mintTicket(assetProjectId, assetSessionId);
     const res = await worker.fetch(
-      `/api/v1/projects/${assetProjectId}/sessions/${assetSessionId}/live`,
-      { headers: authHeaders() },
+      `/api/v1/projects/${assetProjectId}/sessions/${assetSessionId}/live?ticket=${encodeURIComponent(
+        ticket,
+      )}`,
     );
 
     expect(res.status).toBe(426);
@@ -281,6 +292,15 @@ describe("dashboard api", () => {
     expect(await invalid.json()).toEqual({ error: "invalid_project_config" });
     expect((await getProjectConfig(configProjectId)).version).toBe(1);
 
+    const oversized = await worker.fetch(`/api/v1/projects/${configProjectId}/config`, {
+      method: "PUT",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({ filler: "x".repeat(70 * 1024) }),
+    });
+    expect(oversized.status).toBe(413);
+    expect(await oversized.json()).toEqual({ error: "body_too_large" });
+    expect((await getProjectConfig(configProjectId)).version).toBe(1);
+
     const update = {
       sampleRate: 0.25,
       retentionDays: 45,
@@ -347,22 +367,76 @@ describe("dashboard api", () => {
     });
   });
 
-  it("returns the durable object's live response status", async () => {
+  it("mints live tickets only with bearer auth", async () => {
+    const missing = await worker.fetch(
+      `/api/v1/projects/${assetProjectId}/sessions/${assetSessionId}/live-ticket`,
+      { method: "POST" },
+    );
+    expect(missing.status).toBe(401);
+
+    const res = await worker.fetch(
+      `/api/v1/projects/${assetProjectId}/sessions/${assetSessionId}/live-ticket`,
+      {
+        method: "POST",
+        headers: authHeaders(),
+      },
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      ticket: expect.any(String),
+      expiresAt: expect.any(Number),
+    });
+  });
+
+  it("returns the durable object's live response status with a valid ticket", async () => {
+    const ticket = await mintTicket(assetProjectId, assetSessionId);
     const res = await requestLiveUpgrade(
-      `/api/v1/projects/${assetProjectId}/sessions/${assetSessionId}/live?token=${token}`,
+      `/api/v1/projects/${assetProjectId}/sessions/${assetSessionId}/live?ticket=${encodeURIComponent(
+        ticket,
+      )}`,
     );
 
     expect(res.status).toBe(404);
     expect(JSON.parse(res.body)).toEqual({ error: "not_found" });
   });
 
-  it("rejects a wrong live query token before reaching the durable object", async () => {
-    const res = await requestLiveUpgrade(
-      `/api/v1/projects/${assetProjectId}/sessions/${assetSessionId}/live?token=wrong-token`,
+  it("connects live WebSockets with tickets and rejects token fallback", async () => {
+    await seedIngestKey(
+      "api-ticket-key",
+      makeProjectConfig({ projectId: ticketProjectId, orgId: "api_ticket_org" }),
+      false,
     );
+    await appendActiveSession(ticketProjectId, ticketSessionId);
 
-    expect(res.status).toBe(401);
-    expect(JSON.parse(res.body)).toEqual({ error: "unauthorized" });
+    const ticket = await mintTicket(ticketProjectId, ticketSessionId);
+    const connected = await requestLiveUpgrade(
+      `/api/v1/projects/${ticketProjectId}/sessions/${ticketSessionId}/live?ticket=${encodeURIComponent(
+        ticket,
+      )}`,
+    );
+    expect(connected.status).toBe(101);
+
+    const tokenFallback = await requestLiveUpgrade(
+      `/api/v1/projects/${ticketProjectId}/sessions/${ticketSessionId}/live?token=${token}`,
+    );
+    expect(tokenFallback.status).toBe(401);
+    expect(JSON.parse(tokenFallback.body)).toEqual({ error: "unauthorized" });
+  });
+
+  it("rejects garbage, expired, and cross-session live tickets", async () => {
+    const validForOtherSession = await mintTicket(assetProjectId, "other_session");
+    const expired = signLiveTicket(assetProjectId, assetSessionId, Date.now() - 1);
+
+    for (const ticket of ["garbage", expired, validForOtherSession]) {
+      const res = await requestLiveUpgrade(
+        `/api/v1/projects/${assetProjectId}/sessions/${assetSessionId}/live?ticket=${encodeURIComponent(
+          ticket,
+        )}`,
+      );
+      expect(res.status).toBe(401);
+      expect(JSON.parse(res.body)).toEqual({ error: "unauthorized" });
+    }
   });
 });
 
@@ -391,6 +465,9 @@ function requestLiveUpgrade(path: string): Promise<HttpResponse> {
         headers: {
           Connection: "Upgrade",
           Upgrade: "websocket",
+          // workerd rejects handshakes missing the WS key/version with 400.
+          "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
+          "Sec-WebSocket-Version": "13",
         },
       },
       (response) => {
@@ -533,6 +610,49 @@ async function getProjectConfig(projectId: string): Promise<StoredProjectConfig>
   return (await res.json()) as StoredProjectConfig;
 }
 
+async function mintTicket(projectId: string, sessionId: string): Promise<string> {
+  const res = await worker.fetch(
+    `/api/v1/projects/${projectId}/sessions/${sessionId}/live-ticket`,
+    {
+      method: "POST",
+      headers: authHeaders(),
+    },
+  );
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { ticket: string };
+  return body.ticket;
+}
+
+async function appendActiveSession(projectId: string, sessionId: string): Promise<void> {
+  const res = await worker.fetch("/__test/do/append", {
+    method: "POST",
+    body: JSON.stringify({
+      projectId,
+      orgId: "api_ticket_org",
+      shard: 0,
+      retentionDays: 7,
+      requestId: `req-${projectId}-${sessionId}`,
+      sessionId,
+      tab: "tab_ticket",
+      seq: 0,
+      flags: 0,
+      index: {
+        v: 1,
+        s: sessionId,
+        tab: "tab_ticket",
+        seq: 0,
+        t0: Date.now(),
+        t1: Date.now() + 1,
+        e: [],
+      },
+      payloadB64: Buffer.from("live-ticket-payload").toString("base64"),
+      attrs: { country: "US" },
+      receivedAt: Date.now(),
+    }),
+  });
+  expect(res.status).toBe(200);
+}
+
 async function presencePing(input: {
   projectId: string;
   sessionId: string;
@@ -653,6 +773,13 @@ function makeManifest(
       urlCount: session.url_count,
     },
   };
+}
+
+function signLiveTicket(projectId: string, sessionId: string, expiresAt: number): string {
+  const signature = createHmac("sha256", token)
+    .update(`${projectId}:${sessionId}:${expiresAt}`)
+    .digest("base64url");
+  return Buffer.from(`${expiresAt}.${signature}`).toString("base64url");
 }
 
 function makeProjectConfig(overrides: Partial<ProjectConfig> = {}): ProjectConfig {

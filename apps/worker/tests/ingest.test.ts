@@ -54,10 +54,13 @@ afterAll(async () => {
 
 describe("ingest route", () => {
   it("answers OPTIONS with ingest CORS headers", async () => {
-    const res = await worker.fetch("/v1/ingest", { method: "OPTIONS" });
+    const res = await worker.fetch("/v1/ingest", {
+      method: "OPTIONS",
+      headers: { origin: "https://site.example" },
+    });
 
     expect(res.status).toBe(204);
-    expect(res.headers.get("access-control-allow-origin")).toBe("*");
+    expect(res.headers.get("access-control-allow-origin")).toBe("https://site.example");
     expect(res.headers.get("access-control-allow-methods")).toBe("POST,OPTIONS");
     expect(res.headers.get("access-control-allow-headers")).toContain(HDR_KEY);
     expect(res.headers.get("access-control-max-age")).toBe("86400");
@@ -142,11 +145,14 @@ describe("ingest route", () => {
       body: makeBody(rightSessionId, "tab_origin", 0),
     });
     expect(rightOrigin.status).toBe(200);
+    expect(rightOrigin.headers.get("access-control-allow-origin")).toBe("https://good.example");
+    expect(rightOrigin.headers.get("access-control-allow-origin")).not.toBe("*");
   });
 
   it("drops quota-exceeded batches without surfacing an SDK error", async () => {
     const key = "quota-key";
-    await seedKey(key, makeConfig({ quotaState: "exceeded" }), true);
+    const config = makeConfig({ quotaState: "exceeded" });
+    await seedKey(key, config, true);
     const sessionId = nextSessionId("quota");
     const res = await postIngest({
       key,
@@ -163,6 +169,33 @@ describe("ingest route", () => {
       flushMs: SDK_FLUSH_DEFAULT_MS,
       drop: true,
     });
+    expect(await readDoDebug(config.projectId, sessionId)).toMatchObject({
+      hasState: false,
+      pendingBatches: 0,
+    });
+  });
+
+  it("rate limits runaway appends for one session", async () => {
+    const key = "rate-key";
+    await seedKey(key, makeConfig(), true);
+    const sessionId = nextSessionId("rate");
+    let lastResponse: Response | null = null;
+
+    for (let seq = 0; seq <= 30; seq += 1) {
+      lastResponse = await postIngest({
+        key,
+        sessionId,
+        tab: "tab_rate",
+        seq,
+        body: makeBody(sessionId, "tab_rate", seq),
+      });
+    }
+
+    if (lastResponse === null) {
+      throw new Error("rate test did not send a request");
+    }
+    expect(lastResponse.status).toBe(429);
+    expect(await lastResponse.json()).toEqual({ error: "rate_limited" });
   });
 
   it("rejects a header and index mismatch", async () => {
@@ -329,6 +362,19 @@ async function postIngest(
     headers,
     body: input.body,
   });
+}
+
+async function readDoDebug(
+  projectId: string,
+  sessionId: string,
+): Promise<{ hasState: boolean; pendingBatches: number }> {
+  const response = await worker.fetch(
+    `/__test/do/debug?projectId=${encodeURIComponent(projectId)}&sessionId=${encodeURIComponent(
+      sessionId,
+    )}`,
+  );
+  expect(response.status).toBe(200);
+  return (await response.json()) as { hasState: boolean; pendingBatches: number };
 }
 
 function ingestHeaders(

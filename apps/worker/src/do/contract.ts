@@ -24,4 +24,5 @@ export interface AppendResult {
   closed: boolean;
   flushMs: number;
   checkpoint?: boolean;
+  rateLimited?: boolean;
 }

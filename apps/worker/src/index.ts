@@ -12,6 +12,11 @@ import { handleTestRoutes } from "./test/harness-routes.ts";
 export { SessionRecorder } from "./do/session-recorder.ts";
 export { PresenceRegistry } from "./do/presence-registry.ts";
 
+const JSON_SECURITY_HEADERS = {
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "no-referrer",
+} as const;
+
 export default {
   async fetch(request, env, ctx): Promise<Response> {
     const url = new URL(request.url);
@@ -20,18 +25,12 @@ export default {
     if (url.pathname.startsWith("/__test/") && env.DEV_TEST_ROUTES === "1") {
       return handleTestRoutes(request, env, ctx);
     }
-    if (url.pathname === "/") {
-      const event = startWideEvent("worker", "http.root", crypto.randomUUID());
-      event.set({ route: "/", method: request.method, status_code: 200 });
-      event.emit();
-      return Response.json({ service: "orange-replay", ok: true });
-    }
     // Logging contract: every HTTP request emits one wide event — unmatched
     // routes included, so misconfigured SDK endpoints are debuggable.
     const event = startWideEvent("worker", "http.not_found", crypto.randomUUID());
     event.set({ route: url.pathname, method: request.method, status_code: 404 });
     event.emit("client_error");
-    return Response.json({ error: "not_found" }, { status: 404 });
+    return Response.json({ error: "not_found" }, { status: 404, headers: JSON_SECURITY_HEADERS });
   },
 
   async queue(batch, env, ctx): Promise<void> {

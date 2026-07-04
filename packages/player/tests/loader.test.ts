@@ -1,12 +1,18 @@
-import { describe, expect, it } from "vite-plus/test";
+// @vitest-environment happy-dom
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { SessionManifest } from "@orange-replay/shared/types";
 import { buildSegment } from "@orange-replay/shared/wire";
-import { fetchSegmentBytes, loadSession } from "../src/api.ts";
+import { fetchSegmentBytes, liveSocketUrl, loadSession, mintLiveTicket } from "../src/api.ts";
+import { OrangePlayer } from "../src/player.ts";
 import { decodeSegmentEvents } from "../src/segments.ts";
 import type { ReplayEvent } from "../src/types.ts";
 import { DecodeWorkerHost } from "../src/worker-host.ts";
 
 const encoder = new TextEncoder();
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("manifest and segment loading", () => {
   it("loads a manifest and decodes an ORS1 segment built by shared helpers", async () => {
@@ -48,6 +54,112 @@ describe("manifest and segment loading", () => {
     expect(fetchCalls).toEqual([
       "https://api.example.test/api/v1/projects/project/sessions/session/manifest",
       "https://api.example.test/api/v1/projects/project/sessions/session/segments/seg-000001.ors",
+    ]);
+  });
+
+  it("mints live tickets with bearer auth and uses ticket socket URLs", async () => {
+    const fetchCalls: Array<{ url: string; headers: Headers; method?: string }> = [];
+    const api = {
+      baseUrl: "https://api.example.test",
+      fetch: async (url: string | URL | Request, _init?: RequestInit) => {
+        fetchCalls.push({
+          url: requestUrlString(url),
+          headers: new Headers(_init?.headers),
+          method: _init?.method,
+        });
+        return Response.json({ ticket: "ticket-1", expiresAt: 1234 });
+      },
+    };
+
+    const ticket = await mintLiveTicket(api, {
+      projectId: "project",
+      sessionId: "session",
+      token: "dev-token",
+    });
+    const socketUrl = liveSocketUrl(api, {
+      projectId: "project",
+      sessionId: "session",
+      token: "dev-token",
+      ticket: ticket.ticket,
+    });
+
+    expect(ticket).toEqual({ ticket: "ticket-1", expiresAt: 1234 });
+    expect(fetchCalls).toEqual([
+      {
+        url: "https://api.example.test/api/v1/projects/project/sessions/session/live-ticket",
+        headers: expect.any(Headers),
+        method: "POST",
+      },
+    ]);
+    expect(fetchCalls[0]?.headers.get("authorization")).toBe("Bearer dev-token");
+    expect(socketUrl).toBe(
+      "wss://api.example.test/api/v1/projects/project/sessions/session/live?ticket=ticket-1",
+    );
+  });
+
+  it("mints a fresh live ticket on reconnect", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const ticketUrls: string[] = [];
+    const api = {
+      baseUrl: "https://api.example.test",
+      fetch: async (url: string | URL | Request) => {
+        const requestUrl = requestUrlString(url);
+        if (requestUrl.endsWith("/manifest")) {
+          return Response.json(makeManifest(0));
+        }
+        if (requestUrl.endsWith("/live-ticket")) {
+          ticketUrls.push(requestUrl);
+          return Response.json({
+            ticket: `ticket-${ticketUrls.length}`,
+            expiresAt: Date.now() + 60_000,
+          });
+        }
+        return Response.json({ error: "not_found" }, { status: 404 });
+      },
+    };
+    class FakeWebSocket {
+      binaryType = "";
+      onopen: (() => void) | null = null;
+      onmessage: ((event: { data: unknown }) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+
+      constructor(readonly url: string) {
+        sockets.push(this);
+        queueMicrotask(() => this.onopen?.());
+      }
+
+      close(): void {
+        this.onclose?.();
+      }
+    }
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+
+    const container = document.createElement("div");
+    document.body.append(container);
+    const player = new OrangePlayer(container, {
+      api,
+      projectId: "project",
+      sessionId: "session",
+      token: "dev-token",
+      worker: { allowSynchronousFallback: true },
+    });
+
+    await player.ready();
+    player.follow();
+    await waitFor(() => sockets.length === 1);
+    sockets[0]?.close();
+    await waitFor(() => sockets.length === 2, 2_000);
+    player.destroy();
+    container.remove();
+
+    expect(ticketUrls).toEqual([
+      "https://api.example.test/api/v1/projects/project/sessions/session/live-ticket",
+      "https://api.example.test/api/v1/projects/project/sessions/session/live-ticket",
+    ]);
+    expect(sockets.map((socket) => socket.url)).toEqual([
+      "wss://api.example.test/api/v1/projects/project/sessions/session/live?ticket=ticket-1",
+      "wss://api.example.test/api/v1/projects/project/sessions/session/live?ticket=ticket-2",
     ]);
   });
 });
@@ -103,4 +215,14 @@ function requestUrlString(url: string | URL | Request): string {
   }
 
   return url.url;
+}
+
+async function waitFor(check: () => boolean, timeoutMs = 1_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (check()) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+
+  throw new Error("condition did not pass in time");
 }

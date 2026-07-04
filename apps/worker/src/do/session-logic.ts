@@ -7,6 +7,8 @@ import {
   SDK_FLUSH_LIVE_MS,
   SEGMENT_FLUSH_BYTES,
   SEGMENT_FLUSH_INTERVAL_MS,
+  SESSION_APPEND_RATE_LIMIT_COUNT,
+  SESSION_APPEND_RATE_LIMIT_WINDOW_MS,
 } from "@orange-replay/shared";
 import type {
   BatchIndex,
@@ -24,6 +26,8 @@ export interface SessionTiming {
   closeMs: number;
   sdkFlushMs: number;
   sdkFlushLiveMs: number;
+  appendRateLimitCount: number;
+  appendRateLimitWindowMs: number;
 }
 
 export interface SessionState {
@@ -61,6 +65,11 @@ export interface SegmentForManifest extends SegmentRef {
   events: IndexEvent[];
 }
 
+export interface AppendRateLimitState {
+  windowStartedAt: number;
+  count: number;
+}
+
 export const CLIENT_TIME_PAST_WINDOW_MS = 86_400_000;
 export const CLIENT_TIME_FUTURE_WINDOW_MS = 60_000;
 export const FINALIZE_MESSAGE_BUDGET_BYTES = 100_000;
@@ -76,6 +85,8 @@ export const defaultSessionTiming: SessionTiming = {
   closeMs: CLOSE_SESSION_AFTER_IDLE_MS,
   sdkFlushMs: SDK_FLUSH_DEFAULT_MS,
   sdkFlushLiveMs: SDK_FLUSH_LIVE_MS,
+  appendRateLimitCount: SESSION_APPEND_RATE_LIMIT_COUNT,
+  appendRateLimitWindowMs: SESSION_APPEND_RATE_LIMIT_WINDOW_MS,
 };
 
 export function resolveSessionTiming(
@@ -104,7 +115,33 @@ export function resolveSessionTiming(
     closeMs: readPositiveNumber(parsed["closeMs"], CLOSE_SESSION_AFTER_IDLE_MS),
     sdkFlushMs: readPositiveNumber(parsed["sdkFlushMs"], SDK_FLUSH_DEFAULT_MS),
     sdkFlushLiveMs: readPositiveNumber(parsed["sdkFlushLiveMs"], SDK_FLUSH_LIVE_MS),
+    appendRateLimitCount: readPositiveNumber(
+      parsed["appendRateLimitCount"],
+      SESSION_APPEND_RATE_LIMIT_COUNT,
+    ),
+    appendRateLimitWindowMs: readPositiveNumber(
+      parsed["appendRateLimitWindowMs"],
+      SESSION_APPEND_RATE_LIMIT_WINDOW_MS,
+    ),
   };
+}
+
+export function trackAppendRateLimit(
+  state: AppendRateLimitState,
+  now: number,
+  timing: Pick<SessionTiming, "appendRateLimitCount" | "appendRateLimitWindowMs">,
+): boolean {
+  if (
+    state.windowStartedAt <= 0 ||
+    now < state.windowStartedAt ||
+    now - state.windowStartedAt >= timing.appendRateLimitWindowMs
+  ) {
+    state.windowStartedAt = now;
+    state.count = 0;
+  }
+
+  state.count += 1;
+  return state.count > timing.appendRateLimitCount;
 }
 
 export function decideSegmentFlush(input: {

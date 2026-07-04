@@ -1,4 +1,10 @@
-import { HDR_REQUEST_ID, startWideEvent } from "@orange-replay/shared";
+import {
+  HDR_REQUEST_ID,
+  MAX_PRESENCE_BODY_BYTES,
+  MAX_PRESENCE_ID_CHARS,
+  MAX_PRESENCE_TEXT_CHARS,
+  startWideEvent,
+} from "@orange-replay/shared";
 import type { WideEventOutcome } from "@orange-replay/shared";
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "../env.ts";
@@ -6,6 +12,13 @@ import { resolvePresenceTiming } from "./presence-logic.ts";
 import type { PresenceSession } from "./presence-logic.ts";
 
 type SqlRowValue = string | number | null;
+
+const JSON_SECURITY_HEADERS = {
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "no-referrer",
+} as const;
+
+const ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 interface PresenceRow {
   [key: string]: SqlRowValue;
@@ -65,7 +78,7 @@ export class PresenceRegistry extends DurableObject<Env> {
       return response;
     } catch (error) {
       event.fail(error);
-      const response = Response.json({ error: "presence registry failed" }, { status: 500 });
+      const response = jsonResponse({ error: "presence registry failed" }, { status: 500 });
       statusCode = response.status;
       return response;
     } finally {
@@ -80,43 +93,51 @@ export class PresenceRegistry extends DurableObject<Env> {
     event: ReturnType<typeof startWideEvent>,
   ): Promise<Response> {
     if (request.method === "POST" && url.pathname === "/ping") {
-      const body = readPingBody(await readJson(request));
-      if (!body.ok) return Response.json({ error: body.error }, { status: 400 });
+      const json = await readJson(request);
+      if (!json.ok) return jsonResponse({ error: json.error }, { status: json.status });
+      const body = readPingBody(json.value);
+      if (!body.ok) return jsonResponse({ error: body.error }, { status: 400 });
       event.set({
         project_id: body.value.projectId,
         session_id: body.value.sessionId,
         route: "ping",
       });
       this.ping(body.value);
-      return Response.json({ ok: true });
+      return jsonResponse({ ok: true });
     }
 
     if (request.method === "POST" && url.pathname === "/remove") {
-      const body = readRemoveBody(await readJson(request));
-      if (!body.ok) return Response.json({ error: body.error }, { status: 400 });
+      const json = await readJson(request);
+      if (!json.ok) return jsonResponse({ error: json.error }, { status: json.status });
+      const body = readRemoveBody(json.value);
+      if (!body.ok) return jsonResponse({ error: body.error }, { status: 400 });
       event.set({
         project_id: body.value.projectId,
         session_id: body.value.sessionId,
         route: "remove",
       });
       this.remove(body.value.sessionId);
-      return Response.json({ ok: true });
+      return jsonResponse({ ok: true });
     }
 
     if (request.method === "POST" && url.pathname === "/list") {
-      const body = readListBody(await readJson(request));
-      if (!body.ok) return Response.json({ error: body.error }, { status: 400 });
+      const json = await readJson(request);
+      if (!json.ok) return jsonResponse({ error: json.error }, { status: json.status });
+      const body = readListBody(json.value);
+      if (!body.ok) return jsonResponse({ error: body.error }, { status: 400 });
       event.set({ project_id: body.value.projectId, route: "list" });
-      return Response.json({
+      return jsonResponse({
         sessions: this.list(body.value.now),
       });
     }
 
     if (request.method === "POST" && url.pathname === "/install-status") {
-      const body = readListBody(await readJson(request));
-      if (!body.ok) return Response.json({ error: body.error }, { status: 400 });
+      const json = await readJson(request);
+      if (!json.ok) return jsonResponse({ error: json.error }, { status: json.status });
+      const body = readListBody(json.value);
+      if (!body.ok) return jsonResponse({ error: body.error }, { status: 400 });
       event.set({ project_id: body.value.projectId, route: "install_status" });
-      return Response.json({ firstEventAt: this.firstEventAt() });
+      return jsonResponse({ firstEventAt: this.firstEventAt() });
     }
 
     if (
@@ -124,16 +145,18 @@ export class PresenceRegistry extends DurableObject<Env> {
       url.pathname === "/debug" &&
       this.env.DEV_TEST_ROUTES === "1"
     ) {
-      const body = readListBody(await readJson(request));
-      if (!body.ok) return Response.json({ error: body.error }, { status: 400 });
+      const json = await readJson(request);
+      if (!json.ok) return jsonResponse({ error: json.error }, { status: json.status });
+      const body = readListBody(json.value);
+      if (!body.ok) return jsonResponse({ error: body.error }, { status: 400 });
       event.set({ project_id: body.value.projectId, route: "debug" });
-      return Response.json({
+      return jsonResponse({
         rows: this.countRows(),
         firstEventAt: this.firstEventAt(),
       });
     }
 
-    return Response.json({ error: "not_found" }, { status: 404 });
+    return jsonResponse({ error: "not_found" }, { status: 404 });
   }
 
   private createSchema(): void {
@@ -250,11 +273,25 @@ export class PresenceRegistry extends DurableObject<Env> {
   }
 }
 
-async function readJson(request: Request): Promise<unknown> {
+type ReadJsonResult =
+  | { ok: true; value: unknown }
+  | { ok: false; status: 400 | 413; error: string };
+
+async function readJson(request: Request): Promise<ReadJsonResult> {
+  const contentLength = readContentLength(request.headers);
+  if (contentLength !== null && contentLength > MAX_PRESENCE_BODY_BYTES) {
+    return { ok: false, status: 413, error: "body_too_large" };
+  }
+
+  const body = await readBodyCapped(request.body, MAX_PRESENCE_BODY_BYTES);
+  if (body === null) {
+    return { ok: false, status: 413, error: "body_too_large" };
+  }
+
   try {
-    return await request.json();
+    return { ok: true, value: JSON.parse(new TextDecoder().decode(body)) as unknown };
   } catch {
-    return null;
+    return { ok: false, status: 400, error: "request body must be JSON" };
   }
 }
 
@@ -265,28 +302,41 @@ function readPingBody(
     return { ok: false, error: "request body must be JSON" };
   }
 
-  const projectId = readRequiredString(input["projectId"]);
-  const sessionId = readRequiredString(input["sessionId"]);
+  const projectId = readRequiredId(input["projectId"], "projectId");
+  const sessionId = readRequiredId(input["sessionId"], "sessionId");
   const startedAt = readFiniteNumber(input["startedAt"]);
   const lastSeen = readFiniteNumber(input["lastSeen"]);
-  if (projectId === null) return { ok: false, error: "projectId is required" };
-  if (sessionId === null) return { ok: false, error: "sessionId is required" };
+  if (!projectId.ok) return { ok: false, error: projectId.error };
+  if (!sessionId.ok) return { ok: false, error: sessionId.error };
   if (startedAt === null) return { ok: false, error: "startedAt must be a number" };
   if (lastSeen === null) return { ok: false, error: "lastSeen must be a number" };
+
+  const entryUrl = readOptionalString(input["entryUrl"], "entryUrl", MAX_PRESENCE_TEXT_CHARS);
+  const country = readOptionalString(input["country"], "country", MAX_PRESENCE_TEXT_CHARS);
+  const city = readOptionalString(input["city"], "city", MAX_PRESENCE_TEXT_CHARS);
+  const browser = readOptionalString(input["browser"], "browser", MAX_PRESENCE_TEXT_CHARS);
+  const os = readOptionalString(input["os"], "os", MAX_PRESENCE_TEXT_CHARS);
+  const device = readOptionalString(input["device"], "device", MAX_PRESENCE_TEXT_CHARS);
+  if (!entryUrl.ok) return { ok: false, error: entryUrl.error };
+  if (!country.ok) return { ok: false, error: country.error };
+  if (!city.ok) return { ok: false, error: city.error };
+  if (!browser.ok) return { ok: false, error: browser.error };
+  if (!os.ok) return { ok: false, error: os.error };
+  if (!device.ok) return { ok: false, error: device.error };
 
   return {
     ok: true,
     value: {
-      projectId,
-      sessionId,
+      projectId: projectId.value,
+      sessionId: sessionId.value,
       startedAt,
       lastSeen,
-      entryUrl: readOptionalString(input["entryUrl"]),
-      country: readOptionalString(input["country"]),
-      city: readOptionalString(input["city"]),
-      browser: readOptionalString(input["browser"]),
-      os: readOptionalString(input["os"]),
-      device: readOptionalString(input["device"]),
+      entryUrl: entryUrl.value,
+      country: country.value,
+      city: city.value,
+      browser: browser.value,
+      os: os.value,
+      device: device.value,
     },
   };
 }
@@ -298,12 +348,12 @@ function readRemoveBody(
     return { ok: false, error: "request body must be JSON" };
   }
 
-  const projectId = readRequiredString(input["projectId"]);
-  const sessionId = readRequiredString(input["sessionId"]);
-  if (projectId === null) return { ok: false, error: "projectId is required" };
-  if (sessionId === null) return { ok: false, error: "sessionId is required" };
+  const projectId = readRequiredId(input["projectId"], "projectId");
+  const sessionId = readRequiredId(input["sessionId"], "sessionId");
+  if (!projectId.ok) return { ok: false, error: projectId.error };
+  if (!sessionId.ok) return { ok: false, error: sessionId.error };
 
-  return { ok: true, value: { projectId, sessionId } };
+  return { ok: true, value: { projectId: projectId.value, sessionId: sessionId.value } };
 }
 
 function readListBody(
@@ -313,20 +363,50 @@ function readListBody(
     return { ok: false, error: "request body must be JSON" };
   }
 
-  const projectId = readRequiredString(input["projectId"]);
+  const projectId = readRequiredId(input["projectId"], "projectId");
   const now = input["now"] === undefined ? Date.now() : readFiniteNumber(input["now"]);
-  if (projectId === null) return { ok: false, error: "projectId is required" };
+  if (!projectId.ok) return { ok: false, error: projectId.error };
   if (now === null) return { ok: false, error: "now must be a number" };
 
-  return { ok: true, value: { projectId, now } };
+  return { ok: true, value: { projectId: projectId.value, now } };
 }
 
-function readRequiredString(value: unknown): string | null {
-  return typeof value === "string" && value.length > 0 ? value : null;
+function readRequiredId(
+  value: unknown,
+  name: string,
+): { ok: true; value: string } | { ok: false; error: string } {
+  if (typeof value !== "string" || value.length === 0) {
+    return { ok: false, error: `${name} is required` };
+  }
+
+  if (value.length > MAX_PRESENCE_ID_CHARS || !ID_PATTERN.test(value)) {
+    return {
+      ok: false,
+      error: `${name} must be 1 to ${MAX_PRESENCE_ID_CHARS} letters, numbers, underscores, or dashes`,
+    };
+  }
+
+  return { ok: true, value };
 }
 
-function readOptionalString(value: unknown): string | null {
-  return typeof value === "string" && value.length > 0 ? value : null;
+function readOptionalString(
+  value: unknown,
+  name: string,
+  maxChars: number,
+): { ok: true; value: string | null } | { ok: false; error: string } {
+  if (value === undefined || value === null || value === "") {
+    return { ok: true, value: null };
+  }
+
+  if (typeof value !== "string") {
+    return { ok: false, error: `${name} must be a string` };
+  }
+
+  if (value.length > maxChars) {
+    return { ok: false, error: `${name} must be at most ${maxChars} characters` };
+  }
+
+  return { ok: true, value };
 }
 
 function readFiniteNumber(value: unknown): number | null {
@@ -335,4 +415,57 @@ function readFiniteNumber(value: unknown): number | null {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function jsonResponse(body: unknown, init?: ResponseInit): Response {
+  return Response.json(body, {
+    ...init,
+    headers: {
+      ...JSON_SECURITY_HEADERS,
+      ...Object.fromEntries(new Headers(init?.headers).entries()),
+    },
+  });
+}
+
+function readContentLength(headers: Headers): number | null {
+  const raw = headers.get("content-length");
+  if (raw === null || !/^[0-9]+$/.test(raw)) {
+    return null;
+  }
+
+  const parsed = Number(raw);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
+async function readBodyCapped(
+  body: ReadableStream<Uint8Array> | null,
+  cap: number,
+): Promise<Uint8Array | null> {
+  if (body === null) {
+    return new Uint8Array(0);
+  }
+
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    total += value.byteLength;
+    if (total > cap) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+
+  const output = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    output.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return output;
 }

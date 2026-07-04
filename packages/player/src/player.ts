@@ -1,6 +1,6 @@
 import { Replayer } from "rrweb";
 import type { SegmentRef, SessionManifest } from "@orange-replay/shared/types";
-import { fetchSegmentBytes, liveSocketUrl, loadSession } from "./api.ts";
+import { fetchSegmentBytes, liveSocketUrl, loadSession, mintLiveTicket } from "./api.ts";
 import { PlayerEmitter } from "./emitter.ts";
 import {
   cleanReplayViewport,
@@ -531,6 +531,10 @@ export class OrangePlayer {
   }
 
   private connectLive(reconnecting = false): void {
+    void this.connectLiveWithTicket(reconnecting);
+  }
+
+  private async connectLiveWithTicket(reconnecting: boolean): Promise<void> {
     if (!this.following || this.destroyed) {
       return;
     }
@@ -543,7 +547,27 @@ export class OrangePlayer {
 
     const token = this.options.token;
     if (token === undefined || token.length === 0) {
-      this.emitError("Live follow needs a token query value.");
+      this.emitError("Live follow needs an API token.");
+      return;
+    }
+
+    let ticket: string;
+    try {
+      const response = await mintLiveTicket(this.options.api, {
+        projectId: this.options.projectId,
+        sessionId: this.options.sessionId,
+        token,
+      });
+      ticket = response.ticket;
+    } catch (error) {
+      this.emitError("Could not create a live ticket.", error);
+      if (this.following && !this.destroyed) {
+        this.scheduleLiveReconnect();
+      }
+      return;
+    }
+
+    if (!this.following || this.destroyed) {
       return;
     }
 
@@ -552,6 +576,7 @@ export class OrangePlayer {
         projectId: this.options.projectId,
         sessionId: this.options.sessionId,
         token,
+        ticket,
       }),
     );
     socket.binaryType = "arraybuffer";

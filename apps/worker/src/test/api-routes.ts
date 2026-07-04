@@ -1,5 +1,6 @@
 import { manifestKey, sessionPrefix, type SessionManifest } from "@orange-replay/shared";
 import {
+  isValidPathId,
   isValidSegmentName,
   sessionRowColumns,
   type SessionColumn,
@@ -138,7 +139,12 @@ function readSessionRow(
     return { ok: false, error: `invalid_${column}` };
   }
 
-  return { ok: true, row: row as SessionRow };
+  const session = row as SessionRow;
+  if (!isValidPathId(session.project_id) || !isValidPathId(session.session_id)) {
+    return { ok: false, error: "invalid_session_id" };
+  }
+
+  return { ok: true, row: session };
 }
 
 function bytesFromBase64(encoded: string): Uint8Array {
