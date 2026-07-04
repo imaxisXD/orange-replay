@@ -76,7 +76,7 @@ Judging under flattering conditions hides geometry bugs. The T3.5 replay embed w
 ### Phase 4 — Packaging, hardening, CI (W4) — NOT STARTED
 
 - [x] T4.1 self-host packaging — spec `docs/specs/t4.1-selfhost-packaging.md`; mirror script + `--check` verified reproducible, template carries no test vars, guides honest about manual steps/deferred features, README license stays "not yet chosen"; 246 tests green. Note: in-repo template `main` points at `../../apps/worker/src/index.ts` — the published template repo (deferred) will vendor sources; mirror script owns that when publishing lands.
-- [ ] T4.2 hardening audit — PLAN.md row T4.2; PLAN.md §Ground rules 7
+- [ ] **T4.2 hardening audit + fixes** — ← IN FLIGHT (Codex dispatched 2026-07-04; spec: `docs/specs/t4.2-hardening.md`). Full-surface audit checklist (authz/R2 keys/caps/quota-flip/error hygiene), minimal in-DO append rate limit, security headers, and short-lived HMAC live-WS tickets replacing the pinned query-string master-token transport. Verify: run full suite + e2e (live watch must still pass with the ticket flow).
 - [ ] T4.3 observability audit — PLAN.md row T4.3; logging contract PLAN.md §Ground rules 5
 - [ ] T4.4 CI (GitHub Actions) — PLAN.md row T4.4
 - [ ] T4.5 final judgment (full-repo review vs ARCHITECTURE.md) — PLAN.md row T4.5
