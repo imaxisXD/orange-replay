@@ -18,6 +18,7 @@ Docs are local at `node_modules/vite-plus/docs` or online at https://viteplus.de
 # Orange Replay conventions
 
 - **Design authority**: ARCHITECTURE.md. **Execution contract**: PLAN.md (ground rules, task scopes, logging contract). Read both before changing anything.
+- **Status ledger / handoff**: HANDOFF.md tracks what's done (with commits) and what's pending (with spec pointers). Update it in the same commit as the work; if picking up this repo fresh, start there. Task dispatch specs live in `docs/specs/`.
 - Cost invariants are correctness: DO hibernation eligibility (hibernation WebSockets only, no timers outliving a request), minimal `setAlarm()` writes, idempotency by `(session, tab, seq)`, ingest path never decompresses payloads, sidecar scrubbing on by default, immutable R2 objects.
 - **Logging**: wide events only — one JSON event per unit of work via the `@orange-replay/shared` logger, emitted in `finally`. No scattered `console.log`.
 - **UI**: components come from the Fluid Functionalism shadcn registry (`npx shadcn@latest add @fluid/<component>`). Never hand-roll a component the registry provides.
