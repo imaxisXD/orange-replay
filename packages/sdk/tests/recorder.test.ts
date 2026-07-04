@@ -116,3 +116,29 @@ describe("Recorder", () => {
     expect(rrwebMocks.takeFullSnapshot).toHaveBeenCalledWith(true);
   });
 });
+
+describe("scrubMetaHref", () => {
+  it("scrubs query strings and fragments from rrweb Meta events", async () => {
+    const { scrubMetaHref } = await import("../src/recorder.ts");
+    const meta = {
+      type: 4,
+      data: {
+        href: "https://app.example.com/reset?token=abc123&keep=1#otp=999",
+        width: 1,
+        height: 1,
+      },
+      timestamp: 1,
+    } as never;
+    const scrubbed = scrubMetaHref(meta, ["keep"]) as { data: { href: string; width: number } };
+    expect(scrubbed.data.href).not.toContain("token=abc123");
+    expect(scrubbed.data.href).not.toContain("otp");
+    expect(scrubbed.data.href).toContain("keep=1");
+    expect(scrubbed.data.width).toBe(1);
+  });
+
+  it("passes non-meta events through untouched", async () => {
+    const { scrubMetaHref } = await import("../src/recorder.ts");
+    const incremental = { type: 3, data: { source: 1 }, timestamp: 2 } as never;
+    expect(scrubMetaHref(incremental, [])).toBe(incremental);
+  });
+});

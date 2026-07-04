@@ -5,6 +5,7 @@ import {
   type eventWithTime,
   type recordOptions,
 } from "@orange-replay/rrweb-fork";
+import { scrubUrl } from "./scrub.ts";
 import type { Sink } from "./sink.ts";
 import type { RecorderConfig } from "./types.ts";
 
@@ -134,7 +135,7 @@ export class Recorder {
     }
 
     try {
-      this.sink.addRrwebEvent(event);
+      this.sink.addRrwebEvent(scrubMetaHref(event, this.config.allowUrlParams));
     } catch (error) {
       this.kill(error);
     }
@@ -185,4 +186,29 @@ function mergeSelectors(base: string, extra: string | undefined): string {
 
 function isPreStartCustomEventError(error: unknown): boolean {
   return error instanceof Error && error.message.includes("add custom event after start recording");
+}
+
+const RRWEB_META_EVENT_TYPE = 4;
+
+/**
+ * rrweb Meta events embed the full window.location.href (query + fragment)
+ * into the recorded payload — the one place the SDK's URL scrubbing did not
+ * reach. Scrub it here so R2 recordings honor allowUrlParams like every
+ * metadata surface does. DOM-snapshot attributes (<a href>, <img src>) are
+ * inherent to replay fidelity and intentionally untouched.
+ */
+export function scrubMetaHref(
+  event: eventWithTime,
+  allowUrlParams: readonly string[],
+): eventWithTime {
+  if (event.type !== RRWEB_META_EVENT_TYPE) {
+    return event;
+  }
+
+  const data = event.data as { href?: unknown };
+  if (typeof data?.href !== "string" || data.href.length === 0) {
+    return event;
+  }
+
+  return { ...event, data: { ...event.data, href: scrubUrl(data.href, allowUrlParams) } };
 }
