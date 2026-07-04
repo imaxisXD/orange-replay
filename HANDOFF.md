@@ -57,7 +57,7 @@ How this document is used:
 - [x] T3.1 dashboard scaffold — `124ea0a`
 - [x] T3.1b reskin to finalized design language + judge round — `f10cc9f`, `b23f267`
 - [x] T3.2 presence-registry DO, config write endpoints, install-verify — spec `docs/specs/t3.2-presence.md`; verified: lazy-TTL eviction (no alarms), throttled `waitUntil` pings, D1→KV config writes, 401s on all new routes; 194 tests green
-- [ ] T3.3 `packages/player` — PLAN.md row T3.3; ARCHITECTURE.md §2 (wire), §3 (segment format ORS1), §5 Playback. Decode via `DecompressionStream` in a Web Worker; cursor trail/click ripples/rage burst; live follow over WS. Spec to be written to `docs/specs/t3.3-player.md` at dispatch.
+- [ ] **T3.3 `packages/player`** — ← IN FLIGHT (Codex dispatched 2026-07-04; spec: `docs/specs/t3.3-player.md`). Headless engine: manifest→instant timeline, ORS1 slicing, worker decode, rrweb Replayer wrapper + overlays, live follow. Verify: run full suite; check upstream-rrweb dep is replay-only.
 - [ ] T3.4 sessions list page (filter bar, table, live-now tab) — PLAN.md row T3.4; UI per `docs/design-language.md` + `design-final.html` (table, toolbar, pills, live rail); data from T3.2 presence registry.
 - [ ] T3.5 session detail (player embed, event sidebar, metadata header) — PLAN.md row T3.5; UI per `docs/design-language.md` (player bar treatment in the mock); embeds T3.3.
 - [ ] T3.6 settings + install pages (masking editor, toggles, sampling/retention, keys, snippet + live verify) — PLAN.md row T3.6; config endpoints + install-status from T3.2; UI per `docs/design-language.md`.
