@@ -75,7 +75,7 @@ Judging under flattering conditions hides geometry bugs. The T3.5 replay embed w
 
 ### Phase 4 — Packaging, hardening, CI (W4) — NOT STARTED
 
-- [ ] T4.1 self-host template mirror + guides + README — PLAN.md row T4.1; ARCHITECTURE.md §6 (tenancy/self-host packaging inversion)
+- [ ] **T4.1 self-host template mirror + guides + README** — ← IN FLIGHT (Codex dispatched 2026-07-04; spec: `docs/specs/t4.1-selfhost-packaging.md`). Mirror script derives infra/template from the canonical worker (no drift, --check mode for CI); self-host + SDK install guides; root README. Verify: run the mirror --check, read the guides for honesty (no invented capabilities), license stays "not yet chosen".
 - [ ] T4.2 hardening audit — PLAN.md row T4.2; PLAN.md §Ground rules 7
 - [ ] T4.3 observability audit — PLAN.md row T4.3; logging contract PLAN.md §Ground rules 5
 - [ ] T4.4 CI (GitHub Actions) — PLAN.md row T4.4
