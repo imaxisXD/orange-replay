@@ -86,6 +86,10 @@ Judging under flattering conditions hides geometry bugs. The T3.5 replay embed w
   - **Load probe** (`scripts/load-probe.mjs`, `d95b73a`): 500 + 2000 appends at ~1.4–1.6k req/s local, p50 6–12ms, p95 11–20ms, 250/250 sessions finalized+indexed end-to-end, zero server_error events.
   - Final state: 255 tests, 5/5 Playwright e2e, vp check clean, mirror --check green. **CAMPAIGN COMPLETE — local-first v1 done; deferred list below is the roadmap.**
 
+### Post-v1 product backlog (strategy: `docs/product-moat.md`)
+
+Ranked moat features (each with pain/mechanism/build sketch in the doc): 1) edge injection — zero-code install for CF-proxied zones; 2) everything-buffer + promotion rules (record 100%, 48h, promote what matters); 3) share links / unlimited viewers (scoped session-read tickets + public player route); 4) presence API + co-browse; 5) provable privacy report; 6) ephemeral per-PR replay stacks. Player roadmap in the same doc — **known player gap: multi-tab sessions interleave into one replayer (verified: `mergeReplayEvents` is a timestamp sort, tab identity dropped at decode) — first fix is a tab picker**; then clip export (client-side canvas→WebM), comments, dead-click markers, friction heat-lane.
+
 ### Deferred (needs real CF account or user decision — do NOT pick these up)
 
 Analytics Engine verification (TRENDS binding declared in Env but not provisioned in wrangler config — no-op today) · Pipelines/Iceberg lake · Vectorize/AI · heatmaps UI backend · processing lane · E2E-encryption tier · privacy-tier config field · BYOC provisioner · GitHub OAuth (incl. `members` table/org authz) · template publishing · deploys · edge rate-limiter binding per key+IP (per-session in-DO limit shipped; hot-project case needs the real binding) · orphan-reconcile cron (re-emit finalize for R2 prefixes without D1 rows) · minimal-sidecar mode · compressed-estimate flush trigger + per-append state-write collapse (cost tuning) · **OSS license (user decision pending)**.
@@ -101,8 +105,9 @@ Analytics Engine verification (TRENDS binding declared in Env but not provisione
 ## Runbook facts (local dev)
 
 - Gates: `export PATH="$HOME/.vite-plus/bin:$PATH" && vp check && vp test` from repo root.
-- Worker: `cd apps/worker && npx wrangler dev --port 8787`. Dev auth: copy `.dev.vars.example` → `.dev.vars` (`DEV_API_TOKEN=dev-local-token`, `DEV_TEST_ROUTES=1`). **`.dev.vars` must NOT exist while running the test suite** (breaks the fails-closed 503 test).
-- Dashboard: `cd apps/dashboard && vp dev --port 5200` (binds IPv6 — use `http://localhost:5200`). Login with the dev token; it is stored under localStorage key `or:token`.
+- Full local dev: `vp run dev` from repo root. It clears ports `8787` and `5200`, starts the Worker, then starts the dashboard. Dev auth uses `apps/worker/.dev.vars` if present, otherwise `.dev.vars.example` (`DEV_API_TOKEN=dev-local-token`, `DEV_TEST_ROUTES=1`). **`.dev.vars` must NOT exist while running the test suite** (breaks the fails-closed 503 test).
+- Worker only: `vp exec --filter @orange-replay/worker -- wrangler dev --port 8787`.
+- Dashboard only: `cd apps/dashboard && vp dev --port 5200` (binds IPv6 — use `http://localhost:5200`). Login with the dev token; it is stored under localStorage key `or:token`.
 - Seeded demo data: worker `/__test/*` seed routes populate sessions matching the design mock.
 - D1 `exec()` splits on newlines — keep multi-line SQL single-line in migrations run through it.
 - Design reference server: `python3 -m http.server 5099` at repo root → `http://localhost:5099/design-final.html`.
