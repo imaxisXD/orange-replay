@@ -85,7 +85,7 @@ const Table = forwardRef<HTMLTableElement, TableProps>(({ children, className, .
           )}
         </AnimatePresence>
 
-        <table ref={ref} className={cn("w-full text-[13px] border-collapse", className)} {...props}>
+        <table ref={ref} className={cn("w-full border-collapse text-[13px]", className)} {...props}>
           {children}
         </table>
       </div>
@@ -130,10 +130,6 @@ const TableRow = forwardRef<HTMLTableRowElement, TableRowProps>(
 
     const isBodyRow = index !== undefined;
     const activeIdx = ctx?.activeIndex ?? null;
-    const hideBorder =
-      activeIdx !== null &&
-      ((isBodyRow && (index === activeIdx || index === activeIdx - 1)) ||
-        (!isBodyRow && activeIdx === 0));
 
     return (
       <tr
@@ -144,8 +140,8 @@ const TableRow = forwardRef<HTMLTableRowElement, TableRowProps>(
         }}
         data-proximity-index={index}
         className={cn(
-          "group/row relative z-10 border-b transition-[border-color] duration-80",
-          hideBorder ? "border-transparent" : "border-accent/40",
+          "group/row relative z-10 outline-none transition-colors duration-80 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-[-2px] focus-visible:outline-amber",
+          isBodyRow ? "border-b border-[#1a1a1f] last:border-b-0" : "border-b border-border",
           isBodyRow && activeIdx === index && "is-active",
           className,
         )}
@@ -165,7 +161,14 @@ TableRow.displayName = "TableRow";
 
 const TableHead = forwardRef<HTMLTableCellElement, ThHTMLAttributes<HTMLTableCellElement>>(
   ({ className, ...props }, ref) => (
-    <th ref={ref} className={cn("px-3 py-2 text-left text-foreground", className)} {...props} />
+    <th
+      ref={ref}
+      className={cn(
+        "border-b border-border px-4 py-[10px] text-left text-[11px] font-medium uppercase tracking-[0.06em] text-dim",
+        className,
+      )}
+      {...props}
+    />
   ),
 );
 
@@ -178,7 +181,7 @@ const TableCell = forwardRef<HTMLTableCellElement, TdHTMLAttributes<HTMLTableCel
     <td
       ref={ref}
       className={cn(
-        "px-3 py-2 text-muted-foreground transition-colors duration-80 group-[.is-active]/row:text-foreground",
+        "border-b border-[#1a1a1f] px-4 py-3 text-muted-foreground transition-colors duration-80 group-last/row:border-b-0",
         className,
       )}
       {...props}

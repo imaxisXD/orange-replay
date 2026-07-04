@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
-import { Link, useParams } from "react-router";
-import { AlertCircle, Inbox, RotateCcw } from "lucide-react";
+import { useCallback, useEffect, useState, type KeyboardEvent } from "react";
+import { useNavigate, useParams } from "react-router";
+import { AlertCircle, ChevronRight, Inbox, RotateCcw, Search } from "lucide-react";
+import { StatusPill } from "@/components/status-pill";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Empty,
@@ -32,7 +32,7 @@ import {
 } from "@/components/ui/table";
 import { Tooltip } from "@/components/ui/tooltip";
 import { ApiError, listSessions, type SessionListItem } from "@/lib/api";
-import { formatAbsoluteTime, formatBytes, formatDuration, formatRelativeTime } from "@/lib/format";
+import { formatAbsoluteTime, formatBytes, formatDuration } from "@/lib/format";
 import { appendUniqueSessions, canLoadMore } from "@/lib/session-list";
 import { defaultProjectId } from "@/router";
 
@@ -112,79 +112,92 @@ export function SessionsPage() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <PageHeader
-        description="List view for captured sessions. Playback lands in T3.3."
-        title="Sessions"
-      />
+    <div className="flex flex-col gap-5">
+      <div className="flex items-center justify-between gap-4">
+        <h1 className="text-[18px] font-semibold tracking-[-0.015em]">
+          Sessions
+          <span className="ml-[10px] text-[12px] font-normal text-dim">
+            Watch how people actually used your product.
+          </span>
+        </h1>
+      </div>
 
-      <section className="flex flex-col gap-4 rounded-lg border border-border bg-card p-4 shadow-surface-1">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-          <div className="flex flex-col gap-3 md:flex-row md:items-end">
-            <InputGroup className="w-full md:w-64">
-              <InputField
-                index={0}
-                label="Country"
-                onChange={setCountry}
-                placeholder="US"
-                value={country}
-              />
-            </InputGroup>
-
-            <div className="flex flex-col gap-1">
-              <span className="px-3 text-[13px] text-muted-foreground">Minimum duration</span>
-              <Select onValueChange={setMinDurationValue} value={minDurationValue}>
-                <SelectTrigger aria-label="Minimum duration" placeholder="Any duration" />
-                <SelectContent>
-                  <SelectGroup>
-                    {minDurationOptions.map((option, index) => (
-                      <SelectItem index={index} key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <Switch
-              checked={hasErrors}
-              label="Has errors"
-              onToggle={() => setHasErrors((currentValue) => !currentValue)}
+      <section className="lit overflow-hidden rounded-lg">
+        <div className="flex items-center gap-[10px] border-b border-dashed border-dash px-4 py-3">
+          <InputGroup className="w-[160px] gap-0">
+            <InputField
+              hideLabel
+              icon={Search}
+              index={0}
+              label="Country code"
+              onChange={setCountry}
+              placeholder="Country code"
+              value={country}
             />
-          </div>
+          </InputGroup>
 
-          <Button
-            disabled={loadState === "loading"}
-            leadingIcon={RotateCcw}
-            onClick={() => void loadFirstPage()}
-            size="sm"
-            variant="tertiary"
-          >
-            Refresh
-          </Button>
+          <Select onValueChange={setMinDurationValue} value={minDurationValue}>
+            <SelectTrigger
+              aria-label="Minimum duration"
+              className="h-[34px] min-w-[160px] rounded-[7px] border border-border bg-secondary px-3 text-[12px]"
+              placeholder="Any duration"
+            />
+            <SelectContent className="rounded-lg border border-border bg-popover">
+              <SelectGroup>
+                {minDurationOptions.map((option, index) => (
+                  <SelectItem index={index} key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+
+          <Switch
+            checked={hasErrors}
+            className="px-0 py-0"
+            label="Has errors"
+            onToggle={() => setHasErrors((currentValue) => !currentValue)}
+          />
+
+          <div className="flex-1" />
+
+          <span className="font-mono text-[11.5px] text-dim">{sessions.length} sessions</span>
+          <Tooltip content="Refresh">
+            <Button
+              aria-label="Refresh"
+              className="text-muted-foreground hover:text-foreground"
+              disabled={loadState === "loading"}
+              onClick={() => void loadFirstPage()}
+              size="icon-sm"
+              variant="ghost"
+            >
+              <RotateCcw aria-hidden className="size-4" />
+            </Button>
+          </Tooltip>
         </div>
 
         {error.length > 0 && (
-          <Alert variant="destructive">
-            <AlertCircle aria-hidden />
-            <AlertTitle>Could not load sessions</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
+          <div className="px-4 py-3">
+            <Alert variant="destructive">
+              <AlertCircle aria-hidden />
+              <AlertTitle>Could not load sessions</AlertTitle>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          </div>
         )}
 
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Start time</TableHead>
-                <TableHead>Duration</TableHead>
-                <TableHead>Entry page</TableHead>
-                <TableHead>Events</TableHead>
-                <TableHead>Country</TableHead>
-                <TableHead>Browser</TableHead>
-                <TableHead>OS</TableHead>
-                <TableHead>Bytes</TableHead>
+                <TableHead>Session</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Duration</TableHead>
+                <TableHead>Client</TableHead>
+                <TableHead className="text-right">Size</TableHead>
+                <TableHead className="text-right">When</TableHead>
+                <TableHead aria-hidden className="w-6 px-0" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -204,18 +217,24 @@ export function SessionsPage() {
           </Table>
         </div>
 
-        {loadState !== "loading" && sessions.length === 0 && <SessionsEmptyState />}
+        {loadState !== "loading" && sessions.length === 0 && error.length === 0 && (
+          <div className="p-4">
+            <SessionsEmptyState />
+          </div>
+        )}
 
-        <div className="flex justify-center">
-          <Button
-            disabled={!canLoadMore(nextBefore) || loadState !== "idle"}
-            loading={loadState === "loading_more"}
-            onClick={() => void loadMore()}
-            variant="secondary"
-          >
-            Load more
-          </Button>
-        </div>
+        {canLoadMore(nextBefore) && (
+          <div className="flex justify-center border-t border-dashed border-dash px-4 py-3">
+            <Button
+              disabled={loadState !== "idle"}
+              loading={loadState === "loading_more"}
+              onClick={() => void loadMore()}
+              variant="secondary"
+            >
+              Load more
+            </Button>
+          </div>
+        )}
       </section>
     </div>
   );
@@ -230,41 +249,69 @@ function SessionRow({
   projectId: string;
   session: SessionListItem;
 }) {
+  const navigate = useNavigate();
   const href = `/projects/${projectId}/sessions/${session.session_id}`;
-  const country = session.country ?? "Unknown";
-  const browser = session.browser ?? "Unknown";
-  const os = session.os ?? "Unknown";
+  const country = formatCountry(session.country);
+  const metaParts = [country];
+  if (session.clicks > 0) metaParts.push(`${session.clicks} clicks`);
+
+  function openSession(): void {
+    void navigate(href);
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLTableRowElement>): void {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    openSession();
+  }
 
   return (
-    <TableRow index={index}>
+    <TableRow
+      className="cursor-pointer hover:bg-hover"
+      index={index}
+      onClick={openSession}
+      onKeyDown={handleKeyDown}
+      role="link"
+      tabIndex={0}
+    >
       <TableCell>
-        <Tooltip content={formatAbsoluteTime(session.started_at)}>
-          <Link className="font-medium text-foreground hover:underline" to={href}>
-            {formatRelativeTime(session.started_at)}
-          </Link>
-        </Tooltip>
+        <div className="max-w-[300px] truncate text-[13px] font-medium text-foreground">
+          {entryPath(session.entry_url)}
+        </div>
+        <div className="mt-[2px] text-[11.5px] text-dim">{metaParts.join(" · ")}</div>
       </TableCell>
-      <TableCell>{formatDuration(session.duration_ms)}</TableCell>
       <TableCell>
-        <span className="block max-w-[260px] truncate">{session.entry_url ?? "/"}</span>
-      </TableCell>
-      <TableCell>
-        <div className="flex flex-wrap gap-1">
-          <Badge color="blue" size="sm" variant="dot">
-            {session.clicks} clicks
-          </Badge>
-          <Badge color={session.errors > 0 ? "red" : "gray"} size="sm" variant="dot">
-            {session.errors} errors
-          </Badge>
-          <Badge color={session.rages > 0 ? "orange" : "gray"} size="sm" variant="dot">
-            {session.rages} rages
-          </Badge>
+        <div className="flex flex-wrap gap-[6px]">
+          {session.errors > 0 && <StatusPill kind="err">{session.errors} errors</StatusPill>}
+          {session.rages > 0 && <StatusPill kind="rage">{session.rages} rage</StatusPill>}
+          {session.errors === 0 && session.rages === 0 && <StatusPill kind="ok">clean</StatusPill>}
         </div>
       </TableCell>
-      <TableCell>{country}</TableCell>
-      <TableCell>{browser}</TableCell>
-      <TableCell>{os}</TableCell>
-      <TableCell>{formatBytes(session.bytes)}</TableCell>
+      <TableCell className="text-right font-mono text-[12px] text-foreground">
+        {formatDuration(session.duration_ms)}
+      </TableCell>
+      <TableCell>
+        <span className="font-mono text-[12px] text-muted-foreground">
+          {session.browser ?? "Unknown"}
+          <span className="px-1 text-dim">·</span>
+          {session.os ?? "Unknown"}
+        </span>
+      </TableCell>
+      <TableCell className="text-right font-mono text-[12px] text-muted-foreground">
+        {formatBytes(session.bytes)}
+      </TableCell>
+      <TableCell
+        className="text-right text-[12px] text-dim"
+        title={formatAbsoluteTime(session.started_at)}
+      >
+        {formatShortRelativeTime(session.started_at)}
+      </TableCell>
+      <TableCell className="w-6 px-0">
+        <ChevronRight
+          aria-hidden
+          className="size-4 text-dim opacity-0 transition-opacity group-hover/row:opacity-100 group-focus-visible/row:opacity-100"
+        />
+      </TableCell>
     </TableRow>
   );
 }
@@ -272,8 +319,11 @@ function SessionRow({
 function LoadingRows() {
   return Array.from({ length: 5 }, (_, index) => (
     <TableRow index={index} key={index}>
-      {Array.from({ length: 8 }, (_unused, cellIndex) => (
-        <TableCell key={cellIndex}>
+      {Array.from({ length: 7 }, (_unused, cellIndex) => (
+        <TableCell
+          className={cellIndex >= 2 && cellIndex !== 3 ? "text-right" : ""}
+          key={cellIndex}
+        >
           <Skeleton className="h-5 w-full" />
         </TableCell>
       ))}
@@ -283,32 +333,66 @@ function LoadingRows() {
 
 function SessionsEmptyState() {
   return (
-    <Empty className="border border-border">
+    <Empty className="border border-dashed border-dash">
       <EmptyHeader>
         <EmptyMedia variant="icon">
           <Inbox aria-hidden />
         </EmptyMedia>
         <EmptyTitle>No sessions yet</EmptyTitle>
         <EmptyDescription>
-          Seed a project through the guarded test surface with DEV_TEST_ROUTES=1.
+          Captured sessions will appear here when your app sends data.
         </EmptyDescription>
       </EmptyHeader>
-      <EmptyContent>
-        <code className="w-full rounded-lg bg-muted px-3 py-2 text-left text-xs text-muted-foreground">
-          curl -X POST http://localhost:8787/__test/ingest/seed
-        </code>
-      </EmptyContent>
+      <EmptyContent />
     </Empty>
   );
 }
 
-function PageHeader({ description, title }: { description: string; title: string }) {
-  return (
-    <div className="flex flex-col gap-1">
-      <h1 className="text-2xl font-semibold tracking-normal">{title}</h1>
-      <p className="text-sm text-muted-foreground">{description}</p>
-    </div>
-  );
+function entryPath(value: string | null): string {
+  if (value === null || value.length === 0) return "/";
+
+  try {
+    const url = new URL(value);
+    return `${url.pathname}${url.search}`;
+  } catch {
+    return value.startsWith("/") ? value : `/${value}`;
+  }
+}
+
+function formatCountry(country: string | null): string {
+  if (country === null || country.trim().length === 0) return "Unknown";
+  const code = country.trim().toUpperCase();
+  return `${flagForCountry(code)} ${code}`;
+}
+
+function flagForCountry(code: string): string {
+  if (!/^[A-Z]{2}$/.test(code)) return code;
+  const first = 0x1f1e6 + code.charCodeAt(0) - 65;
+  const second = 0x1f1e6 + code.charCodeAt(1) - 65;
+  return String.fromCodePoint(first, second);
+}
+
+function formatShortRelativeTime(value: number, now = Date.now()): string {
+  const diffMs = Math.max(0, now - value);
+  const seconds = Math.floor(diffMs / 1_000);
+
+  if (seconds < 10) return "now";
+  if (seconds < 60) return `${seconds}s`;
+
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d`;
+
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months}mo`;
+
+  const years = Math.floor(months / 12);
+  return `${years}y`;
 }
 
 function readErrorMessage(error: unknown): string {

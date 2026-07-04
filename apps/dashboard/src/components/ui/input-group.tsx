@@ -16,7 +16,6 @@ import { Field } from "@base-ui/react/field";
 import type { IconComponent } from "@/lib/icon-context";
 import { cn } from "@/lib/utils";
 import { fontWeights } from "@/lib/font-weight";
-import { useShape } from "@/lib/shape-context";
 import { useProximityHover } from "@/hooks/use-proximity-hover";
 
 interface InputGroupContextValue {
@@ -91,6 +90,8 @@ interface InputFieldProps extends Omit<
   error?: string;
   disabled?: boolean;
   className?: string;
+  endContent?: ReactNode;
+  hideLabel?: boolean;
 }
 
 const InputField = forwardRef<HTMLDivElement, InputFieldProps>(
@@ -105,6 +106,8 @@ const InputField = forwardRef<HTMLDivElement, InputFieldProps>(
       error,
       disabled,
       className,
+      endContent,
+      hideLabel = false,
       ...props
     },
     ref,
@@ -113,7 +116,6 @@ const InputField = forwardRef<HTMLDivElement, InputFieldProps>(
     const inputRef = useRef<HTMLElement | null>(null);
     const { registerItem, activeIndex } = useInputGroup();
     const [isFocused, setIsFocused] = useState(false);
-    const shape = useShape();
 
     useEffect(() => {
       registerItem(index, internalRef.current);
@@ -131,26 +133,13 @@ const InputField = forwardRef<HTMLDivElement, InputFieldProps>(
       setIsFocused(false);
     };
 
-    // Input container classes
-    let bgClass: string;
-    let ringClass: string;
-
-    if (disabled) {
-      bgClass = "bg-transparent";
-      ringClass = "ring-border";
-    } else if (error) {
-      bgClass = isFocused ? "bg-card" : isActive ? "bg-destructive-light/60" : "bg-transparent";
-      ringClass = isFocused || isActive ? "ring-destructive/50" : "ring-transparent";
-    } else if (isFocused) {
-      bgClass = "bg-card";
-      ringClass = "ring-border";
-    } else if (isActive) {
-      bgClass = "bg-muted/50";
-      ringClass = "ring-border";
-    } else {
-      bgClass = "bg-transparent";
-      ringClass = "ring-transparent";
-    }
+    const ringClass = error
+      ? isFocused || isActive
+        ? "ring-danger/70"
+        : "ring-danger/40"
+      : isFocused
+        ? "ring-amber"
+        : "ring-transparent";
 
     return (
       // Base UI Field wires the accessibility plumbing: Field.Label's htmlFor
@@ -171,7 +160,9 @@ const InputField = forwardRef<HTMLDivElement, InputFieldProps>(
         )}
       >
         {/* Label */}
-        <Field.Label className="inline-grid text-[13px] pl-3">
+        <Field.Label
+          className={cn("inline-grid pl-0 text-[13px] font-medium", hideLabel && "sr-only")}
+        >
           <span
             className="col-start-1 row-start-1 invisible"
             style={{ fontVariationSettings: fontWeights.semibold }}
@@ -180,10 +171,7 @@ const InputField = forwardRef<HTMLDivElement, InputFieldProps>(
             {label}
           </span>
           <span
-            className={cn(
-              "col-start-1 row-start-1",
-              error ? "text-destructive" : "text-muted-foreground",
-            )}
+            className={cn("col-start-1 row-start-1", error ? "text-danger" : "text-foreground")}
             style={{
               fontVariationSettings: fontWeights.normal,
             }}
@@ -198,13 +186,14 @@ const InputField = forwardRef<HTMLDivElement, InputFieldProps>(
             // The old wrapper was one big <label>, so a click anywhere (icon,
             // padding) focused the input. Keep that, without disturbing the
             // input's own caret placement.
+            if ((e.target as HTMLElement).closest("button")) return;
             if (e.target === inputRef.current) return;
             e.preventDefault();
             inputRef.current?.focus();
           }}
           className={cn(
-            `flex items-center gap-2 ${shape.input} px-3 py-2 ring-1 transition-all duration-80`,
-            bgClass,
+            `flex items-center gap-2 rounded-[7px] border bg-secondary px-3 py-[7px] ring-1 transition-all duration-80`,
+            error ? "border-danger/50" : "border-border",
             ringClass,
           )}
         >
@@ -214,7 +203,7 @@ const InputField = forwardRef<HTMLDivElement, InputFieldProps>(
               strokeWidth={labelActive ? 2 : 1.5}
               className={cn(
                 "shrink-0 transition-[color,stroke-width] duration-80",
-                labelActive ? "text-foreground" : "text-muted-foreground",
+                labelActive ? "text-foreground" : "text-dim",
               )}
             />
           )}
@@ -226,10 +215,11 @@ const InputField = forwardRef<HTMLDivElement, InputFieldProps>(
             onFocus={handleFocus}
             onBlur={handleBlur}
             placeholder={placeholder}
-            className="w-full bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground outline-none font-[inherit]"
+            className="w-full bg-transparent text-[12px] text-foreground placeholder:text-dim outline-none font-[inherit]"
             style={{ fontVariationSettings: fontWeights.normal }}
             {...props}
           />
+          {endContent}
         </div>
 
         {/* Error message — `match` pins it visible while our controlled
@@ -237,7 +227,7 @@ const InputField = forwardRef<HTMLDivElement, InputFieldProps>(
         {error && (
           <Field.Error
             match
-            className="text-[12px] text-destructive pl-3"
+            className="pl-0 text-[13px] text-danger"
             style={{ fontVariationSettings: fontWeights.medium }}
           >
             {error}

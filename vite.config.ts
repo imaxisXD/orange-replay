@@ -4,7 +4,10 @@ export default defineConfig({
   staged: {
     "*": "vp check --fix",
   },
-  fmt: {},
+  fmt: {
+    // Hand-tuned design reference mocks (design authority for the dashboard UI) — never reformat.
+    ignorePatterns: ["design-final.html", "design-directions*.html"],
+  },
   lint: {
     ignorePatterns: ["packages/rrweb-fork/src/vendor/**"],
     jsPlugins: [{ name: "vite-plus", specifier: "vite-plus/oxlint-plugin" }],

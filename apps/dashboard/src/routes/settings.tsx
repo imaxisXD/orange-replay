@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { KeyRound, RotateCcw, Server } from "lucide-react";
+import { StatusPill } from "@/components/status-pill";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getApiToken, health } from "@/lib/api";
 
@@ -30,10 +30,14 @@ export function SettingsPage() {
   }, []);
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-normal">Settings</h1>
-        <p className="text-sm text-muted-foreground">Project config editing lands in T3.6.</p>
+    <div className="flex flex-col gap-5">
+      <div className="flex items-center justify-between gap-4">
+        <h1 className="text-[18px] font-semibold tracking-[-0.015em]">
+          Settings
+          <span className="ml-[10px] text-[12px] font-normal text-dim">
+            Local project controls.
+          </span>
+        </h1>
       </div>
 
       {error.length > 0 && (
@@ -45,60 +49,61 @@ export function SettingsPage() {
       )}
 
       <div className="grid gap-4 md:grid-cols-2">
-        <section className="flex flex-col gap-4 rounded-lg border border-border bg-card p-5 shadow-surface-1">
+        <section className="lit flex flex-col gap-4 overflow-hidden rounded-lg p-5">
           <div className="flex items-start justify-between gap-3">
             <div className="flex flex-col gap-1">
-              <h2 className="font-semibold tracking-normal">Dev token</h2>
-              <p className="text-sm text-muted-foreground">Stored in this browser only.</p>
+              <h2 className="text-[15px] font-medium">Dev token</h2>
+              <p className="text-[13px] text-muted-foreground">Stored in this browser only.</p>
             </div>
             <KeyRound aria-hidden className="size-5 text-muted-foreground" />
           </div>
-          <Badge color={hasToken ? "green" : "orange"} variant="dot">
+          <StatusPill kind={hasToken ? "ok" : "rage"}>
             {hasToken ? "Token saved" : "Token missing"}
-          </Badge>
+          </StatusPill>
         </section>
 
-        <section className="flex flex-col gap-4 rounded-lg border border-border bg-card p-5 shadow-surface-1">
+        <section className="lit flex flex-col gap-4 overflow-hidden rounded-lg p-5">
           <div className="flex items-start justify-between gap-3">
             <div className="flex flex-col gap-1">
-              <h2 className="font-semibold tracking-normal">Worker health</h2>
-              <p className="text-sm text-muted-foreground">Checks the local API worker.</p>
+              <h2 className="text-[15px] font-medium">Worker health</h2>
+              <p className="text-[13px] text-muted-foreground">Checks the local API worker.</p>
             </div>
             <Server aria-hidden className="size-5 text-muted-foreground" />
           </div>
           <div className="flex items-center justify-between gap-3">
-            <Badge
-              color={
-                healthState === "connected" ? "green" : healthState === "failed" ? "red" : "gray"
-              }
-              variant="dot"
-            >
-              {healthState === "checking"
-                ? "Checking"
-                : healthState === "connected"
-                  ? "Connected"
-                  : "Failed"}
-            </Badge>
+            <HealthStatus healthState={healthState} />
             <Button
               leadingIcon={RotateCcw}
               loading={healthState === "checking"}
               onClick={() => void checkHealth()}
               size="sm"
-              variant="tertiary"
+              variant="ghost"
             >
               Check
             </Button>
           </div>
         </section>
 
-        <section className="flex flex-col gap-2 rounded-lg border border-border bg-card p-5 shadow-surface-1 md:col-span-2">
-          <h2 className="font-semibold tracking-normal">Project config</h2>
-          <p className="text-sm text-muted-foreground">
-            Masking rules, capture toggles, sampling, retention, keys, snippets, and live verify are
-            planned for T3.6.
+        <section className="lit flex flex-col gap-2 overflow-hidden rounded-lg p-5 md:col-span-2">
+          <h2 className="text-[15px] font-medium">Project config</h2>
+          <p className="text-[13px] text-muted-foreground">
+            Masking rules, capture toggles, sampling, retention, and keys will be editable here
+            soon.
           </p>
         </section>
       </div>
     </div>
   );
+}
+
+function HealthStatus({ healthState }: { healthState: HealthState }) {
+  if (healthState === "connected") {
+    return <StatusPill kind="ok">Connected</StatusPill>;
+  }
+
+  if (healthState === "failed") {
+    return <StatusPill kind="err">Failed</StatusPill>;
+  }
+
+  return <StatusPill kind="neutral">Checking</StatusPill>;
 }

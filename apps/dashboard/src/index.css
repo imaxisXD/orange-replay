@@ -4,59 +4,86 @@
 @custom-variant dark (&:is(.dark *));
 
 @layer base {
-  :root {
-    color-scheme: light;
-    --background: oklch(0.985 0.003 85);
-    --foreground: oklch(0.18 0.015 85);
-    --card: oklch(0.97 0.004 85);
-    --card-foreground: var(--foreground);
-    --popover: oklch(0.985 0.003 85);
-    --popover-foreground: var(--foreground);
-    --primary: oklch(0.46 0.17 35);
-    --primary-foreground: oklch(0.99 0.004 85);
-    --secondary: oklch(0.92 0.012 85);
-    --secondary-foreground: var(--foreground);
-    --muted: oklch(0.94 0.008 85);
-    --muted-foreground: oklch(0.48 0.025 85);
-    --accent: oklch(0.91 0.012 85);
-    --accent-foreground: var(--foreground);
-    --destructive: oklch(0.58 0.18 25);
-    --destructive-foreground: oklch(0.99 0.004 85);
-    --border: oklch(0.84 0.012 85);
-    --input: var(--border);
-    --ring: oklch(0.58 0.14 35);
-    --hover: color-mix(in oklab, var(--accent), var(--foreground) 5%);
-    --active: color-mix(in oklab, var(--accent), var(--foreground) 10%);
-    --overlay: 20 20 20;
-    --focus-ring: oklch(0.62 0.16 35);
-    --radius: 0.5rem;
-  }
-
+  :root,
   .dark {
     color-scheme: dark;
-    --background: oklch(0.17 0.012 85);
-    --foreground: oklch(0.94 0.008 85);
-    --card: oklch(0.21 0.014 85);
-    --card-foreground: var(--foreground);
-    --popover: oklch(0.2 0.014 85);
-    --popover-foreground: var(--foreground);
-    --primary: oklch(0.66 0.16 38);
-    --primary-foreground: oklch(0.16 0.012 85);
-    --secondary: oklch(0.28 0.014 85);
-    --secondary-foreground: var(--foreground);
-    --muted: oklch(0.25 0.014 85);
-    --muted-foreground: oklch(0.7 0.018 85);
-    --accent: oklch(0.29 0.015 85);
-    --accent-foreground: var(--foreground);
-    --destructive: oklch(0.64 0.18 25);
-    --destructive-foreground: oklch(0.99 0.004 85);
-    --border: oklch(0.34 0.016 85);
-    --input: var(--border);
-    --ring: oklch(0.7 0.14 38);
-    --hover: color-mix(in oklab, var(--accent), var(--foreground) 6%);
-    --active: color-mix(in oklab, var(--accent), var(--foreground) 12%);
-    --overlay: 250 250 250;
-    --focus-ring: oklch(0.72 0.14 38);
+    --background: #0a0a0c;
+    --foreground: #ececf1;
+    --card: #111114;
+    --card-foreground: #ececf1;
+    --popover: #16161a;
+    --popover-foreground: #ececf1;
+    --primary: #ececf1;
+    --primary-foreground: #0a0a0c;
+    --secondary: #16161a;
+    --secondary-foreground: #ececf1;
+    --muted: #16161a;
+    --muted-foreground: #8b8b95;
+    --accent: #1a1a1f;
+    --accent-foreground: #ececf1;
+    --destructive: #f4534e;
+    --destructive-foreground: #0a0a0c;
+    --border: #232329;
+    --input: #232329;
+    --ring: #f5a623;
+    --focus-ring: #f5a623;
+    --hover: #141419;
+    --active: #17171c;
+    --overlay: 236 236 241;
+    --radius: 0.5rem;
+
+    --surface-1: #0a0a0c;
+    --surface-2: #111114;
+    --surface-3: #16161a;
+    --surface-4: #1a1a1f;
+    --surface-5: #1f1f24;
+    --surface-6: #232329;
+    --surface-7: #26262d;
+    --surface-8: #2e2e36;
+
+    --shadow-color: rgb(0 0 0 / 0.42);
+    --dm-hi-base: rgba(255, 255, 255, 0.01);
+    --dm-hi-mid: rgba(255, 255, 255, 0.02);
+    --dm-hi-high: rgba(255, 255, 255, 0.04);
+    --dm-hi-peak: rgba(255, 255, 255, 0.06);
+    --dm-ring-base: rgba(255, 255, 255, 0.02);
+    --dm-ring-mid: rgba(255, 255, 255, 0.04);
+    --dm-ring-high: rgba(255, 255, 255, 0.06);
+    --dm-drop: rgba(0, 0, 0, 0.18);
+    --shadow-1: inset 0 0 0 1px var(--dm-ring-base);
+    --shadow-2:
+      inset 0 1px 0 0 var(--dm-hi-base), inset 0 0 0 1px var(--dm-ring-base),
+      0 1px 1px -0.5px var(--dm-drop);
+    --shadow-3:
+      inset 0 1px 0 0 var(--dm-hi-mid), inset 0 0 0 1px var(--dm-ring-base),
+      0 0 0 1px rgba(0, 0, 0, 0.12), 0 1px 1px -0.5px var(--dm-drop),
+      0 3px 3px -1.5px var(--dm-drop);
+    --shadow-4:
+      inset 0 1px 0 0 var(--dm-hi-mid), inset 0 0 0 1px var(--dm-ring-mid),
+      0 0 0 1px rgba(0, 0, 0, 0.14), 0 1px 1px -0.5px var(--dm-drop),
+      0 3px 3px -1.5px var(--dm-drop), 0 6px 6px -3px var(--dm-drop);
+    --shadow-5:
+      inset 0 1px 0 0 var(--dm-hi-high), inset 0 0 0 1px var(--dm-ring-mid),
+      0 0 0 1px rgba(0, 0, 0, 0.16), 0 1px 1px -0.5px var(--dm-drop),
+      0 3px 3px -1.5px var(--dm-drop), 0 6px 6px -3px var(--dm-drop),
+      0 12px 12px -6px var(--dm-drop);
+    --shadow-6:
+      inset 0 1px 0 0 var(--dm-hi-high), inset 0 0 0 1px var(--dm-ring-high),
+      0 0 0 1px rgba(0, 0, 0, 0.18), 0 1px 1px -0.5px var(--dm-drop),
+      0 3px 3px -1.5px var(--dm-drop), 0 6px 6px -3px var(--dm-drop),
+      0 12px 12px -6px var(--dm-drop), 0 24px 24px -12px var(--dm-drop);
+    --shadow-7:
+      inset 0 1px 0 0 var(--dm-hi-peak), inset 0 0 0 1px var(--dm-ring-high),
+      0 0 0 1px rgba(0, 0, 0, 0.2), 0 1px 1px -0.5px var(--dm-drop),
+      0 3px 3px -1.5px var(--dm-drop), 0 6px 6px -3px var(--dm-drop),
+      0 12px 12px -6px var(--dm-drop), 0 24px 24px -12px var(--dm-drop),
+      0 48px 48px -24px var(--dm-drop);
+    --shadow-8:
+      inset 0 1px 0 0 var(--dm-hi-peak), inset 0 0 0 1px var(--dm-ring-high),
+      0 0 0 1px rgba(0, 0, 0, 0.22), 0 1px 1px -0.5px var(--dm-drop),
+      0 3px 3px -1.5px var(--dm-drop), 0 6px 6px -3px var(--dm-drop),
+      0 12px 12px -6px var(--dm-drop), 0 24px 24px -12px var(--dm-drop),
+      0 48px 48px -24px var(--dm-drop), 0 96px 96px -48px var(--dm-drop);
   }
 
   html {
@@ -70,16 +97,31 @@
     min-height: 100vh;
     margin: 0;
     background: var(--background);
+    background-image: radial-gradient(circle, #1b1b21 1px, transparent 1px);
+    background-size: 26px 26px;
     color: var(--foreground);
+    font-size: 13px;
+  }
+
+  #root {
+    min-height: 100vh;
   }
 
   * {
     box-sizing: border-box;
+    font-variant-numeric: tabular-nums;
+  }
+
+  code,
+  kbd,
+  .font-mono {
+    font-family: var(--font-mono);
   }
 }
 
 @theme inline {
   --font-sans: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Geist Mono", Menlo, monospace;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -101,6 +143,12 @@
   --color-ring: var(--ring);
   --color-hover: var(--hover);
   --color-active: var(--active);
+  --color-dash: #2e2e36;
+  --color-dim: #62626c;
+  --color-amber: #f5a623;
+  --color-teal: #2dd4bf;
+  --color-danger: #f4534e;
+  --color-success: #34d399;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -154,89 +202,48 @@
   }
 }
 
-:root {
-  --surface-1: #fafafa;
-  --surface-2: #fcfcfc;
-  --surface-3: #ffffff;
-  --surface-4: #ffffff;
-  --surface-5: #ffffff;
-  --surface-6: #ffffff;
-  --surface-7: #ffffff;
-  --surface-8: #ffffff;
-  --shadow-color: rgb(0 0 0 / 0.06);
-  --shadow-1: 0 0 0 1px var(--shadow-color);
-  --shadow-2: 0 0 0 1px var(--shadow-color), 0 1px 1px -0.5px var(--shadow-color);
-  --shadow-3:
-    0 0 0 1px var(--shadow-color), 0 1px 1px -0.5px var(--shadow-color),
-    0 3px 3px -1.5px var(--shadow-color);
-  --shadow-4:
-    0 0 0 1px var(--shadow-color), 0 1px 1px -0.5px var(--shadow-color),
-    0 3px 3px -1.5px var(--shadow-color), 0 6px 6px -3px var(--shadow-color);
-  --shadow-5:
-    0 0 0 1px var(--shadow-color), 0 1px 1px -0.5px var(--shadow-color),
-    0 3px 3px -1.5px var(--shadow-color), 0 6px 6px -3px var(--shadow-color),
-    0 12px 12px -6px var(--shadow-color);
-  --shadow-6:
-    0 0 0 1px var(--shadow-color), 0 1px 1px -0.5px var(--shadow-color),
-    0 3px 3px -1.5px var(--shadow-color), 0 6px 6px -3px var(--shadow-color),
-    0 12px 12px -6px var(--shadow-color), 0 24px 24px -12px var(--shadow-color);
-  --shadow-7:
-    0 0 0 1px var(--shadow-color), 0 1px 1px -0.5px var(--shadow-color),
-    0 3px 3px -1.5px var(--shadow-color), 0 6px 6px -3px var(--shadow-color),
-    0 12px 12px -6px var(--shadow-color), 0 24px 24px -12px var(--shadow-color),
-    0 48px 48px -24px var(--shadow-color);
-  --shadow-8:
-    0 0 0 1px var(--shadow-color), 0 1px 1px -0.5px var(--shadow-color),
-    0 3px 3px -1.5px var(--shadow-color), 0 6px 6px -3px var(--shadow-color),
-    0 12px 12px -6px var(--shadow-color), 0 24px 24px -12px var(--shadow-color),
-    0 48px 48px -24px var(--shadow-color), 0 96px 96px -48px var(--shadow-color);
+.lit {
+  position: relative;
+  border: none !important;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E"),
+    var(--card);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.42);
 }
-
-.dark {
-  --surface-1: #171717;
-  --surface-2: #1e1e1e;
-  --surface-3: #252525;
-  --surface-4: #2c2c2c;
-  --surface-5: #333333;
-  --surface-6: #3a3a3a;
-  --surface-7: #414141;
-  --surface-8: #484848;
-  --dm-hi-base: rgba(255, 255, 255, 0.01);
-  --dm-hi-mid: rgba(255, 255, 255, 0.02);
-  --dm-hi-high: rgba(255, 255, 255, 0.04);
-  --dm-hi-peak: rgba(255, 255, 255, 0.06);
-  --dm-ring-base: rgba(255, 255, 255, 0.02);
-  --dm-ring-mid: rgba(255, 255, 255, 0.04);
-  --dm-ring-high: rgba(255, 255, 255, 0.06);
-  --dm-drop: rgba(0, 0, 0, 0.18);
-  --shadow-1: inset 0 0 0 1px var(--dm-ring-base);
-  --shadow-2:
-    inset 0 1px 0 0 var(--dm-hi-base), inset 0 0 0 1px var(--dm-ring-base),
-    0 1px 1px -0.5px var(--dm-drop);
-  --shadow-3:
-    inset 0 1px 0 0 var(--dm-hi-mid), inset 0 0 0 1px var(--dm-ring-base),
-    0 0 0 1px rgba(0, 0, 0, 0.12), 0 1px 1px -0.5px var(--dm-drop), 0 3px 3px -1.5px var(--dm-drop);
-  --shadow-4:
-    inset 0 1px 0 0 var(--dm-hi-mid), inset 0 0 0 1px var(--dm-ring-mid),
-    0 0 0 1px rgba(0, 0, 0, 0.14), 0 1px 1px -0.5px var(--dm-drop), 0 3px 3px -1.5px var(--dm-drop),
-    0 6px 6px -3px var(--dm-drop);
-  --shadow-5:
-    inset 0 1px 0 0 var(--dm-hi-high), inset 0 0 0 1px var(--dm-ring-mid),
-    0 0 0 1px rgba(0, 0, 0, 0.16), 0 1px 1px -0.5px var(--dm-drop), 0 3px 3px -1.5px var(--dm-drop),
-    0 6px 6px -3px var(--dm-drop), 0 12px 12px -6px var(--dm-drop);
-  --shadow-6:
-    inset 0 1px 0 0 var(--dm-hi-high), inset 0 0 0 1px var(--dm-ring-high),
-    0 0 0 1px rgba(0, 0, 0, 0.18), 0 1px 1px -0.5px var(--dm-drop), 0 3px 3px -1.5px var(--dm-drop),
-    0 6px 6px -3px var(--dm-drop), 0 12px 12px -6px var(--dm-drop), 0 24px 24px -12px var(--dm-drop);
-  --shadow-7:
-    inset 0 1px 0 0 var(--dm-hi-peak), inset 0 0 0 1px var(--dm-ring-high),
-    0 0 0 1px rgba(0, 0, 0, 0.2), 0 1px 1px -0.5px var(--dm-drop), 0 3px 3px -1.5px var(--dm-drop),
-    0 6px 6px -3px var(--dm-drop), 0 12px 12px -6px var(--dm-drop),
-    0 24px 24px -12px var(--dm-drop), 0 48px 48px -24px var(--dm-drop);
-  --shadow-8:
-    inset 0 1px 0 0 var(--dm-hi-peak), inset 0 0 0 1px var(--dm-ring-high),
-    0 0 0 1px rgba(0, 0, 0, 0.22), 0 1px 1px -0.5px var(--dm-drop), 0 3px 3px -1.5px var(--dm-drop),
-    0 6px 6px -3px var(--dm-drop), 0 12px 12px -6px var(--dm-drop),
-    0 24px 24px -12px var(--dm-drop), 0 48px 48px -24px var(--dm-drop),
-    0 96px 96px -48px var(--dm-drop);
+.lit::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Crect x='0.5' y='0.5' width='100%25' height='100%25' fill='none' rx='7.5' ry='7.5' stroke='white' stroke-opacity='0.42' stroke-width='1' stroke-dasharray='12 4'/%3E%3C/svg%3E");
+  -webkit-mask-image: radial-gradient(
+    170% 130% at 0% 0%,
+    rgba(0, 0, 0, 0.9) 0%,
+    rgba(0, 0, 0, 0.42) 24%,
+    rgba(0, 0, 0, 0.22) 46%,
+    rgba(0, 0, 0, 0.1) 68%,
+    rgba(0, 0, 0, 0.07) 100%
+  );
+  mask-image: radial-gradient(
+    170% 130% at 0% 0%,
+    rgba(0, 0, 0, 0.9) 0%,
+    rgba(0, 0, 0, 0.42) 24%,
+    rgba(0, 0, 0, 0.22) 46%,
+    rgba(0, 0, 0, 0.1) 68%,
+    rgba(0, 0, 0, 0.07) 100%
+  );
+  opacity: 0.85;
+  transition: opacity 140ms ease;
+}
+.lit::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(60% 45% at 6% 0%, rgba(255, 255, 255, 0.05), transparent 60%);
+}
+.lit:hover::after {
+  opacity: 1;
 }

@@ -17,22 +17,22 @@ import { useShape } from "@/lib/shape-context";
 const buttonVariants = cva(
   [
     "group relative isolate inline-flex items-center justify-center outline-none cursor-pointer",
-    "transition-colors duration-80",
+    "rounded-lg transition-colors duration-100",
     "disabled:opacity-50 disabled:pointer-events-none",
     "focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring,#6B97FF)]",
   ],
   {
     variants: {
       variant: {
-        primary: "text-background",
-        secondary: "text-foreground",
-        tertiary: "border border-border text-foreground",
+        primary: "font-semibold text-background",
+        secondary: "border border-border text-foreground font-medium",
+        tertiary: "border border-border text-foreground font-medium",
         ghost: "text-muted-foreground hover:text-foreground",
       },
       size: {
-        sm: "h-7 px-3 text-[12px] gap-1",
-        md: "h-8 px-4 text-[13px] gap-1.5",
-        lg: "h-9 px-5 text-[14px] gap-1.5",
+        sm: "h-8 px-[13px] text-[12.5px] gap-1.5",
+        md: "h-8 px-[13px] text-[12.5px] gap-1.5",
+        lg: "h-9 px-5 text-[13px] gap-1.5",
         "icon-sm": "h-8 w-8 p-0 [&_svg]:h-3.5 [&_svg]:w-3.5",
         icon: "h-9 w-9 p-0 [&_svg]:h-4 [&_svg]:w-4",
         "icon-lg": "h-10 w-10 p-0 [&_svg]:h-5 [&_svg]:w-5",
@@ -69,16 +69,16 @@ interface ButtonProps
 
 const bgVariants: Record<string, string> = {
   primary: "bg-foreground group-hover:bg-foreground/90 group-active:bg-foreground/80",
-  secondary: "bg-accent group-hover:bg-accent/80 group-active:bg-accent",
-  tertiary: "bg-transparent group-hover:bg-hover group-active:bg-active",
-  ghost: "bg-transparent group-hover:bg-hover group-active:bg-active",
+  secondary: "bg-card group-hover:bg-hover group-active:bg-active",
+  tertiary: "bg-card group-hover:bg-hover group-active:bg-active",
+  ghost: "bg-transparent",
 };
 
 const activeBgVariants: Record<string, string> = {
   primary: "bg-foreground/80",
-  secondary: "bg-accent",
+  secondary: "bg-active",
   tertiary: "bg-active",
-  ghost: "bg-active",
+  ghost: "bg-transparent",
 };
 
 const Button = forwardRef<HTMLButtonElement, ButtonProps>(

@@ -1,4 +1,5 @@
 import { createBrowserRouter, Navigate } from "react-router";
+import type { ReactNode } from "react";
 import { AppShell } from "@/routes/app-shell";
 import { LoginPage } from "@/routes/login";
 import { RequireAuth } from "@/routes/require-auth";
@@ -9,39 +10,62 @@ import { SettingsPage } from "@/routes/settings";
 
 export const defaultProjectId = "p1";
 
+function shellElement(element?: ReactNode) {
+  return (
+    <RequireAuth>
+      <AppShell>{element}</AppShell>
+    </RequireAuth>
+  );
+}
+
 export const router = createBrowserRouter([
   {
     path: "/login",
     element: <LoginPage />,
+    errorElement: (
+      <AppShell>
+        <RouteError />
+      </AppShell>
+    ),
   },
   {
     path: "/",
-    element: <Navigate to={`/projects/${defaultProjectId}/sessions`} replace />,
-  },
-  {
-    path: "/projects/:projectId",
-    element: (
-      <RequireAuth>
-        <AppShell />
-      </RequireAuth>
-    ),
-    errorElement: <RouteError />,
+    errorElement: shellElement(<RouteError />),
     children: [
       {
         index: true,
-        element: <Navigate to="sessions" replace />,
+        element: <Navigate to={`/projects/${defaultProjectId}/sessions`} replace />,
       },
       {
-        path: "sessions",
-        element: <SessionsPage />,
+        path: "projects/:projectId",
+        element: shellElement(),
+        errorElement: shellElement(<RouteError />),
+        children: [
+          {
+            index: true,
+            element: <Navigate to="sessions" replace />,
+          },
+          {
+            path: "sessions",
+            element: <SessionsPage />,
+          },
+          {
+            path: "sessions/:sessionId",
+            element: <SessionDetailPage />,
+          },
+          {
+            path: "settings",
+            element: <SettingsPage />,
+          },
+          {
+            path: "*",
+            element: <RouteError notFound />,
+          },
+        ],
       },
       {
-        path: "sessions/:sessionId",
-        element: <SessionDetailPage />,
-      },
-      {
-        path: "settings",
-        element: <SettingsPage />,
+        path: "*",
+        element: shellElement(<RouteError notFound />),
       },
     ],
   },

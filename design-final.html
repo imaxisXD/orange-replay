@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orange Replay — unified design direction</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --bg: #0a0a0c; --panel: #111114; --panel2: #16161a;
+    --line: #232329; --dash: #2e2e36;
+    --litA: rgba(255,255,255,0.16); --litB: rgba(255,255,255,0.05);
+    --text: #ececf1; --mut: #8b8b95; --dim: #62626c;
+    --amber: #f5a623; --teal: #2dd4bf; --red: #f4534e; --green: #34d399;
+    --mono: ui-monospace, "SF Mono", "Geist Mono", Menlo, monospace;
+  }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px;
+    background-image: radial-gradient(circle, #1b1b21 1px, transparent 1px);
+    background-size: 26px 26px;
+    min-height: 100vh;
+  }
+
+  /* ===== top nav, tier 1 (Clerk-style) ===== */
+  .nav1 { display: flex; align-items: center; gap: 14px; padding: 12px 28px;
+          background: rgba(10,10,12,0.85); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+  .mark { width: 24px; height: 24px; border-radius: 7px; background: var(--panel2); border: 1px solid var(--dash); position: relative; }
+  .mark::after { content: ""; position: absolute; left: 4px; right: 4px; top: 10px; height: 2.5px; border-radius: 2px;
+                 background: linear-gradient(90deg, var(--teal), var(--amber), var(--red)); }
+  .brand { font-weight: 650; font-size: 14px; letter-spacing: -0.01em; }
+  .sep { color: #33333b; }
+  .switcher { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: var(--panel);
+              border-radius: 8px; padding: 5px 11px; font-size: 12.5px; color: var(--text); }
+  .switcher .car { color: var(--dim); font-size: 9px; }
+  .env { font-size: 11px; font-weight: 550; color: var(--amber); background: rgba(245,166,35,0.09);
+         border: 1px dashed rgba(245,166,35,0.35); border-radius: 999px; padding: 3px 10px; }
+  .nav1 .right { margin-left: auto; display: flex; align-items: center; gap: 16px; }
+  .nav1 .lnk { color: var(--mut); font-size: 12.5px; }
+  .ava { width: 26px; height: 26px; border-radius: 50%; background: linear-gradient(135deg, #2dd4bf44, #2dd4bf); border: 1px solid var(--line); }
+
+  /* ===== top nav, tier 2: tabs ===== */
+  .nav2 { display: flex; gap: 4px; padding: 0 28px; border-bottom: 1px solid var(--line);
+          background: rgba(10,10,12,0.85); }
+  .nav2 span { padding: 10px 13px; font-size: 13px; color: var(--mut); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .nav2 .on { color: var(--text); border-bottom-color: var(--amber); font-weight: 550; }
+  .nav2 .k { margin-left: auto; align-self: center; font-family: var(--mono); font-size: 11px; color: var(--dim);
+             border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; margin-bottom: 4px; }
+
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 24px 28px 60px; }
+
+
+  /* ===== dashed borders (long dashes via SVG stroke) + top-left bloom + grain ===== */
+  .lit {
+    position: relative;
+    border: none !important;
+    background:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E"),
+      var(--panel);
+    box-shadow: 0 14px 34px rgba(0,0,0,0.42);
+  }
+  .lit::after {
+    content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Crect x='0.5' y='0.5' width='100%25' height='100%25' fill='none' rx='7.5' ry='7.5' stroke='white' stroke-opacity='0.42' stroke-width='1' stroke-dasharray='12 4'/%3E%3C/svg%3E");
+    -webkit-mask-image: radial-gradient(170% 130% at 0% 0%,
+      rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.42) 24%, rgba(0,0,0,0.22) 46%, rgba(0,0,0,0.1) 68%, rgba(0,0,0,0.07) 100%);
+    mask-image: radial-gradient(170% 130% at 0% 0%,
+      rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.42) 24%, rgba(0,0,0,0.22) 46%, rgba(0,0,0,0.1) 68%, rgba(0,0,0,0.07) 100%);
+    opacity: 0.85; transition: opacity 140ms ease;
+  }
+  .lit::before {
+    content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+    background: radial-gradient(60% 45% at 6% 0%, rgba(255,255,255,0.05), transparent 60%);
+  }
+  .lit:hover::after { opacity: 1; }
+
+
+  /* ===== header row ===== */
+  .head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+  .h1 { font-size: 18px; font-weight: 640; letter-spacing: -0.015em; }
+  .h1 small { font-size: 12px; color: var(--dim); font-weight: 400; margin-left: 10px; }
+  .actions { display: flex; gap: 8px; }
+  .btn { font-size: 12.5px; padding: 7px 13px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); font-weight: 500; }
+  .btn.primary { background: var(--text); color: #0a0a0c; border-color: var(--text); font-weight: 600; }
+
+  /* ===== stat strip: mono amber, dashed separators ===== */
+  .stats { display: flex; align-items: stretch; background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+           margin-bottom: 16px; overflow: hidden; }
+  .stat { flex: 1; padding: 15px 18px; border-right: 1px dashed var(--dash); }
+  .stat:last-child { border-right: none; }
+  .stat .k { font-size: 11.5px; color: var(--mut); margin-bottom: 6px; }
+  .stat .v { font-size: 21px; font-weight: 620; font-family: var(--mono); letter-spacing: -0.02em; }
+  .stat .v.warm { color: var(--amber); }
+  .stat .d { font-size: 11px; color: var(--dim); margin-top: 4px; }
+  .stat .d em { font-style: normal; color: var(--green); } .stat .d em.bad { color: var(--red); }
+
+  /* ===== two-column zone: heatmap + live rail ===== */
+  .zone { display: grid; grid-template-columns: 1fr 320px; gap: 16px; margin-bottom: 16px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; }
+  .panel-title { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 14px; }
+  .panel-title b { font-size: 13px; font-weight: 600; }
+  .panel-title span { font-size: 11.5px; color: var(--dim); }
+  .heat { display: grid; grid-template-rows: repeat(7, 14px); grid-auto-flow: column; grid-auto-columns: 14px; gap: 4px; }
+  .heat i { border-radius: 4px; background: #17171c; border: 1px solid #1d1d23; }
+  .heat i.t1 { background: #113732; border-color: transparent; } .heat i.t2 { background: #14746a; border-color: transparent; }
+  .heat i.t3 { background: var(--teal); border-color: transparent; }
+  .heat i.a1 { background: #4a3410; border-color: transparent; } .heat i.a2 { background: #b97a09; border-color: transparent; }
+  .heat i.a3 { background: var(--amber); border-color: transparent; }
+  .heat i.r1 { background: #4c1a18; border-color: transparent; } .heat i.r2 { background: #b3312d; border-color: transparent; }
+  .heat i.r3 { background: var(--red); border-color: transparent; box-shadow: 0 0 10px rgba(244,83,78,0.5); }
+  .legend { display: flex; align-items: center; gap: 9px; margin-top: 13px; font-size: 11px; color: var(--dim); }
+  .grad { width: 120px; height: 5px; border-radius: 999px; background: linear-gradient(90deg, var(--teal), var(--amber), var(--red)); }
+
+  .live-rail .row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px dashed var(--dash); }
+  .live-rail .row:last-of-type { border-bottom: none; }
+  .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: pulse 1.8s infinite; flex: none; }
+  @keyframes pulse { 50% { opacity: 0.25; } }
+  .live-rail .who { font-size: 12.5px; font-weight: 520; }
+  .live-rail .where { font-size: 11.5px; color: var(--dim); }
+  .live-rail .t { margin-left: auto; font-family: var(--mono); font-size: 11.5px; color: var(--mut); }
+  .watch { font-size: 11.5px; color: var(--teal); border: 1px dashed rgba(45,212,191,0.4); border-radius: 6px; padding: 3px 9px; }
+
+  /* ===== sessions table ===== */
+  .tablewrap { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-bottom: 16px; }
+  .toolbar { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px dashed var(--dash); }
+  .filter { display: flex; align-items: center; gap: 7px; border: 1px solid var(--line); background: var(--panel2);
+            border-radius: 7px; padding: 6px 11px; font-size: 12px; color: var(--mut); }
+  .filter b { color: var(--text); font-weight: 500; }
+  .toolbar .grow { flex: 1; }
+  .count { font-family: var(--mono); font-size: 11.5px; color: var(--dim); }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--dim);
+       font-weight: 550; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+  th.r, td.r { text-align: right; }
+  td { padding: 12px 16px; border-bottom: 1px solid #1a1a1f; font-variant-numeric: tabular-nums; }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: #141419; }
+  .page { font-weight: 560; font-size: 13px; }
+  .meta { font-size: 11.5px; color: var(--dim); margin-top: 2px; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 550;
+          border-radius: 999px; padding: 3px 9px; border: 1px solid var(--line); color: var(--mut); }
+  .pill i { width: 6px; height: 6px; border-radius: 50%; }
+  .pill.ok i { background: var(--green); }
+  .pill.err { color: #ffb3b0; border-color: rgba(244,83,78,0.35); background: rgba(244,83,78,0.07); }
+  .pill.err i { background: var(--red); }
+  .pill.rage { color: #ffd9a0; border-color: rgba(245,166,35,0.35); background: rgba(245,166,35,0.07); }
+  .pill.rage i { background: var(--amber); }
+  .spark { display: flex; align-items: flex-end; gap: 1.5px; height: 16px; width: 84px; }
+  .spark i { flex: 1; background: #26262d; border-radius: 1px; }
+  .spark i.e { background: var(--red); }
+  .num { font-family: var(--mono); font-size: 12px; color: var(--mut); }
+  .num.strong { color: var(--text); }
+  .when { font-size: 12px; color: var(--dim); }
+
+  /* ===== player bar ===== */
+  .player { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+            display: flex; align-items: center; gap: 14px; padding: 13px 16px; }
+  .play { width: 32px; height: 32px; border-radius: 9px; background: var(--text); position: relative; flex: none; }
+  .play::after { content: ""; position: absolute; left: 12px; top: 9px; border-left: 10px solid #0a0a0c;
+                 border-top: 7px solid transparent; border-bottom: 7px solid transparent; }
+  .tc { font-family: var(--mono); font-size: 12px; color: var(--mut); }
+  .timeline { flex: 1; height: 26px; position: relative; }
+  .timeline .base { position: absolute; left: 0; right: 0; top: 12px; border-top: 1px dashed var(--dash); }
+  .tl-act { position: absolute; bottom: 4px; width: 4px; border-radius: 1.5px; background: #2e2e38; }
+  .tl-err { position: absolute; top: 1px; width: 2px; height: 24px; background: var(--red); box-shadow: 0 0 8px rgba(244,83,78,0.7); }
+  .tl-ph { position: absolute; top: 0; bottom: 0; left: 41%; width: 2px; background: var(--amber); box-shadow: 0 0 9px rgba(245,166,35,0.7); }
+  .tl-ph::after { content: ""; position: absolute; top: -3px; left: -3px; width: 8px; height: 8px; border-radius: 50%; background: var(--amber); }
+  .keys { display: flex; gap: 5px; }
+  .keys kbd { font-family: var(--mono); font-size: 10.5px; background: var(--panel2); border: 1px solid var(--line);
+              border-radius: 5px; padding: 2px 6px; color: var(--mut); }
+</style>
+</head>
+<body>
+
+  <!-- tier 1: Clerk-style top bar -->
+  <div class="nav1">
+    <div class="mark"></div><span class="brand">Orange Replay</span>
+    <span class="sep">/</span>
+    <div class="switcher">acme-web <span class="car">▾</span></div>
+    <span class="env">Production</span>
+    <div class="right"><span class="lnk">Docs</span><span class="lnk">Changelog</span><div class="ava"></div></div>
+  </div>
+  <!-- tier 2: horizontal tabs, no sidebar anywhere -->
+  <div class="nav2">
+    <span class="on">Overview</span><span>Sessions</span><span>Live</span><span>Errors</span><span>Settings</span>
+    <span class="k">⌘K</span>
+  </div>
+
+  <div class="wrap">
+    <div class="head">
+      <span class="h1">Overview<small>last 24 hours · updated 12s ago</small></span>
+      <div class="actions"><span class="btn">Share</span><span class="btn primary">Install snippet</span></div>
+    </div>
+
+    <!-- stat strip -->
+    <div class="stats lit">
+      <div class="stat"><div class="k">Sessions</div><div class="v">128</div><div class="d"><em>+12%</em> vs 7d avg</div></div>
+      <div class="stat"><div class="k">With errors</div><div class="v warm">4</div><div class="d"><em class="bad">+2</em> vs yesterday</div></div>
+      <div class="stat"><div class="k">Rage clicks</div><div class="v warm">2</div><div class="d">1 page affected</div></div>
+      <div class="stat"><div class="k">Median duration</div><div class="v">6:48</div><div class="d">across 12 pages</div></div>
+      <div class="stat"><div class="k">Stored</div><div class="v">5.1<span style="font-size:12px">MB</span></div><div class="d">24h window</div></div>
+    </div>
+
+    <!-- heatmap + live now -->
+    <div class="zone">
+      <div class="panel lit">
+        <div class="panel-title"><b>Friction history</b><span>cell = day · color = error &amp; rage density</span></div>
+        <div class="heat">
+          <i class="t2"></i><i class="t1"></i><i class="t3"></i><i class="t2"></i><i class="t1"></i><i></i><i></i>
+          <i class="t3"></i><i class="t2"></i><i class="t2"></i><i class="a1"></i><i class="t1"></i><i></i><i></i>
+          <i class="t2"></i><i class="a2"></i><i class="t3"></i><i class="t2"></i><i class="a1"></i><i class="t1"></i><i></i>
+          <i class="a3"></i><i class="t2"></i><i class="a2"></i><i class="r1"></i><i class="t2"></i><i></i><i></i>
+          <i class="t2"></i><i class="r2"></i><i class="a3"></i><i class="t3"></i><i class="a2"></i><i class="t1"></i><i></i>
+          <i class="r3"></i><i class="a2"></i><i class="r2"></i><i class="a3"></i><i class="t2"></i><i></i><i></i>
+          <i class="a2"></i><i class="t3"></i><i class="t2"></i><i class="r2"></i><i class="a1"></i><i class="t1"></i><i></i>
+          <i class="t3"></i><i class="t2"></i><i class="a2"></i><i class="t2"></i><i class="t3"></i><i></i><i></i>
+          <i class="t1"></i><i class="t2"></i><i class="t2"></i><i class="t1"></i><i class="t2"></i><i></i><i></i>
+          <i class="t2"></i><i class="t3"></i><i class="t1"></i><i class="t2"></i><i class="t1"></i><i class="t1"></i><i></i>
+          <i class="t1"></i><i class="t2"></i><i class="t3"></i><i class="t2"></i><i class="t2"></i><i></i><i></i>
+          <i class="t2"></i><i class="t1"></i><i class="t2"></i><i class="t3"></i><i class="t1"></i><i></i><i></i>
+          <i class="t1"></i><i class="t3"></i><i class="t2"></i><i class="t1"></i><i class="t2"></i><i></i><i></i>
+          <i class="t2"></i><i class="t2"></i><i class="t1"></i><i class="t2"></i><i class="t3"></i><i></i><i></i>
+        </div>
+        <div class="legend"><span>Calmer</span><div class="grad"></div><span>More friction</span><span style="margin-left:auto">May — Jul 2026</span></div>
+      </div>
+      <div class="panel live-rail lit">
+        <div class="panel-title"><b>Live now</b><span class="watch">3 watching</span></div>
+        <div class="row"><span class="pulse"></span><div><div class="who">/checkout</div><div class="where">🇺🇸 San Francisco · Chrome</div></div><span class="t">4:12</span></div>
+        <div class="row"><span class="pulse"></span><div><div class="who">/pricing</div><div class="where">🇯🇵 Tokyo · Safari</div></div><span class="t">0:47</span></div>
+        <div class="row"><span class="pulse"></span><div><div class="who">/onboarding</div><div class="where">🇧🇷 São Paulo · Chrome</div></div><span class="t">2:03</span></div>
+      </div>
+    </div>
+
+    <!-- sessions table -->
+    <div class="tablewrap lit">
+      <div class="toolbar">
+        <div class="filter">Country <b>All</b></div>
+        <div class="filter">Duration <b>Any</b></div>
+        <div class="filter">Errors <b>Any</b></div>
+        <div class="grow"></div>
+        <span class="count">128 sessions · 24h</span>
+      </div>
+      <table>
+        <thead><tr><th>Session</th><th>Status</th><th>Activity</th><th class="r">Duration</th><th>Client</th><th class="r">Size</th><th class="r">When</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><div class="page">/checkout</div><div class="meta">🇺🇸 San Francisco · 23 clicks</div></td>
+            <td><span class="pill err"><i></i>1 error</span></td>
+            <td><div class="spark"><i style="height:30%"></i><i style="height:55%"></i><i style="height:40%"></i><i style="height:70%"></i><i class="e" style="height:95%"></i><i style="height:35%"></i><i style="height:50%"></i><i style="height:25%"></i></div></td>
+            <td class="r num strong">10:12</td><td class="num">Chrome · macOS</td><td class="r num">512K</td><td class="r when">48m</td>
+          </tr>
+          <tr>
+            <td><div class="page">/pricing</div><div class="meta">🇩🇪 Berlin · 9 clicks</div></td>
+            <td><span class="pill ok"><i></i>clean</span></td>
+            <td><div class="spark"><i style="height:40%"></i><i style="height:28%"></i><i style="height:48%"></i><i style="height:22%"></i><i style="height:38%"></i><i style="height:18%"></i><i style="height:30%"></i><i style="height:14%"></i></div></td>
+            <td class="r num strong">3:04</td><td class="num">Firefox · Windows</td><td class="r num">145K</td><td class="r when">1h</td>
+          </tr>
+          <tr>
+            <td><div class="page">/support</div><div class="meta">🇮🇳 Bengaluru · 41 clicks</div></td>
+            <td><span class="pill err"><i></i>3 errors</span> <span class="pill rage"><i></i>2 rage</span></td>
+            <td><div class="spark"><i style="height:45%"></i><i style="height:60%"></i><i class="e" style="height:85%"></i><i style="height:70%"></i><i class="e" style="height:95%"></i><i style="height:55%"></i><i class="e" style="height:80%"></i><i style="height:40%"></i></div></td>
+            <td class="r num strong">15:21</td><td class="num">Chrome · Android</td><td class="r num">1.1M</td><td class="r when">2h</td>
+          </tr>
+          <tr>
+            <td><div class="page">/admin/reports</div><div class="meta">🇺🇸 New York · 87 clicks</div></td>
+            <td><span class="pill ok"><i></i>clean</span></td>
+            <td><div class="spark"><i style="height:50%"></i><i style="height:58%"></i><i style="height:46%"></i><i style="height:62%"></i><i style="height:54%"></i><i style="height:66%"></i><i style="height:48%"></i><i style="height:60%"></i></div></td>
+            <td class="r num strong">45:10</td><td class="num">Edge · Windows</td><td class="r num">3.3M</td><td class="r when">3h</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- player bar -->
+    <div class="player lit">
+      <div class="play"></div>
+      <span class="tc">4:12</span>
+      <div class="timeline">
+        <div class="base"></div>
+        <span class="tl-act" style="left:3%;height:8px"></span><span class="tl-act" style="left:8%;height:14px"></span>
+        <span class="tl-act" style="left:14%;height:10px"></span><span class="tl-act" style="left:21%;height:16px"></span>
+        <span class="tl-act" style="left:29%;height:7px"></span><span class="tl-act" style="left:37%;height:15px"></span>
+        <span class="tl-act" style="left:46%;height:18px"></span><span class="tl-act" style="left:56%;height:9px"></span>
+        <span class="tl-act" style="left:65%;height:13px"></span><span class="tl-act" style="left:74%;height:16px"></span>
+        <span class="tl-act" style="left:83%;height:8px"></span><span class="tl-act" style="left:91%;height:12px"></span>
+        <span class="tl-err" style="left:56%"></span>
+        <span class="tl-ph"></span>
+      </div>
+      <span class="tc">10:12</span>
+      <div class="keys"><kbd>←</kbd><kbd>→</kbd><kbd>space</kbd></div>
+    </div>
+  </div>
+
+</body>
+</html>

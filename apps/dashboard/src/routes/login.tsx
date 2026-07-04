@@ -1,9 +1,10 @@
 import { useState, type FormEvent } from "react";
 import { useLocation, useNavigate } from "react-router";
-import { Lock } from "lucide-react";
+import { Eye, EyeOff, KeyRound } from "lucide-react";
+import { BrandMark } from "@/components/brand-mark";
 import { Button } from "@/components/ui/button";
 import { InputField, InputGroup } from "@/components/ui/input-group";
-import { setApiToken } from "@/lib/api";
+import { clearApiToken, health, setApiToken } from "@/lib/api";
 
 interface LoginState {
   returnTo?: string;
@@ -12,12 +13,14 @@ interface LoginState {
 export function LoginPage() {
   const [token, setToken] = useState("");
   const [error, setError] = useState("");
+  const [showToken, setShowToken] = useState(false);
+  const [isChecking, setIsChecking] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const state = location.state as LoginState | null;
   const returnTo = state?.returnTo ?? "/projects/p1/sessions";
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>): void {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     const trimmedToken = token.trim();
 
@@ -26,40 +29,72 @@ export function LoginPage() {
       return;
     }
 
+    setIsChecking(true);
+    setError("");
     setApiToken(trimmedToken);
-    void navigate(returnTo, { replace: true });
+
+    try {
+      const result = await health();
+      if (!result.ok) {
+        throw new Error("The API is not ready.");
+      }
+      void navigate(returnTo, { replace: true });
+    } catch (caughtError) {
+      clearApiToken();
+      setError(
+        caughtError instanceof Error ? caughtError.message : "Could not check the API. Try again.",
+      );
+    } finally {
+      setIsChecking(false);
+    }
   }
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-background p-6 text-foreground">
-      <section className="flex w-full max-w-sm flex-col gap-6 rounded-lg border border-border bg-card p-6 shadow-surface-2">
-        <div className="flex flex-col gap-2">
-          <p className="text-sm text-muted-foreground">Orange Replay</p>
-          <h1 className="text-2xl font-semibold tracking-normal">Dashboard login</h1>
-          <p className="text-sm leading-6 text-muted-foreground">
-            Use the local worker dev token for this build.
-          </p>
+      <section className="lit flex w-full max-w-[400px] flex-col gap-6 overflow-hidden rounded-lg p-6">
+        <div className="mt-4 flex items-center gap-[10px]">
+          <BrandMark className="size-7" />
+          <span className="text-[14px] font-medium">Orange Replay</span>
         </div>
 
         <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
           <InputGroup className="w-full">
             <InputField
               autoComplete="current-password"
+              disabled={isChecking}
+              endContent={
+                <button
+                  aria-label={showToken ? "Hide API token" : "Show API token"}
+                  className="flex size-7 shrink-0 items-center justify-center rounded-md text-dim transition-colors hover:text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-amber"
+                  onClick={() => setShowToken((currentValue) => !currentValue)}
+                  type="button"
+                >
+                  {showToken ? (
+                    <EyeOff aria-hidden className="size-4" />
+                  ) : (
+                    <Eye aria-hidden className="size-4" />
+                  )}
+                </button>
+              }
               error={error}
-              icon={Lock}
+              icon={KeyRound}
               index={0}
               label="API token"
               onChange={(nextToken) => {
                 setToken(nextToken);
                 setError("");
               }}
-              placeholder="or_dev_token"
-              type="password"
+              placeholder="DEV_API_TOKEN"
+              type={showToken ? "text" : "password"}
               value={token}
             />
           </InputGroup>
 
-          <Button leadingIcon={Lock} type="submit">
+          <p className="-mt-2 text-[12px] text-dim">
+            Local dev: the DEV_API_TOKEN value from apps/worker/.dev.vars
+          </p>
+
+          <Button className="w-full" loading={isChecking} type="submit">
             Continue
           </Button>
         </form>

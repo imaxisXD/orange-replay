@@ -164,7 +164,7 @@ Select.displayName = "Select";
 const triggerVariants = cva(
   [
     "group inline-flex items-center justify-between gap-2 outline-none cursor-pointer",
-    "text-[13px] h-9 px-3 min-w-[160px]",
+    "h-8 min-w-[160px] px-3 text-[12.5px]",
     "transition-all duration-80",
     "disabled:opacity-50 disabled:pointer-events-none",
     "focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring,#6B97FF)]",
@@ -172,7 +172,7 @@ const triggerVariants = cva(
   {
     variants: {
       variant: {
-        bordered: "border border-border bg-transparent text-foreground hover:bg-hover",
+        bordered: "border border-border bg-card text-foreground hover:bg-hover",
         borderless: "border border-transparent bg-transparent text-foreground hover:bg-hover",
       },
     },
@@ -236,7 +236,7 @@ const SelectTrigger = forwardRef<HTMLButtonElement, SelectTriggerProps>(
               strokeWidth={2}
               strokeLinecap="round"
               strokeLinejoin="round"
-              className="shrink-0 text-muted-foreground transition-colors duration-80 group-hover:text-foreground"
+              className="shrink-0 text-dim transition-colors duration-80 group-hover:text-foreground"
             >
               <path d="M6 9l6 6 6-6" />
             </svg>
@@ -389,7 +389,7 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
                   className={cn(
                     // min-w tracks the trigger via Radix's popper-provided
                     // vars, matching the base flavor's --anchor-width.
-                    `relative flex flex-col gap-0.5 min-w-[var(--radix-select-trigger-width)] max-h-[min(300px,var(--radix-select-content-available-height))] overflow-y-auto ${shape.container} p-1 select-none outline-none`,
+                    `relative flex flex-col gap-0.5 min-w-[var(--radix-select-trigger-width)] max-h-[min(300px,var(--radix-select-content-available-height))] overflow-y-auto ${shape.container} border border-border bg-popover p-1 select-none outline-none`,
                     className,
                   )}
                 >
