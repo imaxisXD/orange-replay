@@ -1,6 +1,6 @@
 import { SDK_FLUSH_DEFAULT_MS, SDK_FLUSH_LIVE_MS } from "@orange-replay/shared/constants";
 import type { IngestAck } from "@orange-replay/shared/types";
-import type { eventWithTime } from "@orange-replay/rrweb-fork";
+import { EventType, IncrementalSource, type eventWithTime } from "@orange-replay/rrweb-fork";
 
 export const BATCH_RAW_FLUSH_BYTES = 128 * 1024;
 export const PAGEHIDE_RAW_FLUSH_BYTES = 60 * 1024;
@@ -188,62 +188,28 @@ export class Batcher {
 }
 
 export function estimateRrwebEventBytes(event: eventWithTime): number {
-  return estimateJsonBytes(event);
-}
-
-export function estimateJsonBytes(value: unknown, depth = 0, seen = new WeakSet<object>()): number {
-  if (value === null || value === undefined) {
-    return 4;
+  if (event.type === EventType.FullSnapshot) {
+    return 16 * 1024;
   }
 
-  if (typeof value === "string") {
-    return value.length * 2 + 2;
+  if (event.type !== EventType.IncrementalSnapshot) {
+    return 512;
   }
 
-  if (typeof value === "number") {
-    return 16;
+  switch (event.data.source) {
+    case IncrementalSource.Mutation:
+      return 4 * 1024;
+    case IncrementalSource.MouseMove:
+    case IncrementalSource.TouchMove:
+    case IncrementalSource.Drag:
+      return 256;
+    case IncrementalSource.Scroll:
+    case IncrementalSource.MouseInteraction:
+    case IncrementalSource.Input:
+      return 512;
+    default:
+      return 1024;
   }
-
-  if (typeof value === "boolean") {
-    return value ? 4 : 5;
-  }
-
-  if (typeof value !== "object") {
-    return 8;
-  }
-
-  if (seen.has(value)) {
-    return 4;
-  }
-
-  if (depth > 8) {
-    return 64;
-  }
-
-  seen.add(value);
-
-  if (ArrayBuffer.isView(value)) {
-    return value.byteLength;
-  }
-
-  if (value instanceof ArrayBuffer) {
-    return value.byteLength;
-  }
-
-  if (Array.isArray(value)) {
-    let total = 2;
-    for (const item of value) {
-      total += estimateJsonBytes(item, depth + 1, seen) + 1;
-    }
-    return total;
-  }
-
-  let total = 2;
-  for (const [key, item] of Object.entries(value)) {
-    total += key.length * 2 + 3 + estimateJsonBytes(item, depth + 1, seen);
-  }
-
-  return total;
 }
 
 function cleanPositiveNumber(value: number | undefined, fallback: number): number {

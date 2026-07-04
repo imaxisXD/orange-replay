@@ -1,6 +1,7 @@
 import {
   addCustomEvent as addRrwebCustomEvent,
   record,
+  takeFullSnapshot as takeRrwebFullSnapshot,
   type eventWithTime,
   type recordOptions,
 } from "@orange-replay/rrweb-fork";
@@ -16,12 +17,15 @@ export interface RecorderOptions {
   sink: Sink;
 }
 
+const MAX_PENDING_CUSTOM_EVENTS = 20;
+
 export class Recorder {
   private readonly config: RecorderConfig;
   private readonly sink: Sink;
   private stopRecord?: () => void;
   private disabled = false;
   private warned = false;
+  private readonly pendingCustomEvents: Array<{ name: string; payload: unknown }> = [];
 
   constructor(options: RecorderOptions) {
     this.config = options.config;
@@ -42,7 +46,9 @@ export class Recorder {
       this.stopRecord = record(options);
       if (this.stopRecord === undefined) {
         this.disabled = true;
+        return;
       }
+      this.drainPendingCustomEvents();
     } catch (error) {
       this.kill(error);
     }
@@ -68,8 +74,51 @@ export class Recorder {
       return;
     }
 
+    // Before rrweb is recording (initial start or a rotation-restart gap),
+    // custom events queue instead of reaching rrweb — its "please add custom
+    // event after start recording" throw is a recoverable ordering issue,
+    // never a reason to kill the session.
+    if (this.stopRecord === undefined) {
+      this.queueCustomEvent(name, payload);
+      return;
+    }
+
     try {
       addRrwebCustomEvent(name, payload);
+    } catch (error) {
+      if (isPreStartCustomEventError(error)) {
+        this.queueCustomEvent(name, payload);
+        return;
+      }
+      this.kill(error);
+    }
+  }
+
+  private queueCustomEvent(name: string, payload: unknown): void {
+    if (this.pendingCustomEvents.length >= MAX_PENDING_CUSTOM_EVENTS) {
+      return;
+    }
+    this.pendingCustomEvents.push({ name, payload });
+  }
+
+  private drainPendingCustomEvents(): void {
+    const pending = this.pendingCustomEvents.splice(0);
+    for (const entry of pending) {
+      try {
+        addRrwebCustomEvent(entry.name, entry.payload);
+      } catch {
+        // Still not emitting (or payload unserializable) — drop, never kill.
+      }
+    }
+  }
+
+  takeFullSnapshot(): void {
+    if (this.disabled || this.stopRecord === undefined) {
+      return;
+    }
+
+    try {
+      takeRrwebFullSnapshot(true);
     } catch (error) {
       this.kill(error);
     }
@@ -132,4 +181,8 @@ export function buildRecordOptions(
 
 function mergeSelectors(base: string, extra: string | undefined): string {
   return extra === undefined ? base : `${base}, ${extra}`;
+}
+
+function isPreStartCustomEventError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes("add custom event after start recording");
 }

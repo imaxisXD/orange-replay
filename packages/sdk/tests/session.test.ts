@@ -6,12 +6,14 @@ const START_TIME = 1_700_000_000_000;
 
 class MemoryStorage implements StorageLike {
   private readonly values = new Map<string, string>();
+  setCount = 0;
 
   getItem(key: string): string | null {
     return this.values.get(key) ?? null;
   }
 
   setItem(key: string, value: string): void {
+    this.setCount += 1;
     this.values.set(key, value);
   }
 
@@ -22,12 +24,14 @@ class MemoryStorage implements StorageLike {
 
 class CookieDocument implements Pick<Document, "cookie"> {
   private values = new Map<string, string>();
+  writeCount = 0;
 
   get cookie(): string {
     return Array.from(this.values, ([name, value]) => `${name}=${value}`).join("; ");
   }
 
   set cookie(value: string) {
+    this.writeCount += 1;
     const [pair = ""] = value.split(";", 1);
     const [name = "", rawValue = ""] = pair.split("=", 2);
     if (name.length === 0) {
@@ -43,9 +47,55 @@ class CookieDocument implements Pick<Document, "cookie"> {
   }
 }
 
+class FakeBroadcastChannel {
+  private static channels = new Map<string, Set<FakeBroadcastChannel>>();
+
+  private readonly listeners = new Set<(event: MessageEvent<unknown>) => void>();
+  private readonly name: string;
+
+  constructor(name: string) {
+    this.name = name;
+    const channels = FakeBroadcastChannel.channels.get(name) ?? new Set();
+    channels.add(this);
+    FakeBroadcastChannel.channels.set(name, channels);
+  }
+
+  static reset(): void {
+    FakeBroadcastChannel.channels.clear();
+  }
+
+  addEventListener(_type: "message", listener: (event: MessageEvent<unknown>) => void): void {
+    this.listeners.add(listener);
+  }
+
+  removeEventListener(_type: "message", listener: (event: MessageEvent<unknown>) => void): void {
+    this.listeners.delete(listener);
+  }
+
+  postMessage(message: unknown): void {
+    const peers = FakeBroadcastChannel.channels.get(this.name) ?? new Set();
+    for (const peer of peers) {
+      if (peer === this) {
+        continue;
+      }
+      queueMicrotask(() => {
+        for (const listener of peer.listeners) {
+          listener({ data: message } as MessageEvent<unknown>);
+        }
+      });
+    }
+  }
+
+  close(): void {
+    FakeBroadcastChannel.channels.get(this.name)?.delete(this);
+    this.listeners.clear();
+  }
+}
+
 afterEach(() => {
   document.cookie = "or_s=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax";
   window.sessionStorage.clear();
+  FakeBroadcastChannel.reset();
 });
 
 describe("SessionManager", () => {
@@ -153,6 +203,72 @@ describe("SessionManager", () => {
     expect(second.nextSeq()).toBe(2);
   });
 
+  it("mints a fresh tab id when another live tab claims the stored id", async () => {
+    const storage = new MemoryStorage();
+    const cookieDocument = new CookieDocument();
+    const ids = ["session-one", "tab-one", "tab-two"];
+    const makeId = () => ids.shift() ?? "extra-id";
+    const first = new SessionManager({
+      projectRef: "project",
+      now: () => START_TIME,
+      storage,
+      document: cookieDocument,
+      makeId,
+      broadcastChannel: FakeBroadcastChannel as unknown as typeof BroadcastChannel,
+      wait: flushMicrotasks,
+    });
+    const second = new SessionManager({
+      projectRef: "project",
+      now: () => START_TIME + 100,
+      storage,
+      document: cookieDocument,
+      makeId,
+      broadcastChannel: FakeBroadcastChannel as unknown as typeof BroadcastChannel,
+      wait: flushMicrotasks,
+    });
+
+    await Promise.all([first.ready, second.ready]);
+
+    expect(first.sessionId).toBe("session-one");
+    expect(second.sessionId).toBe("session-one");
+    expect(first.tabId).toBe("tab-one");
+    expect(second.tabId).toBe("tab-two");
+    expect(second.nextSeq()).toBe(0);
+    first.stop();
+    second.stop();
+  });
+
+  it("throttles touch persistence and does not rewrite the cookie on every event", () => {
+    const storage = new MemoryStorage();
+    const cookieDocument = new CookieDocument();
+    let now = START_TIME;
+    const session = new SessionManager({
+      projectRef: "project",
+      now: () => now,
+      storage,
+      document: cookieDocument,
+      makeId: () => "id",
+    });
+    const initialStorageWrites = storage.setCount;
+    const initialCookieWrites = cookieDocument.writeCount;
+
+    now += 1_000;
+    session.touch();
+    now += 1_000;
+    session.touch();
+    now += 1_000;
+    session.touch();
+
+    expect(storage.setCount).toBe(initialStorageWrites);
+    expect(cookieDocument.writeCount).toBe(initialCookieWrites);
+
+    now += 2_000;
+    session.touch();
+
+    expect(storage.setCount).toBe(initialStorageWrites + 1);
+    expect(cookieDocument.writeCount).toBe(initialCookieWrites);
+  });
+
   it("resets the persisted sequence when the session rotates", () => {
     const storage = new MemoryStorage();
     const cookieDocument = new CookieDocument();
@@ -207,3 +323,8 @@ describe("SessionManager", () => {
     );
   });
 });
+
+async function flushMicrotasks(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+}

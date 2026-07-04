@@ -1,10 +1,20 @@
 import type { IndexEvent } from "@orange-replay/shared/types";
 import { isSdkInternalError } from "./internal-error.ts";
 import type { Sink } from "./sink.ts";
-import { buildClickDetail, normalizedCoords, scrubUrl, truncateDetail } from "./scrub.ts";
+import {
+  BLOCKED_CLICK_DETAIL,
+  buildClickDetail,
+  isBlockedElement,
+  mergeBlockSelector,
+  normalizedCoords,
+  scrubUrl,
+  truncateDetail,
+} from "./scrub.ts";
 import type { RecorderConfig } from "./types.ts";
 
 export const MAX_INDEX_EVENTS_PER_BATCH = 200;
+const MAX_CUSTOM_META_ENTRIES = 20;
+const MAX_CUSTOM_META_BYTES = 2 * 1024;
 
 type CleanMeta = Record<string, string | number>;
 
@@ -22,6 +32,11 @@ interface QueueRecord {
   start?: unknown;
   target?: unknown;
 }
+
+type LoaderWindow = Window & {
+  __orq?: unknown[] | { push(...items: unknown[]): number };
+  __orCleanup?: Array<() => void>;
+};
 
 export class IndexEventBuffer {
   private readonly events: IndexEvent[] = [];
@@ -63,6 +78,7 @@ export class Sidecar {
   private readonly sink: Sink;
   private readonly now: () => number;
   private readonly window: Window;
+  private readonly blockSelector: string;
   private readonly removers: Array<() => void> = [];
   private lastScrollAt = 0;
   private originalPushState?: History["pushState"];
@@ -73,6 +89,7 @@ export class Sidecar {
     this.sink = options.sink;
     this.now = options.now;
     this.window = options.window;
+    this.blockSelector = mergeBlockSelector(options.config.blockSelector);
   }
 
   start(): void {
@@ -112,26 +129,32 @@ export class Sidecar {
   }
 
   drainPreBuffer(): void {
-    const win = this.window as Window & { __orq?: unknown[] };
+    const win = this.window as LoaderWindow;
     const queue = Array.isArray(win.__orq) ? win.__orq.splice(0) : [];
 
     for (const item of queue) {
       this.addQueuedEvent(item);
     }
+
+    this.detachLoaderPreBuffer(win);
   }
 
   private readonly onClick = (event: Event): void => {
     const mouse = event as MouseEvent;
     const target = this.asElement(mouse.target);
+    const viewport = this.viewport();
+    const coords = normalizedCoords(mouse, viewport);
     this.sink.addIndexEvent({
       t: this.now(),
       k: "click",
-      d: buildClickDetail(target),
+      d: isBlockedElement(target, this.blockSelector)
+        ? BLOCKED_CLICK_DETAIL
+        : buildClickDetail(target),
       m: {
-        x: normalizedCoords(mouse, this.viewport()).x,
-        y: normalizedCoords(mouse, this.viewport()).y,
-        w: this.window.innerWidth,
-        h: this.window.innerHeight,
+        x: coords.x,
+        y: coords.y,
+        w: viewport.width,
+        h: viewport.height,
       },
     });
   };
@@ -227,10 +250,16 @@ export class Sidecar {
         },
         { width, height },
       );
+      const detail =
+        typeof item.d === "string"
+          ? truncateDetail(item.d)
+          : isBlockedElement(target, this.blockSelector)
+            ? BLOCKED_CLICK_DETAIL
+            : buildClickDetail(target);
       this.sink.addIndexEvent({
         t: timestamp,
         k: "click",
-        d: typeof item.d === "string" ? truncateDetail(item.d) : buildClickDetail(target),
+        d: detail,
         m: { x: coords.x, y: coords.y, w: width, h: height },
       });
       return;
@@ -291,21 +320,61 @@ export class Sidecar {
     target.addEventListener(type, listener, capture);
     this.removers.push(() => target.removeEventListener(type, listener, capture));
   }
+
+  private detachLoaderPreBuffer(win: LoaderWindow): void {
+    const cleanup = Array.isArray(win.__orCleanup) ? win.__orCleanup.splice(0) : [];
+
+    for (const remove of cleanup) {
+      try {
+        remove();
+      } catch {
+        /* loader cleanup must never affect the host page */
+      }
+    }
+
+    win.__orq = {
+      push() {
+        return 0;
+      },
+    };
+  }
 }
 
 function cleanCustomMeta(meta: Record<string, unknown> | undefined): CleanMeta {
   const output: CleanMeta = {};
+  const encoder = new TextEncoder();
 
   if (meta === undefined) {
     return output;
   }
 
   for (const [key, value] of Object.entries(meta)) {
-    if (typeof value === "string") {
-      output[key] = truncateDetail(value);
-    } else if (typeof value === "number" && Number.isFinite(value)) {
-      output[key] = value;
+    if (Object.keys(output).length >= MAX_CUSTOM_META_ENTRIES) {
+      break;
     }
+
+    const cleanKey = truncateDetail(key);
+    if (cleanKey.length === 0) {
+      continue;
+    }
+
+    let cleanValue: string | number | undefined;
+    if (typeof value === "string") {
+      cleanValue = truncateDetail(value);
+    } else if (typeof value === "number" && Number.isFinite(value)) {
+      cleanValue = value;
+    }
+
+    if (cleanValue === undefined) {
+      continue;
+    }
+
+    const next = { ...output, [cleanKey]: cleanValue };
+    if (encoder.encode(JSON.stringify(next)).byteLength > MAX_CUSTOM_META_BYTES) {
+      break;
+    }
+
+    output[cleanKey] = cleanValue;
   }
 
   return output;

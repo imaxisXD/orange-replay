@@ -7,6 +7,7 @@ import type { RecorderConfig } from "../src/types.ts";
 const rrwebMocks = vi.hoisted(() => ({
   record: vi.fn(),
   addCustomEvent: vi.fn(),
+  takeFullSnapshot: vi.fn(),
 }));
 
 vi.mock("@orange-replay/rrweb-fork", () => rrwebMocks);
@@ -37,6 +38,12 @@ function makeSink(): Sink {
     async flush() {
       /* test hook */
     },
+    async prepareForSessionRotation() {
+      /* test hook */
+    },
+    resetAfterSessionRotation() {
+      /* test hook */
+    },
     async stop() {
       /* test hook */
     },
@@ -47,6 +54,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   rrwebMocks.record.mockReset();
   rrwebMocks.addCustomEvent.mockReset();
+  rrwebMocks.takeFullSnapshot.mockReset();
 });
 
 describe("Recorder", () => {
@@ -94,5 +102,17 @@ describe("Recorder", () => {
     expect(recorder.isDisabled()).toBe(true);
     expect(stop).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks rrweb for a checkout full snapshot during session rotation", async () => {
+    const stop = vi.fn();
+    rrwebMocks.record.mockReturnValue(stop);
+    const { Recorder } = await import("../src/recorder.ts");
+
+    const recorder = new Recorder({ config: baseConfig, sink: makeSink() });
+    recorder.start();
+    recorder.takeFullSnapshot();
+
+    expect(rrwebMocks.takeFullSnapshot).toHaveBeenCalledWith(true);
   });
 });

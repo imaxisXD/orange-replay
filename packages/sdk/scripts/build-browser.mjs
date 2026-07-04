@@ -16,28 +16,8 @@ const commonBuild = {
   outDir: distDir,
 };
 
-await build({
-  root: packageDir,
-  configFile: false,
-  publicDir: false,
-  logLevel: "warn",
-  build: {
-    ...commonBuild,
-    lib: {
-      entry: resolve(packageDir, "src/index.ts"),
-      name: "OrangeReplay",
-      formats: ["es", "iife"],
-      fileName(format) {
-        return format === "es" ? "orange-replay.js" : "orange-replay.iife.js";
-      },
-    },
-    rollupOptions: {
-      output: {
-        exports: "named",
-      },
-    },
-  },
-});
+await buildRecorderBundle("es", "orange-replay.js", false);
+await buildRecorderBundle("iife", "orange-replay.iife.js", true);
 
 await build({
   root: packageDir,
@@ -56,3 +36,31 @@ await build({
     },
   },
 });
+
+async function buildRecorderBundle(format, fileName, autoInit) {
+  await build({
+    root: packageDir,
+    configFile: false,
+    publicDir: false,
+    logLevel: "warn",
+    define: {
+      __ORANGE_REPLAY_AUTO_INIT__: JSON.stringify(autoInit),
+    },
+    build: {
+      ...commonBuild,
+      lib: {
+        entry: resolve(packageDir, "src/index.ts"),
+        name: "OrangeReplay",
+        formats: [format],
+        fileName() {
+          return fileName;
+        },
+      },
+      rollupOptions: {
+        output: {
+          exports: "named",
+        },
+      },
+    },
+  });
+}

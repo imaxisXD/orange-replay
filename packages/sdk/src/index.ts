@@ -10,7 +10,6 @@ import type { InitOptions, OrangeReplayHandle } from "./types.ts";
 import { resolveInitOptions } from "./types.ts";
 
 export type { InitOptions, OrangeReplayHandle, RecorderConfig } from "./types.ts";
-export { buildLoaderSnippet, LOADER_SNIPPET_TEMPLATE } from "./loader.ts";
 export type { LoaderSnippetConfig } from "./loader.ts";
 
 let activeHandle: OrangeReplayHandle | undefined;
@@ -32,28 +31,78 @@ export function init(options: InitOptions): OrangeReplayHandle {
     });
 
     if (!shouldSampleSession(session.sessionId, config.sampleRate)) {
+      void session.ready.then(() => session.stop());
       return noopHandle((base) => session.getSessionUrl(base ?? config.ingestUrl));
     }
 
+    let rotationPromise: Promise<void> | undefined;
+    let started = false;
+    let stopRequested = false;
+    let stopTouchListeners: (() => void) | undefined;
+    const rotateSession = () => {
+      if (rotationPromise !== undefined) {
+        return rotationPromise;
+      }
+
+      rotationPromise = (async () => {
+        await sink.prepareForSessionRotation();
+        session.rotate();
+        sink.resetAfterSessionRotation();
+        recorder.takeFullSnapshot();
+      })().finally(() => {
+        rotationPromise = undefined;
+      });
+
+      return rotationPromise;
+    };
+
     const sink =
       config.transport === "inline"
-        ? new InlineSink({ config, session, window })
-        : new WorkerSink({ config, session, window });
+        ? new InlineSink({
+            config,
+            session,
+            window,
+            onSessionClosed() {
+              void rotateSession();
+            },
+          })
+        : new WorkerSink({
+            config,
+            session,
+            window,
+            onSessionClosed() {
+              void rotateSession();
+            },
+          });
     const sidecar = new Sidecar({ config, sink, now: () => Date.now(), window });
     const recorder = new Recorder({ config, sink });
-    const stopTouchListeners = startSessionTouchListeners(window, session);
+    const startPromise = session.ready.then(() => {
+      if (stopRequested) {
+        return;
+      }
 
-    sink.start();
-    sidecar.start();
-    recorder.start();
+      stopTouchListeners = startSessionTouchListeners(window, session, () => {
+        void rotateSession();
+      });
+      sink.start();
+      sidecar.start();
+      recorder.start();
+      started = true;
+    });
 
     activeHandle = {
       async stop() {
         try {
+          stopRequested = true;
+          await startPromise;
+          if (!started) {
+            sidecar.drainPreBuffer();
+          }
           sidecar.stop();
           recorder.stop();
-          stopTouchListeners();
+          stopTouchListeners?.();
           await sink.stop();
+          session.stop();
         } catch (error) {
           console.warn("Orange Replay stop failed.", error);
         } finally {
@@ -98,10 +147,19 @@ function noopHandle(getUrl?: (base?: string) => string): OrangeReplayHandle {
   };
 }
 
-function startSessionTouchListeners(win: Window, session: SessionManager): () => void {
+function startSessionTouchListeners(
+  win: Window,
+  session: SessionManager,
+  onRotate: () => void,
+): () => void {
   let warned = false;
   const touch = () => {
     try {
+      if (session.shouldRotateForIdle()) {
+        onRotate();
+        return;
+      }
+
       session.touch();
     } catch (error) {
       if (!warned) {
@@ -124,3 +182,65 @@ function startSessionTouchListeners(win: Window, session: SessionManager): () =>
 }
 
 export type { IndexEvent, eventWithTime };
+
+type LoaderWindow = Window & {
+  __orInit?: InitOptions;
+  __orq?: unknown[];
+};
+
+function readLoaderInit(win: LoaderWindow): InitOptions | undefined {
+  if (isInitOptions(win.__orInit)) {
+    return win.__orInit;
+  }
+
+  if (!Array.isArray(win.__orq)) {
+    return undefined;
+  }
+
+  for (const item of win.__orq) {
+    if (typeof item !== "object" || item === null) {
+      continue;
+    }
+
+    const record = item as { k?: unknown; o?: unknown };
+    if (record.k === "init" && isInitOptions(record.o)) {
+      return record.o;
+    }
+  }
+
+  return undefined;
+}
+
+function isInitOptions(value: unknown): value is InitOptions {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const options = value as Partial<InitOptions>;
+  return typeof options.key === "string" && typeof options.ingestUrl === "string";
+}
+
+declare const __ORANGE_REPLAY_AUTO_INIT__: boolean | undefined;
+
+if (
+  typeof __ORANGE_REPLAY_AUTO_INIT__ !== "undefined" &&
+  __ORANGE_REPLAY_AUTO_INIT__ &&
+  typeof window !== "undefined"
+) {
+  const startFromLoader = () => {
+    if (activeHandle !== undefined) {
+      return;
+    }
+
+    const options = readLoaderInit(window as LoaderWindow);
+    if (options !== undefined) {
+      init(options);
+    }
+  };
+
+  if (typeof window.queueMicrotask === "function") {
+    window.queueMicrotask(startFromLoader);
+  } else {
+    void Promise.resolve().then(startFromLoader);
+  }
+}

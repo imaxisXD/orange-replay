@@ -15,11 +15,58 @@ afterEach(() => {
   document.cookie = "or_s=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax";
   document.body.innerHTML = "";
   document.head.innerHTML = "";
-  delete (window as Window & { __orq?: unknown[]; __orLoaderStarted?: boolean }).__orq;
-  delete (window as Window & { __orq?: unknown[]; __orLoaderStarted?: boolean }).__orLoaderStarted;
+  delete (
+    window as Window & {
+      __orq?: unknown[];
+      __orCleanup?: Array<() => void>;
+      __orInit?: unknown;
+      __orLoaderStarted?: boolean;
+    }
+  ).__orq;
+  delete (
+    window as Window & {
+      __orq?: unknown[];
+      __orCleanup?: Array<() => void>;
+      __orInit?: unknown;
+      __orLoaderStarted?: boolean;
+    }
+  ).__orCleanup;
+  delete (
+    window as Window & {
+      __orq?: unknown[];
+      __orCleanup?: Array<() => void>;
+      __orInit?: unknown;
+      __orLoaderStarted?: boolean;
+    }
+  ).__orInit;
+  delete (
+    window as Window & {
+      __orq?: unknown[];
+      __orCleanup?: Array<() => void>;
+      __orInit?: unknown;
+      __orLoaderStarted?: boolean;
+    }
+  ).__orLoaderStarted;
 });
 
 describe("loader", () => {
+  it("builds a bounded auto-init snippet without storing click targets", async () => {
+    const { buildLoaderSnippet } = await import("../src/loader.ts");
+    const snippet = buildLoaderSnippet({
+      bundleUrl: "https://cdn.test/orange-replay.iife.js",
+      init: {
+        key: "write-key",
+        ingestUrl: "https://ingest.test",
+        blockSelector: ".secret-panel",
+      },
+    });
+
+    expect(snippet).toContain('"key":"write-key"');
+    expect(snippet).toContain('"blockSelector":".secret-panel"');
+    expect(snippet).toContain("q.length>=l");
+    expect(snippet).not.toContain("target:e.target");
+  });
+
   it("drains pre-buffered events into the first SDK batch", async () => {
     const bodies: Uint8Array[] = [];
     const fetchMock = vi.fn<typeof fetch>(async (_input, init) => {
@@ -42,6 +89,12 @@ describe("loader", () => {
 
     const queued = (window as Window & { __orq?: unknown[] }).__orq;
     expect(queued?.length).toBeGreaterThan(0);
+    const queuedClick = queued?.find(
+      (item): item is Record<string, unknown> =>
+        typeof item === "object" && item !== null && (item as { k?: unknown }).k === "click",
+    );
+    expect(queuedClick?.["d"]).toContain("button#early");
+    expect(queuedClick?.["target"]).toBeUndefined();
 
     const { init } = await import("../src/index.ts");
     const handle = init({
@@ -52,7 +105,9 @@ describe("loader", () => {
     });
     await handle.stop();
 
-    expect((window as Window & { __orq?: unknown[] }).__orq).toEqual([]);
+    const sealedQueue = (window as Window & { __orq?: { push?: unknown } }).__orq;
+    expect(Array.isArray(sealedQueue)).toBe(false);
+    expect(typeof sealedQueue?.push).toBe("function");
     expect(bodies).toHaveLength(1);
     const decoded = decodeIngestBody(bodies[0] ?? new Uint8Array());
     expect(

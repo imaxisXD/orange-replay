@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BatchIndex } from "@orange-replay/shared/types";
 import { Transport } from "../src/pipeline/transport.ts";
 import type { RecorderConfig } from "../src/types.ts";
@@ -23,6 +23,11 @@ const index: BatchIndex = {
   e: [],
   u: "/",
 };
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 describe("Transport", () => {
   it("retries 5xx responses with exponential backoff", async () => {
@@ -117,8 +122,8 @@ describe("Transport", () => {
     const transport = new Transport({
       config,
       fetch: fetchMock,
-      navigator: { sendBeacon },
     });
+    vi.stubGlobal("navigator", { sendBeacon });
 
     const queued = transport.queueBatchSync({
       body: new Uint8Array([1]),
@@ -130,5 +135,68 @@ describe("Transport", () => {
     expect(queued).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(sendBeacon).not.toHaveBeenCalled();
+  });
+
+  it("does not report a failed keepalive fetch as sent through sendBeacon", async () => {
+    const sendBeacon = vi.fn(() => true);
+    const fetchMock = vi.fn<typeof fetch>().mockRejectedValue(new Error("network failed"));
+    vi.stubGlobal("navigator", { sendBeacon });
+    const transport = new Transport({
+      config,
+      fetch: fetchMock,
+      wait: async () => undefined,
+    });
+
+    const result = await transport.sendBatch({
+      body: new Uint8Array([1]),
+      index,
+      flags: 0,
+      keepalive: true,
+    });
+
+    expect(result).toMatchObject({ sent: false, dropped: true, attempts: 5 });
+    expect(sendBeacon).not.toHaveBeenCalled();
+  });
+
+  it("counts a sync keepalive setup failure as not queued", () => {
+    const transport = new Transport({
+      config,
+      fetch: vi.fn<typeof fetch>(() => {
+        throw new Error("keepalive rejected");
+      }),
+    });
+
+    expect(
+      transport.queueBatchSync({
+        body: new Uint8Array([1]),
+        index,
+        flags: 0,
+        keepalive: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("reports an async keepalive failure to the caller", async () => {
+    const onFailure = vi.fn();
+    const transport = new Transport({
+      config,
+      fetch: vi.fn<typeof fetch>().mockRejectedValue(new Error("later failure")),
+    });
+
+    expect(
+      transport.queueBatchSync(
+        {
+          body: new Uint8Array([1]),
+          index,
+          flags: 0,
+          keepalive: true,
+        },
+        onFailure,
+      ),
+    ).toBe(true);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(onFailure).toHaveBeenCalledTimes(1);
   });
 });

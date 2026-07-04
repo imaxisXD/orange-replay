@@ -15,10 +15,13 @@ const ingestUrl =
   typeof __ORANGE_REPLAY_WORKER_URL__ === "string"
     ? __ORANGE_REPLAY_WORKER_URL__
     : "http://127.0.0.1:8787";
+const params = new URLSearchParams(window.location.search);
+const sampleRate = params.get("sampleRate") === "0" ? 0 : 1;
 
 const handle = init({
   key: ingestKey,
   ingestUrl,
+  sampleRate,
   flushMs: 1_000,
 });
 

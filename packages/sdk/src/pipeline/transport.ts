@@ -26,7 +26,6 @@ export interface TransportResult {
 export interface TransportOptions {
   config: RecorderConfig;
   fetch?: typeof fetch;
-  navigator?: Pick<Navigator, "sendBeacon">;
   wait?: (ms: number) => Promise<void>;
   onClosed?: () => void;
 }
@@ -38,14 +37,12 @@ const MAX_ATTEMPTS = 5;
 export class Transport {
   private readonly config: RecorderConfig;
   private readonly fetchFn: typeof fetch;
-  private readonly navigator?: Pick<Navigator, "sendBeacon">;
   private readonly wait: (ms: number) => Promise<void>;
   private readonly onClosed?: () => void;
 
   constructor(options: TransportOptions) {
     this.config = options.config;
     this.fetchFn = options.fetch ?? fetch.bind(globalThis);
-    this.navigator = options.navigator;
     this.wait = options.wait ?? defaultWait;
     this.onClosed = options.onClosed;
   }
@@ -90,10 +87,6 @@ export class Transport {
 
         return { sent: true, dropped: false, attempts, ack };
       } catch {
-        if (batch.keepalive && this.tryBeacon(batch.body)) {
-          return { sent: true, dropped: false, attempts };
-        }
-
         if (attempts >= MAX_ATTEMPTS) {
           return { sent: false, dropped: true, attempts };
         }
@@ -105,7 +98,7 @@ export class Transport {
     return { sent: false, dropped: true, attempts };
   }
 
-  queueBatchSync(batch: TransportBatch): boolean {
+  queueBatchSync(batch: TransportBatch, onFailure?: () => void): boolean {
     try {
       const response = this.fetchFn(`${this.config.ingestUrl}/v1/ingest`, {
         method: "POST",
@@ -124,6 +117,7 @@ export class Transport {
       void response
         .then(async (result) => {
           if (!result.ok) {
+            onFailure?.();
             return;
           }
 
@@ -132,25 +126,14 @@ export class Transport {
             this.onClosed?.();
           }
         })
-        .catch(() => undefined);
-    } catch {
-      return this.tryBeacon(batch.body);
-    }
-
-    return true;
-  }
-
-  private tryBeacon(body: Uint8Array): boolean {
-    try {
-      return (
-        this.navigator?.sendBeacon(
-          `${this.config.ingestUrl}/v1/ingest`,
-          body as unknown as BodyInit,
-        ) === true
-      );
+        .catch(() => {
+          onFailure?.();
+        });
     } catch {
       return false;
     }
+
+    return true;
   }
 }
 

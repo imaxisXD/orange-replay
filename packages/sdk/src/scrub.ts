@@ -1,6 +1,8 @@
 const DEFAULT_DETAIL_LIMIT = 200;
 const CLASS_LIMIT = 3;
 const ANCESTOR_LIMIT = 3;
+export const DEFAULT_BLOCK_SELECTOR = "[data-orange-block]";
+export const BLOCKED_CLICK_DETAIL = "[blocked]";
 
 export interface ViewportSize {
   width: number;
@@ -72,6 +74,22 @@ export function buildClickDetail(element: Element | null): string {
   }
 
   return truncateDetail(parts.join(" > "));
+}
+
+export function mergeBlockSelector(extra: string | undefined): string {
+  return extra === undefined ? DEFAULT_BLOCK_SELECTOR : `${DEFAULT_BLOCK_SELECTOR}, ${extra}`;
+}
+
+export function isBlockedElement(element: Element | null, selector: string): boolean {
+  if (element === null) {
+    return false;
+  }
+
+  try {
+    return element.closest(selector) !== null;
+  } catch {
+    return element.closest(DEFAULT_BLOCK_SELECTOR) !== null;
+  }
 }
 
 export function normalizedCoords(

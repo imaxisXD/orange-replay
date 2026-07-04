@@ -50,20 +50,12 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   });
   const workerUrl = `http://${worker.address}:${worker.port}`;
 
-  const vite = await createServer({
-    root: demoDir,
-    configFile: resolve(demoDir, "vite.config.ts"),
-    logLevel: "warn",
-    server: {
-      host: "127.0.0.1",
-    },
-    define: {
-      __ORANGE_REPLAY_WORKER_URL__: JSON.stringify(workerUrl),
-      __ORANGE_REPLAY_INGEST_KEY__: JSON.stringify(ingestKey),
-    },
-  });
+  const vite = await createDemoServer(workerUrl, false);
   await vite.listen(0);
   const demoUrl = readViteUrl(vite);
+  const cspVite = await createDemoServer(workerUrl, true);
+  await cspVite.listen(0);
+  const cspDemoUrl = readViteUrl(cspVite);
 
   await writeFile(
     stateFile,
@@ -71,6 +63,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       {
         workerUrl,
         demoUrl,
+        cspDemoUrl,
         apiToken,
         ingestKey,
         projectId: "demo-e2e-project",
@@ -83,8 +76,31 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   );
 
   return async () => {
-    await Promise.allSettled([vite.close(), worker.stop(), rm(stateFile, { force: true })]);
+    await Promise.allSettled([
+      vite.close(),
+      cspVite.close(),
+      worker.stop(),
+      rm(stateFile, { force: true }),
+    ]);
   };
+}
+
+async function createDemoServer(workerUrl: string, withCsp: boolean): Promise<ViteDevServer> {
+  const vite = await createServer({
+    root: demoDir,
+    configFile: resolve(demoDir, "vite.config.ts"),
+    logLevel: "warn",
+    server: {
+      host: "127.0.0.1",
+      headers: withCsp ? { "Content-Security-Policy": "worker-src 'self'" } : undefined,
+    },
+    define: {
+      __ORANGE_REPLAY_WORKER_URL__: JSON.stringify(workerUrl),
+      __ORANGE_REPLAY_INGEST_KEY__: JSON.stringify(ingestKey),
+    },
+  });
+
+  return vite;
 }
 
 async function loadWrangler(): Promise<WranglerModule> {

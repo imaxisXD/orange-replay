@@ -38,12 +38,87 @@ describe("Sidecar internal error filtering", () => {
   });
 });
 
+describe("Sidecar privacy scrubbing", () => {
+  it("redacts click details inside blocked subtrees", () => {
+    const addIndexEvent = vi.fn<(event: IndexEvent) => void>();
+    const sink = makeSink(addIndexEvent);
+    const sidecar = new Sidecar({ config, sink, now: () => 10, window });
+    document.body.innerHTML =
+      '<div data-orange-block><button id="row-jane.doe@corp.com" class="patient-4482 diabetic">Save</button></div>';
+
+    sidecar.start();
+    document
+      .querySelector("button")
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 100, clientY: 50 }));
+    sidecar.stop();
+
+    expect(addIndexEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        k: "click",
+        d: "[blocked]",
+        m: expect.objectContaining({ x: expect.any(Number), y: expect.any(Number) }),
+      }),
+    );
+    expect(JSON.stringify(addIndexEvent.mock.calls)).not.toContain("jane");
+    expect(JSON.stringify(addIndexEvent.mock.calls)).not.toContain("patient-4482");
+  });
+
+  it("redacts blocked click details when draining the loader pre-buffer", () => {
+    const addIndexEvent = vi.fn<(event: IndexEvent) => void>();
+    const sink = makeSink(addIndexEvent);
+    document.body.innerHTML =
+      '<section data-orange-block><button id="account-secret" class="private-row">Open</button></section>';
+    const target = document.querySelector("button");
+    (window as Window & { __orq?: unknown[] }).__orq = [
+      { k: "click", t: 5, x: 20, y: 25, w: 200, h: 100, target },
+    ];
+
+    const sidecar = new Sidecar({ config, sink, now: () => 10, window });
+    sidecar.start();
+    sidecar.stop();
+
+    expect(addIndexEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        t: 5,
+        k: "click",
+        d: "[blocked]",
+        m: { x: 0.1, y: 0.25, w: 200, h: 100 },
+      }),
+    );
+  });
+
+  it("caps custom metadata keys, entry count, and total bytes", () => {
+    const addIndexEvent = vi.fn<(event: IndexEvent) => void>();
+    const sink = makeSink(addIndexEvent);
+    const sidecar = new Sidecar({ config, sink, now: () => 1, window });
+    const meta = Object.fromEntries(
+      Array.from({ length: 40 }, (_value, index) => [
+        `${"email-owner-".repeat(30)}${index}`,
+        "x".repeat(500),
+      ]),
+    );
+
+    sidecar.addCustomEvent("checkout", meta);
+
+    const event = addIndexEvent.mock.calls[0]?.[0];
+    const cleanMeta = event?.m ?? {};
+    expect(Object.keys(cleanMeta).length).toBeGreaterThan(0);
+    expect(Object.keys(cleanMeta).length).toBeLessThanOrEqual(20);
+    expect(Object.keys(cleanMeta).every((key) => key.length <= 200)).toBe(true);
+    expect(new TextEncoder().encode(JSON.stringify(cleanMeta)).byteLength).toBeLessThanOrEqual(
+      2 * 1024,
+    );
+  });
+});
+
 function makeSink(addIndexEvent: (event: IndexEvent) => void): Sink {
   return {
     addRrwebEvent: vi.fn(),
     addIndexEvent,
     onNavigation: vi.fn(),
     flush: vi.fn(async () => undefined),
+    prepareForSessionRotation: vi.fn(async () => undefined),
+    resetAfterSessionRotation: vi.fn(),
     stop: vi.fn(async () => undefined),
   };
 }

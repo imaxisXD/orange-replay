@@ -28,6 +28,8 @@ export interface Sink {
   addIndexEvent(event: IndexEvent): void;
   onNavigation(url: string): void;
   flush(reason: FlushReason): Promise<void>;
+  prepareForSessionRotation(): Promise<void>;
+  resetAfterSessionRotation(): void;
   stop(): Promise<void>;
 }
 
@@ -36,6 +38,7 @@ export interface InlineSinkOptions {
   session: SessionManager;
   window: Window;
   fetch?: typeof fetch;
+  onSessionClosed?: () => void;
 }
 
 export interface WorkerSinkOptions extends InlineSinkOptions {
@@ -63,6 +66,7 @@ interface SyncFinalBatch {
   body: Uint8Array;
   index: BatchIndex;
   flags: number;
+  queuedEventCount: number;
   droppedEventCount: number;
 }
 
@@ -72,11 +76,13 @@ export class WorkerSink implements Sink {
   private readonly window: Window;
   private readonly workerHost: WorkerHost;
   private readonly transport: Transport;
+  private readonly onSessionClosed?: () => void;
   private readonly encoder = new TextEncoder();
   private readonly indexEvents = new IndexEventBuffer();
   private readonly batcher: Batcher;
   private readonly backpressure = new BackpressureController();
   private rrwebEvents: eventWithTime[] = [];
+  private pendingWorkerEvents: eventWithTime[] = [];
   private eventMetas: EventMeta[] = [];
   private inFlightBatches: InFlightBatch[] = [];
   private currentUrl: string;
@@ -85,11 +91,13 @@ export class WorkerSink implements Sink {
   private flushing: Promise<void> | undefined;
   private warnedAboutInternalError = false;
   private needsFollowUpFlush = false;
+  private workerPostScheduled = false;
 
   constructor(options: WorkerSinkOptions) {
     this.config = options.config;
     this.session = options.session;
     this.window = options.window;
+    this.onSessionClosed = options.onSessionClosed;
     this.currentUrl = scrubUrl(options.window.location.href, options.config.allowUrlParams);
     this.batcher = new Batcher({ flushMs: options.config.flushMs || SDK_FLUSH_DEFAULT_MS });
     this.workerHost =
@@ -104,7 +112,6 @@ export class WorkerSink implements Sink {
       new Transport({
         config: options.config,
         fetch: options.fetch ?? options.window.fetch.bind(options.window),
-        navigator: options.window.navigator,
       });
   }
 
@@ -127,9 +134,9 @@ export class WorkerSink implements Sink {
 
     const decision = this.batcher.addEstimatedBytes(rawBytes);
     this.rrwebEvents.push(event);
+    this.queueWorkerEvent(event);
     this.eventMetas.push({ timestamp: event.timestamp, rawBytes });
     this.backpressure.addCurrentBytes(rawBytes);
-    this.workerHost.addEvents([event]);
 
     if (decision.shouldFlush) {
       void this.flushInternal("threshold");
@@ -150,6 +157,22 @@ export class WorkerSink implements Sink {
 
   flush(reason: FlushReason): Promise<void> {
     return this.flushInternal(reason);
+  }
+
+  async prepareForSessionRotation(): Promise<void> {
+    if (this.stopped) {
+      return;
+    }
+
+    if (this.flushing !== undefined) {
+      await this.flushing;
+    }
+
+    await this.flushInternal("manual");
+  }
+
+  resetAfterSessionRotation(): void {
+    this.resetPipeline();
   }
 
   async stop(): Promise<void> {
@@ -289,8 +312,7 @@ export class WorkerSink implements Sink {
         }
 
         if (result.ack.closed === true) {
-          this.session.rotate();
-          this.resetPipeline();
+          this.handleSessionClosed();
           return true;
         }
       }
@@ -314,6 +336,7 @@ export class WorkerSink implements Sink {
           body: batch.body,
           index: batch.index,
           flags: batch.flags ?? 0,
+          queuedEventCount: batch.eventMetas.length,
           droppedEventCount: 0,
         });
         if (queued) {
@@ -346,6 +369,8 @@ export class WorkerSink implements Sink {
 
     this.eventMetas = [];
     this.rrwebEvents = [];
+    this.pendingWorkerEvents = [];
+    this.workerPostScheduled = false;
     this.backpressure.removeCurrentBytes(taken.rawBytes);
 
     if (eventMetas.length === 0 && indexEvents.length === 0) {
@@ -369,6 +394,8 @@ export class WorkerSink implements Sink {
     const taken = this.batcher.takeBatch(droppedCount);
     this.eventMetas = [];
     this.rrwebEvents = [];
+    this.pendingWorkerEvents = [];
+    this.workerPostScheduled = false;
     this.indexEvents.drain();
     this.backpressure.removeCurrentBytes(taken.rawBytes);
     this.backpressure.recordDropped(droppedCount);
@@ -444,6 +471,7 @@ export class WorkerSink implements Sink {
         body: encoded.body,
         index: encoded.index,
         flags: FLAG_UNCOMPRESSED,
+        queuedEventCount: keptEventCount,
         droppedEventCount: rrwebEvents.length - keptEventCount,
       },
       droppedEventCount: rrwebEvents.length - keptEventCount,
@@ -536,15 +564,22 @@ export class WorkerSink implements Sink {
 
   private queueSyncFinalBatch(batch: SyncFinalBatch): boolean {
     this.backpressure.addPendingBytes(batch.body.byteLength);
-    const queued = this.transport.queueBatchSync({
-      body: batch.body,
-      index: batch.index,
-      flags: batch.flags,
-      keepalive: true,
-    });
+    // Unload transport is keepalive-only because sendBeacon cannot carry the
+    // auth/session headers required by ingest.
+    const queued = this.transport.queueBatchSync(
+      {
+        body: batch.body,
+        index: batch.index,
+        flags: batch.flags,
+        keepalive: true,
+      },
+      () => {
+        this.backpressure.recordDropped(batch.queuedEventCount);
+      },
+    );
     this.backpressure.removePendingBytes(batch.body.byteLength);
     if (!queued) {
-      this.backpressure.recordDropped(batch.droppedEventCount);
+      this.backpressure.recordDropped(batch.queuedEventCount);
     }
     return queued;
   }
@@ -554,6 +589,7 @@ export class WorkerSink implements Sink {
     rrwebEvents: readonly eventWithTime[],
     eventMetas: readonly EventMeta[],
   ) {
+    this.flushPendingWorkerEvents();
     try {
       return await this.workerHost.flushBatch({ eventCount });
     } catch (error) {
@@ -583,6 +619,8 @@ export class WorkerSink implements Sink {
 
   private resetPipeline(): void {
     this.rrwebEvents = [];
+    this.pendingWorkerEvents = [];
+    this.workerPostScheduled = false;
     this.eventMetas = [];
     this.inFlightBatches = [];
     this.indexEvents.drain();
@@ -614,12 +652,56 @@ export class WorkerSink implements Sink {
     this.window.document.removeEventListener("visibilitychange", this.onVisibilityChange, true);
     this.window.removeEventListener("pagehide", this.onPageHide, true);
     this.rrwebEvents = [];
+    this.pendingWorkerEvents = [];
+    this.workerPostScheduled = false;
     this.eventMetas = [];
     this.inFlightBatches = [];
     this.indexEvents.drain();
     this.batcher.reset();
     this.backpressure.resetCurrentBytes();
     this.workerHost.stop();
+  }
+
+  private handleSessionClosed(): void {
+    if (this.onSessionClosed !== undefined) {
+      this.onSessionClosed();
+      return;
+    }
+
+    this.session.rotate();
+    this.resetPipeline();
+  }
+
+  private queueWorkerEvent(event: eventWithTime): void {
+    this.pendingWorkerEvents.push(event);
+
+    if (this.workerPostScheduled) {
+      return;
+    }
+
+    this.workerPostScheduled = true;
+    const run = () => {
+      this.workerPostScheduled = false;
+      this.flushPendingWorkerEvents();
+    };
+
+    if (typeof this.window.queueMicrotask === "function") {
+      this.window.queueMicrotask(run);
+      return;
+    }
+
+    void Promise.resolve().then(run);
+  }
+
+  private flushPendingWorkerEvents(): void {
+    this.workerPostScheduled = false;
+
+    if (this.pendingWorkerEvents.length === 0) {
+      return;
+    }
+
+    const events = this.pendingWorkerEvents.splice(0);
+    this.workerHost.addEvents(events);
   }
 
   private buildIndex(
@@ -670,6 +752,7 @@ export class InlineSink implements Sink {
   private readonly session: SessionManager;
   private readonly window: Window;
   private readonly fetchFn: typeof fetch;
+  private readonly onSessionClosed?: () => void;
   private readonly encoder = new TextEncoder();
   private readonly indexEvents = new IndexEventBuffer();
   private rrwebEvents: eventWithTime[] = [];
@@ -685,6 +768,7 @@ export class InlineSink implements Sink {
     this.session = options.session;
     this.window = options.window;
     this.fetchFn = options.fetch ?? options.window.fetch.bind(options.window);
+    this.onSessionClosed = options.onSessionClosed;
     this.currentUrl = scrubUrl(options.window.location.href, options.config.allowUrlParams);
     this.flushMs = options.config.flushMs || SDK_FLUSH_DEFAULT_MS;
   }
@@ -733,6 +817,23 @@ export class InlineSink implements Sink {
       });
 
     return this.flushing;
+  }
+
+  async prepareForSessionRotation(): Promise<void> {
+    if (this.stopped) {
+      return;
+    }
+
+    if (this.flushing !== undefined) {
+      await this.flushing;
+    }
+
+    await this.flush("manual");
+  }
+
+  resetAfterSessionRotation(): void {
+    this.rrwebEvents = [];
+    this.indexEvents.drain();
   }
 
   async stop(): Promise<void> {
@@ -789,7 +890,7 @@ export class InlineSink implements Sink {
     }
 
     if (ack.closed === true) {
-      this.session.rotate();
+      this.handleSessionClosed();
     }
 
     if (Number.isFinite(ack.flushMs) && ack.flushMs > 0) {
@@ -804,6 +905,16 @@ export class InlineSink implements Sink {
     this.window.removeEventListener("pagehide", this.onPageHide, true);
     this.rrwebEvents = [];
     this.indexEvents.drain();
+  }
+
+  private handleSessionClosed(): void {
+    if (this.onSessionClosed !== undefined) {
+      this.onSessionClosed();
+      return;
+    }
+
+    this.session.rotate();
+    this.resetAfterSessionRotation();
   }
 
   private disableAfterInternalError(error: unknown): void {

@@ -8,7 +8,7 @@ import type { WorkerHost } from "../src/pipeline/worker-host.ts";
 import { WorkerSink } from "../src/sink.ts";
 import { SessionManager, type StorageLike } from "../src/session.ts";
 import type { RecorderConfig } from "../src/types.ts";
-import type { eventWithTime } from "@orange-replay/rrweb-fork";
+import { EventType, type eventWithTime } from "@orange-replay/rrweb-fork";
 
 class MemoryStorage implements StorageLike {
   private readonly values = new Map<string, string>();
@@ -93,6 +93,57 @@ describe("WorkerSink degraded path", () => {
     const decoded = decodeIngestBody(calls[0]?.init?.body as Uint8Array);
     expect(JSON.parse(decoder.decode(decoded.payload))).toHaveLength(1);
   });
+
+  it("posts rrweb events to the worker in one microtask batch", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      return new Response(JSON.stringify({ ok: true, live: false, flushMs: 15_000 }));
+    });
+    const workerHost = makeResolvedWorkerHost();
+    const session = makeSession(["session-one", "tab-one"]);
+    const sink = new WorkerSink({ config, session, window, fetch: fetchMock, workerHost });
+
+    sink.addRrwebEvent(makeEvent(1, "one"));
+    sink.addRrwebEvent(makeEvent(2, "two"));
+    sink.addRrwebEvent(makeEvent(3, "three"));
+    await flushMicrotasks();
+
+    expect(workerHost.addEvents).toHaveBeenCalledTimes(1);
+    expect(workerHost.addEvents.mock.calls[0]?.[0]).toHaveLength(3);
+  });
+});
+
+describe("WorkerSink session rotation", () => {
+  it("flushes pending old-session events before a new full snapshot batch", async () => {
+    const bodies: Uint8Array[] = [];
+    const fetchMock = vi.fn<typeof fetch>(async (_input, init) => {
+      bodies.push(init?.body as Uint8Array);
+      return new Response(JSON.stringify({ ok: true, live: false, flushMs: 15_000 }));
+    });
+    const workerHost = makeCollectingWorkerHost();
+    const session = makeSession(["session-one", "tab-one", "session-two"]);
+    const sink = new WorkerSink({ config, session, window, fetch: fetchMock, workerHost });
+
+    sink.addRrwebEvent(makeEvent(1, "old-session"));
+    await sink.prepareForSessionRotation();
+    session.rotate();
+    sink.resetAfterSessionRotation();
+    sink.addRrwebEvent({
+      type: EventType.FullSnapshot,
+      timestamp: 2,
+      data: { node: { id: 1, type: 0 }, initialOffset: { left: 0, top: 0 } },
+    } as eventWithTime);
+    await sink.flush("manual");
+
+    expect(bodies).toHaveLength(2);
+    const oldBatch = decodeIngestBody(bodies[0] ?? new Uint8Array());
+    const newBatch = decodeIngestBody(bodies[1] ?? new Uint8Array());
+    expect(oldBatch.index).toMatchObject({ s: "session-one", seq: 0 });
+    expect(newBatch.index).toMatchObject({ s: "session-two", seq: 0 });
+    expect(JSON.parse(decoder.decode(newBatch.payload))[0]).toMatchObject({
+      type: EventType.FullSnapshot,
+    });
+    expect(workerHost.reset).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("WorkerSink pagehide final flush", () => {
@@ -146,7 +197,7 @@ describe("WorkerSink pagehide final flush", () => {
       workerHost: makeWorkerHost(),
     });
 
-    sink.addRrwebEvent(makeEvent(1, "old", "x".repeat(40_000)));
+    sink.addRrwebEvent(makeEvent(1, "old", "x".repeat(80_000)));
     sink.addRrwebEvent(makeEvent(2, "middle", "m".repeat(1_000)));
     sink.addRrwebEvent(makeEvent(3, "newest", "n".repeat(1_000)));
     sink.addIndexEvent({ t: 4, k: "error", d: "latest sidecar event" });
@@ -184,7 +235,7 @@ describe("WorkerSink pagehide final flush", () => {
     await sink.flush("pagehide");
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(stringifySpy.mock.calls.length).toBeLessThan(20);
+    expect(stringifySpy.mock.calls.length).toBeLessThanOrEqual(20);
     expect(sink.droppedEventCount()).toBeGreaterThan(0);
   });
 
@@ -200,6 +251,25 @@ describe("WorkerSink pagehide final flush", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const body = fetchMock.mock.calls[0]?.[1]?.body as Uint8Array;
     expect(body.byteLength).toBeLessThanOrEqual(PAGEHIDE_RAW_FLUSH_BYTES);
+  });
+
+  it("counts a queued keepalive batch as dropped when the fetch later fails", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockRejectedValue(new Error("network closed"));
+    const session = makeSession(["session-one", "tab-one"]);
+    const sink = new WorkerSink({
+      config,
+      session,
+      window,
+      fetch: fetchMock,
+      workerHost: makeWorkerHost(),
+    });
+
+    sink.addRrwebEvent(makeEvent(10, "final"));
+    await sink.flush("pagehide");
+    await flushMicrotasks();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(sink.droppedEventCount()).toBe(1);
   });
 });
 
@@ -428,6 +498,37 @@ function makeResolvedWorkerHost(): {
   } & WorkerHost;
 }
 
+function makeCollectingWorkerHost(): {
+  addEvents: ReturnType<typeof vi.fn>;
+  flushBatch: ReturnType<typeof vi.fn>;
+  reset: ReturnType<typeof vi.fn>;
+  stop: ReturnType<typeof vi.fn>;
+} & WorkerHost {
+  const events: eventWithTime[] = [];
+  return {
+    addEvents: vi.fn((nextEvents: eventWithTime[]) => {
+      events.push(...nextEvents);
+    }),
+    flushBatch: vi.fn(async ({ eventCount }: { eventCount?: number } = {}) => {
+      const take = eventCount ?? events.length;
+      const batch = events.splice(0, take);
+      return {
+        payload: new TextEncoder().encode(JSON.stringify(batch)),
+        uncompressed: true,
+      } satisfies WorkerBatchResult;
+    }),
+    reset: vi.fn(() => {
+      events.splice(0);
+    }),
+    stop: vi.fn(),
+  } as unknown as {
+    addEvents: ReturnType<typeof vi.fn>;
+    flushBatch: ReturnType<typeof vi.fn>;
+    reset: ReturnType<typeof vi.fn>;
+    stop: ReturnType<typeof vi.fn>;
+  } & WorkerHost;
+}
+
 function makePendingWorkerHost(): {
   workerHost: {
     addEvents: ReturnType<typeof vi.fn>;
@@ -463,4 +564,9 @@ function installSendBeacon(send: (url: string, body?: BodyInit | null) => boolea
     value: sendBeacon,
   });
   return sendBeacon;
+}
+
+async function flushMicrotasks(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
 }

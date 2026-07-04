@@ -17,6 +17,13 @@ const decoder = new TextDecoder();
 test("records a real browser session into the local worker", async ({ page }) => {
   const state = await readState();
   const sentBatches = collectBrowserBatches(page);
+  const sdkConsoleMessages: string[] = [];
+  page.on("console", (message) => {
+    const text = message.text();
+    if (text.includes("Orange Replay")) {
+      sdkConsoleMessages.push(text);
+    }
+  });
 
   await seedProject(state);
 
@@ -40,6 +47,10 @@ test("records a real browser session into the local worker", async ({ page }) =>
   await expect(page.getByRole("heading", { name: "Order details" })).toBeVisible();
   await page.getByRole("button", { name: "Confirm checklist" }).click();
   await page.waitForTimeout(1_500);
+  // Quota 202-drop handling is covered by unit tests on both sides; an
+  // instant flip cannot be asserted here because ingest reads config through
+  // KV with cacheTtl 60 — the documented (and priced-in) propagation window.
+  expect(sdkConsoleMessages).toEqual([]);
 
   expect(await readSessionId(page)).toBe(sessionId);
   await page.close();
@@ -78,9 +89,88 @@ test("records a real browser session into the local worker", async ({ page }) =>
   }
 });
 
+test("records through the degraded inline path when CSP blocks blob workers", async ({ page }) => {
+  const state = await readState();
+  const sentBatches = collectBrowserBatches(page);
+  const degradedWarnings: string[] = [];
+  page.on("console", (message) => {
+    const text = message.text();
+    if (text.includes("or:degraded")) {
+      degradedWarnings.push(text);
+    }
+  });
+
+  await seedProject(state);
+  await page.goto(state.cspDemoUrl);
+  await expect(page.getByRole("heading", { name: "Signal Board starter kit" })).toBeVisible();
+  await page.getByRole("button", { name: "Add product row" }).click();
+  await page.getByRole("button", { name: "Save settings" }).click();
+  await poll(async () => (sentBatches.length > 0 ? true : null), 5_000);
+
+  expect(degradedWarnings.some((text) => text.includes("Worker creation failed"))).toBe(true);
+  expect(sentBatches.length).toBeGreaterThan(0);
+  await page.close();
+});
+
+test("sample rate zero sends no ingest requests", async ({ page }) => {
+  const state = await readState();
+  const sentBatches = collectBrowserBatches(page);
+
+  await page.goto(`${state.demoUrl}?sampleRate=0`);
+  await expect(page.getByRole("heading", { name: "Signal Board starter kit" })).toBeVisible();
+  await page.getByRole("button", { name: "Add product row" }).click();
+  await page.getByRole("button", { name: "Save settings" }).click();
+  await page.waitForTimeout(1_500);
+
+  expect(sentBatches).toHaveLength(0);
+});
+
+test("duplicated tabs mint distinct tab ids and both send batches", async ({ browser }) => {
+  const state = await readState();
+  await seedProject(state);
+  const context = await browser.newContext();
+  await context.addInitScript(() => {
+    const now = String(Date.now());
+    window.sessionStorage.setItem("or:s", "dupe-session-e2e");
+    window.sessionStorage.setItem("or:t", "dupe-tab-e2e");
+    window.sessionStorage.setItem("or:q", "0");
+    window.sessionStorage.setItem("or:last", now);
+    document.cookie = "or_s=dupe-session-e2e; Path=/; SameSite=Lax";
+  });
+
+  const first = await context.newPage();
+  const second = await context.newPage();
+  const firstBatches = collectBrowserBatches(first);
+  const secondBatches = collectBrowserBatches(second);
+
+  try {
+    await Promise.all([first.goto(state.demoUrl), second.goto(state.demoUrl)]);
+    await Promise.all([
+      expect(first.getByRole("heading", { name: "Signal Board starter kit" })).toBeVisible(),
+      expect(second.getByRole("heading", { name: "Signal Board starter kit" })).toBeVisible(),
+    ]);
+    await first.waitForTimeout(150);
+    await first.getByRole("button", { name: "Add product row" }).click();
+    await second.getByRole("button", { name: "Show stock panel" }).click();
+
+    await poll(async () => {
+      const tabs = new Set([...firstBatches, ...secondBatches].map((batch) => batch.tab));
+      return firstBatches.length > 0 && secondBatches.length > 0 && tabs.size === 2
+        ? tabs.size
+        : null;
+    }, 5_000);
+
+    const tabs = new Set([...firstBatches, ...secondBatches].map((batch) => batch.tab));
+    expect(tabs.size).toBe(2);
+  } finally {
+    await context.close();
+  }
+});
+
 interface ServerState {
   workerUrl: string;
   demoUrl: string;
+  cspDemoUrl: string;
   apiToken: string;
   ingestKey: string;
   projectId: string;
@@ -92,6 +182,8 @@ interface ServerState {
 
 interface BrowserBatch {
   flags: number;
+  session?: string;
+  tab?: string;
   body?: Uint8Array;
 }
 
@@ -110,16 +202,19 @@ async function readState(): Promise<ServerState> {
   return JSON.parse(await readFile(stateFile, "utf8")) as ServerState;
 }
 
-async function seedProject(state: ServerState): Promise<void> {
+async function seedProject(
+  state: ServerState,
+  overrides: Partial<Pick<ProjectConfig, "quotaState" | "sampleRate">> = {},
+): Promise<void> {
   const config: ProjectConfig = {
     projectId: state.projectId,
     orgId: state.orgId,
     shard: 0,
     active: true,
-    sampleRate: 1,
+    sampleRate: overrides.sampleRate ?? 1,
     allowedOrigins: ["*"],
     maskPolicyVersion: 1,
-    quotaState: "ok",
+    quotaState: overrides.quotaState ?? "ok",
     retentionDays: 30,
   };
 
@@ -148,6 +243,8 @@ function collectBrowserBatches(page: Page): BrowserBatch[] {
     const body = request.postDataBuffer();
     batches.push({
       flags: Number(request.headers()["x-or-flags"] ?? -1),
+      session: request.headers()["x-or-session"],
+      tab: request.headers()["x-or-tab"],
       body: body === null ? undefined : new Uint8Array(body),
     });
   });
