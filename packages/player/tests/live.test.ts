@@ -40,7 +40,22 @@ describe("live frame handling", () => {
 
     expect(acceptLiveFrame(state, frame)).not.toBeNull();
     expect(acceptLiveFrame(state, frame)).toBeNull();
-    expect(state.frames).toHaveLength(1);
+    expect(state.seen.size).toBe(1);
+  });
+
+  it("keeps only recent live frame keys for dedupe", () => {
+    const state = createLiveFrameState();
+
+    for (let seq = 0; seq < 4_100; seq += 1) {
+      acceptLiveFrame(
+        state,
+        encodeIngestBody(makeIndex("tab-a", seq, seq), new Uint8Array([seq % 255])),
+      );
+    }
+
+    expect(state.seen.size).toBe(4_096);
+    expect(state.seen.has("tab-a:0")).toBe(false);
+    expect(state.seen.has("tab-a:4099")).toBe(true);
   });
 
   it("waits for a full snapshot before accepting live replay events", () => {

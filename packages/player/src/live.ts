@@ -10,7 +10,6 @@ export interface LiveFrame {
 
 export interface LiveFrameState {
   seen: Set<string>;
-  frames: LiveFrame[];
 }
 
 export interface LiveKeyframeBuffer {
@@ -19,10 +18,11 @@ export interface LiveKeyframeBuffer {
   events: ReplayEvent[];
 }
 
+const LIVE_SEEN_KEY_LIMIT = 4_096;
+
 export function createLiveFrameState(): LiveFrameState {
   return {
     seen: new Set(),
-    frames: [],
   };
 }
 
@@ -83,8 +83,7 @@ export function acceptLiveFrame(
   }
 
   state.seen.add(key);
-  state.frames.push(frame);
-  state.frames.sort(compareLiveFrames);
+  pruneSeenKeys(state.seen);
   return frame;
 }
 
@@ -121,6 +120,16 @@ function compareLiveFrames(left: LiveFrame, right: LiveFrame): number {
   }
 
   return left.index.seq - right.index.seq;
+}
+
+function pruneSeenKeys(seen: Set<string>): void {
+  while (seen.size > LIVE_SEEN_KEY_LIMIT) {
+    const oldest = seen.values().next().value;
+    if (oldest === undefined) {
+      return;
+    }
+    seen.delete(oldest);
+  }
 }
 
 function isFullSnapshotEvent(event: ReplayEvent): boolean {

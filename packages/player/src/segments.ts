@@ -44,14 +44,9 @@ export function findSegmentIndex(
       continue;
     }
 
-    if (targetTime >= segment.t0 && targetTime <= segment.t1) {
+    if (targetTime <= segment.t1) {
       return index;
     }
-  }
-
-  const first = segments[0];
-  if (first !== undefined && targetTime < first.t0) {
-    return 0;
   }
 
   return segments.length - 1;
@@ -118,6 +113,6 @@ export function mergeUniqueReplayEvents(
   return mergeReplayEvents(merged);
 }
 
-function eventKey(event: ReplayEvent): string {
+export function eventKey(event: ReplayEvent): string {
   return `${event.timestamp}:${event.type}:${JSON.stringify(event.data)}`;
 }

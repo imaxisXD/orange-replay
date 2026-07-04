@@ -1,24 +1,36 @@
 export function formatRelativeTime(value: number, now = Date.now()): string {
+  return formatRelativeTimeValue(value, now, { nowLabel: "just now", suffix: " ago" });
+}
+
+export function formatShortRelativeTime(value: number, now = Date.now()): string {
+  return formatRelativeTimeValue(value, now, { nowLabel: "now", suffix: "" });
+}
+
+function formatRelativeTimeValue(
+  value: number,
+  now: number,
+  options: { nowLabel: string; suffix: string },
+): string {
   const diffMs = Math.max(0, now - value);
   const seconds = Math.floor(diffMs / 1_000);
 
-  if (seconds < 10) return "just now";
-  if (seconds < 60) return `${seconds}s ago`;
+  if (seconds < 10) return options.nowLabel;
+  if (seconds < 60) return `${seconds}s${options.suffix}`;
 
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 60) return `${minutes}m${options.suffix}`;
 
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
+  if (hours < 24) return `${hours}h${options.suffix}`;
 
   const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
+  if (days < 30) return `${days}d${options.suffix}`;
 
   const months = Math.floor(days / 30);
-  if (months < 12) return `${months}mo ago`;
+  if (months < 12) return `${months}mo${options.suffix}`;
 
   const years = Math.floor(months / 12);
-  return `${years}y ago`;
+  return `${years}y${options.suffix}`;
 }
 
 export function formatAbsoluteTime(value: number): string {

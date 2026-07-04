@@ -44,6 +44,8 @@ interface ValidPresencePing {
 }
 
 export class PresenceRegistry extends DurableObject<Env> {
+  private firstEventSeeded = false;
+
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.createSchema();
@@ -165,11 +167,16 @@ export class PresenceRegistry extends DurableObject<Env> {
     os: string | null;
     device: string | null;
   }): void {
-    this.ctx.storage.sql.exec(
-      `INSERT OR IGNORE INTO project_meta (k, v)
-        VALUES ('first_event_at', ?)`,
-      String(input.lastSeen),
-    );
+    if (!this.firstEventSeeded) {
+      this.ctx.storage.sql.exec(
+        `INSERT OR IGNORE INTO project_meta (k, v)
+          VALUES ('first_event_at', ?)`,
+        String(input.lastSeen),
+      );
+      // Hibernation resets this in-memory flag, so one later no-op insert is expected.
+      this.firstEventSeeded = true;
+    }
+
     this.ctx.storage.sql.exec(
       `INSERT INTO presence
         (session_id, started_at, last_seen, entry_url, country, city, browser, os, device)

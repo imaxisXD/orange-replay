@@ -27,6 +27,14 @@ How this document is used:
 4. Wide-event logging contract honored (PLAN.md §Ground rules 5) and cost invariants intact (§4).
 5. Commit with a truthful message; tick here in the same commit.
 
+### Visual judging protocol (learned 2026-07-04 — the replay-crop miss)
+
+Judging under flattering conditions hides geometry bugs. The T3.5 replay embed was missing scale-to-fit entirely, but because sessions were recorded in the SAME browser window the dashboard was judged in, recorded width ≈ stage width and the bug presented as "minor letterboxing" instead of the top-left crop every real user would see. Rules:
+
+- **Vary the geometry.** Any surface that renders captured/scaled content (replay viewport, thumbnails, embeds) must be judged with a deliberate mismatch: record at a large viewport, view in a small stage (and vice versa). Same-size testing proves nothing about scaling.
+- **DOM assertions ≠ visual correctness.** The e2e proving "the right text exists in the replay iframe" says nothing about whether it's visible. For geometric bug classes, assert bounds (rendered content fits inside its stage) — see `docs/specs/fix-p3b-scale.md`.
+- **Don't downgrade symptoms whose cause you haven't identified.** "Top-anchored letterbox, polish later" was a symptom of a missing transform, not a styling nit. A visual oddity goes on the punch list only AFTER its mechanism is understood.
+
 ## Status ledger
 
 ### Phase 0 — Bootstrap ✅
@@ -62,7 +70,8 @@ How this document is used:
 - [x] T3.5 session detail: player embed — spec `docs/specs/t3.5-detail-player.md`; judged with a REAL session recorded through the demo site + SDK: playback, error markers, amber playhead, sidebar seek, kbd handlers, segments table all verified in-browser; 222 tests green. Verification residuals fixed: T3.2's in-place edit of applied migration 0001 split into `0002_project_config.sql` (migration immutability — runtime column self-heal in project-config.ts stays as belt-and-suspenders; audit in T4.2); happy-dom pragma on replay-timeline tests; runtime `@/` import made relative (root runner can't resolve the alias cross-project — convention: runtime imports in root-tested dashboard libs are relative, `@/` only for type-only/app-only code). Phase-3 judge-loop polish notes: center letterboxed replay vertically; player API gaps (preloaded-manifest injection, teal overlay token, missing .d.ts) noted from T3.5 report.
 - [x] T3.6 settings + install pages — spec `docs/specs/t3.6-settings-install.md`; visually judged: config editor with dirty-state save bar (persistence verified through D1 round-trip + reload), real key hash in keys table, install page renders the SDK's actual loader snippet, Live verify showed real "Installed — first event seen" from the registry; backend gaps closed (retentionDays update, GET keys); 230 tests green
 - [x] T3.7 full-product Playwright e2e — GATE PASSED (5/5 e2e, 237 unit/integration). Spec `docs/specs/t3.7-product-e2e.md`. The gate earned its keep — found and drove fixes for: (a) test-level stale replay-frame handles + page1/page2 copy after seek; (b) `sdkFlushMs`/`sdkFlushLiveMs` TEST_TIMINGS knob (server-driven 15s cadence vs shortened closeMs); (c) REAL BUG: live follow rendered nothing for mid-session viewers → checkpoint-on-join across DO/SDK/player/dashboard (`docs/specs/fix-live-follow.md`, ARCHITECTURE.md §3 "Live join checkpoint"); (d) REAL BUG: dashboard vite proxy lacked `ws: true` — live WebSockets never reached the worker in dev; (e) REAL BUG: player re-armed rrweb `startLive()` on every live frame, resetting the baseline so all post-snapshot events were silently discarded — baseline now anchored once at the last buffered event. Known v1 semantics: a viewer joining an IDLE session waits for the recorder's next activity (checkpoint rides the ingest ack); the "Connected live" state renders on follow intent, not socket-open (judge-loop polish note).
-- [ ] Phase 3 judge loop (extra lens: registry-only UI audit + visual audit vs `design-final.html`)
+- [x] Phase 3 judge loop — 5 finder lenses → 10 findings adversarially verified (all CONFIRMED) → FIX-P3 (`docs/specs/fix-p3-judge.md`): player live-buffer/overlay bounds, decode-worker restart, gap-seek, reconnect keyframe re-arm, manifest race, 5 registry-UI violations, viewer-connect wide event, live-proxy request-id, presence seed guard, demo-site "Signal Board" rebrand. Security lens notes (query-string dev token, single-token authz) pinned to T4.2. 240 tests + 5/5 e2e green.
+- [ ] **FIX-P3b replay scale-to-fit** — ← user-reported crop; spec `docs/specs/fix-p3b-scale.md` (scale/center transform + overlay mapping + geometric e2e assertions with mismatched viewports). Verify per the Visual judging protocol above (mismatch case + proof GIF).
 
 ### Phase 4 — Packaging, hardening, CI (W4) — NOT STARTED
 

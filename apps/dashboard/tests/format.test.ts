@@ -5,6 +5,7 @@ import {
   formatDuration,
   formatErrorCount,
   formatRelativeTime,
+  formatShortRelativeTime,
 } from "../src/lib/format";
 import { appendUniqueSessions, canLoadMore } from "../src/lib/session-list";
 
@@ -16,6 +17,10 @@ describe("format helpers", () => {
     expect(formatRelativeTime(now - 45_000, now)).toBe("45s ago");
     expect(formatRelativeTime(now - 5 * 60_000, now)).toBe("5m ago");
     expect(formatRelativeTime(now - 3 * 60 * 60_000, now)).toBe("3h ago");
+    expect(formatShortRelativeTime(now - 5_000, now)).toBe("now");
+    expect(formatShortRelativeTime(now - 45_000, now)).toBe("45s");
+    expect(formatShortRelativeTime(now - 5 * 60_000, now)).toBe("5m");
+    expect(formatShortRelativeTime(now - 3 * 60 * 60_000, now)).toBe("3h");
   });
 
   it("formats duration and bytes", () => {

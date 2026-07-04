@@ -32,7 +32,13 @@ import {
 } from "@/components/ui/table";
 import { Tooltip } from "@/components/ui/tooltip";
 import { ApiError, listSessions, type SessionListItem } from "@/lib/api";
-import { formatAbsoluteTime, formatBytes, formatDuration, formatErrorCount } from "@/lib/format";
+import {
+  formatAbsoluteTime,
+  formatBytes,
+  formatDuration,
+  formatErrorCount,
+  formatShortRelativeTime,
+} from "@/lib/format";
 import { appendUniqueSessions, canLoadMore } from "@/lib/session-list";
 import { defaultProjectId } from "@/router";
 
@@ -378,29 +384,6 @@ function flagForCountry(code: string): string {
   const first = 0x1f1e6 + code.charCodeAt(0) - 65;
   const second = 0x1f1e6 + code.charCodeAt(1) - 65;
   return String.fromCodePoint(first, second);
-}
-
-function formatShortRelativeTime(value: number, now = Date.now()): string {
-  const diffMs = Math.max(0, now - value);
-  const seconds = Math.floor(diffMs / 1_000);
-
-  if (seconds < 10) return "now";
-  if (seconds < 60) return `${seconds}s`;
-
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
-
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d`;
-
-  const months = Math.floor(days / 30);
-  if (months < 12) return `${months}mo`;
-
-  const years = Math.floor(months / 12);
-  return `${years}y`;
 }
 
 function readErrorMessage(error: unknown): string {

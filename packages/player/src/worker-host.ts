@@ -9,15 +9,20 @@ interface PendingDecode {
 }
 
 const DEFAULT_DECODE_TIMEOUT_MS = 15_000;
+const MAX_WORKER_RESTARTS = 3;
 
 export class DecodeWorkerHost {
   private readonly revokeObjectUrl: (url: string) => void;
+  private readonly createObjectUrl: ((blob: Blob) => string) | undefined;
+  private readonly WorkerCtor: typeof Worker | undefined;
   private readonly timeoutMs: number;
   private readonly allowSynchronousFallback: boolean;
   private readonly pending = new Map<number, PendingDecode>();
   private worker: Worker | undefined;
   private objectUrl: string | undefined;
   private nextId = 1;
+  private restartCount = 0;
+  private terminalError: Error | undefined;
   private synchronousFallback = false;
 
   constructor(options: DecodeWorkerOptions = {}) {
@@ -33,20 +38,11 @@ export class DecodeWorkerHost {
       return;
     }
 
+    this.WorkerCtor = WorkerCtor;
+    this.createObjectUrl = createObjectUrl;
+
     try {
-      const source = makeDecodeWorkerSource();
-      const blob = new Blob([source], { type: "text/javascript" });
-      this.objectUrl = createObjectUrl(blob);
-      this.worker = new WorkerCtor(this.objectUrl, {
-        name: "orange-replay-player-decode",
-        type: "module",
-      });
-      this.worker.onmessage = (event: MessageEvent<DecodeWorkerResponse>) => {
-        this.handleWorkerMessage(event.data);
-      };
-      this.worker.onerror = (event) => {
-        this.handleWorkerFailure(event.error ?? new Error("Replay worker failed."));
-      };
+      this.startWorker();
     } catch {
       this.revokeWorkerUrl();
       this.useSynchronousFallback();
@@ -60,7 +56,7 @@ export class DecodeWorkerHost {
   async decodeBatch(payload: Uint8Array): Promise<ReplayEvent[]> {
     if (this.worker === undefined) {
       if (!this.synchronousFallback) {
-        throw new Error("Replay worker is not available.");
+        throw this.terminalError ?? new Error("Replay worker is not available.");
       }
 
       return decodeBatchBytes(payload);
@@ -77,15 +73,17 @@ export class DecodeWorkerHost {
           return;
         }
 
-        this.pending.delete(id);
-        this.moveToFallback();
-        pending.reject(new Error("Replay worker decode timed out."));
+        this.restartWorkerAfterFailure("Replay worker timed out. Pending decodes were canceled.");
       }, this.timeoutMs);
 
       this.pending.set(id, { resolve, reject, timeoutId });
     });
 
-    this.worker.postMessage({ type: "decode", id, payload: buffer }, [buffer]);
+    try {
+      this.worker.postMessage({ type: "decode", id, payload: buffer }, [buffer]);
+    } catch (error) {
+      this.restartWorkerAfterFailure("Replay worker failed. Pending decodes were canceled.", error);
+    }
     return result;
   }
 
@@ -116,6 +114,7 @@ export class DecodeWorkerHost {
 
     this.pending.delete(message.id);
     clearTimeout(pending.timeoutId);
+    this.restartCount = 0;
 
     if ("error" in message) {
       pending.reject(new Error(message.error));
@@ -126,24 +125,58 @@ export class DecodeWorkerHost {
   }
 
   private handleWorkerFailure(error: unknown): void {
-    const pendingEntries = [...this.pending.values()];
-    this.pending.clear();
-    this.moveToFallback();
+    this.restartWorkerAfterFailure("Replay worker failed. Pending decodes were canceled.", error);
+  }
 
-    for (const pending of pendingEntries) {
-      clearTimeout(pending.timeoutId);
-      pending.reject(error);
+  private restartWorkerAfterFailure(message: string, cause?: unknown): void {
+    if (this.restartCount >= MAX_WORKER_RESTARTS) {
+      const terminalError = new Error("Replay worker failed too many times.");
+      this.rejectAllPending(terminalError);
+      this.closeWorker();
+      this.terminalError = terminalError;
+      return;
+    }
+
+    this.rejectAllPending(makeWorkerError(message, cause));
+    this.closeWorker();
+
+    this.restartCount += 1;
+    try {
+      this.startWorker();
+    } catch {
+      this.closeWorker();
+      this.terminalError = new Error("Replay worker could not restart.");
     }
   }
 
-  private moveToFallback(): void {
+  private startWorker(): void {
+    if (this.WorkerCtor === undefined || this.createObjectUrl === undefined) {
+      throw new Error("Replay worker cannot start in this browser.");
+    }
+
+    const source = makeDecodeWorkerSource();
+    const blob = new Blob([source], { type: "text/javascript" });
+    this.objectUrl = this.createObjectUrl(blob);
+    this.worker = new this.WorkerCtor(this.objectUrl, {
+      name: "orange-replay-player-decode",
+      type: "module",
+    });
+    this.worker.onmessage = (event: MessageEvent<DecodeWorkerResponse>) => {
+      this.handleWorkerMessage(event.data);
+    };
+    this.worker.onerror = (event) => {
+      this.handleWorkerFailure(event.error ?? new Error("Replay worker failed."));
+    };
+    this.terminalError = undefined;
+  }
+
+  private closeWorker(): void {
     if (this.worker !== undefined) {
       this.worker.terminate();
       this.worker = undefined;
     }
 
     this.revokeWorkerUrl();
-    this.useSynchronousFallback();
   }
 
   private useSynchronousFallback(): void {
@@ -163,12 +196,30 @@ export class DecodeWorkerHost {
     this.revokeObjectUrl(this.objectUrl);
     this.objectUrl = undefined;
   }
+
+  private rejectAllPending(error: unknown): void {
+    const pendingEntries = [...this.pending.values()];
+    this.pending.clear();
+
+    for (const pending of pendingEntries) {
+      clearTimeout(pending.timeoutId);
+      pending.reject(error);
+    }
+  }
 }
 
 function exactArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   const buffer = new ArrayBuffer(bytes.byteLength);
   new Uint8Array(buffer).set(bytes);
   return buffer;
+}
+
+function makeWorkerError(message: string, cause: unknown): Error {
+  const error = new Error(message);
+  if (cause !== undefined) {
+    (error as Error & { cause?: unknown }).cause = cause;
+  }
+  return error;
 }
 
 function safeWorkerCtor(): typeof Worker | undefined {

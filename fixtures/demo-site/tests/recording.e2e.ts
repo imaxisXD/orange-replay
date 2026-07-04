@@ -20,7 +20,7 @@ test("records a real browser session into the local worker", async ({ page }) =>
   const sdkConsoleMessages: string[] = [];
   page.on("console", (message) => {
     const text = message.text();
-    if (text.includes("Orange Replay")) {
+    if (text.includes("Signal Board")) {
       sdkConsoleMessages.push(text);
     }
   });

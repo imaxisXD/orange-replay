@@ -1,4 +1,9 @@
-import { detectRageClickBursts, type ClickPoint, type RageBurst } from "./rage.ts";
+import {
+  detectRageClickBursts,
+  RAGE_CLICK_WINDOW_MS,
+  type ClickPoint,
+  type RageBurst,
+} from "./rage.ts";
 import { extractOverlayEvents, type CursorPoint } from "./replay-events.ts";
 import type { OverlayOptions, ReplayEvent } from "./types.ts";
 
@@ -21,6 +26,10 @@ const defaultOptions: ResolvedOverlayOptions = {
   rageOpacity: 0.78,
   trailMs: 1_000,
 };
+
+const LIVE_MIN_TRAIL_WINDOW_MS = 2_000;
+const LIVE_CLICK_WINDOW_MS = 4_000;
+const RAGE_DRAW_WINDOW_MS = 900;
 
 export class ReplayOverlay {
   private readonly canvas: HTMLCanvasElement;
@@ -66,10 +75,15 @@ export class ReplayOverlay {
     this.startedAt = startedAt;
   }
 
-  addEvents(events: readonly ReplayEvent[]): void {
+  addEvents(events: readonly ReplayEvent[], options: { liveEdgeMs?: number } = {}): void {
     const extracted = extractOverlayEvents(events, this.startedAt);
-    this.cursor = mergePoints(this.cursor, extracted.cursor);
-    this.clicks = mergePoints(this.clicks, extracted.clicks);
+    this.cursor = mergePointsByTime(this.cursor, extracted.cursor);
+    this.clicks = mergePointsByTime(this.clicks, extracted.clicks);
+
+    if (options.liveEdgeMs !== undefined) {
+      this.trimLiveWindow(options.liveEdgeMs);
+    }
+
     this.rageBursts = detectRageClickBursts(this.clicks);
   }
 
@@ -179,6 +193,20 @@ export class ReplayOverlay {
       }
     }
   }
+
+  private trimLiveWindow(liveEdgeMs: number): void {
+    const cleanLiveEdgeMs = Math.max(0, liveEdgeMs);
+    const trailWindowMs = Math.max(this.options.trailMs, LIVE_MIN_TRAIL_WINDOW_MS);
+    const clickWindowMs = Math.max(
+      LIVE_CLICK_WINDOW_MS,
+      RAGE_CLICK_WINDOW_MS + RAGE_DRAW_WINDOW_MS,
+    );
+    const cursorCutoff = Math.max(0, cleanLiveEdgeMs - trailWindowMs);
+    const clickCutoff = Math.max(0, cleanLiveEdgeMs - clickWindowMs);
+
+    this.cursor = trimPointsBefore(this.cursor, cursorCutoff);
+    this.clicks = trimPointsBefore(this.clicks, clickCutoff);
+  }
 }
 
 function resolveOptions(options: OverlayOptions): ResolvedOverlayOptions {
@@ -193,8 +221,61 @@ function resolveOptions(options: OverlayOptions): ResolvedOverlayOptions {
   };
 }
 
-function mergePoints<T extends { timeMs: number }>(left: readonly T[], right: readonly T[]): T[] {
-  return [...left, ...right].sort((a, b) => a.timeMs - b.timeMs);
+function mergePointsByTime<T extends { timeMs: number }>(
+  left: readonly T[],
+  right: readonly T[],
+): T[] {
+  if (left.length === 0) {
+    return [...right];
+  }
+
+  if (right.length === 0) {
+    return [...left];
+  }
+
+  const merged: T[] = [];
+  let leftIndex = 0;
+  let rightIndex = 0;
+
+  while (leftIndex < left.length || rightIndex < right.length) {
+    const leftPoint = left[leftIndex];
+    const rightPoint = right[rightIndex];
+
+    if (leftPoint === undefined) {
+      if (rightPoint !== undefined) {
+        merged.push(rightPoint);
+      }
+      rightIndex += 1;
+      continue;
+    }
+
+    if (rightPoint === undefined || leftPoint.timeMs <= rightPoint.timeMs) {
+      merged.push(leftPoint);
+      leftIndex += 1;
+      continue;
+    }
+
+    merged.push(rightPoint);
+    rightIndex += 1;
+  }
+
+  return merged;
+}
+
+function trimPointsBefore<T extends { timeMs: number }>(
+  points: readonly T[],
+  cutoffMs: number,
+): T[] {
+  const firstKeptIndex = points.findIndex((point) => point.timeMs >= cutoffMs);
+  if (firstKeptIndex < 0) {
+    return [];
+  }
+
+  if (firstKeptIndex === 0) {
+    return [...points];
+  }
+
+  return points.slice(firstKeptIndex);
 }
 
 function cleanOpacity(value: number | undefined, fallback: number): number {

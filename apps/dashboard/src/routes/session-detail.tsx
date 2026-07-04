@@ -14,6 +14,7 @@ import { StatusPill } from "@/components/status-pill";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -59,48 +60,68 @@ export function SessionDetailPage() {
   const [error, setError] = useState("");
   const [notFound, setNotFound] = useState(false);
   const [copied, setCopied] = useState(false);
+  const loadSerial = useRef(0);
 
-  const loadManifest = useCallback(async () => {
-    if (sessionId === undefined) return;
+  const loadManifest = useCallback(
+    async (signal?: AbortSignal) => {
+      if (sessionId === undefined) return;
 
-    setLoading(true);
-    setError("");
-    setNotFound(false);
+      loadSerial.current += 1;
+      const loadId = loadSerial.current;
+      const isStale = () => signal?.aborted === true || loadSerial.current !== loadId;
 
-    try {
-      setManifest(await getManifest(projectId, sessionId));
-      setMode("recorded");
-    } catch (caughtError) {
-      setManifest(null);
+      setLoading(true);
+      setError("");
+      setNotFound(false);
 
-      if (isNotFound(caughtError)) {
-        try {
-          const liveSessions = await fetchLiveSessions(projectId);
-          const liveSession = liveSessions.sessions.find(
-            (session) => session.session_id === sessionId,
-          );
+      try {
+        const nextManifest = await getManifest(projectId, sessionId, { signal });
+        if (isStale()) return;
+        setManifest(nextManifest);
+        setMode("recorded");
+      } catch (caughtError) {
+        if (isStale()) return;
+        setManifest(null);
 
-          if (liveSession !== undefined) {
-            setManifest(liveSessionManifest(projectId, sessionId, liveSession));
-            setMode("live");
-            return;
+        if (isNotFound(caughtError)) {
+          try {
+            const liveSessions = await fetchLiveSessions(projectId, { signal });
+            if (isStale()) return;
+            const liveSession = liveSessions.sessions.find(
+              (session) => session.session_id === sessionId,
+            );
+
+            if (liveSession !== undefined) {
+              setManifest(liveSessionManifest(projectId, sessionId, liveSession));
+              setMode("live");
+              return;
+            }
+
+            setNotFound(true);
+          } catch (liveError) {
+            if (isStale()) return;
+            setError(readErrorMessage(liveError));
           }
-
-          setNotFound(true);
-        } catch (liveError) {
-          setError(readErrorMessage(liveError));
+          return;
         }
-        return;
-      }
 
-      setError(readErrorMessage(caughtError));
-    } finally {
-      setLoading(false);
-    }
-  }, [projectId, sessionId]);
+        setError(readErrorMessage(caughtError));
+      } finally {
+        if (!isStale()) {
+          setLoading(false);
+        }
+      }
+    },
+    [projectId, sessionId],
+  );
 
   useEffect(() => {
-    void loadManifest();
+    const controller = new AbortController();
+    void loadManifest(controller.signal);
+    return () => {
+      controller.abort();
+      loadSerial.current += 1;
+    };
   }, [loadManifest]);
 
   useEffect(() => {
@@ -631,39 +652,22 @@ function ReplayPlayerCard({
         )}
 
         {!isFollowing && (
-          <button
-            className="rounded-[7px] border border-border bg-card px-2 py-1 font-mono text-[12.5px] text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-amber"
+          <Button
+            className="font-mono text-[12.5px] text-muted-foreground hover:text-foreground"
             onClick={cycleSpeed}
-            type="button"
+            size="sm"
+            variant="secondary"
           >
             {speed}×
-          </button>
+          </Button>
         )}
 
-        <button
-          aria-checked={skipIdle}
-          className="inline-flex items-center gap-2 outline-none focus-visible:ring-1 focus-visible:ring-amber"
-          onClick={() => setSkipIdle((value) => !value)}
-          role="switch"
-          type="button"
-        >
-          <span
-            className={
-              skipIdle
-                ? "relative h-4 w-7 rounded-full border border-amber bg-amber"
-                : "relative h-4 w-7 rounded-full border border-border bg-secondary"
-            }
-          >
-            <span
-              className={
-                skipIdle
-                  ? "absolute top-[2px] left-[14px] size-[10px] rounded-full bg-background transition-[left]"
-                  : "absolute top-[2px] left-[2px] size-[10px] rounded-full bg-muted-foreground transition-[left]"
-              }
-            />
-          </span>
-          <span className="text-[11.5px] text-muted-foreground">Skip idle</span>
-        </button>
+        <Switch
+          checked={skipIdle}
+          className="px-0 py-0 [&>span:last-child]:text-[11.5px]"
+          label="Skip idle"
+          onToggle={() => setSkipIdle((value) => !value)}
+        />
 
         <div className="flex gap-[5px]">
           <kbd className="rounded-[5px] border border-border bg-secondary px-[6px] py-[2px] font-mono text-[10.5px] text-muted-foreground">

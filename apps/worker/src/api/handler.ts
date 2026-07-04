@@ -143,7 +143,7 @@ async function routeRequest(
     const ids = parseProjectSessionIds(liveMatch);
     if (!ids.ok) return jsonError("invalid_path_id", 400);
     wideEvent.set({ project_id: ids.projectId, session_id: ids.sessionId });
-    return proxyLiveSession(request, env, ids.projectId, ids.sessionId);
+    return proxyLiveSession(request, env, ids.projectId, ids.sessionId, requestId);
   }
 
   return jsonError("not_found", 404);
@@ -282,6 +282,7 @@ async function proxyLiveSession(
   env: Env,
   projectId: string,
   sessionId: string,
+  requestId: string,
 ): Promise<Response> {
   if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
     return jsonError("websocket_required", 426, { upgrade: "websocket" });
@@ -294,7 +295,9 @@ async function proxyLiveSession(
     ? env.SESSION.jurisdiction(config.jurisdiction)
     : env.SESSION;
   const stub = namespace.get(namespace.idFromName(`${projectId}:${sessionId}`));
-  return stub.fetch(request);
+  const headers = new Headers(request.headers);
+  headers.set(HDR_REQUEST_ID, requestId);
+  return stub.fetch(new Request(request, { headers }));
 }
 
 async function fetchPresence(

@@ -10,6 +10,7 @@ import type {
 import { StatusPill } from "@/components/status-pill";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { InputField, InputGroup } from "@/components/ui/input-group";
 import {
   Select,
   SelectContent,
@@ -592,14 +593,15 @@ function OriginsCard({
             key={origin}
           >
             <span>{origin}</span>
-            <button
+            <Button
               aria-label={`Remove ${origin}`}
-              className="rounded-full text-dim outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-amber"
+              className="-mr-1 size-5 rounded-full text-dim hover:text-foreground [&_svg]:size-3"
               onClick={() => onRemoveOrigin(origin)}
-              type="button"
+              size="icon-sm"
+              variant="ghost"
             >
-              <X aria-hidden className="size-3" />
-            </button>
+              <X aria-hidden />
+            </Button>
           </span>
         ))}
       </div>
@@ -740,19 +742,22 @@ function NumberWithSuffix({
   value: string;
 }) {
   return (
-    <label className="flex w-[96px] items-center gap-1 rounded-[7px] border border-border bg-secondary px-2 py-[6px] text-[12px] focus-within:ring-1 focus-within:ring-amber">
-      <input
-        aria-label={ariaLabel}
-        className="min-w-0 flex-1 bg-transparent text-right font-mono outline-none placeholder:text-dim"
+    <InputGroup className="w-[96px] gap-0">
+      <InputField
+        hideLabel
+        className="font-mono"
+        endContent={<span className="text-[11.5px] text-dim">{suffix}</span>}
+        index={0}
         inputMode="decimal"
+        label={ariaLabel}
         max={max}
         min={min}
-        onChange={(event) => onChange(event.target.value)}
+        onChange={onChange}
+        style={{ textAlign: "right" }}
         type="number"
         value={value}
       />
-      <span className="text-[11.5px] text-dim">{suffix}</span>
-    </label>
+    </InputGroup>
   );
 }
 
@@ -774,19 +779,13 @@ function TextInput({
   value: string;
 }) {
   return (
-    <div
-      className={cn(
-        "flex min-h-8 items-center rounded-[7px] border border-border bg-secondary px-3 py-[6px] focus-within:ring-1 focus-within:ring-amber",
-        className,
-      )}
-    >
-      <input
-        aria-label={ariaLabel}
-        className={cn(
-          "w-full min-w-0 bg-transparent text-[12px] text-foreground outline-none placeholder:text-dim",
-          mono && "font-mono",
-        )}
-        onChange={(event) => onChange(event.target.value)}
+    <InputGroup className={cn("w-full gap-0", className)}>
+      <InputField
+        hideLabel
+        className={cn(mono && "font-mono")}
+        index={0}
+        label={ariaLabel}
+        onChange={onChange}
         onKeyDown={(event) => {
           if (event.key !== "Enter") return;
           event.preventDefault();
@@ -795,7 +794,7 @@ function TextInput({
         placeholder={placeholder}
         value={value}
       />
-    </div>
+    </InputGroup>
   );
 }
 

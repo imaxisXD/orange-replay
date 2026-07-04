@@ -21,6 +21,18 @@ describe("segment logic", () => {
     expect(findSegmentIndex(segments, 1_000, 20_000)).toBe(2);
   });
 
+  it("maps segment gaps and edges to the nearest useful segment", () => {
+    const segmentsWithGap: SegmentRef[] = [
+      { key: "p/project/session/seg-000001.ors", bytes: 10, t0: 1_000, t1: 2_000, batches: 1 },
+      { key: "p/project/session/seg-000002.ors", bytes: 10, t0: 5_000, t1: 8_000, batches: 1 },
+      { key: "p/project/session/seg-000003.ors", bytes: 10, t0: 9_000, t1: 12_000, batches: 1 },
+    ];
+
+    expect(findSegmentIndex(segmentsWithGap, 0, 500)).toBe(0);
+    expect(findSegmentIndex(segmentsWithGap, 0, 2_500)).toBe(1);
+    expect(findSegmentIndex(segmentsWithGap, 0, 20_000)).toBe(2);
+  });
+
   it("chooses the active segment and the next prefetch segment", () => {
     expect(chooseSegmentWindow(segments, 1)).toEqual({
       activeIndex: 1,

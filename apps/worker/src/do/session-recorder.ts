@@ -440,30 +440,59 @@ export class SessionRecorder extends DurableObject<Env> {
 
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
+    const requestId = request.headers.get(HDR_REQUEST_ID) ?? crypto.randomUUID();
+    const event = startWideEvent("worker", "do.live_connect", requestId);
     const wantsLiveSocket =
       url.pathname.endsWith("/live") &&
       request.headers.get("upgrade")?.toLowerCase() === "websocket";
+    let statusCode = 500;
+    let outcome: WideEventOutcome = "server_error";
+    let viewerCount = this.ctx.getWebSockets("viewer").length;
+    const pathIds = livePathIds(url.pathname);
+    let projectId = this.sessionState?.projectId ?? pathIds?.projectId;
+    let sessionId = this.sessionState?.sessionId ?? pathIds?.sessionId;
 
-    if (!wantsLiveSocket || this.sessionState === null) {
-      return Response.json({ error: "not_found" }, { status: 404 });
+    try {
+      if (!wantsLiveSocket || this.sessionState === null) {
+        const response = Response.json({ error: "not_found" }, { status: 404 });
+        statusCode = response.status;
+        outcome = "client_error";
+        return response;
+      }
+
+      projectId = this.sessionState.projectId;
+      sessionId = this.sessionState.sessionId;
+      const pair = new WebSocketPair();
+      const client = pair[0];
+      const server = pair[1];
+      this.ctx.acceptWebSocket(server, ["viewer"]);
+      this.requestCheckpointOnNextAppend();
+      viewerCount = this.ctx.getWebSockets("viewer").length;
+      server.send(
+        JSON.stringify({
+          type: "hello",
+          sessionId: this.sessionState.sessionId,
+          startedAt: this.sessionState.startedAt,
+          segments: this.segmentRefs(),
+          pendingBatches: this.pendingBatchCount(),
+        }),
+      );
+
+      statusCode = 101;
+      outcome = "success";
+      return new Response(null, { status: statusCode, webSocket: client });
+    } catch (error) {
+      event.fail(error);
+      throw error;
+    } finally {
+      event.set({
+        status_code: statusCode,
+        viewer_count: viewerCount,
+        ...(projectId === undefined ? {} : { project_id: projectId }),
+        ...(sessionId === undefined ? {} : { session_id: sessionId }),
+      });
+      event.emit(outcome);
     }
-
-    const pair = new WebSocketPair();
-    const client = pair[0];
-    const server = pair[1];
-    this.ctx.acceptWebSocket(server, ["viewer"]);
-    this.requestCheckpointOnNextAppend();
-    server.send(
-      JSON.stringify({
-        type: "hello",
-        sessionId: this.sessionState.sessionId,
-        startedAt: this.sessionState.startedAt,
-        segments: this.segmentRefs(),
-        pendingBatches: this.pendingBatchCount(),
-      }),
-    );
-
-    return new Response(null, { status: 101, webSocket: client });
   }
 
   override webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
@@ -977,6 +1006,18 @@ function testIndex(sessionId: string, tab: string, seq: number, t0: number): App
     t1: t0 + 1,
     u: `/seed-${seq}`,
     e: [{ t: t0, k: "custom", d: `seed-${seq}` }],
+  };
+}
+
+function livePathIds(pathname: string): { projectId: string; sessionId: string } | null {
+  const match = /^\/api\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/live$/.exec(pathname);
+  if (match?.[1] === undefined || match[2] === undefined) {
+    return null;
+  }
+
+  return {
+    projectId: match[1],
+    sessionId: match[2],
   };
 }
 

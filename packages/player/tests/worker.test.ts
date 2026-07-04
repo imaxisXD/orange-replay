@@ -34,6 +34,39 @@ describe("decode worker protocol", () => {
 
     expect(await host.decodeBatch(await gzipJson(events))).toEqual(events);
   });
+
+  it("rejects pending decodes on timeout and uses a restarted worker next", async () => {
+    vi.useFakeTimers();
+    try {
+      const workers = makeRestartingWorker();
+      const host = new DecodeWorkerHost({
+        WorkerCtor: workers.WorkerCtor,
+        createObjectUrl: () => "blob:decode-worker",
+        revokeObjectUrl: vi.fn(),
+        timeoutMs: 10,
+      });
+
+      const firstDecode = host.decodeBatch(encoder.encode(JSON.stringify([makeEvent(1, "one")])));
+      const secondDecode = host.decodeBatch(encoder.encode(JSON.stringify([makeEvent(2, "two")])));
+      const firstRejected = expect(firstDecode).rejects.toThrow("Pending decodes were canceled");
+      const secondRejected = expect(secondDecode).rejects.toThrow("Pending decodes were canceled");
+
+      await vi.advanceTimersByTimeAsync(10);
+
+      await firstRejected;
+      await secondRejected;
+      expect(workers.terminate).toHaveBeenCalledTimes(1);
+
+      const nextEvents = [makeEvent(3, "three")];
+      await expect(host.decodeBatch(encoder.encode(JSON.stringify(nextEvents)))).resolves.toEqual(
+        nextEvents,
+      );
+
+      host.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 function makeLinkedWorker(): {
@@ -69,6 +102,54 @@ function makeLinkedWorker(): {
   }
 
   return { WorkerCtor: FakeWorker as unknown as typeof Worker, close, terminate };
+}
+
+function makeRestartingWorker(): {
+  WorkerCtor: typeof Worker;
+  terminate: ReturnType<typeof vi.fn>;
+} {
+  let workerCount = 0;
+  const terminate = vi.fn();
+
+  class FakeWorker {
+    onmessage: ((event: MessageEvent<unknown>) => void) | null = null;
+    onerror: ((event: ErrorEvent) => void) | null = null;
+    readonly terminate = terminate;
+    private readonly shouldReply: boolean;
+    private scope:
+      | {
+          onmessage: ((event: MessageEvent<unknown>) => void) | null;
+        }
+      | undefined;
+
+    constructor() {
+      workerCount += 1;
+      this.shouldReply = workerCount > 1;
+      if (!this.shouldReply) {
+        return;
+      }
+
+      const scope = {
+        onmessage: null as ((event: MessageEvent<unknown>) => void) | null,
+        postMessage: (message: unknown) => {
+          this.onmessage?.({ data: message } as MessageEvent<unknown>);
+        },
+        close: vi.fn(),
+      };
+      installDecodeWorkerEntry(scope as Parameters<typeof installDecodeWorkerEntry>[0]);
+      this.scope = scope;
+    }
+
+    postMessage(message: unknown): void {
+      if (!this.shouldReply) {
+        return;
+      }
+
+      this.scope?.onmessage?.({ data: message } as MessageEvent<unknown>);
+    }
+  }
+
+  return { WorkerCtor: FakeWorker as unknown as typeof Worker, terminate };
 }
 
 async function gzipJson(events: readonly ReplayEvent[]): Promise<Uint8Array> {

@@ -16,8 +16,8 @@ import { ReplayOverlay } from "./overlay.ts";
 import {
   chooseSegmentWindow,
   decodeSegmentEvents,
+  eventKey,
   findSegmentIndex,
-  mergeUniqueReplayEvents,
 } from "./segments.ts";
 import { applySkipInactivity, buildTimeline, findInactivityGaps } from "./timeline.ts";
 import type {
@@ -47,6 +47,7 @@ export class OrangePlayer {
   private readonly loadingSegments = new Map<number, Promise<void>>();
   private readonly liveFrames: LiveFrameState = createLiveFrameState();
   private readonly liveKeyframes: LiveKeyframeBuffer = createLiveKeyframeBuffer();
+  private readonly seenEventKeys = new Set<string>();
   private manifest: SessionManifest | undefined;
   private timeline: PlayerTimeline | undefined;
   private gaps: InactivityGap[] = [];
@@ -66,6 +67,7 @@ export class OrangePlayer {
   private liveReconnectAttempt = 0;
   private following = false;
   private liveConnected = false;
+  private liveRebuildAfterKeyframe = false;
 
   constructor(container: HTMLElement, options: OrangePlayerOptions) {
     this.container = container;
@@ -260,27 +262,37 @@ export class OrangePlayer {
     });
     const events = await decodeSegmentEvents(bytes, this.worker);
     this.loadedSegments.add(index);
-    this.addReplayEvents(events);
+    const addedEvents = this.addReplayEvents(events);
     this.emitter.emit("segment", { index, segment, eventCount: events.length });
 
-    if (this.replayer === undefined && events.length > 0) {
+    if (this.replayer === undefined && addedEvents.length > 0) {
       this.rebuildReplayer();
     }
   }
 
-  private addReplayEvents(events: readonly ReplayEvent[]): void {
+  private addReplayEvents(
+    events: readonly ReplayEvent[],
+    options: { liveEdgeMs?: number } = {},
+  ): ReplayEvent[] {
     if (events.length === 0) {
-      return;
+      return [];
     }
 
-    this.events = mergeUniqueReplayEvents(this.events, events);
-    this.overlay.addEvents(events);
+    const newEvents = this.newReplayEvents(events);
+    if (newEvents.length === 0) {
+      return [];
+    }
+
+    this.appendReplayEvents(newEvents);
+    this.overlay.addEvents(newEvents, options);
 
     if (this.replayer !== undefined) {
-      for (const event of events) {
+      for (const event of newEvents) {
         this.replayer.addEvent(event);
       }
     }
+
+    return newEvents;
   }
 
   private rebuildReplayer(): void {
@@ -433,9 +445,15 @@ export class OrangePlayer {
     this.emitter.emit("ended", undefined);
   }
 
-  private connectLive(): void {
+  private connectLive(reconnecting = false): void {
     if (!this.following || this.destroyed) {
       return;
+    }
+
+    if (reconnecting) {
+      startWaitingForKeyframe(this.liveKeyframes);
+      this.liveRebuildAfterKeyframe = this.replayer !== undefined;
+      this.emitWaitingKeyframe();
     }
 
     const token = this.options.token;
@@ -509,8 +527,18 @@ export class OrangePlayer {
           return;
         }
 
-        this.addReplayEvents(acceptedEvents);
-        this.moveToLiveEdge(acceptedEvents);
+        const liveEdgeMs = this.latestEventOffsetMs(acceptedEvents);
+        const addedEvents = this.addReplayEvents(acceptedEvents, { liveEdgeMs });
+        if (addedEvents.length === 0) {
+          return;
+        }
+
+        if (this.liveRebuildAfterKeyframe && !this.liveKeyframes.waiting) {
+          this.liveRebuildAfterKeyframe = false;
+          this.rebuildReplayer();
+        }
+
+        this.moveToLiveEdge(addedEvents);
       })
       .catch((error) => {
         this.emitError("Could not decode live replay frame.", error);
@@ -536,7 +564,16 @@ export class OrangePlayer {
       return;
     }
 
-    const lastTimestamp = Math.max(...events.map((event) => event.timestamp));
+    let lastTimestamp = -Infinity;
+    for (const event of events) {
+      if (event.timestamp > lastTimestamp) {
+        lastTimestamp = event.timestamp;
+      }
+    }
+    if (!Number.isFinite(lastTimestamp)) {
+      return;
+    }
+
     this.currentMs = Math.max(this.currentMs, lastTimestamp - manifest.startedAt);
     // Never re-arm startLive() here: each call resets rrweb's live baseline
     // to "now", silently discarding every event recorded before this frame
@@ -558,13 +595,14 @@ export class OrangePlayer {
     this.liveReconnectAttempt += 1;
     this.liveReconnectTimer = setTimeout(() => {
       this.liveReconnectTimer = undefined;
-      this.connectLive();
+      this.connectLive(true);
     }, delay);
   }
 
   private disconnectLive(): void {
     this.following = false;
     this.liveConnected = false;
+    this.liveRebuildAfterKeyframe = false;
     stopWaitingForKeyframe(this.liveKeyframes);
 
     if (this.liveReconnectTimer !== undefined) {
@@ -590,6 +628,58 @@ export class OrangePlayer {
     }
 
     return Math.max(0, manifest.startedAt + timeMs - first.timestamp);
+  }
+
+  private newReplayEvents(events: readonly ReplayEvent[]): ReplayEvent[] {
+    const newEvents: ReplayEvent[] = [];
+    for (const event of events) {
+      const key = eventKey(event);
+      if (this.seenEventKeys.has(key)) {
+        continue;
+      }
+
+      this.seenEventKeys.add(key);
+      newEvents.push(event);
+    }
+
+    return newEvents;
+  }
+
+  private appendReplayEvents(events: readonly ReplayEvent[]): void {
+    const orderedEvents = [...events].sort((left, right) => left.timestamp - right.timestamp);
+    const lastEvent = this.events.at(-1);
+    const firstNewEvent = orderedEvents[0];
+
+    if (
+      lastEvent === undefined ||
+      firstNewEvent === undefined ||
+      firstNewEvent.timestamp >= lastEvent.timestamp
+    ) {
+      this.events.push(...orderedEvents);
+      return;
+    }
+
+    for (const event of orderedEvents) {
+      insertReplayEvent(this.events, event);
+    }
+  }
+
+  private latestEventOffsetMs(events: readonly ReplayEvent[]): number | undefined {
+    const manifest = this.manifest;
+    if (manifest === undefined) {
+      return undefined;
+    }
+
+    let latestTimestamp = -Infinity;
+    for (const event of events) {
+      if (event.timestamp > latestTimestamp) {
+        latestTimestamp = event.timestamp;
+      }
+    }
+
+    return Number.isFinite(latestTimestamp)
+      ? Math.max(0, latestTimestamp - manifest.startedAt)
+      : undefined;
   }
 
   private emitProgress(): void {
@@ -666,4 +756,22 @@ function cancelFrame(id: number): void {
   }
 
   clearTimeout(id);
+}
+
+function insertReplayEvent(events: ReplayEvent[], event: ReplayEvent): void {
+  let low = 0;
+  let high = events.length;
+
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    const existing = events[mid];
+    if (existing !== undefined && existing.timestamp <= event.timestamp) {
+      low = mid + 1;
+      continue;
+    }
+
+    high = mid;
+  }
+
+  events.splice(low, 0, event);
 }

@@ -133,9 +133,13 @@ export async function listSessions(
   return requestJson<ListSessionsResponse>(buildSessionListUrl(projectId, params), { auth: true });
 }
 
-export async function fetchLiveSessions(projectId: string): Promise<LiveSessionsResponse> {
+export async function fetchLiveSessions(
+  projectId: string,
+  options: { signal?: AbortSignal } = {},
+): Promise<LiveSessionsResponse> {
   return requestJson<LiveSessionsResponse>(`/api/v1/projects/${encodePathPart(projectId)}/live`, {
     auth: true,
+    signal: options.signal,
   });
 }
 
@@ -169,11 +173,15 @@ export async function fetchInstallStatus(projectId: string): Promise<InstallStat
   );
 }
 
-export async function getManifest(projectId: string, sessionId: string): Promise<SessionManifest> {
+export async function getManifest(
+  projectId: string,
+  sessionId: string,
+  options: { signal?: AbortSignal } = {},
+): Promise<SessionManifest> {
   const path = `/api/v1/projects/${encodePathPart(projectId)}/sessions/${encodePathPart(
     sessionId,
   )}/manifest`;
-  return requestJson<SessionManifest>(path, { auth: true });
+  return requestJson<SessionManifest>(path, { auth: true, signal: options.signal });
 }
 
 export function segmentUrl(projectId: string, sessionId: string, name: string): string {
@@ -202,6 +210,7 @@ interface RequestOptions {
   body?: unknown;
   method?: string;
   redirectOnAuthError?: boolean;
+  signal?: AbortSignal;
   token?: string;
 }
 
@@ -214,6 +223,7 @@ async function requestJson<T>(path: string, options: RequestOptions): Promise<T>
   }
 
   const init: RequestInit = { headers };
+  if (options.signal !== undefined) init.signal = options.signal;
   if (options.method !== undefined) init.method = options.method;
   if (options.body !== undefined) {
     headers.set("content-type", "application/json");
