@@ -247,3 +247,19 @@
 .lit:hover::after {
   opacity: 1;
 }
+
+@keyframes pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.live-pulse {
+  animation: pulse 1.8s infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-pulse {
+    animation: none;
+  }
+}

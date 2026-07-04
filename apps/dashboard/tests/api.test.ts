@@ -5,6 +5,7 @@ import {
   buildSessionListUrl,
   checkApiToken,
   clearApiToken,
+  fetchLiveSessions,
   getApiToken,
   health,
   listSessions,
@@ -49,6 +50,19 @@ describe("api client", () => {
 
     await listSessions("p1");
 
+    const headers = readFetchHeaders();
+    expect(headers.get("authorization")).toBe("Bearer secret-token");
+  });
+
+  it("loads live sessions with bearer auth", async () => {
+    setApiToken("secret-token");
+    fetchMock.mockResolvedValue(jsonResponse({ sessions: [] }));
+
+    await fetchLiveSessions("project 1");
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/projects/project%201/live", {
+      headers: expect.any(Headers),
+    });
     const headers = readFetchHeaders();
     expect(headers.get("authorization")).toBe("Bearer secret-token");
   });

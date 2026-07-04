@@ -41,6 +41,23 @@ export interface ListSessionsResponse {
   nextBefore: string | null;
 }
 
+export interface LiveSessionItem {
+  session_id: string;
+  started_at: number;
+  last_seen: number;
+  entry_url: string | null;
+  country: string | null;
+  city: string | null;
+  browser: string | null;
+  os: string | null;
+  device: string | null;
+  duration_ms: number;
+}
+
+export interface LiveSessionsResponse {
+  sessions: LiveSessionItem[];
+}
+
 export interface HealthResponse {
   ok: boolean;
 }
@@ -105,6 +122,12 @@ export async function listSessions(
   params: ListSessionsParams = {},
 ): Promise<ListSessionsResponse> {
   return requestJson<ListSessionsResponse>(buildSessionListUrl(projectId, params), { auth: true });
+}
+
+export async function fetchLiveSessions(projectId: string): Promise<LiveSessionsResponse> {
+  return requestJson<LiveSessionsResponse>(`/api/v1/projects/${encodePathPart(projectId)}/live`, {
+    auth: true,
+  });
 }
 
 export async function getManifest(projectId: string, sessionId: string): Promise<SessionManifest> {

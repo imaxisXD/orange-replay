@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate } from "react-router";
 import type { ReactNode } from "react";
 import { AppShell } from "@/routes/app-shell";
 import { LoginPage } from "@/routes/login";
+import { LivePage } from "@/routes/live";
 import { RequireAuth } from "@/routes/require-auth";
 import { RouteError } from "@/routes/route-error";
 import { SessionDetailPage } from "@/routes/session-detail";
@@ -52,6 +53,10 @@ export const router = createBrowserRouter([
           {
             path: "sessions/:sessionId",
             element: <SessionDetailPage />,
+          },
+          {
+            path: "live",
+            element: <LivePage />,
           },
           {
             path: "settings",

@@ -84,6 +84,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
 
         <nav className="flex gap-1 border-b border-border bg-[rgba(10,10,12,0.85)] px-[28px]">
           <TopNavTab label="Sessions" to={`/projects/${projectId}/sessions`} />
+          <TopNavTab label="Live" to={`/projects/${projectId}/live`} />
           <TopNavTab label="Settings" to={`/projects/${projectId}/settings`} />
         </nav>
       </header>
