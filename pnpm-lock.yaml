@@ -355,6 +355,31 @@ importers:
         specifier: ^1.57.0
         version: 1.61.1
 
+  packages/player:
+    dependencies:
+      '@orange-replay/shared':
+        specifier: workspace:*
+        version: link:../shared
+      rrweb:
+        specifier: 2.1.0
+        version: 2.1.0
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.13.2
+      happy-dom:
+        specifier: ^20.10.6
+        version: 20.10.6
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vite:
+        specifier: npm:@voidzero-dev/vite-plus-core@0.2.2
+        version: '@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(typescript@5.9.3)(yaml@2.9.0)'
+      vite-plus:
+        specifier: 'catalog:'
+        version: 0.2.2(@types/node@24.13.2)(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(typescript@5.9.3)(yaml@2.9.0))(esbuild@0.28.1)(happy-dom@20.10.6)(jiti@2.7.0)(jsdom@29.1.1)(typescript@5.9.3)(yaml@2.9.0)
+
   packages/rrweb-fork:
     devDependencies:
       '@types/node':
@@ -1537,6 +1562,12 @@ packages:
   '@rolldown/pluginutils@1.0.1':
     resolution: {integrity: sha512-2j9bGt5Jh8hj+vPtgzPtl72j0yRxHAyumoo6TNfAjsLB04UtpSvPbPcDcBMxz7n+9CYB0c1GxQFxYRg2jimqGw==}
 
+  '@rrweb/types@2.1.0':
+    resolution: {integrity: sha512-svOHkcuukP6rIjz2umwVsS7uYct+2h0N97+bg+8IJYKIUj5+YjwIvqx5y9NILFKPIu3yk+Mb+KDFfJ8RV+4JlA==}
+
+  '@rrweb/utils@2.1.0':
+    resolution: {integrity: sha512-hU7MT3TSdD+Do7FmMoHrBfPevFCheN5vo2mn97Y4vbXuwemopAmo8dqo5KJeMaA6oQQt7FinHJ0Xqb7k68Ci6Q==}
+
   '@sindresorhus/is@7.2.0':
     resolution: {integrity: sha512-P1Cz1dWaFfR4IR+U13mqqiGsLFf1KbayybWwdd2vfctdV6hDpUkgCY0nKOLLTMSoRd/jJNjtbqzf13K8DCCXQw==}
     engines: {node: '>=18'}
@@ -1656,6 +1687,9 @@ packages:
 
   '@types/chai@5.2.3':
     resolution: {integrity: sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA==}
+
+  '@types/css-font-loading-module@0.0.7':
+    resolution: {integrity: sha512-nl09VhutdjINdWyXxHWN/w9zlNCfr60JUqJbd24YXUuCwgeL0TpFSdElCwb6cxfB6ybE19Gjj4g0jsgkXxKv1Q==}
 
   '@types/deep-eql@4.0.2':
     resolution: {integrity: sha512-c9h9dVVMigMPc4bwTvC5dxqtqJZwQPePsWjPlpSOnojbor6pGqdk541lfA7AqFQr5pB1BRdq0juY9db81BwyFw==}
@@ -1841,6 +1875,9 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@xstate/fsm@1.6.5':
+    resolution: {integrity: sha512-b5o1I6aLNeYlU/3CPlj/Z91ybk1gUsKT+5NAJI+2W4UjvS5KLG28K9v5UvNoFVjHV8PajVZ00RH3vnjyQO7ZAw==}
+
   ansi-regex@5.0.1:
     resolution: {integrity: sha512-quJQXlTSUGL2LH9SUXo8VwsY4soanhgo6LNSm84E1LBcE8s3O0wpdiRzyR9z/ZZJMlMWv37qOOb9pdJlMUEKFQ==}
     engines: {node: '>=8'}
@@ -1859,6 +1896,10 @@ packages:
   assertion-error@2.0.1:
     resolution: {integrity: sha512-Izi8RQcffqCeNVgFigKli1ssklIbpHnCYc6AknXGYoB6grJqyeby7jv12JUQgmTAnIDnbck1uxksT4dzN3PWBA==}
     engines: {node: '>=12'}
+
+  base64-arraybuffer@1.0.2:
+    resolution: {integrity: sha512-I3yl4r9QB5ZRY3XuJVEPfc2XhZO6YweFPI+UovAzn+8/hb3oJ6lnysaFcjVpkCPfVWFUDvoZ8kmVDP7WyRtYtQ==}
+    engines: {node: '>= 0.6.0'}
 
   bidi-js@1.0.3:
     resolution: {integrity: sha512-RKshQI1R3YQ+n9YJz2QQ147P66ELpa1FQEg20Dk8oW9t2KgLbpDLLp9aGZ7y8WHSshDknG0bknqGw5/tyCs5tw==}
@@ -2115,6 +2156,9 @@ packages:
     engines: {node: '>=22.0.0'}
     hasBin: true
 
+  mitt@3.0.1:
+    resolution: {integrity: sha512-vKivATfr97l2/QBCYAkXYDbrIWPM2IIKEl7YPhjCvKlG3kE2gm+uBo6nEXK3M5/Ffh/FLpKExzOQ3JJoJGFKBw==}
+
   motion-dom@12.42.2:
     resolution: {integrity: sha512-5gIMWLp/PycBtJRJWRgjxke5n8dlvkSn2DrYW+tr3XcqAZY1xZh6BJyooJXCM8wdfM7wfMjkBJNLge1CKPUIRA==}
 
@@ -2264,6 +2308,15 @@ packages:
 
   reselect@5.2.0:
     resolution: {integrity: sha512-AgZ3UOZm3YndfrJ4OYjgrT7bmCm/1iqkjvEfH/oYjzh6PD2qw4QuT3jjnXIrpdt4MTpMXclMT3lXbmRY+XRakw==}
+
+  rrdom@2.1.0:
+    resolution: {integrity: sha512-d7oaIHzwffxI74UJMZDGq/f97/Yfm3QX4CcTIlQelt2HsLavItLjp8x8nQ0g9Pet5+5wG1RGr9yvsxb1gJlo8A==}
+
+  rrweb-snapshot@2.1.0:
+    resolution: {integrity: sha512-CFjUKWlO+Dl72gk8qwcDcNE/Pj9yr6IvGRAiRAx12pmJaSWaOKFoFgpQQ1j/mW0WKwEZXbHnMJL8M92gIsdwUQ==}
+
+  rrweb@2.1.0:
+    resolution: {integrity: sha512-gGGvd1eXWnOuJpQumH7+gPmBwTXzNrjmQyedWVePcEx0S5fe3VkQW4vw5f5ItY+vuigaaktte9cZKOg0OEvv+w==}
 
   saxes@6.0.0:
     resolution: {integrity: sha512-xAg7SOnEhrm5zI3puOOKyy1OMcMlIJZYNJY7xLBwSze0UjhPLnWfj2GF2EpT0jmzaJKIWKHLsaSSajf35bcYnA==}
@@ -3316,6 +3369,10 @@ snapshots:
 
   '@rolldown/pluginutils@1.0.1': {}
 
+  '@rrweb/types@2.1.0': {}
+
+  '@rrweb/utils@2.1.0': {}
+
   '@sindresorhus/is@7.2.0': {}
 
   '@speed-highlight/core@1.2.17': {}
@@ -3411,6 +3468,8 @@ snapshots:
     dependencies:
       '@types/deep-eql': 4.0.2
       assertion-error: 2.0.1
+
+  '@types/css-font-loading-module@0.0.7': {}
 
   '@types/deep-eql@4.0.2': {}
 
@@ -3598,6 +3657,8 @@ snapshots:
   '@voidzero-dev/vite-plus-win32-x64-msvc@0.2.2':
     optional: true
 
+  '@xstate/fsm@1.6.5': {}
+
   ansi-regex@5.0.1: {}
 
   ansi-styles@5.2.0: {}
@@ -3611,6 +3672,8 @@ snapshots:
       dequal: 2.0.3
 
   assertion-error@2.0.1: {}
+
+  base64-arraybuffer@1.0.2: {}
 
   bidi-js@1.0.3:
     dependencies:
@@ -3857,6 +3920,8 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
+  mitt@3.0.1: {}
+
   motion-dom@12.42.2:
     dependencies:
       motion-utils: 12.39.0
@@ -4059,6 +4124,25 @@ snapshots:
   require-from-string@2.0.2: {}
 
   reselect@5.2.0: {}
+
+  rrdom@2.1.0:
+    dependencies:
+      rrweb-snapshot: 2.1.0
+
+  rrweb-snapshot@2.1.0:
+    dependencies:
+      postcss: 8.5.16
+
+  rrweb@2.1.0:
+    dependencies:
+      '@rrweb/types': 2.1.0
+      '@rrweb/utils': 2.1.0
+      '@types/css-font-loading-module': 0.0.7
+      '@xstate/fsm': 1.6.5
+      base64-arraybuffer: 1.0.2
+      mitt: 3.0.1
+      rrdom: 2.1.0
+      rrweb-snapshot: 2.1.0
 
   saxes@6.0.0:
     dependencies:
