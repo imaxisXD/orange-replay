@@ -1,0 +1,67 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "orange-replay",
+  "main": "../../apps/worker/src/index.ts",
+  "compatibility_date": "2026-06-01",
+  "observability": {
+    "enabled": true,
+  },
+  "durable_objects": {
+    "bindings": [
+      // # created by setup docs: deploy creates the SESSION Durable Object namespace.
+      { "name": "SESSION", "class_name": "SessionRecorder" },
+      // # created by setup docs: deploy creates the PRESENCE Durable Object namespace.
+      { "name": "PRESENCE", "class_name": "PresenceRegistry" },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["SessionRecorder"],
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["PresenceRegistry"],
+    },
+  ],
+  "r2_buckets": [
+    // # created by setup docs: run `wrangler r2 bucket create orange-replay-recordings`.
+    { "binding": "RECORDINGS", "bucket_name": "orange-replay-recordings" },
+  ],
+  "kv_namespaces": [
+    // # created by setup docs: run `wrangler kv namespace create CONFIG`.
+    { "binding": "CONFIG", "id": "REPLACE_WITH_KV_ID" },
+  ],
+  "d1_databases": [
+    // # created by setup docs: run `wrangler d1 create orange-replay-idx-00`.
+    {
+      "binding": "IDX_00",
+      "database_name": "orange-replay-idx-00",
+      "database_id": "REPLACE_WITH_D1_ID",
+      "migrations_dir": "migrations",
+    },
+  ],
+  "queues": {
+    "producers": [
+      // # created by setup docs: run `wrangler queues create or-session-finalized`.
+      { "binding": "FINALIZE_QUEUE", "queue": "or-session-finalized" },
+    ],
+    "consumers": [
+      // # created by setup docs: run `wrangler queues create or-dlq` for the dead-letter queue.
+      {
+        "queue": "or-session-finalized",
+        "max_batch_size": 100,
+        "max_batch_timeout": 5,
+        "max_retries": 10,
+        "dead_letter_queue": "or-dlq",
+      },
+    ],
+  },
+  "triggers": {
+    "crons": ["17 3 * * *"],
+  },
+  "vars": {
+    // DEV_API_TOKEN is created with `wrangler secret put DEV_API_TOKEN`.
+    // Do not put the token value in this file.
+  },
+}

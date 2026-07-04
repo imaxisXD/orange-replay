@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "budget": "vp run @orange-replay/sdk#budget",
+    "mirror-template": "node scripts/mirror-template.mjs",
     "ready": "vp check && vp run -r test && vp run -r build",
     "prepare": "vp config"
   },
