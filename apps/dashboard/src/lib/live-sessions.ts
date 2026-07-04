@@ -1,5 +1,5 @@
 import type { LiveSessionItem } from "@/lib/api";
-import { formatDuration } from "@/lib/format";
+import { formatDuration } from "./format";
 
 export const livePollIntervalMs = 5_000;
 

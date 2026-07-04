@@ -254,12 +254,29 @@
   }
 }
 
+@keyframes timeline-playhead-flash {
+  0% {
+    filter: drop-shadow(0 0 0 rgba(245, 166, 35, 0));
+  }
+  35% {
+    filter: drop-shadow(0 0 12px rgba(245, 166, 35, 0.95));
+  }
+  100% {
+    filter: drop-shadow(0 0 0 rgba(245, 166, 35, 0));
+  }
+}
+
 .live-pulse {
   animation: pulse 1.8s infinite;
 }
 
+.timeline-playhead-flash {
+  animation: timeline-playhead-flash 520ms ease-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .live-pulse {
+  .live-pulse,
+  .timeline-playhead-flash {
     animation: none;
   }
 }
