@@ -10,6 +10,7 @@ import { handleIngest } from "./ingest/handler.ts";
 import { handleTestRoutes } from "./test/harness-routes.ts";
 
 export { SessionRecorder } from "./do/session-recorder.ts";
+export { PresenceRegistry } from "./do/presence-registry.ts";
 
 export default {
   async fetch(request, env, ctx): Promise<Response> {

@@ -43,6 +43,7 @@ export interface SessionState {
   entryUrl?: string;
   urlCount: number;
   encKeyId?: string;
+  lastPresencePingAt?: number;
 }
 
 export type AppendFlushReason = "bytes" | "interval";

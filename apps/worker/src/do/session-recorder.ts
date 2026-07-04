@@ -1,6 +1,7 @@
 import {
   buildSegment,
   encodeIngestBody,
+  HDR_REQUEST_ID,
   manifestKey,
   segmentKey,
   startWideEvent,
@@ -15,6 +16,7 @@ import type {
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "../env.ts";
 import type { AppendArgs, AppendResult } from "./contract.ts";
+import { resolvePresenceTiming, shouldSendPresencePing } from "./presence-logic.ts";
 import {
   buildSessionManifest,
   capFinalizeMessageToBudget,
@@ -136,6 +138,7 @@ export class SessionRecorder extends DurableObject<Env> {
     let flushReason: SegmentFlushReason | undefined;
     let viewerCount = 0;
     let bufferedBytes = this.sessionState?.bufferedBytes ?? 0;
+    let presencePingError: string | undefined;
 
     try {
       let state = this.sessionState;
@@ -200,6 +203,19 @@ export class SessionRecorder extends DurableObject<Env> {
       }
 
       updateStateWithBatch(state, args, clampedIndex);
+
+      const presenceTiming = resolvePresenceTiming(this.env.DEV_TEST_ROUTES, this.env.TEST_TIMINGS);
+      if (
+        shouldSendPresencePing({
+          lastPingAt: state.lastPresencePingAt,
+          now: args.receivedAt,
+          heartbeatMs: presenceTiming.heartbeatMs,
+        })
+      ) {
+        state.lastPresencePingAt = args.receivedAt;
+        presencePingError = this.queuePresencePing(state, args.requestId, args.receivedAt);
+      }
+
       this.sessionState = state;
       this.persistState(state);
       bufferedBytes = state.bufferedBytes;
@@ -246,6 +262,9 @@ export class SessionRecorder extends DurableObject<Env> {
       }
       if (dropReason !== undefined) {
         event.set({ reason: dropReason });
+      }
+      if (presencePingError !== undefined) {
+        event.set({ presence_ping_error: presencePingError });
       }
       event.emit(outcome);
     }
@@ -661,6 +680,7 @@ export class SessionRecorder extends DurableObject<Env> {
     let bytes = 0;
     let batchCount = 0;
     let timelineEventsDropped = 0;
+    let presenceRemoveError: string | undefined;
 
     try {
       if (stateBeforeFlush === null) {
@@ -712,6 +732,11 @@ export class SessionRecorder extends DurableObject<Env> {
       } satisfies FinalizeMessage);
 
       await this.env.FINALIZE_QUEUE.send(message, { contentType: "json" });
+      presenceRemoveError = this.queuePresenceRemove(
+        state.projectId,
+        state.sessionId,
+        state.firstRequestId,
+      );
 
       for (const socket of this.ctx.getWebSockets("viewer")) {
         try {
@@ -749,7 +774,81 @@ export class SessionRecorder extends DurableObject<Env> {
         batch_count: batchCount,
         timeline_events_dropped: timelineEventsDropped,
       });
+      if (presenceRemoveError !== undefined) {
+        event.set({ presence_remove_error: presenceRemoveError });
+      }
       event.emit();
+    }
+  }
+
+  private queuePresencePing(
+    state: SessionState,
+    requestId: string,
+    lastSeen: number,
+  ): string | undefined {
+    try {
+      this.throwIfPresenceFailsForTest();
+      const task = this.fetchPresence("/ping", requestId, {
+        projectId: state.projectId,
+        sessionId: state.sessionId,
+        startedAt: state.startedAt,
+        lastSeen,
+        entryUrl: state.entryUrl ?? null,
+        country: state.attrs.country ?? null,
+        city: state.attrs.city ?? null,
+        browser: state.attrs.browser ?? null,
+        os: state.attrs.os ?? null,
+        device: state.attrs.device ?? null,
+      }).catch(() => undefined);
+      this.ctx.waitUntil(task);
+      return undefined;
+    } catch (error) {
+      return errorMessage(error);
+    }
+  }
+
+  private queuePresenceRemove(
+    projectId: string,
+    sessionId: string,
+    requestId: string,
+  ): string | undefined {
+    try {
+      this.throwIfPresenceFailsForTest();
+      const task = this.fetchPresence("/remove", requestId, {
+        projectId,
+        sessionId,
+      }).catch(() => undefined);
+      this.ctx.waitUntil(task);
+      return undefined;
+    } catch (error) {
+      return errorMessage(error);
+    }
+  }
+
+  private async fetchPresence(path: "/ping" | "/remove", requestId: string, body: unknown) {
+    const projectId = (body as { projectId?: string }).projectId;
+    if (projectId === undefined) {
+      throw new Error("projectId is required");
+    }
+
+    const stub = this.env.PRESENCE.get(this.env.PRESENCE.idFromName(projectId));
+    const response = await stub.fetch(`https://presence.internal${path}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        [HDR_REQUEST_ID]: requestId,
+      },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      throw new Error(`presence registry returned ${response.status}`);
+    }
+  }
+
+  private throwIfPresenceFailsForTest(): void {
+    const timing = resolvePresenceTiming(this.env.DEV_TEST_ROUTES, this.env.TEST_TIMINGS);
+    if (timing.forceFailure) {
+      throw new Error("presence registry is unavailable");
     }
   }
 
@@ -847,4 +946,8 @@ function makeTestPayload(size: number, seq: number): Uint8Array {
   const payload = new Uint8Array(Math.max(0, size));
   payload.fill((seq % 251) + 1);
   return payload;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

@@ -19,6 +19,8 @@ export const SEGMENT_FLUSH_BYTES = 1024 * 1024;
 export const SEGMENT_FLUSH_INTERVAL_MS = 30_000;
 export const FLUSH_TAIL_AFTER_IDLE_MS = 120_000;
 export const CLOSE_SESSION_AFTER_IDLE_MS = 1_800_000;
+export const PRESENCE_TTL_MS = 60_000;
+export const PRESENCE_HEARTBEAT_MS = 20_000;
 
 export function sessionPrefix(projectId: string, sessionId: string): string {
   return `p/${projectId}/${sessionId}`;

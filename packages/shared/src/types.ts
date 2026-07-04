@@ -71,6 +71,21 @@ export interface SessionManifest {
   attrs: EdgeAttrs & { entryUrl?: string; urlCount?: number };
 }
 
+export type ProjectJurisdiction = "eu" | "fedramp";
+export type ProjectQuotaState = "ok" | "soft" | "exceeded";
+
+export interface MaskRule {
+  selector: string;
+  action: "mask" | "block";
+}
+
+export interface CaptureToggles {
+  heatmaps: boolean;
+  console: boolean;
+  network: boolean;
+  canvas: boolean;
+}
+
 export interface ProjectConfig {
   projectId: string;
   orgId: string;
@@ -79,9 +94,28 @@ export interface ProjectConfig {
   sampleRate: number;
   allowedOrigins: string[];
   maskPolicyVersion: number;
-  quotaState: "ok" | "soft" | "exceeded";
+  maskRules?: MaskRule[];
+  capture?: CaptureToggles;
+  quotaState: ProjectQuotaState;
   retentionDays: number;
-  jurisdiction?: "eu" | "fedramp";
+  jurisdiction?: ProjectJurisdiction;
+  version?: number;
+}
+
+export interface StoredProjectConfig extends ProjectConfig {
+  maskRules: MaskRule[];
+  capture: CaptureToggles;
+  version: number;
+}
+
+export interface ProjectConfigUpdate {
+  sampleRate: number;
+  allowedOrigins: string[];
+  maskPolicyVersion: number;
+  maskRules: MaskRule[];
+  capture: CaptureToggles;
+  quotaState: ProjectQuotaState;
+  jurisdiction?: ProjectJurisdiction | null;
 }
 
 export interface FinalizeMessage {

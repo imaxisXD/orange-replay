@@ -19,6 +19,7 @@ const workerDir = fileURLToPath(new URL("..", import.meta.url));
 const payloadBytes = new TextEncoder().encode("payload");
 
 let worker: Awaited<ReturnType<typeof unstable_dev>>;
+let workerWithPresenceFailure: Awaited<ReturnType<typeof unstable_dev>>;
 let id = 0;
 
 beforeAll(async () => {
@@ -32,8 +33,23 @@ beforeAll(async () => {
   await seedKey("setup-key", makeConfig(), false);
 }, 120_000);
 
+beforeAll(async () => {
+  workerWithPresenceFailure = await unstable_dev(`${workerDir}src/index.ts`, {
+    config: `${workerDir}wrangler.jsonc`,
+    vars: {
+      DEV_TEST_ROUTES: "1",
+      TEST_TIMINGS: JSON.stringify({ forcePresenceFailure: true }),
+    },
+    persist: false,
+    experimental: { disableExperimentalWarning: true },
+  });
+
+  await seedKey("presence-failure-key", makeConfig(), true, workerWithPresenceFailure);
+}, 120_000);
+
 afterAll(async () => {
   await worker?.stop();
+  await workerWithPresenceFailure?.stop();
 });
 
 describe("ingest route", () => {
@@ -253,14 +269,35 @@ describe("ingest route", () => {
 
     expect(res.status).toBe(200);
   });
+
+  it("keeps ingest successful when the presence registry is unavailable", async () => {
+    const sessionId = nextSessionId("presencefail");
+    const res = await postIngest(
+      {
+        key: "presence-failure-key",
+        sessionId,
+        tab: "tab_presence_fail",
+        seq: 0,
+        body: makeBody(sessionId, "tab_presence_fail", 0),
+      },
+      workerWithPresenceFailure,
+    );
+
+    expect(res.status).toBe(200);
+    expect((await res.json()) as IngestAck).toMatchObject({
+      ok: true,
+      live: false,
+    });
+  });
 });
 
 async function seedKey(
   key: string,
   config: ProjectConfig,
   kv: boolean,
+  targetWorker = worker,
 ): Promise<{ keyHash: string }> {
-  const res = await worker.fetch("/__test/ingest/seed", {
+  const res = await targetWorker.fetch("/__test/ingest/seed", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ key, config, kv }),
@@ -269,22 +306,25 @@ async function seedKey(
   return (await res.json()) as { keyHash: string };
 }
 
-async function postIngest(input: {
-  key: string;
-  sessionId: string;
-  tab: string;
-  seq: number;
-  body: Uint8Array;
-  flags?: number;
-  origin?: string;
-}): Promise<Response> {
+async function postIngest(
+  input: {
+    key: string;
+    sessionId: string;
+    tab: string;
+    seq: number;
+    body: Uint8Array;
+    flags?: number;
+    origin?: string;
+  },
+  targetWorker = worker,
+): Promise<Response> {
   const headers = ingestHeaders(input.key, input.sessionId, input.tab, input.seq, input.flags);
   headers["content-length"] = String(input.body.byteLength);
   if (input.origin !== undefined) {
     headers["origin"] = input.origin;
   }
 
-  return worker.fetch("/v1/ingest", {
+  return targetWorker.fetch("/v1/ingest", {
     method: "POST",
     headers,
     body: input.body,

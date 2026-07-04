@@ -4,7 +4,9 @@ import type {
   BatchIndex,
   FinalizeMessage,
   IndexEvent,
+  ProjectConfigUpdate,
   ProjectConfig,
+  StoredProjectConfig,
   SegmentRef,
   SessionCounts,
   SessionManifest,
@@ -78,6 +80,42 @@ const sessionCountsSchema: z.ZodType<SessionCounts> = z
   })
   .strict();
 
+export const maskRuleSchema = z
+  .object({
+    selector: z.string().min(1).max(500),
+    action: z.enum(["mask", "block"]),
+  })
+  .strict();
+
+export const maskRulesSchema = z.array(maskRuleSchema);
+
+export const captureTogglesSchema = z
+  .object({
+    heatmaps: z.boolean(),
+    console: z.boolean(),
+    network: z.boolean(),
+    canvas: z.boolean(),
+  })
+  .strict();
+
+const projectConfigObject = z
+  .object({
+    projectId: z.string(),
+    orgId: z.string(),
+    shard: z.number().int().nonnegative(),
+    active: z.boolean(),
+    sampleRate: z.number().min(0).max(1),
+    allowedOrigins: z.array(z.string()),
+    maskPolicyVersion: z.number().int().nonnegative(),
+    maskRules: maskRulesSchema.optional(),
+    capture: captureTogglesSchema.optional(),
+    quotaState: z.enum(["ok", "soft", "exceeded"]),
+    retentionDays: z.number().int().nonnegative(),
+    jurisdiction: z.enum(["eu", "fedramp"]).optional(),
+    version: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+
 export const batchIndexSchema: z.ZodType<BatchIndex> = z
   .object({
     v: z.literal(1),
@@ -96,18 +134,25 @@ export const batchIndexSchema: z.ZodType<BatchIndex> = z
     path: ["t1"],
   });
 
-export const projectConfigSchema: z.ZodType<ProjectConfig> = z
+export const projectConfigSchema: z.ZodType<ProjectConfig> = projectConfigObject;
+
+export const storedProjectConfigSchema: z.ZodType<StoredProjectConfig> = projectConfigObject
+  .extend({
+    maskRules: maskRulesSchema,
+    capture: captureTogglesSchema,
+    version: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const projectConfigUpdateSchema: z.ZodType<ProjectConfigUpdate> = z
   .object({
-    projectId: z.string(),
-    orgId: z.string(),
-    shard: z.number().int().nonnegative(),
-    active: z.boolean(),
     sampleRate: z.number().min(0).max(1),
-    allowedOrigins: z.array(z.string()),
+    allowedOrigins: z.array(z.string().min(1).max(500)).max(100),
     maskPolicyVersion: z.number().int().nonnegative(),
+    maskRules: maskRulesSchema.max(200),
+    capture: captureTogglesSchema,
     quotaState: z.enum(["ok", "soft", "exceeded"]),
-    retentionDays: z.number().int().nonnegative(),
-    jurisdiction: z.enum(["eu", "fedramp"]).optional(),
+    jurisdiction: z.enum(["eu", "fedramp"]).nullable().optional(),
   })
   .strict();
 

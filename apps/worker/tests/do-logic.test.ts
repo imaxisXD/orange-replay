@@ -5,6 +5,8 @@ import {
   MAX_BATCHES_PER_SEGMENT,
   SEGMENT_FLUSH_BYTES,
   SEGMENT_FLUSH_INTERVAL_MS,
+  PRESENCE_HEARTBEAT_MS,
+  PRESENCE_TTL_MS,
 } from "@orange-replay/shared";
 import type { FinalizeMessage } from "@orange-replay/shared";
 import {
@@ -22,6 +24,11 @@ import {
   shouldSetAlarm,
 } from "../src/do/session-logic.ts";
 import type { SegmentForManifest, SessionState } from "../src/do/session-logic.ts";
+import {
+  liveSessionsFromPresenceRows,
+  resolvePresenceTiming,
+  shouldSendPresencePing,
+} from "../src/do/presence-logic.ts";
 
 describe("SessionRecorder pure logic", () => {
   it("uses default timings unless dev test routes are enabled", () => {
@@ -336,5 +343,88 @@ describe("SessionRecorder pure logic", () => {
         flushTailMs: 500,
       }),
     ).toBe(false);
+  });
+});
+
+describe("PresenceRegistry pure logic", () => {
+  it("uses default timings unless dev test routes are enabled", () => {
+    expect(resolvePresenceTiming(undefined, JSON.stringify({ presenceTtlMs: 1 }))).toEqual({
+      ttlMs: PRESENCE_TTL_MS,
+      heartbeatMs: PRESENCE_HEARTBEAT_MS,
+      forceFailure: false,
+    });
+
+    expect(
+      resolvePresenceTiming(
+        "1",
+        JSON.stringify({
+          presenceTtlMs: 100,
+          presenceHeartbeatMs: 50,
+          forcePresenceFailure: true,
+        }),
+      ),
+    ).toEqual({
+      ttlMs: 100,
+      heartbeatMs: 50,
+      forceFailure: true,
+    });
+  });
+
+  it("throttles pings by heartbeat window", () => {
+    expect(
+      shouldSendPresencePing({
+        lastPingAt: undefined,
+        now: 1000,
+        heartbeatMs: 200,
+      }),
+    ).toBe(true);
+    expect(
+      shouldSendPresencePing({
+        lastPingAt: 1000,
+        now: 1100,
+        heartbeatMs: 200,
+      }),
+    ).toBe(false);
+    expect(
+      shouldSendPresencePing({
+        lastPingAt: 1000,
+        now: 1200,
+        heartbeatMs: 200,
+      }),
+    ).toBe(true);
+  });
+
+  it("adds live durations without changing stored presence rows", () => {
+    expect(
+      liveSessionsFromPresenceRows(
+        [
+          {
+            session_id: "session",
+            started_at: 1000,
+            last_seen: 1500,
+            entry_url: "/",
+            country: "US",
+            city: null,
+            browser: "Chrome",
+            os: "macOS",
+            device: "desktop",
+          },
+        ],
+        1800,
+      ),
+    ).toEqual([
+      {
+        session_id: "session",
+        started_at: 1000,
+        last_seen: 1500,
+        entry_url: "/",
+        country: "US",
+        city: null,
+        browser: "Chrome",
+        os: "macOS",
+        device: "desktop",
+        duration_ms: 800,
+      },
+    ]);
   });
 });

@@ -7,9 +7,15 @@
     "enabled": true,
   },
   "durable_objects": {
-    "bindings": [{ "name": "SESSION", "class_name": "SessionRecorder" }],
+    "bindings": [
+      { "name": "SESSION", "class_name": "SessionRecorder" },
+      { "name": "PRESENCE", "class_name": "PresenceRegistry" },
+    ],
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SessionRecorder"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["SessionRecorder"] },
+    { "tag": "v2", "new_sqlite_classes": ["PresenceRegistry"] },
+  ],
   "r2_buckets": [{ "binding": "RECORDINGS", "bucket_name": "orange-replay-recordings" }],
   "kv_namespaces": [{ "binding": "CONFIG", "id": "local-config" }],
   "d1_databases": [

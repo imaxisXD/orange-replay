@@ -5,6 +5,8 @@ import {
   startWideEvent,
   uuidv7,
 } from "@orange-replay/shared";
+import type { PresenceSession } from "../do/presence-logic.ts";
+import { liveSessionsFromPresenceRows } from "../do/presence-logic.ts";
 import { shardDb, type Env } from "../env.ts";
 import {
   buildSessionsQuery,
@@ -15,6 +17,11 @@ import {
   parseSessionListQuery,
   type SessionRow,
 } from "./helpers.ts";
+import {
+  parseProjectConfigUpdate,
+  readStoredProjectConfig,
+  writeStoredProjectConfig,
+} from "./project-config.ts";
 
 const encoder = new TextEncoder();
 
@@ -32,7 +39,7 @@ export async function handleApi(
   wideEvent.set({ route });
 
   try {
-    const response = await routeRequest(request, url, env, ctx, wideEvent);
+    const response = await routeRequest(request, url, env, ctx, wideEvent, requestId);
     statusCode = response.status;
     return response;
   } catch (err) {
@@ -52,6 +59,7 @@ async function routeRequest(
   env: Env,
   ctx: ExecutionContext,
   wideEvent: ReturnType<typeof startWideEvent>,
+  requestId: string,
 ): Promise<Response> {
   if (request.method === "GET" && url.pathname === "/api/v1/health") {
     return Response.json({ ok: true });
@@ -66,6 +74,31 @@ async function routeRequest(
     if (!projectId || !isValidPathId(projectId)) return jsonError("invalid_path_id", 400);
     wideEvent.set({ project_id: projectId });
     return listSessions(url, env, projectId);
+  }
+
+  const projectLiveMatch = /^\/api\/v1\/projects\/([^/]+)\/live$/.exec(url.pathname);
+  if (request.method === "GET" && projectLiveMatch) {
+    const projectId = projectLiveMatch[1];
+    if (!projectId || !isValidPathId(projectId)) return jsonError("invalid_path_id", 400);
+    wideEvent.set({ project_id: projectId });
+    return listLiveSessions(env, projectId, requestId);
+  }
+
+  const configMatch = /^\/api\/v1\/projects\/([^/]+)\/config$/.exec(url.pathname);
+  if (configMatch) {
+    const projectId = configMatch[1];
+    if (!projectId || !isValidPathId(projectId)) return jsonError("invalid_path_id", 400);
+    wideEvent.set({ project_id: projectId });
+    if (request.method === "GET") return getProjectConfig(env, projectId);
+    if (request.method === "PUT") return putProjectConfig(request, env, projectId, wideEvent);
+  }
+
+  const installStatusMatch = /^\/api\/v1\/projects\/([^/]+)\/install-status$/.exec(url.pathname);
+  if (request.method === "GET" && installStatusMatch) {
+    const projectId = installStatusMatch[1];
+    if (!projectId || !isValidPathId(projectId)) return jsonError("invalid_path_id", 400);
+    wideEvent.set({ project_id: projectId });
+    return getInstallStatus(env, projectId, requestId);
   }
 
   const manifestMatch = /^\/api\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/manifest$/.exec(
@@ -105,6 +138,55 @@ async function routeRequest(
   }
 
   return jsonError("not_found", 404);
+}
+
+async function listLiveSessions(env: Env, projectId: string, requestId: string): Promise<Response> {
+  const now = Date.now();
+  const response = await fetchPresence(env, projectId, "/list", requestId, { projectId, now });
+  if (!response.ok) return jsonError("presence_unavailable", 503);
+  const body = (await response.json()) as { sessions?: PresenceSession[] };
+  return Response.json({
+    sessions: liveSessionsFromPresenceRows(body.sessions ?? [], now),
+  });
+}
+
+async function getProjectConfig(env: Env, projectId: string): Promise<Response> {
+  const config = await readStoredProjectConfig(env, projectId);
+  if (config === null) return jsonError("not_found", 404);
+  return Response.json(config);
+}
+
+async function putProjectConfig(
+  request: Request,
+  env: Env,
+  projectId: string,
+  wideEvent: ReturnType<typeof startWideEvent>,
+): Promise<Response> {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonError("invalid_json", 400);
+  }
+
+  const parsed = parseProjectConfigUpdate(body);
+  if (!parsed.ok) {
+    return jsonError(parsed.error, 400);
+  }
+
+  const config = await writeStoredProjectConfig(env, projectId, parsed.value);
+  if (config === null) return jsonError("not_found", 404);
+
+  wideEvent.set({ config_version: config.version });
+  return Response.json(config);
+}
+
+async function getInstallStatus(env: Env, projectId: string, requestId: string): Promise<Response> {
+  const response = await fetchPresence(env, projectId, "/install-status", requestId, {
+    projectId,
+  });
+  if (!response.ok) return jsonError("presence_unavailable", 503);
+  return Response.json(await response.json());
 }
 
 async function listSessions(url: URL, env: Env, projectId: string): Promise<Response> {
@@ -176,19 +258,42 @@ async function getSegment(
   return response;
 }
 
-function proxyLiveSession(
+async function proxyLiveSession(
   request: Request,
   env: Env,
   projectId: string,
   sessionId: string,
-): Response | Promise<Response> {
+): Promise<Response> {
   if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
     return jsonError("websocket_required", 426, { upgrade: "websocket" });
   }
 
-  // TODO: jurisdiction-pinned sessions need the project's jurisdiction from config to resolve the same DO id (control-plane lookup, T3.2).
-  const stub = env.SESSION.get(env.SESSION.idFromName(`${projectId}:${sessionId}`));
+  const config = await readStoredProjectConfig(env, projectId);
+  if (config === null) return jsonError("not_found", 404);
+
+  const namespace = config.jurisdiction
+    ? env.SESSION.jurisdiction(config.jurisdiction)
+    : env.SESSION;
+  const stub = namespace.get(namespace.idFromName(`${projectId}:${sessionId}`));
   return stub.fetch(request);
+}
+
+async function fetchPresence(
+  env: Env,
+  projectId: string,
+  path: "/list" | "/install-status",
+  requestId: string,
+  body: unknown,
+): Promise<Response> {
+  const stub = env.PRESENCE.get(env.PRESENCE.idFromName(projectId));
+  return await stub.fetch(`https://presence.internal${path}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      [HDR_REQUEST_ID]: requestId,
+    },
+    body: JSON.stringify(body),
+  });
 }
 
 async function checkAuth(
@@ -252,6 +357,11 @@ function parseProjectSessionIds(
 function routeName(pathname: string): string {
   if (pathname === "/api/v1/health") return "health";
   if (/^\/api\/v1\/projects\/[^/]+\/sessions$/.test(pathname)) return "sessions_list";
+  if (/^\/api\/v1\/projects\/[^/]+\/live$/.test(pathname)) return "project_live";
+  if (/^\/api\/v1\/projects\/[^/]+\/config$/.test(pathname)) return "project_config";
+  if (/^\/api\/v1\/projects\/[^/]+\/install-status$/.test(pathname)) {
+    return "install_status";
+  }
   if (/^\/api\/v1\/projects\/[^/]+\/sessions\/[^/]+\/manifest$/.test(pathname)) {
     return "manifest";
   }

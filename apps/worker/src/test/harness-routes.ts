@@ -32,6 +32,13 @@ async function harnessCheck(env: Env): Promise<Response> {
   const stub = env.SESSION.get(env.SESSION.idFromName("harness:smoke"));
   const pong = await stub.ping();
 
+  const presence = env.PRESENCE.get(env.PRESENCE.idFromName("harness"));
+  const presenceStatus = await presence.fetch("https://presence.internal/install-status", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ projectId: "harness" }),
+  });
+
   const key = "harness/check.bin";
   await env.RECORDINGS.put(key, new Uint8Array([1, 2, 3]));
   const obj = await env.RECORDINGS.get(key);
@@ -42,5 +49,11 @@ async function harnessCheck(env: Env): Promise<Response> {
 
   const row = await env.IDX_00.prepare("SELECT 1 AS one").first<{ one: number }>();
 
-  return Response.json({ do: pong, r2, kv, d1: row?.one ?? null });
+  return Response.json({
+    do: pong,
+    presence: presenceStatus.ok,
+    r2,
+    kv,
+    d1: row?.one ?? null,
+  });
 }

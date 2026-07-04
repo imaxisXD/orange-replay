@@ -2,12 +2,14 @@
 // tasks extend behavior in their own modules, not here, unless their PLAN.md
 // scope says otherwise.
 import type { FinalizeMessage } from "@orange-replay/shared";
+import type { PresenceRegistry } from "./do/presence-registry.ts";
 import type { SessionRecorder } from "./do/session-recorder.ts";
 
 export type { FinalizeMessage };
 
 export interface Env {
   SESSION: DurableObjectNamespace<SessionRecorder>;
+  PRESENCE: DurableObjectNamespace<PresenceRegistry>;
   RECORDINGS: R2Bucket;
   CONFIG: KVNamespace;
   IDX_00: D1Database;
@@ -20,8 +22,8 @@ export interface Env {
   /**
    * JSON override for DO timing thresholds, honored only when
    * DEV_TEST_ROUTES === "1": { segmentFlushMs?, segmentFlushBytes?,
-   * flushTailMs?, closeMs? }. Lets integration tests shrink the 30-minute
-   * idle windows to seconds.
+   * flushTailMs?, closeMs?, presenceTtlMs?, presenceHeartbeatMs? }. Lets
+   * integration tests shrink the 30-minute idle windows to seconds.
    */
   TEST_TIMINGS?: string;
 }

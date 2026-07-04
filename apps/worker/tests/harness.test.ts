@@ -31,11 +31,17 @@ describe("worker harness", () => {
     expect(body.service).toBe("orange-replay");
   });
 
-  it("exercises DO, R2, KV, and D1 bindings", async () => {
+  it("exercises DO, Presence DO, R2, KV, and D1 bindings", async () => {
     const res = await worker.fetch("/__test/harness");
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { do: string; r2: boolean; kv: boolean; d1: number };
-    expect(body).toEqual({ do: "pong", r2: true, kv: true, d1: 1 });
+    const body = (await res.json()) as {
+      do: string;
+      presence: boolean;
+      r2: boolean;
+      kv: boolean;
+      d1: number;
+    };
+    expect(body).toEqual({ do: "pong", presence: true, r2: true, kv: true, d1: 1 });
   });
 
   it("rejects a header-less ingest post at the edge", async () => {

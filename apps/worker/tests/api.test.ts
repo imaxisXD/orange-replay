@@ -1,6 +1,12 @@
 import { request as httpRequest, type IncomingMessage } from "node:http";
 import { fileURLToPath } from "node:url";
-import { manifestKey, sessionPrefix, type SessionManifest } from "@orange-replay/shared";
+import {
+  manifestKey,
+  sessionPrefix,
+  type ProjectConfig,
+  type SessionManifest,
+  type StoredProjectConfig,
+} from "@orange-replay/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 import { unstable_dev } from "wrangler";
 import type { SessionRow } from "../src/api/helpers.ts";
@@ -11,6 +17,9 @@ const listProjectId = "api_list_project";
 const sameTimeProjectId = "api_same_time_project";
 const assetProjectId = "api_asset_project";
 const assetSessionId = "api_asset_session";
+const liveProjectId = "api_live_project";
+const installProjectId = "api_install_project";
+const configProjectId = "api_config_project";
 const segmentName = "seg-000001.ors";
 const segmentBytes = new Uint8Array([0, 1, 2, 3, 254, 255]);
 
@@ -71,6 +80,24 @@ describe("dashboard api", () => {
     });
     expect(wrong.status).toBe(401);
     expect(await wrong.json()).toEqual({ error: "unauthorized" });
+  });
+
+  it("rejects missing or wrong bearer tokens for live, config, and install status", async () => {
+    const paths = [
+      `/api/v1/projects/${listProjectId}/live`,
+      `/api/v1/projects/${listProjectId}/config`,
+      `/api/v1/projects/${listProjectId}/install-status`,
+    ];
+
+    for (const path of paths) {
+      const missing = await worker.fetch(path);
+      expect(missing.status).toBe(401);
+
+      const wrong = await worker.fetch(path, {
+        headers: { authorization: "Bearer wrong-token" },
+      });
+      expect(wrong.status).toBe(401);
+    }
   });
 
   it("lists sessions newest first and applies filters", async () => {
@@ -172,6 +199,124 @@ describe("dashboard api", () => {
 
     expect(res.status).toBe(426);
     expect(await res.json()).toEqual({ error: "websocket_required" });
+  });
+
+  it("lists live sessions from the presence registry", async () => {
+    const lastSeen = Date.now();
+    const startedAt = lastSeen - 500;
+    await presencePing({
+      projectId: liveProjectId,
+      sessionId: "api_live_session",
+      startedAt,
+      lastSeen,
+      entryUrl: "/live",
+    });
+
+    const res = await worker.fetch(`/api/v1/projects/${liveProjectId}/live`, {
+      headers: authHeaders(),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      sessions: [
+        {
+          session_id: "api_live_session",
+          started_at: startedAt,
+          last_seen: lastSeen,
+          entry_url: "/live",
+          country: "US",
+          city: "Austin",
+          browser: "Chrome",
+          os: "macOS",
+          device: "desktop",
+          duration_ms: expect.any(Number),
+        },
+      ],
+    });
+  });
+
+  it("proxies install status from the presence registry", async () => {
+    const empty = await worker.fetch(`/api/v1/projects/${installProjectId}/install-status`, {
+      headers: authHeaders(),
+    });
+    expect(empty.status).toBe(200);
+    expect(await empty.json()).toEqual({ firstEventAt: null });
+
+    const firstEventAt = Date.now();
+    await presencePing({
+      projectId: installProjectId,
+      sessionId: "api_install_session",
+      startedAt: firstEventAt,
+      lastSeen: firstEventAt,
+      entryUrl: "/install",
+    });
+
+    const ready = await worker.fetch(`/api/v1/projects/${installProjectId}/install-status`, {
+      headers: authHeaders(),
+    });
+    expect(ready.status).toBe(200);
+    expect(await ready.json()).toEqual({ firstEventAt });
+  });
+
+  it("validates and stores project config in D1 before refreshing KV", async () => {
+    const keyHash = await seedIngestKey(
+      "api-config-key",
+      makeProjectConfig({ projectId: configProjectId }),
+      true,
+    );
+
+    const before = await getProjectConfig(configProjectId);
+    expect(before.version).toBe(1);
+    expect(before.sampleRate).toBe(1);
+
+    const invalid = await worker.fetch(`/api/v1/projects/${configProjectId}/config`, {
+      method: "PUT",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({ sampleRate: 2 }),
+    });
+    expect(invalid.status).toBe(400);
+    expect(await invalid.json()).toEqual({ error: "invalid_project_config" });
+    expect((await getProjectConfig(configProjectId)).version).toBe(1);
+
+    const update = {
+      sampleRate: 0.25,
+      allowedOrigins: ["https://app.example"],
+      maskPolicyVersion: 2,
+      maskRules: [{ selector: ".secret", action: "block" as const }],
+      capture: {
+        heatmaps: true,
+        console: true,
+        network: false,
+        canvas: false,
+      },
+      quotaState: "soft" as const,
+      jurisdiction: "eu" as const,
+    };
+    const saved = await worker.fetch(`/api/v1/projects/${configProjectId}/config`, {
+      method: "PUT",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify(update),
+    });
+    expect(saved.status).toBe(200);
+    const savedConfig = (await saved.json()) as StoredProjectConfig;
+
+    expect(savedConfig).toMatchObject({
+      projectId: configProjectId,
+      sampleRate: 0.25,
+      allowedOrigins: ["https://app.example"],
+      maskPolicyVersion: 2,
+      maskRules: [{ selector: ".secret", action: "block" }],
+      capture: update.capture,
+      quotaState: "soft",
+      jurisdiction: "eu",
+      version: 2,
+    });
+
+    const d1Config = await getProjectConfig(configProjectId);
+    expect(d1Config).toEqual(savedConfig);
+
+    const cached = await readConfigCache(keyHash);
+    expect(cached).toEqual(savedConfig);
   });
 
   it("returns the durable object's live response status", async () => {
@@ -332,6 +477,59 @@ async function seedAssetSession(): Promise<string> {
   return JSON.stringify(manifest);
 }
 
+async function seedIngestKey(key: string, config: ProjectConfig, kv: boolean): Promise<string> {
+  const res = await worker.fetch("/__test/ingest/seed", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ key, config, kv }),
+  });
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { keyHash: string };
+  return body.keyHash;
+}
+
+async function readConfigCache(keyHash: string): Promise<StoredProjectConfig | null> {
+  const res = await worker.fetch(
+    `/__test/ingest/config-cache?keyHash=${encodeURIComponent(keyHash)}`,
+  );
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { config: StoredProjectConfig | null };
+  return body.config;
+}
+
+async function getProjectConfig(projectId: string): Promise<StoredProjectConfig> {
+  const res = await worker.fetch(`/api/v1/projects/${projectId}/config`, {
+    headers: authHeaders(),
+  });
+  expect(res.status).toBe(200);
+  return (await res.json()) as StoredProjectConfig;
+}
+
+async function presencePing(input: {
+  projectId: string;
+  sessionId: string;
+  startedAt: number;
+  lastSeen: number;
+  entryUrl: string;
+}): Promise<void> {
+  const res = await worker.fetch("/__test/do/presence/ping", {
+    method: "POST",
+    body: JSON.stringify({
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+      startedAt: input.startedAt,
+      lastSeen: input.lastSeen,
+      entryUrl: input.entryUrl,
+      country: "US",
+      city: "Austin",
+      browser: "Chrome",
+      os: "macOS",
+      device: "desktop",
+    }),
+  });
+  expect(res.status).toBe(200);
+}
+
 async function seedSession(
   session: SessionRow,
   manifest: SessionManifest,
@@ -426,5 +624,28 @@ function makeManifest(
       entryUrl: session.entry_url ?? undefined,
       urlCount: session.url_count,
     },
+  };
+}
+
+function makeProjectConfig(overrides: Partial<ProjectConfig> = {}): ProjectConfig {
+  return {
+    projectId: "api_project",
+    orgId: "api_org",
+    shard: 0,
+    active: true,
+    sampleRate: 1,
+    allowedOrigins: ["*"],
+    maskPolicyVersion: 1,
+    maskRules: [],
+    capture: {
+      heatmaps: false,
+      console: false,
+      network: false,
+      canvas: false,
+    },
+    quotaState: "ok",
+    retentionDays: 30,
+    version: 1,
+    ...overrides,
   };
 }

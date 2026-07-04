@@ -1,3 +1,4 @@
+import { HDR_REQUEST_ID } from "@orange-replay/shared";
 import type { Env } from "../env.ts";
 import type { AppendArgs, AppendResult } from "../do/contract.ts";
 import type { TestSeedBatchesArgs } from "../do/session-recorder.ts";
@@ -75,11 +76,41 @@ export async function handleDoTestRoutes(
     return Response.json(await sessionStub(env, projectId, sessionId).debug());
   }
 
+  if (request.method === "POST" && url.pathname.startsWith("/__test/do/presence/")) {
+    return callPresenceTestRoute(request, env, url.pathname);
+  }
+
   return Response.json({ error: "not_found" }, { status: 404 });
 }
 
 function sessionStub(env: Env, projectId: string, sessionId: string) {
   return env.SESSION.get(env.SESSION.idFromName(`${projectId}:${sessionId}`));
+}
+
+async function callPresenceTestRoute(
+  request: Request,
+  env: Env,
+  pathname: string,
+): Promise<Response> {
+  const body = (await request.json()) as { projectId?: unknown };
+  if (typeof body.projectId !== "string" || body.projectId.length === 0) {
+    return Response.json({ error: "projectId is required" }, { status: 400 });
+  }
+
+  const route = pathname.slice("/__test/do/presence".length);
+  if (!["/ping", "/remove", "/list", "/install-status", "/debug"].includes(route)) {
+    return Response.json({ error: "not_found" }, { status: 404 });
+  }
+
+  const stub = env.PRESENCE.get(env.PRESENCE.idFromName(body.projectId));
+  return stub.fetch(`https://presence.internal${route}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      [HDR_REQUEST_ID]: "test-presence-request",
+    },
+    body: JSON.stringify(body),
+  });
 }
 
 function decodeBase64(value: string): Uint8Array {

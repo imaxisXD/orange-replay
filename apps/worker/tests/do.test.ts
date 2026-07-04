@@ -11,6 +11,8 @@ const timing = {
   flushTailMs: 700,
   closeMs: 1500,
   segmentFlushBytes: 4096,
+  presenceTtlMs: 300,
+  presenceHeartbeatMs: 200,
 };
 
 let worker: Awaited<ReturnType<typeof unstable_dev>>;
@@ -404,6 +406,149 @@ describe("SessionRecorder Durable Object", () => {
     expect(debug.hasState).toBe(true);
     expect(debug.stateBytes).toBeLessThan(1000);
   });
+
+  it("pings presence on start and throttles heartbeat updates", async () => {
+    const projectId = "project-presence-heartbeat";
+    const sessionId = "session-presence-heartbeat";
+    const startedAt = Date.now();
+
+    await append({
+      projectId,
+      sessionId,
+      tab: "tab-a",
+      seq: 0,
+      payload: bytes("presence-start"),
+      t0: startedAt,
+      receivedAt: startedAt,
+      url: "/start",
+      attrs: {
+        country: "US",
+        city: "Austin",
+        browser: "Chrome",
+        os: "macOS",
+        device: "desktop",
+      },
+    });
+
+    const firstList = await pollPresenceList(
+      projectId,
+      (body) => body.sessions.length === 1,
+      startedAt + 10,
+    );
+    expect(firstList.sessions[0]).toMatchObject({
+      session_id: sessionId,
+      started_at: startedAt,
+      last_seen: startedAt,
+      entry_url: "/start",
+      country: "US",
+      city: "Austin",
+      browser: "Chrome",
+      os: "macOS",
+      device: "desktop",
+    });
+
+    await append({
+      projectId,
+      sessionId,
+      tab: "tab-a",
+      seq: 1,
+      payload: bytes("presence-too-soon"),
+      t0: startedAt + 50,
+      receivedAt: startedAt + 50,
+    });
+    const throttledList = await readPresenceList(projectId, startedAt + 60);
+    expect(throttledList.sessions[0]?.last_seen).toBe(startedAt);
+
+    await append({
+      projectId,
+      sessionId,
+      tab: "tab-a",
+      seq: 2,
+      payload: bytes("presence-heartbeat"),
+      t0: startedAt + 250,
+      receivedAt: startedAt + 250,
+    });
+    const heartbeatList = await pollPresenceList(
+      projectId,
+      (body) => body.sessions[0]?.last_seen === startedAt + 250,
+      startedAt + 260,
+    );
+    expect(heartbeatList.sessions[0]?.last_seen).toBe(startedAt + 250);
+  });
+
+  it("removes presence on finalize", async () => {
+    const projectId = "project-presence-remove";
+    const sessionId = "session-presence-remove";
+
+    await append({
+      projectId,
+      sessionId,
+      tab: "tab-a",
+      seq: 0,
+      payload: bytes("presence-remove"),
+      t0: Date.now(),
+    });
+    await pollPresenceList(projectId, (body) => body.sessions.length === 1);
+    await forceFinalize(projectId, sessionId);
+
+    const removed = await pollPresenceList(projectId, (body) => body.sessions.length === 0);
+    expect(removed.sessions).toEqual([]);
+  });
+
+  it("uses lazy TTL eviction and keeps duplicate pings and removes safe", async () => {
+    const projectId = "project-presence-ttl";
+    const sessionId = "session-presence-ttl";
+
+    await presencePing({
+      projectId,
+      sessionId,
+      startedAt: 1000,
+      lastSeen: 1000,
+      entryUrl: "/old",
+    });
+    await presencePing({
+      projectId,
+      sessionId,
+      startedAt: 1000,
+      lastSeen: 1000,
+      entryUrl: "/old",
+    });
+
+    const active = await readPresenceList(projectId, 1200);
+    expect(active.sessions.map((session) => session.session_id)).toEqual([sessionId]);
+
+    const stale = await readPresenceList(projectId, 1401);
+    expect(stale.sessions).toEqual([]);
+    expect(await readPresenceDebug(projectId)).toMatchObject({ rows: 0 });
+
+    await presenceRemove(projectId, sessionId);
+    await presenceRemove(projectId, sessionId);
+    expect(await readPresenceDebug(projectId)).toMatchObject({ rows: 0 });
+  });
+
+  it("sets install status only on the first presence ping", async () => {
+    const projectId = "project-install-status";
+
+    expect(await readPresenceInstallStatus(projectId)).toEqual({ firstEventAt: null });
+
+    await presencePing({
+      projectId,
+      sessionId: "session-install-a",
+      startedAt: 2000,
+      lastSeen: 2000,
+      entryUrl: "/first",
+    });
+    expect(await readPresenceInstallStatus(projectId)).toEqual({ firstEventAt: 2000 });
+
+    await presencePing({
+      projectId,
+      sessionId: "session-install-b",
+      startedAt: 3000,
+      lastSeen: 3000,
+      entryUrl: "/second",
+    });
+    expect(await readPresenceInstallStatus(projectId)).toEqual({ firstEventAt: 2000 });
+  });
 });
 
 interface AppendInput {
@@ -417,6 +562,7 @@ interface AppendInput {
   receivedAt?: number;
   url?: string;
   events?: BatchIndex["e"];
+  attrs?: Record<string, string | number>;
 }
 
 interface DebugBody {
@@ -460,7 +606,7 @@ async function append(input: AppendInput): Promise<AppendResultBody> {
       flags: 0,
       index,
       payloadB64: Buffer.from(input.payload).toString("base64"),
-      attrs: { country: "US" },
+      attrs: input.attrs ?? { country: "US" },
       receivedAt: input.receivedAt ?? Date.now(),
     }),
   });
@@ -590,4 +736,104 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+interface PresenceListBody {
+  sessions: Array<{
+    session_id: string;
+    started_at: number;
+    last_seen: number;
+    entry_url: string | null;
+    country: string | null;
+    city: string | null;
+    browser: string | null;
+    os: string | null;
+    device: string | null;
+  }>;
+}
+
+async function presencePing(input: {
+  projectId: string;
+  sessionId: string;
+  startedAt: number;
+  lastSeen: number;
+  entryUrl: string;
+}): Promise<void> {
+  const response = await worker.fetch("/__test/do/presence/ping", {
+    method: "POST",
+    body: JSON.stringify({
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+      startedAt: input.startedAt,
+      lastSeen: input.lastSeen,
+      entryUrl: input.entryUrl,
+      country: "US",
+      city: "Austin",
+      browser: "Chrome",
+      os: "macOS",
+      device: "desktop",
+    }),
+  });
+
+  expect(response.status).toBe(200);
+}
+
+async function presenceRemove(projectId: string, sessionId: string): Promise<void> {
+  const response = await worker.fetch("/__test/do/presence/remove", {
+    method: "POST",
+    body: JSON.stringify({ projectId, sessionId }),
+  });
+
+  expect(response.status).toBe(200);
+}
+
+async function readPresenceList(projectId: string, now = Date.now()): Promise<PresenceListBody> {
+  const response = await worker.fetch("/__test/do/presence/list", {
+    method: "POST",
+    body: JSON.stringify({ projectId, now }),
+  });
+
+  expect(response.status).toBe(200);
+  return (await response.json()) as PresenceListBody;
+}
+
+async function readPresenceDebug(
+  projectId: string,
+): Promise<{ rows: number; firstEventAt: number | null }> {
+  const response = await worker.fetch("/__test/do/presence/debug", {
+    method: "POST",
+    body: JSON.stringify({ projectId }),
+  });
+
+  expect(response.status).toBe(200);
+  return (await response.json()) as { rows: number; firstEventAt: number | null };
+}
+
+async function readPresenceInstallStatus(
+  projectId: string,
+): Promise<{ firstEventAt: number | null }> {
+  const response = await worker.fetch("/__test/do/presence/install-status", {
+    method: "POST",
+    body: JSON.stringify({ projectId }),
+  });
+
+  expect(response.status).toBe(200);
+  return (await response.json()) as { firstEventAt: number | null };
+}
+
+async function pollPresenceList(
+  projectId: string,
+  ready: (body: PresenceListBody) => boolean,
+  now = Date.now(),
+): Promise<PresenceListBody> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 3000) {
+    const body = await readPresenceList(projectId, now);
+    if (ready(body)) {
+      return body;
+    }
+    await sleep(50);
+  }
+
+  throw new Error("presence list did not match within 3000ms");
 }
