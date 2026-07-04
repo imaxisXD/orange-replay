@@ -34,8 +34,8 @@ const RAGE_DRAW_WINDOW_MS = 900;
 export class ReplayOverlay {
   private readonly canvas: HTMLCanvasElement;
   private readonly context: CanvasRenderingContext2D | null;
-  private readonly container: HTMLElement;
-  private readonly resizeObserver: ResizeObserver | undefined;
+  private resizeObserver: ResizeObserver | undefined;
+  private container: HTMLElement;
   private options: ResolvedOverlayOptions;
   private startedAt = 0;
   private currentMs = 0;
@@ -56,14 +56,19 @@ export class ReplayOverlay {
     this.canvas.style.height = "100%";
     this.context = this.canvas.getContext("2d");
 
+    if (typeof ResizeObserver === "function") {
+      this.resizeObserver = new ResizeObserver(() => this.resize());
+    }
+    this.mount(container);
+  }
+
+  mount(container: HTMLElement): void {
+    this.resizeObserver?.disconnect();
+    this.container = container;
     ensurePositioned(container);
     container.append(this.canvas);
     this.resize();
-
-    if (typeof ResizeObserver === "function") {
-      this.resizeObserver = new ResizeObserver(() => this.resize());
-      this.resizeObserver.observe(container);
-    }
+    this.resizeObserver?.observe(container);
   }
 
   setOptions(options: OverlayOptions): void {
@@ -89,6 +94,7 @@ export class ReplayOverlay {
 
   bringToFront(): void {
     this.container.append(this.canvas);
+    this.resize();
   }
 
   draw(currentMs: number): void {
@@ -295,7 +301,9 @@ function cleanTrailMs(value: number | undefined): number {
 }
 
 function ensurePositioned(container: HTMLElement): void {
-  if (container.style.position.trim().length === 0) {
+  // Check the COMPUTED position: the host may position the container via
+  // classes (e.g. Tailwind absolute inset-0) that inline styles would clobber.
+  if (getComputedStyle(container).position === "static") {
     container.style.position = "relative";
   }
 

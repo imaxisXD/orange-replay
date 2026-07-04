@@ -37,7 +37,7 @@ test("records, replays, masks, and follows a live session from the dashboard", a
     await seedProject(state);
 
     await test.step("record -> list", async () => {
-      const recordContext = await browser.newContext();
+      const recordContext = await browser.newContext({ viewport: { width: 1600, height: 1000 } });
       const recordPage = await recordContext.newPage();
 
       try {
@@ -50,7 +50,7 @@ test("records, replays, masks, and follows a live session from the dashboard", a
       const indexed = await waitForIndexedSession(state, recordedSessionId);
       recordedSession = indexed.session;
 
-      dashboardContext = await browser.newContext();
+      dashboardContext = await browser.newContext({ viewport: { width: 1100, height: 700 } });
       dashboardPage = await openDashboardPage(
         dashboardContext,
         state,
@@ -103,6 +103,15 @@ test("records, replays, masks, and follows a live session from the dashboard", a
           });
         })
         .toBe(true);
+
+      await expect.poll(async () => replayFitsInsideStage(page)).toBe(true);
+
+      const replayGeometry = await readReplayGeometry(page);
+      expect(replayGeometry).not.toBeNull();
+      expect(replayGeometry?.scale).toBeLessThan(1);
+      expect(
+        Math.abs((replayGeometry?.leftGap ?? 0) - (replayGeometry?.rightGap ?? 0)),
+      ).toBeLessThanOrEqual(4);
 
       const errorRow = page
         .locator("aside")
@@ -233,6 +242,20 @@ interface ConsumerSessionBody {
 interface DebugBody {
   hasState: boolean;
   finalized: boolean;
+}
+
+interface ReplayGeometry {
+  iframeLeft: number;
+  iframeRight: number;
+  iframeTop: number;
+  iframeBottom: number;
+  stageLeft: number;
+  stageRight: number;
+  stageTop: number;
+  stageBottom: number;
+  leftGap: number;
+  rightGap: number;
+  scale: number;
 }
 
 async function readState(): Promise<ServerState> {
@@ -389,6 +412,59 @@ async function waitForReplayFrameWithText(
 
     return null;
   }, timeoutMs);
+}
+
+async function replayFitsInsideStage(page: Page): Promise<boolean> {
+  const geometry = await readReplayGeometry(page);
+  if (geometry === null) {
+    return false;
+  }
+
+  const tolerance = 2;
+  return (
+    geometry.iframeLeft >= geometry.stageLeft - tolerance &&
+    geometry.iframeRight <= geometry.stageRight + tolerance &&
+    geometry.iframeTop >= geometry.stageTop - tolerance &&
+    geometry.iframeBottom <= geometry.stageBottom + tolerance &&
+    geometry.scale < 1
+  );
+}
+
+async function readReplayGeometry(page: Page): Promise<ReplayGeometry | null> {
+  return page.evaluate(() => {
+    const stage = document.querySelector('[data-testid="replay-stage"]');
+    const wrapper = stage?.querySelector(".replayer-wrapper");
+    const iframe = stage?.querySelector("iframe");
+
+    if (
+      !(stage instanceof HTMLElement) ||
+      !(wrapper instanceof HTMLElement) ||
+      !(iframe instanceof HTMLIFrameElement)
+    ) {
+      return null;
+    }
+
+    const stageBox = stage.getBoundingClientRect();
+    const iframeBox = iframe.getBoundingClientRect();
+    const transform = window.getComputedStyle(wrapper).transform;
+    const scale = transform === "none" ? 1 : new DOMMatrixReadOnly(transform).a;
+    const leftGap = iframeBox.left - stageBox.left;
+    const rightGap = stageBox.right - iframeBox.right;
+
+    return {
+      iframeLeft: iframeBox.left,
+      iframeRight: iframeBox.right,
+      iframeTop: iframeBox.top,
+      iframeBottom: iframeBox.bottom,
+      stageLeft: stageBox.left,
+      stageRight: stageBox.right,
+      stageTop: stageBox.top,
+      stageBottom: stageBox.bottom,
+      leftGap,
+      rightGap,
+      scale,
+    };
+  });
 }
 
 function startSmallLiveActions(page: Page): () => void {

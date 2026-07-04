@@ -532,11 +532,11 @@ function ReplayPlayerCard({
 
   return (
     <section className="lit overflow-hidden rounded-lg">
-      <div className="relative aspect-video min-h-[360px] overflow-hidden bg-background">
-        <div
-          ref={containerRef}
-          className="absolute inset-0 [&_.replayer-wrapper]:!h-full [&_.replayer-wrapper]:!w-full [&_iframe]:!h-full [&_iframe]:!w-full"
-        />
+      <div
+        className="relative aspect-video min-h-[360px] overflow-hidden bg-background"
+        data-testid="replay-stage"
+      >
+        <div ref={containerRef} className="absolute inset-0 overflow-hidden" />
 
         {!ready && playerError === null && (
           <div className="absolute inset-0 z-20 p-4">

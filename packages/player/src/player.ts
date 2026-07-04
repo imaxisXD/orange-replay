@@ -3,6 +3,12 @@ import type { SegmentRef, SessionManifest } from "@orange-replay/shared/types";
 import { fetchSegmentBytes, liveSocketUrl, loadSession } from "./api.ts";
 import { PlayerEmitter } from "./emitter.ts";
 import {
+  cleanReplayViewport,
+  fitReplayToStage,
+  replayViewportAt,
+  type ReplayViewport,
+} from "./geometry.ts";
+import {
   acceptLiveEventsAfterKeyframe,
   acceptLiveFrame,
   createLiveFrameState,
@@ -37,12 +43,18 @@ const MAX_SPEED = 16;
 const LIVE_BASE_RECONNECT_MS = 500;
 const LIVE_MAX_RECONNECT_MS = 8_000;
 
+interface ReplayerResizeEvent {
+  width?: unknown;
+  height?: unknown;
+}
+
 export class OrangePlayer {
   private readonly container: HTMLElement;
   private readonly options: OrangePlayerOptions;
   private readonly emitter = new PlayerEmitter();
   private readonly worker: DecodeWorkerHost;
   private readonly overlay: ReplayOverlay;
+  private readonly stageResizeObserver: ResizeObserver | undefined;
   private readonly loadedSegments = new Set<number>();
   private readonly loadingSegments = new Map<number, Promise<void>>();
   private readonly liveFrames: LiveFrameState = createLiveFrameState();
@@ -53,6 +65,8 @@ export class OrangePlayer {
   private gaps: InactivityGap[] = [];
   private events: ReplayEvent[] = [];
   private replayer: Replayer | undefined;
+  private replayWrapper: HTMLDivElement | undefined;
+  private replayViewport: ReplayViewport | undefined;
   private readyPromise: Promise<SessionManifest>;
   private currentMs = 0;
   private speed = DEFAULT_SPEED;
@@ -74,8 +88,13 @@ export class OrangePlayer {
     this.options = options;
     this.speed = cleanSpeed(options.speed);
     this.skipInactivity = options.skipInactivity === true;
+    ensureStage(container);
     this.worker = new DecodeWorkerHost(options.worker);
     this.overlay = new ReplayOverlay(container, options.overlay);
+    if (typeof ResizeObserver === "function") {
+      this.stageResizeObserver = new ResizeObserver(() => this.applyReplayLayout());
+      this.stageResizeObserver.observe(container);
+    }
     this.readyPromise = this.load();
   }
 
@@ -160,8 +179,10 @@ export class OrangePlayer {
     this.destroyed = true;
     this.pause();
     this.disconnectLive();
+    this.stageResizeObserver?.disconnect();
     this.replayer?.destroy();
     this.replayer = undefined;
+    this.replayWrapper = undefined;
     this.overlay.destroy();
     this.worker.stop();
     this.emitter.clear();
@@ -284,6 +305,7 @@ export class OrangePlayer {
     }
 
     this.appendReplayEvents(newEvents);
+    this.syncReplayViewportForCurrentTime();
     this.overlay.addEvents(newEvents, options);
 
     if (this.replayer !== undefined) {
@@ -324,8 +346,10 @@ export class OrangePlayer {
         },
       },
     });
+    this.syncReplayViewportForCurrentTime();
+    this.attachReplayWrapper();
+    this.replayer.on("resize", (event) => this.handleReplayerResize(event));
     this.replayer.on("finish", () => this.finishIfDone());
-    this.overlay.bringToFront();
 
     if (this.following) {
       // Anchor the live baseline at the last buffered event: rrweb discards
@@ -337,6 +361,67 @@ export class OrangePlayer {
     } else {
       this.replayer.pause(this.playerOffset(this.currentMs));
     }
+  }
+
+  private handleReplayerResize(event: unknown): void {
+    const resize = event as ReplayerResizeEvent;
+    const viewport = cleanReplayViewport(resize.width, resize.height);
+    if (viewport === null) {
+      return;
+    }
+
+    this.setReplayViewport(viewport);
+  }
+
+  private attachReplayWrapper(): void {
+    const wrapper = this.replayer?.wrapper;
+    if (wrapper === undefined) {
+      return;
+    }
+
+    this.replayWrapper = wrapper;
+    wrapper.style.position = "absolute";
+    wrapper.style.margin = "0";
+    wrapper.style.transformOrigin = "top left";
+    wrapper.style.overflow = "hidden";
+    this.applyReplayLayout();
+    this.overlay.mount(wrapper);
+    this.overlay.bringToFront();
+  }
+
+  private syncReplayViewportForCurrentTime(): void {
+    const viewport = replayViewportAt(this.events, this.currentTimestamp());
+    if (viewport !== null) {
+      this.setReplayViewport(viewport);
+    }
+  }
+
+  private setReplayViewport(viewport: ReplayViewport): void {
+    if (
+      this.replayViewport?.width === viewport.width &&
+      this.replayViewport.height === viewport.height
+    ) {
+      this.applyReplayLayout();
+      return;
+    }
+
+    this.replayViewport = viewport;
+    this.applyReplayLayout();
+  }
+
+  private applyReplayLayout(): void {
+    const wrapper = this.replayWrapper;
+    const viewport = this.replayViewport;
+    if (wrapper === undefined || viewport === undefined) {
+      return;
+    }
+
+    const fit = fitReplayToStage(readStageSize(this.container), viewport);
+    wrapper.style.width = `${viewport.width}px`;
+    wrapper.style.height = `${viewport.height}px`;
+    wrapper.style.left = `${fit.left}px`;
+    wrapper.style.top = `${fit.top}px`;
+    wrapper.style.transform = `scale(${fit.scale})`;
   }
 
   private startPlayback(): void {
@@ -630,6 +715,15 @@ export class OrangePlayer {
     return Math.max(0, manifest.startedAt + timeMs - first.timestamp);
   }
 
+  private currentTimestamp(): number {
+    const manifest = this.manifest;
+    if (manifest !== undefined) {
+      return manifest.startedAt + this.currentMs;
+    }
+
+    return this.events[0]?.timestamp ?? 0;
+  }
+
   private newReplayEvents(events: readonly ReplayEvent[]): ReplayEvent[] {
     const newEvents: ReplayEvent[] = [];
     for (const event of events) {
@@ -756,6 +850,26 @@ function cancelFrame(id: number): void {
   }
 
   clearTimeout(id);
+}
+
+function ensureStage(container: HTMLElement): void {
+  // Check the COMPUTED position: the host may position the container via
+  // classes (e.g. Tailwind absolute inset-0) that inline styles would clobber.
+  if (getComputedStyle(container).position === "static") {
+    container.style.position = "relative";
+  }
+
+  if (container.style.overflow.trim().length === 0) {
+    container.style.overflow = "hidden";
+  }
+}
+
+function readStageSize(container: HTMLElement): { width: number; height: number } {
+  const rect = container.getBoundingClientRect();
+  return {
+    width: container.clientWidth > 0 ? container.clientWidth : rect.width,
+    height: container.clientHeight > 0 ? container.clientHeight : rect.height,
+  };
 }
 
 function insertReplayEvent(events: ReplayEvent[], event: ReplayEvent): void {
