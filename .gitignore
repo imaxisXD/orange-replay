@@ -2,6 +2,9 @@ node_modules/
 dist/
 .wrangler/
 .dev.vars
+.dev.vars.*
+.env*
+.prod.vars
 *.log
 .DS_Store
 coverage/
@@ -10,3 +13,5 @@ playwright-report/
 .vite-cache/
 .claude/
 .pnpm-store/
+audits/
+design-directions*.html
