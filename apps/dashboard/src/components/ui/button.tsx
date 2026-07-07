@@ -19,7 +19,7 @@ const buttonVariants = cva(
     "group relative isolate inline-flex items-center justify-center outline-none cursor-pointer",
     "rounded-lg transition-colors duration-100",
     "disabled:opacity-50 disabled:pointer-events-none",
-    "focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring,#6B97FF)]",
+    "focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring)]",
   ],
   {
     variants: {
@@ -30,23 +30,27 @@ const buttonVariants = cva(
         ghost: "text-muted-foreground hover:text-foreground",
       },
       size: {
-        sm: "h-8 px-[13px] text-[12.5px] gap-1.5",
-        md: "h-8 px-[13px] text-[12.5px] gap-1.5",
+        sm: "h-8 px-3.25 text-[12.5px] gap-1.5",
+        md: "h-8 px-3.25 text-[12.5px] gap-1.5",
         lg: "h-9 px-5 text-[13px] gap-1.5",
-        "icon-sm": "h-8 w-8 p-0 [&_svg]:h-3.5 [&_svg]:w-3.5",
-        icon: "h-9 w-9 p-0 [&_svg]:h-4 [&_svg]:w-4",
+        // before:* extends the pointer target to a 40px hit area without
+        // enlarging the visual box (disabled:pointer-events-none covers the
+        // pseudo-element too, since it's set on the root).
+        "icon-sm":
+          "h-8 w-8 p-0 [&_svg]:h-3.5 [&_svg]:w-3.5 before:absolute before:content-[''] before:-inset-1",
+        icon: "h-9 w-9 p-0 [&_svg]:h-4 [&_svg]:w-4 before:absolute before:content-[''] before:-inset-0.5",
         "icon-lg": "h-10 w-10 p-0 [&_svg]:h-5 [&_svg]:w-5",
       },
       iconLeft: { true: "" },
       iconRight: { true: "" },
     },
     compoundVariants: [
-      { size: "sm", iconLeft: true, className: "pl-[6px]" },
-      { size: "md", iconLeft: true, className: "pl-[10px]" },
-      { size: "lg", iconLeft: true, className: "pl-[14px]" },
-      { size: "sm", iconRight: true, className: "pr-[6px]" },
-      { size: "md", iconRight: true, className: "pr-[10px]" },
-      { size: "lg", iconRight: true, className: "pr-[14px]" },
+      { size: "sm", iconLeft: true, className: "pl-1.5" },
+      { size: "md", iconLeft: true, className: "pl-2.5" },
+      { size: "lg", iconLeft: true, className: "pl-3.5" },
+      { size: "sm", iconRight: true, className: "pr-1.5" },
+      { size: "md", iconRight: true, className: "pr-2.5" },
+      { size: "lg", iconRight: true, className: "pr-3.5" },
     ],
     defaultVariants: {
       variant: "primary",
@@ -132,7 +136,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         <span
           aria-hidden
           className={cn(
-            "absolute inset-0 rounded-[inherit] transition-[background-color,transform] duration-80 group-active:scale-[0.98]",
+            "absolute inset-0 rounded-[inherit] transition-[background-color,transform] duration-80 group-active:scale-[0.96]",
             bgClass,
           )}
         />

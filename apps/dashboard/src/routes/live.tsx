@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState, type KeyboardEvent } from "react";
-import { useNavigate, useParams } from "react-router";
+import { type KeyboardEvent } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useNavigate, useParams } from "@tanstack/react-router";
 import { AlertCircle, RotateCcw } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -11,74 +12,23 @@ import {
   shouldPollLiveSessions,
   type LiveSessionRow,
 } from "@/lib/live-sessions";
+import { defaultProjectId } from "@/lib/routes";
 import { cn } from "@/lib/utils";
-import { defaultProjectId } from "@/router";
 
 export function LivePage() {
-  const params = useParams();
+  const params = useParams({ strict: false });
   const projectId = params.projectId ?? defaultProjectId;
-  const [sessions, setSessions] = useState<LiveSessionItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-
-  const loadLiveSessions = useCallback(
-    async (showLoading = false) => {
-      if (showLoading) setLoading(true);
-      setError("");
-
-      try {
-        const response = await fetchLiveSessions(projectId);
-        setSessions(response.sessions);
-      } catch (caughtError) {
-        setSessions([]);
-        setError(readErrorMessage(caughtError));
-      } finally {
-        setLoading(false);
-      }
-    },
-    [projectId],
-  );
-
-  useEffect(() => {
-    let intervalId: number | undefined;
-
-    function stopPolling(): void {
-      if (intervalId === undefined) return;
-      window.clearInterval(intervalId);
-      intervalId = undefined;
-    }
-
-    function startPolling(): void {
-      stopPolling();
-      if (!shouldPollLiveSessions(document.visibilityState)) return;
-
-      intervalId = window.setInterval(() => {
-        if (shouldPollLiveSessions(document.visibilityState)) {
-          void loadLiveSessions();
-        }
-      }, livePollIntervalMs);
-    }
-
-    function handleVisibilityChange(): void {
-      if (!shouldPollLiveSessions(document.visibilityState)) {
-        stopPolling();
-        return;
-      }
-
-      void loadLiveSessions();
-      startPolling();
-    }
-
-    void loadLiveSessions(true);
-    startPolling();
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    return () => {
-      stopPolling();
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
-  }, [loadLiveSessions]);
-
+  const liveQuery = useQuery({
+    queryKey: ["live-sessions", projectId],
+    queryFn: ({ signal }) => fetchLiveSessions(projectId, { signal }),
+    refetchInterval: () =>
+      shouldPollLiveSessions(document.visibilityState) ? livePollIntervalMs : false,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+  });
+  const sessions: LiveSessionItem[] = liveQuery.data?.sessions ?? [];
+  const loading = liveQuery.isPending;
+  const error = liveQuery.error === null ? "" : readErrorMessage(liveQuery.error);
   const rows = sessions.map(formatLiveSessionRow);
 
   return (
@@ -86,14 +36,14 @@ export function LivePage() {
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-[18px] font-semibold tracking-[-0.015em]">
           Live
-          <span className="ml-[10px] text-[12px] font-normal text-dim">
+          <span className="ml-2.5 text-[12px] font-normal text-dim">
             Sessions happening right now.
           </span>
         </h1>
       </div>
 
-      <section className="lit rounded-lg px-[18px] py-4">
-        <div className="mb-[14px] flex items-baseline justify-between">
+      <section className="lit rounded-lg px-4.5 py-4">
+        <div className="mb-3.5 flex items-baseline justify-between">
           <h2 className="text-[13px] font-semibold">Live now</h2>
           <span className="text-[11.5px] text-dim">updates every 5s</span>
         </div>
@@ -105,9 +55,9 @@ export function LivePage() {
             <AlertDescription>
               <p>{error}</p>
               <Button
-                className="mt-2 border-[rgba(244,83,78,0.35)] bg-transparent text-[#ffb3b0] hover:text-foreground"
+                className="mt-2 border-danger-border bg-transparent text-danger-foreground hover:text-foreground"
                 leadingIcon={RotateCcw}
-                onClick={() => void loadLiveSessions(true)}
+                onClick={() => void liveQuery.refetch()}
                 size="sm"
                 variant="secondary"
               >
@@ -135,10 +85,12 @@ export function LivePage() {
 
 function LiveRow({ projectId, row }: { projectId: string; row: LiveSessionRow }) {
   const navigate = useNavigate();
-  const href = `/projects/${projectId}/sessions/${row.sessionId}`;
 
   function openSession(): void {
-    void navigate(href);
+    void navigate({
+      to: "/projects/$projectId/sessions/$sessionId",
+      params: { projectId, sessionId: row.sessionId },
+    });
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
@@ -150,7 +102,7 @@ function LiveRow({ projectId, row }: { projectId: string; row: LiveSessionRow })
   return (
     <div
       className={cn(
-        "flex cursor-pointer items-center gap-[10px] border-b border-dashed border-dash py-[9px] outline-none transition-colors last:border-b-0 hover:bg-[#141419]",
+        "flex cursor-pointer items-center gap-2.5 border-b border-dashed border-dash py-2.25 outline-none transition-colors last:border-b-0 hover:bg-hover",
         "focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-[-2px] focus-visible:outline-amber",
       )}
       onClick={openSession}
@@ -158,10 +110,10 @@ function LiveRow({ projectId, row }: { projectId: string; row: LiveSessionRow })
       role="link"
       tabIndex={0}
     >
-      <span aria-hidden className="live-pulse size-[7px] flex-none rounded-full bg-success" />
-      <div className="min-w-0 max-w-[340px]">
+      <span aria-hidden className="live-pulse size-1.75 flex-none rounded-full bg-success" />
+      <div className="min-w-0 max-w-85">
         <div className="truncate text-[12.5px] font-medium">{row.entryPath}</div>
-        <div className="mt-[1px] truncate text-[11.5px] text-dim">{row.placeText}</div>
+        <div className="mt-0.25 truncate text-[11.5px] text-dim">{row.placeText}</div>
       </div>
       <span className="ml-auto flex-none font-mono text-[11.5px] tabular-nums text-muted-foreground">
         {row.elapsedTime}
@@ -175,15 +127,15 @@ function LiveLoadingRows() {
     <div>
       {Array.from({ length: 3 }, (_unused, index) => (
         <div
-          className="flex items-center gap-[10px] border-b border-dashed border-dash py-[9px] last:border-b-0"
+          className="flex items-center gap-2.5 border-b border-dashed border-dash py-2.25 last:border-b-0"
           key={index}
         >
-          <Skeleton className="size-[7px] flex-none rounded-full" />
-          <div className="min-w-0 max-w-[340px] flex-1">
-            <Skeleton className="h-[15px] w-[220px] max-w-full" />
-            <Skeleton className="mt-[5px] h-[13px] w-[160px] max-w-full" />
+          <Skeleton className="size-1.75 flex-none rounded-full" />
+          <div className="min-w-0 max-w-85 flex-1">
+            <Skeleton className="h-3.75 w-55 max-w-full" />
+            <Skeleton className="mt-1.25 h-3.25 w-40 max-w-full" />
           </div>
-          <Skeleton className="ml-auto h-[14px] w-[38px] flex-none" />
+          <Skeleton className="ml-auto h-3.5 w-9.5 flex-none" />
         </div>
       ))}
     </div>
@@ -192,7 +144,7 @@ function LiveLoadingRows() {
 
 function LiveEmptyState() {
   return (
-    <div className="flex min-h-[104px] items-center justify-center rounded-lg border border-dashed border-dash px-4 py-8 text-center text-[13px] text-muted-foreground">
+    <div className="flex min-h-26 items-center justify-center rounded-lg border border-dashed border-dash px-4 py-8 text-center text-[13px] text-muted-foreground">
       No live sessions. Active visitors appear here within seconds.
     </div>
   );

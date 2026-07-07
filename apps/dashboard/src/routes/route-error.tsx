@@ -1,16 +1,15 @@
-import { isRouteErrorResponse, Link, useParams, useRouteError } from "react-router";
+import { Link, isNotFound, useParams } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
-import { defaultProjectId } from "@/router";
+import { defaultProjectId } from "@/lib/routes";
 
-export function RouteError({ notFound = false }: { notFound?: boolean }) {
-  const params = useParams();
-  const error = useRouteError();
+export function RouteError({ error, notFound = false }: { error?: unknown; notFound?: boolean }) {
+  const params = useParams({ strict: false });
   const projectId = params.projectId ?? defaultProjectId;
-  const is404 = notFound || (isRouteErrorResponse(error) && error.status === 404);
+  const is404 = notFound || isNotFound(error);
   const message = readErrorMessage(error);
 
   return (
-    <section className="mx-auto flex min-h-[420px] w-full max-w-md items-center justify-center">
+    <section className="mx-auto flex min-h-105 w-full max-w-md items-center justify-center">
       <div className="lit flex w-full flex-col gap-4 overflow-hidden rounded-lg p-6 text-center">
         <h1 className="text-[18px] font-semibold tracking-[-0.015em]">
           {is404 ? "Page not found" : "Something went wrong"}
@@ -22,7 +21,9 @@ export function RouteError({ notFound = false }: { notFound?: boolean }) {
           <p className="font-mono text-[12px] text-dim">{message}</p>
         )}
         <Button asChild>
-          <Link to={`/projects/${projectId}/sessions`}>Back to sessions</Link>
+          <Link params={{ projectId }} to="/projects/$projectId/sessions">
+            Back to sessions
+          </Link>
         </Button>
       </div>
     </section>
@@ -30,7 +31,6 @@ export function RouteError({ notFound = false }: { notFound?: boolean }) {
 }
 
 function readErrorMessage(error: unknown): string {
-  if (isRouteErrorResponse(error)) return `${error.status} ${error.statusText}`;
   if (error instanceof Error) return error.message;
   return "";
 }

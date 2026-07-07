@@ -9,7 +9,7 @@ export function BrandMark({ className }: { className?: string }) {
         className,
       )}
     >
-      <span className="absolute left-1 right-1 top-[10px] h-[2.5px] rounded-[2px] bg-[linear-gradient(90deg,#2dd4bf,#f5a623,#f4534e)]" />
+      <span className="absolute left-1 right-1 top-2.5 h-[2.5px] rounded-xs bg-[linear-gradient(90deg,var(--teal),var(--amber),var(--danger))]" />
     </span>
   );
 }

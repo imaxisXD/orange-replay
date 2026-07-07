@@ -6,13 +6,15 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { Link, useParams } from "react-router";
+import { useQuery } from "@tanstack/react-query";
+import { Link, useParams } from "@tanstack/react-router";
 import { AlertCircle, ArrowLeft, Check, Copy, RotateCcw } from "lucide-react";
 import { OrangePlayer, type PlayerApi, type PlayerErrorEvent } from "@orange-replay/player";
 import type { SegmentRef, SessionManifest } from "@orange-replay/shared/types";
-import { StatusPill } from "@/components/status-pill";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { IconSwap } from "@/components/ui/icon-swap";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -41,7 +43,7 @@ import {
   type TimelineDot,
   type TimelineSidebarRow,
 } from "@/lib/replay-timeline";
-import { defaultProjectId } from "@/router";
+import { defaultProjectId } from "@/lib/routes";
 
 type ReplayMode = "recorded" | "live";
 
@@ -50,79 +52,27 @@ interface SeekRequest {
   timeMs: number;
 }
 
+interface ManifestQueryResult {
+  manifest: SessionManifest | null;
+  mode: ReplayMode;
+  notFound: boolean;
+}
+
 export function SessionDetailPage() {
-  const params = useParams();
+  const params = useParams({ strict: false });
   const projectId = params.projectId ?? defaultProjectId;
   const sessionId = params.sessionId;
-  const [manifest, setManifest] = useState<SessionManifest | null>(null);
-  const [mode, setMode] = useState<ReplayMode>("recorded");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [notFound, setNotFound] = useState(false);
   const [copied, setCopied] = useState(false);
-  const loadSerial = useRef(0);
-
-  const loadManifest = useCallback(
-    async (signal?: AbortSignal) => {
-      if (sessionId === undefined) return;
-
-      loadSerial.current += 1;
-      const loadId = loadSerial.current;
-      const isStale = () => signal?.aborted === true || loadSerial.current !== loadId;
-
-      setLoading(true);
-      setError("");
-      setNotFound(false);
-
-      try {
-        const nextManifest = await getManifest(projectId, sessionId, { signal });
-        if (isStale()) return;
-        setManifest(nextManifest);
-        setMode("recorded");
-      } catch (caughtError) {
-        if (isStale()) return;
-        setManifest(null);
-
-        if (isNotFound(caughtError)) {
-          try {
-            const liveSessions = await fetchLiveSessions(projectId, { signal });
-            if (isStale()) return;
-            const liveSession = liveSessions.sessions.find(
-              (session) => session.session_id === sessionId,
-            );
-
-            if (liveSession !== undefined) {
-              setManifest(liveSessionManifest(projectId, sessionId, liveSession));
-              setMode("live");
-              return;
-            }
-
-            setNotFound(true);
-          } catch (liveError) {
-            if (isStale()) return;
-            setError(readErrorMessage(liveError));
-          }
-          return;
-        }
-
-        setError(readErrorMessage(caughtError));
-      } finally {
-        if (!isStale()) {
-          setLoading(false);
-        }
-      }
-    },
-    [projectId, sessionId],
-  );
-
-  useEffect(() => {
-    const controller = new AbortController();
-    void loadManifest(controller.signal);
-    return () => {
-      controller.abort();
-      loadSerial.current += 1;
-    };
-  }, [loadManifest]);
+  const manifestQuery = useQuery({
+    enabled: sessionId !== undefined,
+    queryKey: ["session-manifest", projectId, sessionId],
+    queryFn: ({ signal }) => loadSessionManifest(projectId, sessionId ?? "", signal),
+  });
+  const manifest = manifestQuery.data?.manifest ?? null;
+  const mode = manifestQuery.data?.mode ?? "recorded";
+  const loading = manifestQuery.isPending;
+  const error = manifestQuery.error === null ? "" : readErrorMessage(manifestQuery.error);
+  const notFound = manifestQuery.data?.notFound ?? false;
 
   useEffect(() => {
     if (!copied) return;
@@ -150,11 +100,13 @@ export function SessionDetailPage() {
     <div className="flex flex-col gap-5">
       <div className="flex items-center justify-between gap-3">
         <Button asChild leadingIcon={ArrowLeft} size="sm" variant="ghost">
-          <Link to={`/projects/${projectId}/sessions`}>Sessions</Link>
+          <Link params={{ projectId }} to="/projects/$projectId/sessions">
+            Sessions
+          </Link>
         </Button>
         <Button
           leadingIcon={RotateCcw}
-          onClick={() => void loadManifest()}
+          onClick={() => void manifestQuery.refetch()}
           size="sm"
           variant="ghost"
         >
@@ -174,11 +126,13 @@ export function SessionDetailPage() {
               size="icon-sm"
               variant="ghost"
             >
-              {copied ? (
-                <Check aria-hidden className="size-4 text-success" />
-              ) : (
-                <Copy aria-hidden className="size-4" />
-              )}
+              <IconSwap swapKey={copied ? "check" : "copy"}>
+                {copied ? (
+                  <Check aria-hidden className="size-4 text-success" />
+                ) : (
+                  <Copy aria-hidden className="size-4" />
+                )}
+              </IconSwap>
             </Button>
           </Tooltip>
         </div>
@@ -388,6 +342,7 @@ function ReplayPlayerCard({
     setLiveState({ following: mode === "live", connected: false });
     setWaitingForKeyframe(mode === "live");
 
+    const overlayColors = readReplayOverlayColors();
     const player = new OrangePlayer(container, {
       api: dashboardPlayerApi(manifest),
       projectId,
@@ -395,11 +350,7 @@ function ReplayPlayerCard({
       token: getApiToken() ?? undefined,
       speed: speedRef.current,
       skipInactivity: skipIdleRef.current,
-      overlay: {
-        cursorColor: "#f5a623",
-        clickColor: "#f5a623",
-        rageColor: "#f4534e",
-      },
+      overlay: overlayColors,
     });
     playerRef.current = player;
 
@@ -533,7 +484,7 @@ function ReplayPlayerCard({
   return (
     <section className="lit overflow-hidden rounded-lg">
       <div
-        className="relative aspect-video min-h-[360px] overflow-hidden bg-background"
+        className="relative aspect-video min-h-90 overflow-hidden bg-background"
         data-testid="replay-stage"
       >
         <div ref={containerRef} className="absolute inset-0 overflow-hidden" />
@@ -546,7 +497,7 @@ function ReplayPlayerCard({
 
         {ready && isFollowing && waitingForKeyframe && playerError === null && (
           <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-background/72">
-            <span className="live-pulse size-[9px] rounded-full bg-success" />
+            <span className="live-pulse size-2.25 rounded-full bg-success" />
             <span className="text-[13px] text-muted-foreground">
               Connected live — waiting for the next keyframe…
             </span>
@@ -576,14 +527,16 @@ function ReplayPlayerCard({
         )}
       </div>
 
-      <div className="flex items-center gap-[14px] overflow-x-auto border-t border-dashed border-dash px-4 py-[13px]">
+      <div className="flex items-center gap-3.5 overflow-x-auto border-t border-dashed border-dash px-4 py-3.25">
         <button
           aria-label={playing ? "Pause replay" : "Play replay"}
           className="flex size-8 shrink-0 items-center justify-center rounded-[9px] bg-foreground text-background outline-none transition-opacity hover:opacity-90 focus-visible:ring-1 focus-visible:ring-amber"
           onClick={togglePlayback}
           type="button"
         >
-          <PlayPauseShape playing={playing} />
+          <IconSwap swapKey={playing ? "pause" : "play"}>
+            <PlayPauseShape playing={playing} />
+          </IconSwap>
         </button>
 
         <span className="font-mono text-[12px] tabular-nums text-muted-foreground">
@@ -595,7 +548,7 @@ function ReplayPlayerCard({
           aria-valuemax={Math.round(timelineDurationMs)}
           aria-valuemin={0}
           aria-valuenow={Math.round(currentMs)}
-          className="relative h-[26px] min-w-[160px] flex-1 cursor-pointer touch-none"
+          className="relative h-6.5 min-w-40 flex-1 cursor-pointer touch-none"
           onPointerCancel={stopTimelineDrag}
           onPointerDown={handleTimelinePointerDown}
           onPointerMove={handleTimelinePointerMove}
@@ -603,14 +556,14 @@ function ReplayPlayerCard({
           role="slider"
           tabIndex={0}
         >
-          <div className="absolute right-0 left-0 top-[12px] border-t border-dashed border-dash" />
+          <div className="absolute right-0 left-0 top-3 border-t border-dashed border-dash" />
 
           {timelineBuckets
             .filter((bucket) => bucket.count > 0)
             .map((bucket) => (
               <span
                 aria-hidden
-                className="absolute bottom-1 w-[4px] rounded-[1.5px] bg-[#2e2e38]"
+                className="absolute bottom-1 w-1 rounded-[1.5px] bg-timeline-bar"
                 key={bucket.index}
                 style={{
                   height: `${bucket.heightPx}px`,
@@ -622,7 +575,7 @@ function ReplayPlayerCard({
           {errorMarkers.map((marker) => (
             <span
               aria-hidden
-              className="absolute top-0 h-full w-[2px] bg-danger shadow-[0_0_8px_rgba(244,83,78,0.7)]"
+              className="absolute top-0 h-full w-0.5 bg-danger shadow-[0_0_8px_var(--danger-shadow)]"
               key={marker.id}
               style={{ left: `${marker.leftPercent}%` }}
             />
@@ -632,8 +585,8 @@ function ReplayPlayerCard({
             aria-hidden
             className={
               flashKey > 0
-                ? "timeline-playhead-flash absolute top-0 bottom-0 w-[2px] bg-amber shadow-[0_0_9px_rgba(245,166,35,0.7)] after:absolute after:-top-[3px] after:-left-[3px] after:size-2 after:rounded-full after:bg-amber"
-                : "absolute top-0 bottom-0 w-[2px] bg-amber shadow-[0_0_9px_rgba(245,166,35,0.7)] after:absolute after:-top-[3px] after:-left-[3px] after:size-2 after:rounded-full after:bg-amber"
+                ? "timeline-playhead-flash absolute top-0 bottom-0 w-0.5 bg-amber shadow-[0_0_9px_var(--amber-shadow)] after:absolute after:-top-0.75 after:-left-0.75 after:size-2 after:rounded-full after:bg-amber"
+                : "absolute top-0 bottom-0 w-0.5 bg-amber shadow-[0_0_9px_var(--amber-shadow)] after:absolute after:-top-0.75 after:-left-0.75 after:size-2 after:rounded-full after:bg-amber"
             }
             key={flashKey}
             style={{ left: `${playheadPercent}%` }}
@@ -642,7 +595,7 @@ function ReplayPlayerCard({
 
         {isFollowing ? (
           <span className="inline-flex items-center gap-1.5 font-mono text-[11.5px] font-medium text-success">
-            <span className="live-pulse size-[7px] rounded-full bg-success" />
+            <span className="live-pulse size-1.75 rounded-full bg-success" />
             LIVE
           </span>
         ) : (
@@ -669,14 +622,14 @@ function ReplayPlayerCard({
           onToggle={() => setSkipIdle((value) => !value)}
         />
 
-        <div className="flex gap-[5px]">
-          <kbd className="rounded-[5px] border border-border bg-secondary px-[6px] py-[2px] font-mono text-[10.5px] text-muted-foreground">
+        <div className="flex gap-1.25">
+          <kbd className="rounded-[5px] border border-border bg-secondary px-1.5 py-0.5 font-mono text-[10.5px] text-muted-foreground">
             ←
           </kbd>
-          <kbd className="rounded-[5px] border border-border bg-secondary px-[6px] py-[2px] font-mono text-[10.5px] text-muted-foreground">
+          <kbd className="rounded-[5px] border border-border bg-secondary px-1.5 py-0.5 font-mono text-[10.5px] text-muted-foreground">
             →
           </kbd>
-          <kbd className="rounded-[5px] border border-border bg-secondary px-[6px] py-[2px] font-mono text-[10.5px] text-muted-foreground">
+          <kbd className="rounded-[5px] border border-border bg-secondary px-1.5 py-0.5 font-mono text-[10.5px] text-muted-foreground">
             space
           </kbd>
         </div>
@@ -693,26 +646,26 @@ function TimelineSidebar({
   rows: TimelineSidebarRow[];
 }) {
   return (
-    <aside className="lit flex h-full min-h-0 flex-col rounded-lg px-[18px] py-4 max-lg:max-h-[360px]">
+    <aside className="lit flex h-full min-h-0 flex-col rounded-lg px-4.5 py-4 max-lg:max-h-90">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-[13px] font-semibold">Timeline</h2>
         <span className="text-[11.5px] text-dim">{rows.length} events</span>
       </div>
 
       {rows.length === 0 ? (
-        <div className="mt-4 flex min-h-[140px] items-center justify-center rounded-lg border border-dashed border-dash text-[12.5px] text-muted-foreground">
+        <div className="mt-4 flex min-h-35 items-center justify-center rounded-lg border border-dashed border-dash text-[12.5px] text-muted-foreground">
           No indexed events.
         </div>
       ) : (
         <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
           {rows.map((row) => (
             <button
-              className="flex w-full items-center gap-[10px] border-b border-dashed border-dash py-[8px] text-left outline-none transition-colors last:border-b-0 hover:bg-hover focus-visible:ring-1 focus-visible:ring-amber"
+              className="flex w-full items-center gap-2.5 border-b border-dashed border-dash py-2 text-left outline-none transition-colors last:border-b-0 hover:bg-hover focus-visible:ring-1 focus-visible:ring-amber"
               key={row.id}
               onClick={() => onSeek(row.offsetMs)}
               type="button"
             >
-              <span className={`size-[6px] shrink-0 rounded-full ${dotClass(row.dot)}`} />
+              <span className={`size-1.5 shrink-0 rounded-full ${dotClass(row.dot)}`} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[12.5px] text-foreground">{row.label}</span>
                 {row.detail !== undefined && (
@@ -733,9 +686,9 @@ function TimelineSidebar({
 function PlayPauseShape({ playing }: { playing: boolean }) {
   if (playing) {
     return (
-      <span className="flex items-center gap-[4px]" aria-hidden>
-        <span className="h-[14px] w-[4px] rounded-[1px] bg-background" />
-        <span className="h-[14px] w-[4px] rounded-[1px] bg-background" />
+      <span className="flex items-center gap-1" aria-hidden>
+        <span className="h-3.5 w-1 rounded-[1px] bg-background" />
+        <span className="h-3.5 w-1 rounded-[1px] bg-background" />
       </span>
     );
   }
@@ -743,13 +696,13 @@ function PlayPauseShape({ playing }: { playing: boolean }) {
   return (
     <span
       aria-hidden
-      className="ml-[2px] h-0 w-0 border-y-[7px] border-l-[10px] border-y-transparent border-l-background"
+      className="ml-0.5 h-0 w-0 border-y-7 border-l-10 border-y-transparent border-l-background"
     />
   );
 }
 
 function dotClass(dot: TimelineDot): string {
-  if (dot === "blue") return "bg-[#4a9eff]";
+  if (dot === "blue") return "bg-player-blue";
   if (dot === "danger") return "bg-danger";
   if (dot === "amber") return "bg-amber";
   return "bg-teal";
@@ -769,15 +722,25 @@ function ManifestHeader({ manifest }: { manifest: SessionManifest }) {
         <Metric label="Rage clicks" value={String(rageClicks)} warm={rageClicks > 0} />
       </div>
 
-      <div className="flex flex-wrap gap-2 px-[18px] pb-[15px]">
-        {errors > 0 && <StatusPill kind="err">{formatErrorCount(errors)}</StatusPill>}
-        {rageClicks > 0 && <StatusPill kind="rage">{rageClicks} rage</StatusPill>}
-        <StatusPill kind="neutral">{formatCountry(attrs.country)}</StatusPill>
-        <StatusPill kind="neutral">
+      <div className="flex flex-wrap gap-2 px-4.5 pb-3.75">
+        {errors > 0 && (
+          <Badge color="red" size="sm" variant="dot">
+            {formatErrorCount(errors)}
+          </Badge>
+        )}
+        {rageClicks > 0 && (
+          <Badge color="amber" size="sm" variant="dot">
+            {rageClicks} rage
+          </Badge>
+        )}
+        <Badge color="gray" size="sm">
+          {formatCountry(attrs.country)}
+        </Badge>
+        <Badge color="gray" size="sm">
           {attrs.browser ?? "Unknown"}
           <span className="px-1 text-dim">·</span>
           {attrs.os ?? "Unknown"}
-        </StatusPill>
+        </Badge>
       </div>
     </section>
   );
@@ -785,8 +748,8 @@ function ManifestHeader({ manifest }: { manifest: SessionManifest }) {
 
 function Metric({ label, value, warm = false }: { label: string; value: string; warm?: boolean }) {
   return (
-    <div className="min-w-[180px] flex-1 border-r border-dashed border-dash px-[18px] py-[15px] last:border-r-0">
-      <div className="mb-[6px] text-[11.5px] text-muted-foreground">{label}</div>
+    <div className="min-w-45 flex-1 border-r border-dashed border-dash px-4.5 py-3.75 last:border-r-0">
+      <div className="mb-1.5 text-[11.5px] text-muted-foreground">{label}</div>
       <div
         className={
           warm
@@ -806,15 +769,15 @@ function DetailLoading() {
       <div className="flex overflow-x-auto">
         {Array.from({ length: 4 }, (_unused, index) => (
           <div
-            className="min-w-[180px] flex-1 border-r border-dashed border-dash px-[18px] py-[15px] last:border-r-0"
+            className="min-w-45 flex-1 border-r border-dashed border-dash px-4.5 py-3.75 last:border-r-0"
             key={index}
           >
-            <Skeleton className="mb-[6px] h-3 w-20" />
+            <Skeleton className="mb-1.5 h-3 w-20" />
             <Skeleton className="h-7 w-24" />
           </div>
         ))}
       </div>
-      <div className="flex gap-2 px-[18px] pb-[15px]">
+      <div className="flex gap-2 px-4.5 pb-3.75">
         <Skeleton className="h-6 w-24 rounded-full" />
         <Skeleton className="h-6 w-28 rounded-full" />
       </div>
@@ -882,6 +845,34 @@ function dashboardPlayerApi(manifest: SessionManifest): PlayerApi {
       return fetch(input, init);
     },
   };
+}
+
+async function loadSessionManifest(
+  projectId: string,
+  sessionId: string,
+  signal?: AbortSignal,
+): Promise<ManifestQueryResult> {
+  try {
+    return {
+      manifest: await getManifest(projectId, sessionId, { signal }),
+      mode: "recorded",
+      notFound: false,
+    };
+  } catch (caughtError) {
+    if (!isNotFound(caughtError)) throw caughtError;
+
+    const liveSessions = await fetchLiveSessions(projectId, { signal });
+    const liveSession = liveSessions.sessions.find((session) => session.session_id === sessionId);
+    if (liveSession === undefined) {
+      return { manifest: null, mode: "recorded", notFound: true };
+    }
+
+    return {
+      manifest: liveSessionManifest(projectId, sessionId, liveSession),
+      mode: "live",
+      notFound: false,
+    };
+  }
 }
 
 function liveSessionManifest(
@@ -986,6 +977,19 @@ function flagForCountry(code: string): string {
   const first = 0x1f1e6 + code.charCodeAt(0) - 65;
   const second = 0x1f1e6 + code.charCodeAt(1) - 65;
   return String.fromCodePoint(first, second);
+}
+
+function readReplayOverlayColors() {
+  return {
+    cursorColor: readThemeColor("--amber", "oklch(0.784 0.159 72.991)"),
+    clickColor: readThemeColor("--amber", "oklch(0.784 0.159 72.991)"),
+    rageColor: readThemeColor("--danger", "oklch(0.662 0.198 25.892)"),
+  };
+}
+
+function readThemeColor(name: string, fallback: string): string {
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value.length > 0 ? value : fallback;
 }
 
 function readErrorMessage(error: unknown): string {

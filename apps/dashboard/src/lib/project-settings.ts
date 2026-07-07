@@ -4,7 +4,7 @@ import type {
   StoredProjectConfig,
 } from "@orange-replay/shared/types";
 
-export type ProjectSettingsDraft = ProjectConfigUpdate;
+export type ProjectSettingsDraft = Omit<ProjectConfigUpdate, "expectedVersion">;
 export type MaskRuleActionValue = MaskRule["action"];
 
 export const maxMaskRules = 200;
@@ -24,8 +24,6 @@ export function makeProjectSettingsDraft(config: StoredProjectConfig): ProjectSe
     maskPolicyVersion: config.maskPolicyVersion,
     maskRules: config.maskRules.map((rule) => ({ ...rule })),
     capture: { ...config.capture },
-    quotaState: config.quotaState,
-    jurisdiction: config.jurisdiction ?? null,
   };
 }
 
@@ -123,6 +121,9 @@ export function addAllowedOrigin(
 }
 
 export function removeAllowedOrigin(origins: readonly string[], origin: string): string[] {
+  if (origins.length <= 1) {
+    return [...origins];
+  }
   return origins.filter((currentOrigin) => currentOrigin !== origin);
 }
 
@@ -157,8 +158,6 @@ function stableDraft(draft: ProjectSettingsDraft): ProjectSettingsDraft {
       network: draft.capture.network,
       canvas: draft.capture.canvas,
     },
-    quotaState: draft.quotaState,
-    jurisdiction: draft.jurisdiction ?? null,
   };
 }
 

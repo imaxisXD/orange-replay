@@ -193,14 +193,14 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
           className={cn(
             "relative shrink-0 cursor-pointer rounded-full border outline-none",
             "transition-colors duration-80",
-            "focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring,#6B97FF)] focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+            "focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-background",
           )}
           style={{
             width: TRACK_WIDTH,
             height: TRACK_HEIGHT,
             backgroundColor: checked
               ? hovered
-                ? "color-mix(in srgb, var(--amber) 88%, var(--foreground))"
+                ? "color-mix(in oklch, var(--amber) 88%, var(--foreground))"
                 : "var(--amber)"
               : hovered
                 ? "var(--hover)"

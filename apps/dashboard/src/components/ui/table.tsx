@@ -44,6 +44,7 @@ const Table = forwardRef<HTMLTableElement, TableProps>(({ children, className, .
   }, [measureItems, children]);
 
   const activeRect = activeIndex !== null ? itemRects[activeIndex] : null;
+  const hoverInset = activeRect ? Math.min(1, activeRect.width / 2) : 0;
 
   const contextValue = useMemo(() => ({ registerItem, activeIndex }), [registerItem, activeIndex]);
 
@@ -57,33 +58,35 @@ const Table = forwardRef<HTMLTableElement, TableProps>(({ children, className, .
         onMouseLeave={handlers.onMouseLeave}
       >
         {/* Hover background */}
-        <AnimatePresence>
-          {activeRect && (
-            <motion.div
-              key={sessionRef.current}
-              className="absolute bg-hover pointer-events-none"
-              initial={{
-                opacity: 0,
-                top: activeRect.top,
-                left: activeRect.left,
-                width: activeRect.width,
-                height: activeRect.height,
-              }}
-              animate={{
-                opacity: 1,
-                top: activeRect.top,
-                left: activeRect.left,
-                width: activeRect.width,
-                height: activeRect.height,
-              }}
-              exit={{ opacity: 0, transition: spring.fast.exit }}
-              transition={{
-                ...spring.fast,
-                opacity: { duration: 0.08 },
-              }}
-            />
-          )}
-        </AnimatePresence>
+        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+          <AnimatePresence>
+            {activeRect && (
+              <motion.div
+                key={sessionRef.current}
+                className="absolute bg-hover"
+                initial={{
+                  opacity: 0,
+                  top: activeRect.top,
+                  left: activeRect.left + hoverInset,
+                  width: Math.max(activeRect.width - hoverInset * 2, 0),
+                  height: activeRect.height,
+                }}
+                animate={{
+                  opacity: 1,
+                  top: activeRect.top,
+                  left: activeRect.left + hoverInset,
+                  width: Math.max(activeRect.width - hoverInset * 2, 0),
+                  height: activeRect.height,
+                }}
+                exit={{ opacity: 0, transition: spring.fast.exit }}
+                transition={{
+                  ...spring.fast,
+                  opacity: { duration: 0.08 },
+                }}
+              />
+            )}
+          </AnimatePresence>
+        </div>
 
         <table ref={ref} className={cn("w-full border-collapse text-[13px]", className)} {...props}>
           {children}
@@ -141,7 +144,7 @@ const TableRow = forwardRef<HTMLTableRowElement, TableRowProps>(
         data-proximity-index={index}
         className={cn(
           "group/row relative z-10 outline-none transition-colors duration-80 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-[-2px] focus-visible:outline-amber",
-          isBodyRow ? "border-b border-[#1a1a1f] last:border-b-0" : "border-b border-border",
+          isBodyRow ? "border-b border-subtle-border last:border-b-0" : "border-b border-border",
           isBodyRow && activeIdx === index && "is-active",
           className,
         )}
@@ -164,7 +167,7 @@ const TableHead = forwardRef<HTMLTableCellElement, ThHTMLAttributes<HTMLTableCel
     <th
       ref={ref}
       className={cn(
-        "border-b border-border px-4 py-[10px] text-left text-[11px] font-medium uppercase tracking-[0.06em] text-dim",
+        "border-b border-border px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-[0.06em] text-dim",
         className,
       )}
       {...props}
@@ -181,7 +184,7 @@ const TableCell = forwardRef<HTMLTableCellElement, TdHTMLAttributes<HTMLTableCel
     <td
       ref={ref}
       className={cn(
-        "border-b border-[#1a1a1f] px-4 py-3 text-muted-foreground transition-colors duration-80 group-last/row:border-b-0",
+        "border-b border-subtle-border px-4 py-3 text-muted-foreground transition-colors duration-80 group-last/row:border-b-0",
         className,
       )}
       {...props}

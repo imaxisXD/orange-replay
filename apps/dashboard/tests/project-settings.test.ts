@@ -6,6 +6,7 @@ import {
   normalizeOriginInput,
   percentInputToSampleRate,
   projectSettingsAreDirty,
+  removeAllowedOrigin,
   sampleRateToPercentInput,
   shouldPollInstallStatus,
   updateMaskRules,
@@ -69,6 +70,13 @@ describe("origin validation", () => {
     expect(addAllowedOrigin([], "not an origin").error).toBe(
       "Enter * or a valid http:// or https:// origin.",
     );
+  });
+
+  it("keeps at least one allowed origin", () => {
+    expect(removeAllowedOrigin(["https://app.example"], "https://app.example")).toEqual([
+      "https://app.example",
+    ]);
+    expect(removeAllowedOrigin(["*", "https://app.example"], "*")).toEqual(["https://app.example"]);
   });
 });
 
@@ -137,7 +145,5 @@ function makeDraft() {
       network: true,
       canvas: false,
     },
-    quotaState: "ok" as const,
-    jurisdiction: null,
   };
 }

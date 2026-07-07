@@ -4,6 +4,8 @@ import type {
   SessionManifest,
   StoredProjectConfig,
 } from "@orange-replay/shared/types";
+import { queryClient } from "./query";
+import { defaultProjectId } from "./routes";
 
 export const tokenStorageKey = "or:token";
 
@@ -95,7 +97,11 @@ export class ApiError extends Error {
 }
 
 export function setApiToken(token: string): void {
+  const previousToken = getApiToken();
   window.localStorage.setItem(tokenStorageKey, token);
+  if (previousToken !== token) {
+    queryClient.clear();
+  }
 }
 
 export function getApiToken(): string | null {
@@ -104,6 +110,7 @@ export function getApiToken(): string | null {
 
 export function clearApiToken(): void {
   window.localStorage.removeItem(tokenStorageKey);
+  queryClient.clear();
 }
 
 export function setAuthRedirectHandler(handler: AuthRedirectHandler): () => void {
@@ -118,8 +125,8 @@ export async function health(): Promise<HealthResponse> {
   return requestJson<HealthResponse>("/api/v1/health", { auth: false });
 }
 
-export async function checkApiToken(token: string): Promise<void> {
-  await requestJson<unknown>("/api/v1/projects/p1/sessions?limit=1", {
+export async function checkApiToken(token: string, projectId = defaultProjectId): Promise<void> {
+  await requestJson<unknown>(buildSessionListUrl(projectId, { limit: 1 }), {
     auth: true,
     redirectOnAuthError: false,
     token,
@@ -129,8 +136,12 @@ export async function checkApiToken(token: string): Promise<void> {
 export async function listSessions(
   projectId: string,
   params: ListSessionsParams = {},
+  options: { signal?: AbortSignal } = {},
 ): Promise<ListSessionsResponse> {
-  return requestJson<ListSessionsResponse>(buildSessionListUrl(projectId, params), { auth: true });
+  return requestJson<ListSessionsResponse>(buildSessionListUrl(projectId, params), {
+    auth: true,
+    signal: options.signal,
+  });
 }
 
 export async function fetchLiveSessions(
@@ -237,15 +248,11 @@ async function requestJson<T>(path: string, options: RequestOptions): Promise<T>
     throw new ApiError(readErrorMessage(error, "Could not reach the API."), 0, "network_error");
   }
 
-  if (
-    options.redirectOnAuthError !== false &&
-    (response.status === 401 || response.status === 503)
-  ) {
-    handleAuthRedirect(response.status);
-  }
-
   if (!response.ok) {
     const code = await readErrorCode(response);
+    if (options.redirectOnAuthError !== false && shouldRedirectForAuth(response.status, code)) {
+      handleAuthRedirect(response.status, code);
+    }
     throw new ApiError(
       code ?? `Request failed with status ${response.status}.`,
       response.status,
@@ -256,10 +263,14 @@ async function requestJson<T>(path: string, options: RequestOptions): Promise<T>
   return (await response.json()) as T;
 }
 
-function handleAuthRedirect(status: 401 | 503): void {
+function shouldRedirectForAuth(status: number, code: string | undefined): status is 401 | 503 {
+  return status === 401 || (status === 503 && code === "auth_not_configured");
+}
+
+function handleAuthRedirect(status: 401 | 503, code?: string): void {
   const event: AuthRedirectEvent = {
     status,
-    reason: status === 503 ? "auth_unavailable" : "unauthorized",
+    reason: status === 503 && code === "auth_not_configured" ? "auth_unavailable" : "unauthorized",
   };
   clearApiToken();
   authRedirectHandler(event);

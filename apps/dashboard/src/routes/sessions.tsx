@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useState, type KeyboardEvent } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useMemo, useState, type KeyboardEvent } from "react";
+import { useInfiniteQuery } from "@tanstack/react-query";
+import { useNavigate, useParams } from "@tanstack/react-router";
 import { AlertCircle, ChevronRight, Inbox, RotateCcw, Search } from "lucide-react";
-import { StatusPill } from "@/components/status-pill";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Elevated } from "@/lib/elevated";
 import {
   Empty,
   EmptyContent,
@@ -40,7 +42,8 @@ import {
   formatShortRelativeTime,
 } from "@/lib/format";
 import { appendUniqueSessions, canLoadMore } from "@/lib/session-list";
-import { defaultProjectId } from "@/router";
+import { defaultProjectId } from "@/lib/routes";
+import { useShape } from "@/lib/shape-context";
 
 const pageSize = 25;
 
@@ -51,70 +54,60 @@ const minDurationOptions = [
   { label: "5 minutes", value: "300000", ms: 300_000 },
 ] as const;
 
-type LoadState = "idle" | "loading" | "loading_more";
-
 export function SessionsPage() {
-  const params = useParams();
+  const params = useParams({ strict: false });
   const projectId = params.projectId ?? defaultProjectId;
   const [country, setCountry] = useState("");
   const [hasErrors, setHasErrors] = useState(false);
   const [minDurationValue, setMinDurationValue] = useState("any");
-  const [sessions, setSessions] = useState<SessionListItem[]>([]);
-  const [nextBefore, setNextBefore] = useState<string | null>(null);
-  const [loadState, setLoadState] = useState<LoadState>("loading");
-  const [error, setError] = useState("");
 
   const selectedMinDuration = minDurationOptions.find(
     (option) => option.value === minDurationValue,
   );
 
-  const loadFirstPage = useCallback(async () => {
-    setLoadState("loading");
-    setError("");
+  const sessionsQuery = useInfiniteQuery({
+    queryKey: [
+      "sessions",
+      projectId,
+      country.trim().toUpperCase(),
+      hasErrors,
+      selectedMinDuration?.ms ?? null,
+    ],
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam, signal }) =>
+      listSessions(
+        projectId,
+        {
+          before: pageParam,
+          country,
+          hasErrors,
+          limit: pageSize,
+          minDurationMs: selectedMinDuration?.ms,
+        },
+        { signal },
+      ),
+    getNextPageParam: (lastPage) => lastPage.nextBefore,
+  });
 
-    try {
-      const page = await listSessions(projectId, {
-        country,
-        hasErrors,
-        limit: pageSize,
-        minDurationMs: selectedMinDuration?.ms,
-      });
-      setSessions(page.sessions);
-      setNextBefore(page.nextBefore);
-    } catch (caughtError) {
-      setSessions([]);
-      setNextBefore(null);
-      setError(readErrorMessage(caughtError));
-    } finally {
-      setLoadState("idle");
-    }
-  }, [country, hasErrors, projectId, selectedMinDuration?.ms]);
-
-  useEffect(() => {
-    void loadFirstPage();
-  }, [loadFirstPage]);
+  const sessions = useMemo(
+    () =>
+      (sessionsQuery.data?.pages ?? []).reduce<SessionListItem[]>(
+        (currentSessions, page) => appendUniqueSessions(currentSessions, page.sessions),
+        [],
+      ),
+    [sessionsQuery.data?.pages],
+  );
+  const nextBefore = sessionsQuery.data?.pages.at(-1)?.nextBefore ?? null;
+  const loadState = sessionsQuery.isPending
+    ? "loading"
+    : sessionsQuery.isFetchingNextPage
+      ? "loading_more"
+      : "idle";
+  const error = sessionsQuery.error === null ? "" : readErrorMessage(sessionsQuery.error);
 
   async function loadMore(): Promise<void> {
     if (!canLoadMore(nextBefore) || loadState !== "idle") return;
-
-    setLoadState("loading_more");
-    setError("");
-
-    try {
-      const page = await listSessions(projectId, {
-        before: nextBefore,
-        country,
-        hasErrors,
-        limit: pageSize,
-        minDurationMs: selectedMinDuration?.ms,
-      });
-      setSessions((currentSessions) => appendUniqueSessions(currentSessions, page.sessions));
-      setNextBefore(page.nextBefore);
-    } catch (caughtError) {
-      setError(readErrorMessage(caughtError));
-    } finally {
-      setLoadState("idle");
-    }
+    await sessionsQuery.fetchNextPage();
   }
 
   return (
@@ -122,15 +115,15 @@ export function SessionsPage() {
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-[18px] font-semibold tracking-[-0.015em]">
           Sessions
-          <span className="ml-[10px] text-[12px] font-normal text-dim">
+          <span className="ml-2.5 text-[12px] font-normal text-dim">
             Watch how people actually used your product.
           </span>
         </h1>
       </div>
 
-      <section className="lit overflow-hidden rounded-lg">
-        <div className="flex items-center gap-[10px] border-b border-dashed border-dash px-4 py-3">
-          <InputGroup className="w-[160px] gap-0">
+      <section className="lit session-table-panel overflow-hidden rounded-lg">
+        <div className="flex items-center gap-2.5 border-b border-dashed border-dash px-4 py-3">
+          <InputGroup className="w-40 gap-0">
             <InputField
               hideLabel
               icon={Search}
@@ -145,7 +138,7 @@ export function SessionsPage() {
           <Select onValueChange={setMinDurationValue} value={minDurationValue}>
             <SelectTrigger
               aria-label="Minimum duration"
-              className="h-[34px] min-w-[160px] rounded-[7px] border border-border bg-secondary px-3 text-[12px]"
+              className="h-8.5 min-w-40 rounded-[7px] border border-border bg-secondary px-3 text-[12px]"
               placeholder="Any duration"
             />
             <SelectContent className="rounded-lg border border-border bg-popover">
@@ -174,7 +167,7 @@ export function SessionsPage() {
               aria-label="Refresh"
               className="text-muted-foreground hover:text-foreground"
               disabled={loadState === "loading"}
-              onClick={() => void loadFirstPage()}
+              onClick={() => void sessionsQuery.refetch()}
               size="icon-sm"
               variant="ghost"
             >
@@ -257,13 +250,16 @@ function SessionRow({
   session: SessionListItem;
 }) {
   const navigate = useNavigate();
-  const href = `/projects/${projectId}/sessions/${session.session_id}`;
+  const shape = useShape();
   const location = formatLocation(session.country, session.city);
   const metaParts = [location];
   if (session.clicks > 0) metaParts.push(`${session.clicks} clicks`);
 
   function openSession(): void {
-    void navigate(href);
+    void navigate({
+      to: "/projects/$projectId/sessions/$sessionId",
+      params: { projectId, sessionId: session.session_id },
+    });
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLTableRowElement>): void {
@@ -274,7 +270,7 @@ function SessionRow({
 
   return (
     <TableRow
-      className="cursor-pointer hover:bg-hover"
+      className="cursor-pointer"
       index={index}
       onClick={openSession}
       onKeyDown={handleKeyDown}
@@ -282,18 +278,34 @@ function SessionRow({
       tabIndex={0}
     >
       <TableCell>
-        <div className="max-w-[300px] truncate text-[13px] font-medium text-foreground">
+        <div className="max-w-75 truncate text-[13px] font-medium text-foreground">
           {entryPath(session.entry_url)}
         </div>
-        <div className="mt-[2px] text-[11.5px] text-dim">{metaParts.join(" · ")}</div>
+        <div className="mt-0.5 text-[11.5px] text-dim">{metaParts.join(" · ")}</div>
       </TableCell>
       <TableCell>
-        <div className="flex flex-wrap gap-[6px]">
+        <div className="flex flex-wrap gap-1.5">
           {session.errors > 0 && (
-            <StatusPill kind="err">{formatErrorCount(session.errors)}</StatusPill>
+            <Elevated className={`inline-flex ${shape.item}`} offset={4} shadowLevel={4}>
+              <Badge color="red" size="sm" variant="dot">
+                {formatErrorCount(session.errors)}
+              </Badge>
+            </Elevated>
           )}
-          {session.rages > 0 && <StatusPill kind="rage">{session.rages} rage</StatusPill>}
-          {session.errors === 0 && session.rages === 0 && <StatusPill kind="ok">clean</StatusPill>}
+          {session.rages > 0 && (
+            <Elevated className={`inline-flex ${shape.item}`} offset={4} shadowLevel={4}>
+              <Badge color="amber" size="sm" variant="dot">
+                {session.rages} rage
+              </Badge>
+            </Elevated>
+          )}
+          {session.errors === 0 && session.rages === 0 && (
+            <Elevated className={`inline-flex ${shape.item}`} offset={4} shadowLevel={4}>
+              <Badge color="green" size="sm" variant="dot">
+                clean
+              </Badge>
+            </Elevated>
+          )}
         </div>
       </TableCell>
       <TableCell className="text-right font-mono text-[12px] text-foreground">

@@ -192,7 +192,7 @@ const InputField = forwardRef<HTMLDivElement, InputFieldProps>(
             inputRef.current?.focus();
           }}
           className={cn(
-            `flex items-center gap-2 rounded-[7px] border bg-secondary px-3 py-[7px] ring-1 transition-all duration-80`,
+            `flex items-center gap-2 rounded-[7px] border bg-secondary px-3 py-1.75 ring-1 transition-[border-color,box-shadow] duration-80`,
             error ? "border-danger/50" : "border-border",
             ringClass,
           )}

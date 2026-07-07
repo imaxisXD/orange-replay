@@ -14,6 +14,8 @@ import {
   setAuthRedirectHandler,
   type AuthRedirectEvent,
 } from "../src/lib/api";
+import { queryClient } from "../src/lib/query";
+import { defaultProjectId } from "../src/lib/routes";
 
 const fetchMock = vi.fn<typeof fetch>();
 let restoreRedirectHandler: (() => void) | undefined;
@@ -22,6 +24,7 @@ let redirects: AuthRedirectEvent[] = [];
 beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
   window.localStorage.clear();
+  queryClient.clear();
   redirects = [];
   restoreRedirectHandler = setAuthRedirectHandler((event) => {
     redirects.push(event);
@@ -31,6 +34,7 @@ beforeEach(() => {
 afterEach(() => {
   restoreRedirectHandler?.();
   restoreRedirectHandler = undefined;
+  queryClient.clear();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
@@ -42,6 +46,17 @@ describe("api client", () => {
 
     clearApiToken();
     expect(getApiToken()).toBeNull();
+  });
+
+  it("clears cached dashboard data when the token changes or clears", () => {
+    queryClient.setQueryData(["sessions", "p1"], { private: true });
+
+    setApiToken("secret-token");
+    expect(queryClient.getQueryData(["sessions", "p1"])).toBeUndefined();
+
+    queryClient.setQueryData(["sessions", "p1"], { private: true });
+    clearApiToken();
+    expect(queryClient.getQueryData(["sessions", "p1"])).toBeUndefined();
   });
 
   it("adds the bearer token to protected requests", async () => {
@@ -82,9 +97,23 @@ describe("api client", () => {
 
     await checkApiToken("typed-token");
 
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/v1/projects/${defaultProjectId}/sessions?limit=1`,
+      { headers: expect.any(Headers) },
+    );
     const headers = readFetchHeaders();
     expect(headers.get("authorization")).toBe("Bearer typed-token");
     expect(getApiToken()).toBeNull();
+  });
+
+  it("checks a typed token against the requested project", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ sessions: [], nextBefore: null }));
+
+    await checkApiToken("typed-token", "project_two");
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/projects/project_two/sessions?limit=1", {
+      headers: expect.any(Headers),
+    });
   });
 
   it("builds the sessions query string", () => {
@@ -132,6 +161,18 @@ describe("api client", () => {
       code: "auth_not_configured",
     } satisfies Partial<ApiError>);
     expect(redirects).toEqual([{ status: 503, reason: "auth_unavailable" }]);
+  });
+
+  it("does not clear the token for non-auth 503 failures", async () => {
+    setApiToken("secret-token");
+    fetchMock.mockResolvedValue(jsonResponse({ error: "presence_unavailable" }, 503));
+
+    await expect(fetchLiveSessions("p1")).rejects.toMatchObject({
+      status: 503,
+      code: "presence_unavailable",
+    } satisfies Partial<ApiError>);
+    expect(getApiToken()).toBe("secret-token");
+    expect(redirects).toEqual([]);
   });
 
   it("builds segment URLs with encoded path parts", () => {

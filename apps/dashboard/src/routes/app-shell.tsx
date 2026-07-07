@@ -1,6 +1,7 @@
 import { useMemo, type ReactNode } from "react";
-import { Link, NavLink, Outlet, useNavigate, useParams } from "react-router";
+import { Link, Outlet, useNavigate, useParams } from "@tanstack/react-router";
 import { BrandMark } from "@/components/brand-mark";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -11,11 +12,11 @@ import {
   SelectTrigger,
 } from "@/components/ui/select";
 import { clearApiToken } from "@/lib/api";
+import { defaultProjectId } from "@/lib/routes";
 import { cn } from "@/lib/utils";
-import { defaultProjectId } from "@/router";
 
 export function AppShell({ children }: { children?: ReactNode }) {
-  const params = useParams();
+  const params = useParams({ strict: false });
   const projectId = params.projectId ?? defaultProjectId;
   const navigate = useNavigate();
   const projectOptions = useMemo(
@@ -25,30 +26,36 @@ export function AppShell({ children }: { children?: ReactNode }) {
 
   function handleLogout(): void {
     clearApiToken();
-    void navigate("/login", { replace: true });
+    void navigate({ to: "/login", replace: true });
   }
 
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-40">
-        <nav className="flex items-center gap-[14px] border-b border-border bg-[rgba(10,10,12,0.85)] px-[28px] py-3 backdrop-blur-[8px]">
+        <nav className="flex items-center gap-3.5 border-b border-border bg-chrome px-7 py-3 backdrop-blur">
           <Link
-            className="flex items-center gap-[10px] text-[14px] font-semibold tracking-[-0.01em] text-foreground"
-            to={`/projects/${projectId}/sessions`}
+            className="flex items-center gap-2.5 text-[14px] font-semibold tracking-[-0.01em] text-foreground"
+            params={{ projectId }}
+            to="/projects/$projectId/sessions"
           >
             <BrandMark />
             <span>Orange Replay</span>
           </Link>
 
-          <span className="text-[#33333b]">/</span>
+          <span className="text-divider">/</span>
 
           <Select
-            onValueChange={(nextProjectId) => navigate(`/projects/${nextProjectId}/sessions`)}
+            onValueChange={(nextProjectId) => {
+              void navigate({
+                to: "/projects/$projectId/sessions",
+                params: { projectId: nextProjectId },
+              });
+            }}
             value={projectId}
           >
             <SelectTrigger
               aria-label="Project"
-              className="h-auto min-w-[132px] rounded-lg border border-border bg-card px-[11px] py-[5px] text-[12.5px] text-foreground [&_svg]:size-[9px] [&_svg]:text-dim"
+              className="h-auto min-w-33 rounded-lg border border-border bg-card px-2.75 py-1.25 text-[12.5px] text-foreground [&_svg]:size-2.25 [&_svg]:text-dim"
               placeholder="Project"
             />
             <SelectContent className="rounded-lg border border-border bg-popover">
@@ -63,9 +70,9 @@ export function AppShell({ children }: { children?: ReactNode }) {
             </SelectContent>
           </Select>
 
-          <span className="rounded-full border border-dashed border-[rgba(245,166,35,0.35)] bg-[rgba(245,166,35,0.09)] px-[10px] py-[3px] text-[11px] font-medium text-amber">
+          <Badge color="amber" size="sm">
             Local dev
-          </span>
+          </Badge>
 
           <div className="ml-auto flex items-center gap-4">
             <Button
@@ -77,36 +84,49 @@ export function AppShell({ children }: { children?: ReactNode }) {
             </Button>
             <span
               aria-hidden="true"
-              className="size-[26px] rounded-full border border-border bg-[linear-gradient(135deg,#2dd4bf44,#2dd4bf)]"
+              className="size-6.5 rounded-full border border-border bg-[linear-gradient(135deg,var(--teal-soft),var(--teal))]"
             />
           </div>
         </nav>
 
-        <nav className="flex gap-1 border-b border-border bg-[rgba(10,10,12,0.85)] px-[28px]">
-          <TopNavTab label="Sessions" to={`/projects/${projectId}/sessions`} />
-          <TopNavTab label="Live" to={`/projects/${projectId}/live`} />
-          <TopNavTab label="Settings" to={`/projects/${projectId}/settings`} />
-          <TopNavTab label="Install" to={`/projects/${projectId}/install`} />
+        <nav className="flex gap-1 border-b border-border bg-chrome px-7">
+          <TopNavTab label="Sessions" projectId={projectId} to="/projects/$projectId/sessions" />
+          <TopNavTab label="Live" projectId={projectId} to="/projects/$projectId/live" />
+          <TopNavTab label="Settings" projectId={projectId} to="/projects/$projectId/settings" />
+          <TopNavTab label="Install" projectId={projectId} to="/projects/$projectId/install" />
         </nav>
       </header>
 
-      <main className="mx-auto w-full max-w-[1200px] px-[28px] py-6">{children ?? <Outlet />}</main>
+      <main className="mx-auto w-full max-w-300 px-7 py-6">{children ?? <Outlet />}</main>
     </div>
   );
 }
 
-function TopNavTab({ label, to }: { label: string; to: string }) {
+function TopNavTab({
+  label,
+  projectId,
+  to,
+}: {
+  label: string;
+  projectId: string;
+  to:
+    | "/projects/$projectId/install"
+    | "/projects/$projectId/live"
+    | "/projects/$projectId/sessions"
+    | "/projects/$projectId/settings";
+}) {
   return (
-    <NavLink
-      className={({ isActive }) =>
-        cn(
-          "-mb-px border-b-2 border-transparent px-[13px] py-[10px] text-[13px] text-muted-foreground transition-colors hover:text-foreground",
-          isActive && "border-amber font-medium text-foreground",
-        )
-      }
+    <Link
+      activeProps={{
+        className: "border-amber font-medium text-foreground",
+      }}
+      className={cn(
+        "-mb-px border-b-2 border-transparent px-3.25 py-2.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground",
+      )}
+      params={{ projectId }}
       to={to}
     >
       {label}
-    </NavLink>
+    </Link>
   );
 }

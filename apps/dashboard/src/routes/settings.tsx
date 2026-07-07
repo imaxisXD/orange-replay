@@ -1,14 +1,16 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { useParams } from "react-router";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useParams } from "@tanstack/react-router";
 import { AlertCircle, KeyRound, Plus, RotateCcw, Server, Trash2, X } from "lucide-react";
 import type {
   CaptureToggles,
   MaskRule,
   ProjectKeyAudit,
-  StoredProjectConfig,
+  ProjectConfigUpdate,
 } from "@orange-replay/shared/types";
-import { StatusPill } from "@/components/status-pill";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { InputField, InputGroup } from "@/components/ui/input-group";
 import {
@@ -52,8 +54,11 @@ import {
   type MaskRuleActionValue,
   type ProjectSettingsDraft,
 } from "@/lib/project-settings";
+import { defaultProjectId } from "@/lib/routes";
 import { cn } from "@/lib/utils";
-import { defaultProjectId } from "@/router";
+import { Elevated } from "@/lib/elevated";
+import { useShape } from "@/lib/shape-context";
+import { spring } from "@/lib/springs";
 
 type HealthState = "checking" | "connected" | "failed";
 type SaveState = "idle" | "saving";
@@ -70,77 +75,74 @@ const captureRows: {
 ];
 
 export function SettingsPage() {
-  const params = useParams();
+  const params = useParams({ strict: false });
   const projectId = params.projectId ?? defaultProjectId;
-  const [healthState, setHealthState] = useState<HealthState>("checking");
-  const [error, setError] = useState("");
-  const [config, setConfig] = useState<StoredProjectConfig | null>(null);
+  const queryClient = useQueryClient();
   const [draft, setDraft] = useState<ProjectSettingsDraft | null>(null);
-  const [configLoading, setConfigLoading] = useState(true);
-  const [configError, setConfigError] = useState("");
-  const [keys, setKeys] = useState<ProjectKeyAudit[]>([]);
-  const [keysLoading, setKeysLoading] = useState(true);
-  const [keysError, setKeysError] = useState("");
   const [originInput, setOriginInput] = useState("");
   const [originError, setOriginError] = useState("");
-  const [saveState, setSaveState] = useState<SaveState>("idle");
   const [saveError, setSaveError] = useState("");
   const [savedVisible, setSavedVisible] = useState(false);
   const hasToken = getApiToken() !== null;
 
-  const loadConfig = useCallback(async () => {
-    setConfigLoading(true);
-    setConfigError("");
+  const healthQuery = useQuery({
+    queryKey: ["health"],
+    queryFn: health,
+  });
+  const configQuery = useQuery({
+    queryKey: ["project-config", projectId],
+    queryFn: () => fetchProjectConfig(projectId),
+  });
+  const keysQuery = useQuery({
+    queryKey: ["project-keys", projectId],
+    queryFn: () => fetchProjectKeys(projectId),
+  });
+  const saveMutation = useMutation({
+    mutationFn: (update: ProjectConfigUpdate) => saveProjectConfig(projectId, update),
+    onSuccess: (savedConfig) => {
+      queryClient.setQueryData(["project-config", projectId], savedConfig);
+      setDraft(makeProjectSettingsDraft(savedConfig));
+      setSavedVisible(true);
+    },
+    onError: (caughtError) => {
+      if (caughtError instanceof ApiError && caughtError.status === 409) {
+        void configQuery.refetch();
+        setSaveError(
+          "Project settings changed elsewhere. Review the latest values and save again.",
+        );
+        return;
+      }
+      setSaveError(readErrorMessage(caughtError));
+    },
+  });
 
-    try {
-      const nextConfig = await fetchProjectConfig(projectId);
-      setConfig(nextConfig);
-      setDraft(makeProjectSettingsDraft(nextConfig));
-    } catch (caughtError) {
-      setConfig(null);
+  const config = configQuery.data ?? null;
+  const keys = keysQuery.data?.keys ?? [];
+  const healthState: HealthState =
+    healthQuery.isPending || healthQuery.isFetching
+      ? "checking"
+      : healthQuery.data?.ok === true
+        ? "connected"
+        : "failed";
+  const error =
+    healthQuery.error === null
+      ? ""
+      : healthQuery.error instanceof Error
+        ? healthQuery.error.message
+        : "Health check failed.";
+  const configLoading = configQuery.isPending;
+  const configError = configQuery.error === null ? "" : readErrorMessage(configQuery.error);
+  const keysLoading = keysQuery.isPending;
+  const keysError = keysQuery.error === null ? "" : readErrorMessage(keysQuery.error);
+  const saveState: SaveState = saveMutation.isPending ? "saving" : "idle";
+
+  useEffect(() => {
+    if (configQuery.data === undefined) {
       setDraft(null);
-      setConfigError(readErrorMessage(caughtError));
-    } finally {
-      setConfigLoading(false);
+      return;
     }
-  }, [projectId]);
-
-  const loadKeys = useCallback(async () => {
-    setKeysLoading(true);
-    setKeysError("");
-
-    try {
-      const response = await fetchProjectKeys(projectId);
-      setKeys(response.keys);
-    } catch (caughtError) {
-      setKeys([]);
-      setKeysError(readErrorMessage(caughtError));
-    } finally {
-      setKeysLoading(false);
-    }
-  }, [projectId]);
-
-  async function checkHealth(): Promise<void> {
-    setHealthState("checking");
-    setError("");
-
-    try {
-      const result = await health();
-      setHealthState(result.ok ? "connected" : "failed");
-    } catch (caughtError) {
-      setHealthState("failed");
-      setError(caughtError instanceof Error ? caughtError.message : "Health check failed.");
-    }
-  }
-
-  useEffect(() => {
-    void checkHealth();
-  }, []);
-
-  useEffect(() => {
-    void loadConfig();
-    void loadKeys();
-  }, [loadConfig, loadKeys]);
+    setDraft(makeProjectSettingsDraft(configQuery.data));
+  }, [configQuery.data]);
 
   useEffect(() => {
     if (!savedVisible) return;
@@ -162,6 +164,7 @@ export function SettingsPage() {
   ): void {
     setSaveError("");
     setSavedVisible(false);
+    saveMutation.reset();
     setDraft((currentDraft) => (currentDraft === null ? null : updater(currentDraft)));
   }
 
@@ -234,31 +237,25 @@ export function SettingsPage() {
     setSaveError("");
   }
 
-  async function saveChanges(): Promise<void> {
-    if (draft === null) return;
+  function saveChanges(): void {
+    if (draft === null || config === null) return;
 
     const nextMaskRulesError = validateMaskRules(draft.maskRules);
     if (nextMaskRulesError !== null) {
       setSaveError(nextMaskRulesError);
       return;
     }
-
-    setSaveState("saving");
-    setSaveError("");
-
-    try {
-      const savedConfig = await saveProjectConfig(projectId, {
-        ...draft,
-        maskRules: cleanMaskRules(draft.maskRules),
-      });
-      setConfig(savedConfig);
-      setDraft(makeProjectSettingsDraft(savedConfig));
-      setSavedVisible(true);
-    } catch (caughtError) {
-      setSaveError(readErrorMessage(caughtError));
-    } finally {
-      setSaveState("idle");
+    if (draft.allowedOrigins.length === 0) {
+      setSaveError("Add at least one allowed origin or use * for wildcard access.");
+      return;
     }
+
+    setSaveError("");
+    saveMutation.mutate({
+      expectedVersion: config.version,
+      ...draft,
+      maskRules: cleanMaskRules(draft.maskRules),
+    });
   }
 
   return (
@@ -266,7 +263,7 @@ export function SettingsPage() {
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-[18px] font-semibold tracking-[-0.015em]">
           Settings
-          <span className="ml-[10px] text-[12px] font-normal text-dim">
+          <span className="ml-2.5 text-[12px] font-normal text-dim">
             Project configuration and keys.
           </span>
         </h1>
@@ -276,7 +273,9 @@ export function SettingsPage() {
             savedVisible ? "opacity-100" : "pointer-events-none opacity-0",
           )}
         >
-          <StatusPill kind="ok">Saved</StatusPill>
+          <Badge color="green" size="sm" variant="dot">
+            Saved
+          </Badge>
         </span>
       </div>
 
@@ -297,9 +296,9 @@ export function SettingsPage() {
           <AlertDescription>
             <p>{configError || "Project settings could not be loaded."}</p>
             <Button
-              className="mt-2 border-[rgba(244,83,78,0.35)] bg-transparent text-[#ffb3b0] hover:text-foreground"
+              className="mt-2 border-danger-border bg-transparent text-danger-foreground hover:text-foreground"
               leadingIcon={RotateCcw}
-              onClick={() => void loadConfig()}
+              onClick={() => void configQuery.refetch()}
               size="sm"
               variant="secondary"
             >
@@ -333,25 +332,33 @@ export function SettingsPage() {
             <KeysCard error={keysError} keys={sortedKeys} loading={keysLoading} />
           </div>
 
-          {isDirty && (
-            <div className="lit sticky bottom-4 z-20 flex flex-col gap-3 rounded-lg p-3 sm:flex-row sm:items-center sm:justify-end">
-              <div className="mr-auto text-[12px] text-dim">Unsaved changes</div>
-              {(saveError.length > 0 || maskRulesError !== null) && (
-                <div className="text-[12px] text-danger">{saveError || maskRulesError}</div>
-              )}
-              <Button onClick={discardChanges} size="sm" variant="secondary">
-                Discard
-              </Button>
-              <Button
-                disabled={!canSave}
-                loading={saveState === "saving"}
-                onClick={() => void saveChanges()}
-                size="sm"
+          <AnimatePresence>
+            {isDirty && (
+              <motion.div
+                animate={{ opacity: 1, y: 0 }}
+                className="lit sticky bottom-4 z-20 flex flex-col gap-3 rounded-lg p-3 sm:flex-row sm:items-center sm:justify-end"
+                exit={{ opacity: 0, y: 8 }}
+                initial={{ opacity: 0, y: 8 }}
+                transition={spring.moderate}
               >
-                Save changes
-              </Button>
-            </div>
-          )}
+                <div className="mr-auto text-[12px] text-dim">Unsaved changes</div>
+                {(saveError.length > 0 || maskRulesError !== null) && (
+                  <div className="text-[12px] text-danger">{saveError || maskRulesError}</div>
+                )}
+                <Button onClick={discardChanges} size="sm" variant="secondary">
+                  Discard
+                </Button>
+                <Button
+                  disabled={!canSave}
+                  loading={saveState === "saving"}
+                  onClick={saveChanges}
+                  size="sm"
+                >
+                  Save changes
+                </Button>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </>
       )}
 
@@ -364,9 +371,9 @@ export function SettingsPage() {
             </div>
             <KeyRound aria-hidden className="size-5 text-muted-foreground" />
           </div>
-          <StatusPill kind={hasToken ? "ok" : "rage"}>
+          <Badge color={hasToken ? "green" : "amber"} size="sm" variant="dot">
             {hasToken ? "Token saved" : "Token missing"}
-          </StatusPill>
+          </Badge>
         </section>
 
         <section className="lit flex flex-col gap-4 overflow-hidden rounded-lg p-5">
@@ -382,7 +389,7 @@ export function SettingsPage() {
             <Button
               leadingIcon={RotateCcw}
               loading={healthState === "checking"}
-              onClick={() => void checkHealth()}
+              onClick={() => void healthQuery.refetch()}
               size="sm"
               variant="ghost"
             >
@@ -469,7 +476,11 @@ function MaskingCard({
   return (
     <section className="lit rounded-lg p-5">
       <CardHeader
-        right={<StatusPill kind="neutral">policy v{draft.maskPolicyVersion}</StatusPill>}
+        right={
+          <Badge color="gray" size="sm">
+            policy v{draft.maskPolicyVersion}
+          </Badge>
+        }
         title="Masking"
         body="Custom rules run after the default input masking policy."
       />
@@ -589,13 +600,16 @@ function OriginsCard({
       <div className="mt-4 flex flex-wrap gap-2">
         {draft.allowedOrigins.map((origin) => (
           <span
-            className="inline-flex items-center gap-2 rounded-full border border-border bg-secondary px-[9px] py-[4px] text-[11px] text-muted-foreground"
+            className="inline-flex items-center gap-2 rounded-full border border-border bg-secondary px-2.25 py-1 text-[11px] text-muted-foreground"
             key={origin}
           >
             <span>{origin}</span>
             <Button
               aria-label={`Remove ${origin}`}
-              className="-mr-1 size-5 rounded-full text-dim hover:text-foreground [&_svg]:size-3"
+              // size-5 keeps the glyph small; before:-inset-1.5 widens the
+              // pointer target to ~32px without overlapping the 8px-gap
+              // neighbour chip (a full 40px would collide).
+              className="-mr-1 size-5 rounded-full text-dim hover:text-foreground before:-inset-1.5 [&_svg]:size-3"
               onClick={() => onRemoveOrigin(origin)}
               size="icon-sm"
               variant="ghost"
@@ -635,6 +649,7 @@ function KeysCard({
   keys: ProjectKeyAudit[];
   loading: boolean;
 }) {
+  const shape = useShape();
   return (
     <section className="lit overflow-hidden rounded-lg p-5">
       <CardHeader
@@ -649,7 +664,7 @@ function KeysCard({
             ))}
           </div>
         ) : error.length > 0 ? (
-          <div className="rounded-lg border border-dashed border-[rgba(244,83,78,0.35)] px-4 py-6 text-[13px] text-[#ffb3b0]">
+          <div className="rounded-lg border border-dashed border-danger-border px-4 py-6 text-[13px] text-danger-foreground">
             {error}
           </div>
         ) : keys.length === 0 ? (
@@ -673,9 +688,15 @@ function KeysCard({
                       {key.key_hash.slice(0, 12)}…
                     </TableCell>
                     <TableCell>
-                      <StatusPill kind={key.active ? "ok" : "neutral"}>
-                        {key.active ? "active" : "revoked"}
-                      </StatusPill>
+                      <Elevated
+                        className={cn("inline-flex", shape.item)}
+                        offset={4}
+                        shadowLevel={4}
+                      >
+                        <Badge color={key.active ? "green" : "gray"} size="sm" variant="dot">
+                          {key.active ? "active" : "revoked"}
+                        </Badge>
+                      </Elevated>
                     </TableCell>
                     <TableCell
                       className="text-[12px] text-dim"
@@ -716,10 +737,10 @@ function SettingRow({
   label: string;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 border-b border-dashed border-dash py-[9px] last:border-b-0">
+    <div className="flex items-center justify-between gap-4 border-b border-dashed border-dash py-2.25 last:border-b-0">
       <div className="min-w-0">
         <div className="text-[13px] font-medium">{label}</div>
-        <div className="mt-[1px] text-[11.5px] text-dim">{description}</div>
+        <div className="mt-0.25 text-[11.5px] text-dim">{description}</div>
       </div>
       <div className="flex-none">{children}</div>
     </div>
@@ -742,7 +763,7 @@ function NumberWithSuffix({
   value: string;
 }) {
   return (
-    <InputGroup className="w-[96px] gap-0">
+    <InputGroup className="w-24 gap-0">
       <InputField
         hideLabel
         className="font-mono"
@@ -818,14 +839,26 @@ function SettingsLoading() {
 
 function HealthStatus({ healthState }: { healthState: HealthState }) {
   if (healthState === "connected") {
-    return <StatusPill kind="ok">Connected</StatusPill>;
+    return (
+      <Badge color="green" size="sm" variant="dot">
+        Connected
+      </Badge>
+    );
   }
 
   if (healthState === "failed") {
-    return <StatusPill kind="err">Failed</StatusPill>;
+    return (
+      <Badge color="red" size="sm" variant="dot">
+        Failed
+      </Badge>
+    );
   }
 
-  return <StatusPill kind="neutral">Checking</StatusPill>;
+  return (
+    <Badge color="gray" size="sm" variant="dot">
+      Checking
+    </Badge>
+  );
 }
 
 function readErrorMessage(error: unknown): string {

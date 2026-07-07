@@ -1,16 +1,29 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { useLocation, useNavigate } from "react-router";
+import { useNavigate, useSearch } from "@tanstack/react-router";
+import { motion } from "framer-motion";
 import { Eye, EyeOff, KeyRound } from "lucide-react";
 import { BrandMark } from "@/components/brand-mark";
 import { Button } from "@/components/ui/button";
+import { IconSwap } from "@/components/ui/icon-swap";
 import { InputField, InputGroup } from "@/components/ui/input-group";
 import { checkApiToken, setApiToken } from "@/lib/api";
-
-interface LoginState {
-  returnTo?: string;
-}
+import { safeReturnPath } from "@/lib/login-return";
+import { projectIdFromProjectPath } from "@/lib/routes";
+import { spring } from "@/lib/springs";
 
 const rejectedTokenMessage = "That token was rejected. Check DEV_API_TOKEN and try again.";
+
+// Split + stagger the card's contents on first paint; MotionConfig
+// (reducedMotion="user") drops the y-shift and keeps a plain fade when the
+// visitor prefers reduced motion.
+const cardEnter = {
+  hidden: {},
+  show: { transition: { delayChildren: 0.04, staggerChildren: 0.08 } },
+};
+const cardChild = {
+  hidden: { opacity: 0, y: 8 },
+  show: { opacity: 1, y: 0, transition: spring.moderate },
+};
 
 export function LoginPage() {
   const [token, setToken] = useState("");
@@ -18,16 +31,14 @@ export function LoginPage() {
   const [showToken, setShowToken] = useState(false);
   const [isChecking, setIsChecking] = useState(false);
   const navigate = useNavigate();
-  const location = useLocation();
-  const state = location.state as LoginState | null;
-  const returnTo = state?.returnTo ?? "/projects/p1/sessions";
+  const search = useSearch({ from: "/login" });
+  const returnTo = safeReturnPath(search.returnTo);
 
   useEffect(() => {
-    const reason = new URLSearchParams(location.search).get("reason");
-    if (reason === "unauthorized") {
+    if (search.reason === "unauthorized") {
       setError(rejectedTokenMessage);
     }
-  }, [location.search]);
+  }, [search.reason]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -42,9 +53,9 @@ export function LoginPage() {
     setError("");
 
     try {
-      await checkApiToken(trimmedToken);
+      await checkApiToken(trimmedToken, projectIdFromProjectPath(returnTo));
       setApiToken(trimmedToken);
-      void navigate(returnTo, { replace: true });
+      void navigate({ href: returnTo, replace: true });
     } catch {
       setError(rejectedTokenMessage);
     } finally {
@@ -54,13 +65,18 @@ export function LoginPage() {
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-background p-6 text-foreground">
-      <section className="lit flex w-full max-w-[400px] flex-col gap-6 overflow-hidden rounded-lg p-6">
-        <div className="mt-4 flex items-center gap-[10px]">
+      <motion.section
+        animate="show"
+        className="lit flex w-full max-w-100 flex-col gap-6 overflow-hidden rounded-lg p-6"
+        initial="hidden"
+        variants={cardEnter}
+      >
+        <motion.div className="mt-4 flex items-center gap-2.5" variants={cardChild}>
           <BrandMark className="size-7" />
           <span className="text-[14px] font-medium">Orange Replay</span>
-        </div>
+        </motion.div>
 
-        <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
+        <motion.form className="flex flex-col gap-4" onSubmit={handleSubmit} variants={cardChild}>
           <InputGroup className="w-full">
             <InputField
               autoComplete="current-password"
@@ -68,15 +84,17 @@ export function LoginPage() {
               endContent={
                 <button
                   aria-label={showToken ? "Hide API token" : "Show API token"}
-                  className="flex size-7 shrink-0 items-center justify-center rounded-md text-dim transition-colors hover:text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-amber"
+                  className="flex size-8 shrink-0 items-center justify-center rounded-md text-dim transition-colors hover:text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-amber"
                   onClick={() => setShowToken((currentValue) => !currentValue)}
                   type="button"
                 >
-                  {showToken ? (
-                    <EyeOff aria-hidden className="size-4" />
-                  ) : (
-                    <Eye aria-hidden className="size-4" />
-                  )}
+                  <IconSwap swapKey={showToken ? "hide" : "show"}>
+                    {showToken ? (
+                      <EyeOff aria-hidden className="size-4" />
+                    ) : (
+                      <Eye aria-hidden className="size-4" />
+                    )}
+                  </IconSwap>
                 </button>
               }
               error={error}
@@ -100,8 +118,8 @@ export function LoginPage() {
           <Button className="w-full" loading={isChecking} type="submit">
             Continue
           </Button>
-        </form>
-      </section>
+        </motion.form>
+      </motion.section>
     </main>
   );
 }

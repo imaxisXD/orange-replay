@@ -5,23 +5,27 @@
   "type": "module",
   "scripts": {
     "budget": "vp run @orange-replay/sdk#budget",
+    "build:deploy": "node scripts/build-deploy.mjs",
+    "bootstrap:prod": "node scripts/bootstrap-prod-project.mjs",
+    "dev": "node scripts/dev.mjs",
+    "deploy:prod": "node scripts/check-prod-secret.mjs && node scripts/build-deploy.mjs && vp exec --filter @orange-replay/worker -- wrangler deploy --env production --minify && node scripts/smoke-prod-api.mjs",
+    "deploy:prod:dry-run": "node scripts/build-deploy.mjs && vp exec --filter @orange-replay/worker -- wrangler deploy --env production --dry-run --outdir dist/prod-dry-run",
     "mirror-template": "node scripts/mirror-template.mjs",
     "ready": "vp check && vp run -r test && vp run -r build",
     "prepare": "vp config"
   },
   "devDependencies": {
+    "@babel/core": "catalog:",
+    "@rolldown/plugin-babel": "catalog:",
+    "@types/babel__core": "catalog:",
     "@types/node": "catalog:",
+    "@typescript/native-preview": "7.0.0-dev.20260704.1",
+    "babel-plugin-react-compiler": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:"
   },
-  "devEngines": {
-    "packageManager": {
-      "name": "pnpm",
-      "version": "11.9.0",
-      "onFail": "download"
-    }
-  },
   "engines": {
     "node": ">=22.18.0"
-  }
+  },
+  "packageManager": "pnpm@11.9.0"
 }
