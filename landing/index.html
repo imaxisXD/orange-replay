@@ -1,0 +1,2446 @@
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    <meta charset="utf-8" />
+    <script>
+      document.documentElement.classList.remove("no-js");
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Orange Replay — watch what your users actually did</title>
+    <meta
+      name="description"
+      content="Session replay for the modern web. Record every session, surface errors and rage clicks automatically, and replay them pixel-for-pixel. Built on the edge."
+    />
+    <style>
+      /* ===========================================================
+     Orange Replay — landing page
+     Marketing shell: monochrome, editorial, huge left-aligned type
+       (design language studied from polylane.com)
+     Product screenshots: the real Orange Replay design system
+       (dotted grid, amber accent, .lit cards) — scoped to .app
+     Type: Uncut Sans (SIL OFL 1.1) · labels/numerals in a mono stack
+     =========================================================== */
+
+      @font-face {
+        font-family: "Uncut Sans";
+        src: url("fonts/UncutSans-Variable.woff2") format("woff2-variations");
+        font-weight: 300 800;
+        font-style: normal;
+        font-display: swap;
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      :root {
+        /* monochrome marketing shell (neutral scale on pure black) */
+        --bg: #000000;
+        --white: #ffffff;
+        --text: #d4d4d4; /* body            */
+        --sub: #a3a3a3; /* subhead         */
+        --faint: #737373; /* labels + faint  */
+        --dimmer: #525252;
+        --line: #262626; /* borders         */
+        --line2: #171717;
+        --panel: #0b0b0d;
+
+        /* muted accent trio (used sparingly — footer words, hovers) */
+        --blue: #4478b8;
+        --a-amber: #c8823b;
+        --a-green: #4c8c57;
+
+        /* our touch: amber is the "orange" in Orange Replay + the friction spectrum */
+        --accent: #f5a623;
+        --grad-friction: linear-gradient(90deg, #2dd4bf, #f5a623, #f4534e);
+
+        --sans: "Uncut Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+        --mono: ui-monospace, "SF Mono", "Geist Mono", Menlo, monospace;
+        --wrap: 1200px;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--sans);
+        font-size: 16px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        min-height: 100vh;
+        overflow-x: hidden;
+      }
+      ::selection {
+        background: rgba(255, 255, 255, 0.16);
+        color: #fff;
+      }
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+      .mono {
+        font-family: var(--mono);
+      }
+      .tabnum {
+        font-variant-numeric: tabular-nums;
+      }
+
+      .wrap {
+        max-width: var(--wrap);
+        margin: 0 auto;
+        padding: 0 max(24px, 5vw);
+      }
+
+      /* small mono uppercase label */
+      .label {
+        font-family: var(--mono);
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: var(--faint);
+      }
+
+      /* ===== nav ===== */
+      .nav {
+        position: sticky;
+        top: 0;
+        z-index: 60;
+        display: flex;
+        align-items: center;
+        padding: 20px max(24px, 5vw);
+        background: rgba(0, 0, 0, 0.6);
+        backdrop-filter: blur(12px);
+      }
+      .wordmark {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .mark {
+        width: 22px;
+        height: 22px;
+        border-radius: 6px;
+        background: #101013;
+        border: 1px solid var(--line);
+        position: relative;
+        flex: none;
+      }
+      .mark::after {
+        content: "";
+        position: absolute;
+        left: 4px;
+        right: 4px;
+        top: 9px;
+        height: 2.5px;
+        border-radius: 2px;
+        background: linear-gradient(90deg, #2dd4bf, #f5a623, #f4534e);
+      }
+      .wordmark b {
+        font-family: var(--mono);
+        font-weight: 500;
+        font-size: 15px;
+        letter-spacing: -0.01em;
+        color: #ededed;
+      }
+      .nav .links {
+        margin: 0 auto;
+        display: flex;
+        align-items: center;
+        gap: 34px;
+      }
+      .nav .links a {
+        color: var(--sub);
+        font-size: 14.5px;
+        transition: color 120ms ease;
+        text-underline-offset: 7px;
+        text-decoration: underline;
+        text-decoration-color: transparent;
+      }
+      .nav .links a:hover {
+        color: #fff;
+        text-decoration-color: var(--accent);
+      }
+      .nav .right {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+
+      /* accent focus ring (a11y + brand) */
+      a:focus-visible,
+      button:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 3px;
+        border-radius: 5px;
+      }
+
+      .cta-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        background: #fff;
+        color: #000;
+        border-radius: 999px;
+        padding: 6px 7px 6px 15px;
+        font-size: 14px;
+        font-weight: 550;
+        letter-spacing: -0.01em;
+        transition:
+          transform 140ms ease,
+          box-shadow 140ms ease;
+      }
+      .cta-pill:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 8px 24px rgba(255, 255, 255, 0.12);
+      }
+      .cta-pill .circ {
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: #000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      /* ===== our touch: scroll playhead — the page is a replay you scrub ===== */
+      .scrub {
+        position: fixed;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 3px;
+        z-index: 55;
+        pointer-events: none;
+      }
+      .scrub .track {
+        position: absolute;
+        inset: 0;
+        background: rgba(255, 255, 255, 0.06);
+      }
+      .scrub .fill {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 0;
+        background: linear-gradient(180deg, rgba(245, 166, 35, 0.15), var(--accent));
+      }
+      .scrub .head {
+        position: absolute;
+        left: 50%;
+        top: 0;
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: var(--accent);
+        transform: translate(-50%, -50%);
+        box-shadow: 0 0 10px rgba(245, 166, 35, 0.85);
+      }
+
+      /* ===== buttons ===== */
+      .btns {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .btn-primary {
+        display: inline-flex;
+        align-items: stretch;
+        background: #fff;
+        color: #000;
+        border-radius: 11px;
+        font-size: 15px;
+        font-weight: 560;
+        letter-spacing: -0.01em;
+        overflow: hidden;
+        transition:
+          transform 140ms ease,
+          box-shadow 140ms ease;
+      }
+      .btn-primary:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 12px 30px rgba(255, 255, 255, 0.12);
+      }
+      .btn-primary .lbl {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 12px 16px;
+      }
+      .btn-primary .box {
+        display: flex;
+        align-items: center;
+        padding: 0 13px;
+        border-left: 1px solid rgba(0, 0, 0, 0.14);
+      }
+      .btn-primary .box svg {
+        transition: transform 160ms ease;
+      }
+      .btn-primary:hover .box svg {
+        transform: translate(2px, -2px);
+      }
+      .btn-ghost {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        background: transparent;
+        color: #e5e5e5;
+        border: 1px solid var(--line);
+        border-radius: 11px;
+        padding: 12px 17px;
+        font-size: 15px;
+        font-weight: 480;
+        transition:
+          border-color 140ms ease,
+          background 140ms ease;
+      }
+      .btn-ghost:hover {
+        border-color: #3f3f3f;
+        background: #0c0c0c;
+      }
+
+      /* ===== hero ===== */
+      .hero {
+        position: relative;
+        padding: 96px 0 118px;
+        overflow: hidden;
+      }
+      /* our touch: faint dotted grid (our canvas) instead of polylane's diagonal hairlines */
+      .hero .streaks {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        z-index: 0;
+        background-image: radial-gradient(circle, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+        background-size: 26px 26px;
+        -webkit-mask-image: radial-gradient(
+          125% 110% at 74% 24%,
+          #000 0%,
+          rgba(0, 0, 0, 0.5) 46%,
+          transparent 80%
+        );
+        mask-image: radial-gradient(
+          125% 110% at 74% 24%,
+          #000 0%,
+          rgba(0, 0, 0, 0.5) 46%,
+          transparent 80%
+        );
+      }
+      /* a single amber "scan line" sweeping the canvas */
+      .hero .scan {
+        position: absolute;
+        top: -10%;
+        left: 63%;
+        width: 2px;
+        height: 150%;
+        z-index: 0;
+        pointer-events: none;
+        background: linear-gradient(
+          180deg,
+          transparent,
+          rgba(245, 166, 35, 0.42) 45%,
+          rgba(245, 166, 35, 0.1) 70%,
+          transparent
+        );
+        box-shadow: 0 0 16px rgba(245, 166, 35, 0.28);
+        transform: rotate(23deg);
+        transform-origin: top center;
+      }
+      .hero .inner {
+        position: relative;
+        z-index: 2;
+        max-width: 1040px;
+      }
+
+      /* ===== living hero: ghost replay cursor drifting through the whitespace ===== */
+      .ghost {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+        pointer-events: none;
+      }
+      .ghost .cur,
+      .ghost .ripwrap {
+        position: absolute;
+        left: 0;
+        top: 0;
+        will-change: transform;
+        animation: ghost-move 12s ease-in-out infinite;
+      }
+      .ghost .cur svg {
+        filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5));
+      }
+      .ghost .ripwrap .rip {
+        width: 22px;
+        height: 22px;
+        margin: -3px 0 0 -3px;
+        border-radius: 50%;
+        background: rgba(245, 166, 35, 0.32);
+        transform: scale(0.2);
+        opacity: 0;
+        animation: ghost-click 12s ease-in-out infinite;
+      }
+      .hero h1 {
+        font-size: clamp(2.9rem, 7.6vw, 6.25rem);
+        font-weight: 500;
+        line-height: 0.98;
+        letter-spacing: -0.03em;
+        color: #fff;
+        max-width: 15ch;
+      }
+      .hero .sub {
+        margin-top: 30px;
+        font-size: clamp(1.05rem, 1.7vw, 1.28rem);
+        font-weight: 400;
+        line-height: 1.4;
+        color: var(--sub);
+        max-width: 46ch;
+      }
+      .hero .works {
+        margin-top: 46px;
+      }
+      .hero .logos {
+        margin-top: 16px;
+        display: flex;
+        align-items: center;
+        gap: 26px;
+        flex-wrap: wrap;
+      }
+      .hero .logos .lg {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--faint);
+        font-size: 13.5px;
+        font-weight: 500;
+      }
+      .hero .btns {
+        margin-top: 40px;
+      }
+      .hero .meta {
+        margin-top: 22px;
+        font-family: var(--mono);
+        font-size: 13px;
+        color: var(--faint);
+        letter-spacing: -0.01em;
+      }
+
+      /* ===== section shell ===== */
+      .section {
+        padding: 60px 0;
+      }
+      .sec-kicker {
+        display: flex;
+        align-items: baseline;
+        gap: 22px;
+        max-width: 1000px;
+      }
+      /* our touch: section markers are timeline timestamps on amber nodes */
+      .sec-kicker .ts {
+        font-family: var(--mono);
+        font-size: 13px;
+        color: var(--accent);
+        letter-spacing: 0.02em;
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        padding-top: 9px;
+        flex: none;
+        min-width: 62px;
+      }
+      .sec-kicker .ts .node {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--accent);
+        flex: none;
+        box-shadow: 0 0 8px rgba(245, 166, 35, 0.7);
+      }
+      .sec-kicker.in .ts .node {
+        animation: node-flash 640ms ease-out;
+      }
+      .sec-head {
+        font-size: clamp(1.85rem, 3.3vw, 2.55rem);
+        font-weight: 500;
+        line-height: 1.12;
+        letter-spacing: -0.025em;
+      }
+      .sec-head .text-strong {
+        color: #fff;
+      }
+      .sec-head .text-faint {
+        color: var(--faint);
+      }
+      .sec-note {
+        margin: 22px 0 0 84px;
+        max-width: 60ch;
+        color: var(--sub);
+        font-size: 1rem;
+        line-height: 1.55;
+      }
+
+      /* ===== product frame — our touch: the .lit dashed-grain-bloom card ===== */
+      .shot {
+        margin-top: 44px;
+        border-radius: 16px;
+        overflow: hidden;
+        position: relative;
+        border: none;
+        background: var(--panel);
+        box-shadow: 0 40px 100px -30px rgba(0, 0, 0, 0.9);
+      }
+      /* dashed border, fading from the top-left (our signature) */
+      .shot::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        pointer-events: none;
+        z-index: 4;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Crect x='0.5' y='0.5' width='100%25' height='100%25' fill='none' rx='15.5' ry='15.5' stroke='white' stroke-opacity='0.32' stroke-width='1' stroke-dasharray='12 4'/%3E%3C/svg%3E");
+        -webkit-mask-image: radial-gradient(
+          170% 130% at 0% 0%,
+          #000 0%,
+          rgba(0, 0, 0, 0.4) 26%,
+          rgba(0, 0, 0, 0.18) 52%,
+          rgba(0, 0, 0, 0.08) 100%
+        );
+        mask-image: radial-gradient(
+          170% 130% at 0% 0%,
+          #000 0%,
+          rgba(0, 0, 0, 0.4) 26%,
+          rgba(0, 0, 0, 0.18) 52%,
+          rgba(0, 0, 0, 0.08) 100%
+        );
+      }
+      /* top-left bloom */
+      .shot::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        pointer-events: none;
+        z-index: 3;
+        background: radial-gradient(60% 45% at 4% 0%, rgba(255, 255, 255, 0.06), transparent 60%);
+      }
+      /* friction-gradient top edge (the brand-mark spectrum) */
+      .shot .edge {
+        position: absolute;
+        inset: 0 0 auto 0;
+        height: 1px;
+        z-index: 5;
+        background: var(--grad-friction);
+        opacity: 0.7;
+        -webkit-mask-image: linear-gradient(90deg, transparent, #000 25%, #000 75%, transparent);
+        mask-image: linear-gradient(90deg, transparent, #000 25%, #000 75%, transparent);
+      }
+
+      /* =========================================================
+     .app — the REAL Orange Replay design system, scoped so its
+     amber/teal + dotted grid never leak into the marketing shell
+     ========================================================= */
+      .app {
+        --amber: #f5a623;
+        --teal: #2dd4bf;
+        --red: #f4534e;
+        --green: #34d399;
+        --panel: #111114;
+        --panel2: #16161a;
+        --line: #232329;
+        --dash: #2e2e36;
+        --text: #ececf1;
+        --mut: #8b8b95;
+        --dim: #62626c;
+        background: #0a0a0c;
+        color: var(--text);
+        font-size: 13px;
+        background-image: radial-gradient(circle, #1b1b21 1px, transparent 1px);
+        background-size: 26px 26px;
+      }
+      .app,
+      .app * {
+        font-variant-numeric: tabular-nums;
+      }
+      .appnav1 {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 11px 18px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(10, 10, 12, 0.9);
+      }
+      .appnav1 .b {
+        font-weight: 640;
+        font-size: 13px;
+        letter-spacing: -0.01em;
+        color: #ececf1;
+      }
+      .appnav1 .sep {
+        color: #33333b;
+      }
+      .switcher {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        border-radius: 8px;
+        padding: 4px 10px;
+        font-size: 12px;
+        color: var(--text);
+      }
+      .switcher .car {
+        color: var(--dim);
+        font-size: 9px;
+      }
+      .env2 {
+        font-size: 10.5px;
+        font-weight: 550;
+        color: var(--amber);
+        background: rgba(245, 166, 35, 0.09);
+        border: 1px dashed rgba(245, 166, 35, 0.35);
+        border-radius: 999px;
+        padding: 2px 9px;
+      }
+      .appnav1 .r {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+      .appnav1 .r .lnk {
+        color: var(--mut);
+        font-size: 12px;
+      }
+      .ava {
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #2dd4bf44, #2dd4bf);
+        border: 1px solid var(--line);
+      }
+      .appnav2 {
+        display: flex;
+        gap: 4px;
+        padding: 0 18px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(10, 10, 12, 0.9);
+      }
+      .appnav2 span {
+        padding: 9px 12px;
+        font-size: 12.5px;
+        color: var(--mut);
+        border-bottom: 2px solid transparent;
+        margin-bottom: -1px;
+      }
+      .appnav2 .on {
+        color: var(--text);
+        border-bottom-color: var(--amber);
+        font-weight: 550;
+      }
+      .appnav2 .k {
+        margin-left: auto;
+        align-self: center;
+        font-family: var(--mono);
+        font-size: 10.5px;
+        color: var(--dim);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 3px 8px;
+        margin-bottom: 4px;
+      }
+      .appbody {
+        padding: 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 13px;
+      }
+      .apphead {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .apphead .h {
+        font-size: 15px;
+        font-weight: 620;
+        letter-spacing: -0.01em;
+        color: #ececf1;
+      }
+      .apphead .h small {
+        font-size: 11px;
+        color: var(--dim);
+        font-weight: 400;
+        margin-left: 9px;
+      }
+      .apphead .acts {
+        display: flex;
+        gap: 7px;
+      }
+      .minibtn {
+        font-size: 11.5px;
+        padding: 6px 11px;
+        border-radius: 7px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        color: var(--text);
+        font-weight: 500;
+      }
+      .minibtn.pr {
+        background: var(--text);
+        color: #0a0a0c;
+        border-color: var(--text);
+        font-weight: 600;
+      }
+
+      .stats {
+        display: flex;
+        align-items: stretch;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        overflow: hidden;
+      }
+      .stat {
+        flex: 1;
+        padding: 13px 16px;
+        border-right: 1px dashed var(--dash);
+      }
+      .stat:last-child {
+        border-right: none;
+      }
+      .stat .k {
+        font-size: 11px;
+        color: var(--mut);
+        margin-bottom: 5px;
+      }
+      .stat .v {
+        font-size: 20px;
+        font-weight: 600;
+        font-family: var(--mono);
+        letter-spacing: -0.02em;
+        color: #ececf1;
+      }
+      .stat .v.warm {
+        color: var(--amber);
+      }
+      .stat .d {
+        font-size: 10.5px;
+        color: var(--dim);
+        margin-top: 3px;
+      }
+      .stat .d em {
+        font-style: normal;
+        color: var(--green);
+      }
+      .stat .d em.bad {
+        color: var(--red);
+      }
+
+      .zone {
+        display: grid;
+        grid-template-columns: 1fr 290px;
+        gap: 13px;
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        padding: 15px 16px;
+      }
+      .ptitle {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin-bottom: 13px;
+      }
+      .ptitle b {
+        font-size: 12.5px;
+        font-weight: 600;
+        color: #ececf1;
+      }
+      .ptitle span {
+        font-size: 11px;
+        color: var(--dim);
+      }
+      .heat {
+        display: grid;
+        grid-template-rows: repeat(7, 13px);
+        grid-auto-flow: column;
+        grid-auto-columns: 13px;
+        gap: 4px;
+      }
+      .heat i {
+        border-radius: 4px;
+        background: #17171c;
+        border: 1px solid #1d1d23;
+      }
+      .heat i.t1 {
+        background: #113732;
+        border-color: transparent;
+      }
+      .heat i.t2 {
+        background: #14746a;
+        border-color: transparent;
+      }
+      .heat i.t3 {
+        background: var(--teal);
+        border-color: transparent;
+      }
+      .heat i.a1 {
+        background: #4a3410;
+        border-color: transparent;
+      }
+      .heat i.a2 {
+        background: #b97a09;
+        border-color: transparent;
+      }
+      .heat i.a3 {
+        background: var(--amber);
+        border-color: transparent;
+      }
+      .heat i.r1 {
+        background: #4c1a18;
+        border-color: transparent;
+      }
+      .heat i.r2 {
+        background: #b3312d;
+        border-color: transparent;
+      }
+      .heat i.r3 {
+        background: var(--red);
+        border-color: transparent;
+        box-shadow: 0 0 10px rgba(244, 83, 78, 0.5);
+      }
+      .legend {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        margin-top: 13px;
+        font-size: 10.5px;
+        color: var(--dim);
+      }
+      .grad-bar {
+        width: 110px;
+        height: 5px;
+        border-radius: 999px;
+        background: linear-gradient(90deg, var(--teal), var(--amber), var(--red));
+      }
+      .live-rail .lrow {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 0;
+        border-bottom: 1px dashed var(--dash);
+      }
+      .live-rail .lrow:last-of-type {
+        border-bottom: none;
+      }
+      .pulse {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--green);
+        animation: pulse 1.8s infinite;
+        flex: none;
+      }
+      .live-rail .who {
+        font-size: 12px;
+        font-weight: 520;
+        color: #ececf1;
+      }
+      .live-rail .where {
+        font-size: 11px;
+        color: var(--dim);
+      }
+      .live-rail .t {
+        margin-left: auto;
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--mut);
+      }
+      .watch {
+        font-size: 11px;
+        color: var(--teal);
+        border: 1px dashed rgba(45, 212, 191, 0.4);
+        border-radius: 6px;
+        padding: 3px 9px;
+      }
+
+      .tablewrap {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        overflow: hidden;
+      }
+      .toolbar {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 11px 15px;
+        border-bottom: 1px dashed var(--dash);
+      }
+      .filter {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        border: 1px solid var(--line);
+        background: var(--panel2);
+        border-radius: 7px;
+        padding: 5px 10px;
+        font-size: 11.5px;
+        color: var(--mut);
+      }
+      .filter b {
+        color: var(--text);
+        font-weight: 500;
+      }
+      .toolbar .grow {
+        flex: 1;
+      }
+      .count {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--dim);
+      }
+      .app table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      .app th {
+        text-align: left;
+        font-size: 10px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--dim);
+        font-weight: 550;
+        padding: 9px 15px;
+        border-bottom: 1px solid var(--line);
+      }
+      .app th.r,
+      .app td.r {
+        text-align: right;
+      }
+      .app td {
+        padding: 11px 15px;
+        border-bottom: 1px solid #1a1a1f;
+      }
+      .app tr:last-child td {
+        border-bottom: none;
+      }
+      .app tbody tr:hover td {
+        background: #141419;
+      }
+      .page {
+        font-weight: 550;
+        font-size: 12.5px;
+        color: #ececf1;
+      }
+      .rmeta {
+        font-size: 11px;
+        color: var(--dim);
+        margin-top: 2px;
+      }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 10.5px;
+        font-weight: 550;
+        border-radius: 999px;
+        padding: 3px 9px;
+        border: 1px solid var(--line);
+        color: var(--mut);
+      }
+      .pill i {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+      }
+      .pill.ok i {
+        background: var(--green);
+      }
+      .pill.err {
+        color: #ffb3b0;
+        border-color: rgba(244, 83, 78, 0.35);
+        background: rgba(244, 83, 78, 0.07);
+      }
+      .pill.err i {
+        background: var(--red);
+      }
+      .pill.rage {
+        color: #ffd9a0;
+        border-color: rgba(245, 166, 35, 0.35);
+        background: rgba(245, 166, 35, 0.07);
+      }
+      .pill.rage i {
+        background: var(--amber);
+      }
+      .spark {
+        display: flex;
+        align-items: flex-end;
+        gap: 1.5px;
+        height: 16px;
+        width: 80px;
+      }
+      .spark i {
+        flex: 1;
+        background: #26262d;
+        border-radius: 1px;
+      }
+      .spark i.e {
+        background: var(--red);
+      }
+      .num {
+        font-family: var(--mono);
+        font-size: 11.5px;
+        color: var(--mut);
+      }
+      .num.strong {
+        color: var(--text);
+      }
+      .when {
+        font-size: 11.5px;
+        color: var(--dim);
+      }
+
+      .player {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        display: flex;
+        align-items: center;
+        gap: 13px;
+        padding: 12px 15px;
+      }
+      .play {
+        width: 30px;
+        height: 30px;
+        border-radius: 9px;
+        background: var(--text);
+        position: relative;
+        flex: none;
+      }
+      .play::after {
+        content: "";
+        position: absolute;
+        left: 11px;
+        top: 8px;
+        border-left: 10px solid #0a0a0c;
+        border-top: 7px solid transparent;
+        border-bottom: 7px solid transparent;
+      }
+      .tc {
+        font-family: var(--mono);
+        font-size: 11.5px;
+        color: var(--mut);
+      }
+      .timeline {
+        flex: 1;
+        height: 26px;
+        position: relative;
+      }
+      .timeline .base {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 12px;
+        border-top: 1px dashed var(--dash);
+      }
+      .tl-act {
+        position: absolute;
+        bottom: 4px;
+        width: 4px;
+        border-radius: 1.5px;
+        background: #2e2e38;
+      }
+      .tl-err {
+        position: absolute;
+        top: 1px;
+        width: 2px;
+        height: 24px;
+        background: var(--red);
+        box-shadow: 0 0 8px rgba(244, 83, 78, 0.7);
+      }
+      .tl-ph {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 41%;
+        width: 2px;
+        background: var(--amber);
+        box-shadow: 0 0 9px rgba(245, 166, 35, 0.7);
+      }
+      .tl-ph::after {
+        content: "";
+        position: absolute;
+        top: -3px;
+        left: -3px;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--amber);
+      }
+      .keys {
+        display: flex;
+        gap: 5px;
+      }
+      .keys kbd {
+        font-family: var(--mono);
+        font-size: 10px;
+        background: var(--panel2);
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        padding: 2px 6px;
+        color: var(--mut);
+      }
+
+      /* replay screen layout */
+      .replay {
+        display: grid;
+        grid-template-columns: 1fr 232px;
+        gap: 0;
+      }
+      .replay .stage {
+        padding: 16px;
+        border-right: 1px solid var(--line);
+        display: flex;
+        flex-direction: column;
+        gap: 13px;
+      }
+      .viewport {
+        background: #0d0d10;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        padding: 14px;
+        height: 216px;
+        position: relative;
+        overflow: hidden;
+      }
+      .vp-bar {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 13px;
+      }
+      .vp-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #2b2b32;
+      }
+      .vp-url {
+        flex: 1;
+        height: 22px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        padding: 0 10px;
+        font-family: var(--mono);
+        font-size: 10.5px;
+        color: var(--dim);
+      }
+      .vp-skel {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .vp-skel .l {
+        height: 10px;
+        border-radius: 4px;
+        background: linear-gradient(90deg, #1a1a20, #202027, #1a1a20);
+      }
+      .vp-cta {
+        height: 30px;
+        width: 44%;
+        margin-top: 6px;
+        border-radius: 7px;
+        background: linear-gradient(90deg, #3a2a10, #4a3410);
+      }
+      .vp-cursor {
+        position: absolute;
+        right: 46px;
+        bottom: 44px;
+      }
+      .vp-cursor::after {
+        content: "";
+        position: absolute;
+        inset: -4px;
+        border-radius: 50%;
+        background: rgba(245, 166, 35, 0.22);
+        animation: ripple 2.2s infinite;
+      }
+      .vp-cursor svg {
+        position: relative;
+        z-index: 2;
+      }
+      .vp-click {
+        position: absolute;
+        right: 26px;
+        bottom: 66px;
+        font-family: var(--mono);
+        font-size: 10px;
+        color: var(--amber);
+      }
+      .replay .side {
+        padding: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .replay .side .st {
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--dim);
+        margin: 6px 0 4px;
+      }
+      .ev {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 8px;
+        border-radius: 7px;
+        font-size: 11.5px;
+        color: var(--mut);
+      }
+      .ev:hover {
+        background: #141419;
+      }
+      .ev.cur {
+        background: rgba(245, 166, 35, 0.08);
+        color: #ffd9a0;
+      }
+      .ev .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        flex: none;
+      }
+      .ev .dot.err {
+        background: var(--red);
+      }
+      .ev .dot.rage {
+        background: var(--amber);
+      }
+      .ev .dot.clk {
+        background: #3a3a44;
+      }
+      .ev .dot.net {
+        background: var(--teal);
+      }
+      .ev .tt {
+        margin-left: auto;
+        font-family: var(--mono);
+        font-size: 10px;
+        color: var(--dim);
+      }
+
+      /* ===== social proof ===== */
+      /* our touch: divider carries the teal→amber→red friction spectrum */
+      .divider {
+        height: 1px;
+        background: var(--grad-friction);
+        opacity: 0.8;
+        -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+        mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+      }
+      .proof {
+        padding: 92px 0;
+      }
+      .proof .logos {
+        margin-top: 34px;
+        display: flex;
+        align-items: center;
+        gap: 40px;
+        flex-wrap: wrap;
+      }
+      .proof .logos .lg {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        color: var(--faint);
+        font-size: 15px;
+        font-weight: 500;
+        letter-spacing: -0.01em;
+      }
+      .quote {
+        margin-top: 52px;
+        border-left: 1px solid #333;
+        padding-left: 26px;
+        max-width: 62ch;
+      }
+      .quote p {
+        font-size: clamp(1.1rem, 1.8vw, 1.4rem);
+        font-weight: 400;
+        line-height: 1.45;
+        color: #e5e5e5;
+        letter-spacing: -0.01em;
+      }
+      .quote p u {
+        text-decoration-color: var(--accent);
+        text-underline-offset: 4px;
+        text-decoration-thickness: 1.5px;
+      }
+      .quote .by {
+        margin-top: 24px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .quote .by .ava2 {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #333, #555);
+        border: 1px solid var(--line);
+      }
+      .quote .by .nm {
+        font-size: 14px;
+        font-weight: 550;
+        color: #ededed;
+      }
+      .quote .by .rl {
+        font-size: 13px;
+        color: var(--faint);
+      }
+      .proof .joinus {
+        margin-top: 40px;
+        color: var(--faint);
+        font-size: 15px;
+      }
+      .proof .joinus u {
+        color: #ededed;
+        text-underline-offset: 4px;
+        text-decoration-color: var(--accent);
+        text-decoration-thickness: 1.5px;
+      }
+
+      /* ===== footer ===== */
+      footer {
+        border-top: 1px solid var(--line);
+      }
+      .footgrid {
+        display: grid;
+        grid-template-columns: 1.5fr 1fr;
+        gap: 40px;
+        padding: 92px 0 40px;
+      }
+      .bigline {
+        font-size: clamp(1.9rem, 4.4vw, 3.45rem);
+        font-weight: 500;
+        line-height: 1.14;
+        letter-spacing: -0.025em;
+        color: #fff;
+        max-width: 15ch;
+      }
+      .bigline .w {
+        color: var(--sub);
+      }
+      .bigline .c-blue {
+        color: var(--blue);
+      }
+      .bigline .c-amber {
+        color: var(--a-amber);
+      }
+      .bigline .c-green {
+        color: var(--a-green);
+      }
+      .thumb {
+        display: inline-block;
+        width: 62px;
+        height: 32px;
+        border-radius: 8px;
+        border: 1px solid var(--line);
+        background: #0c0c0e;
+        vertical-align: middle;
+        margin: 0 8px;
+        overflow: hidden;
+        position: relative;
+        transform: translateY(-3px);
+      }
+      .thumb svg {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+      }
+      .footcols {
+        display: flex;
+        gap: 46px;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+      }
+      .footcols h5 {
+        font-family: var(--mono);
+        font-size: 11px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--dimmer);
+        margin-bottom: 16px;
+      }
+      .footcols a {
+        display: block;
+        color: var(--sub);
+        font-size: 14px;
+        margin-bottom: 12px;
+        transition: color 120ms ease;
+      }
+      .footcols a:hover {
+        color: #fff;
+      }
+      .footbot {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 26px 0 40px;
+        border-top: 1px solid var(--line2);
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+      .footbot .c {
+        font-size: 13px;
+        color: var(--dimmer);
+      }
+      .footbot .edge {
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--dimmer);
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .footbot .edge b {
+        color: var(--faint);
+        font-weight: 500;
+      }
+
+      /* ===== animations ===== */
+      @keyframes pulse {
+        50% {
+          opacity: 0.25;
+        }
+      }
+      @keyframes ripple {
+        0% {
+          transform: scale(0.6);
+          opacity: 0.8;
+        }
+        100% {
+          transform: scale(2.6);
+          opacity: 0;
+        }
+      }
+      @keyframes node-flash {
+        0% {
+          box-shadow: 0 0 0 rgba(245, 166, 35, 0);
+        }
+        35% {
+          box-shadow: 0 0 14px 2px rgba(245, 166, 35, 0.95);
+        }
+        100% {
+          box-shadow: 0 0 8px rgba(245, 166, 35, 0.7);
+        }
+      }
+      /* ghost cursor path through the hero whitespace (right side) */
+      @keyframes ghost-move {
+        0% {
+          transform: translate(70vw, 210px);
+        }
+        16% {
+          transform: translate(80vw, 300px);
+        }
+        22% {
+          transform: translate(80vw, 300px);
+        }
+        46% {
+          transform: translate(63vw, 470px);
+        }
+        52% {
+          transform: translate(63vw, 470px);
+        }
+        74% {
+          transform: translate(87vw, 380px);
+        }
+        100% {
+          transform: translate(70vw, 210px);
+        }
+      }
+      @keyframes ghost-click {
+        0%,
+        16% {
+          transform: scale(0.2);
+          opacity: 0;
+        }
+        19% {
+          transform: scale(0.2);
+          opacity: 0.7;
+        }
+        24% {
+          transform: scale(2.4);
+          opacity: 0;
+        }
+        46% {
+          transform: scale(0.2);
+          opacity: 0.7;
+        }
+        51% {
+          transform: scale(2.6);
+          opacity: 0;
+        }
+        52%,
+        100% {
+          transform: scale(0.2);
+          opacity: 0;
+        }
+      }
+      .reveal {
+        opacity: 0;
+        transform: translateY(20px);
+        transition:
+          opacity 0.8s cubic-bezier(0.22, 1, 0.36, 1),
+          transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      .reveal.in {
+        opacity: 1;
+        transform: none;
+      }
+      .no-js .reveal {
+        opacity: 1;
+        transform: none;
+      }
+      @media (max-width: 1100px) {
+        .ghost {
+          display: none;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+        .pulse,
+        .vp-cursor::after,
+        .ghost .cur,
+        .ghost .ripwrap,
+        .ghost .rip {
+          animation: none;
+        }
+        .ghost {
+          display: none;
+        }
+        .sec-kicker.in .ts .node {
+          animation: none;
+        }
+        .reveal {
+          opacity: 1;
+          transform: none;
+          transition: none;
+        }
+      }
+
+      /* ===== responsive ===== */
+      @media (max-width: 1000px) {
+        .zone {
+          grid-template-columns: 1fr;
+        }
+        .live-rail {
+          display: none;
+        }
+        .replay {
+          grid-template-columns: 1fr;
+        }
+        .replay .stage {
+          border-right: none;
+          border-bottom: 1px solid var(--line);
+        }
+        .footgrid {
+          grid-template-columns: 1fr;
+          gap: 56px;
+        }
+        .footcols {
+          justify-content: flex-start;
+        }
+      }
+      @media (max-width: 680px) {
+        .nav .links {
+          display: none;
+        }
+        .hero {
+          padding: 60px 0 76px;
+        }
+        .sec-note {
+          margin-left: 0;
+        }
+        .sec-kicker {
+          gap: 14px;
+        }
+        .sec-kicker .ts {
+          min-width: 0;
+          padding-top: 6px;
+        }
+        .footcols {
+          gap: 30px;
+        }
+        .appnav2 .k,
+        .stat:nth-child(n + 4) {
+          display: none;
+        }
+        .stats {
+          flex-wrap: wrap;
+        }
+        .stat {
+          min-width: 50%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- scroll playhead — you're scrubbing the page like a replay -->
+    <div class="scrub" aria-hidden="true">
+      <div class="track"></div>
+      <div class="fill"></div>
+      <div class="head"></div>
+    </div>
+
+    <!-- ============ NAV ============ -->
+    <nav class="nav">
+      <a class="wordmark" href="#"><span class="mark"></span><b>orange replay</b></a>
+      <div class="links">
+        <a href="#capture">Product</a>
+        <a href="#friction">Features</a>
+        <a href="#">Docs</a>
+        <a href="#">Changelog</a>
+        <a href="#">Pricing</a>
+      </div>
+      <div class="right">
+        <a class="cta-pill" href="#"
+          >Start free
+          <span class="circ"
+            ><svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path
+                d="M3 9L9 3M9 3H4.5M9 3v4.5"
+                stroke="#fff"
+                stroke-width="1.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              /></svg
+          ></span>
+        </a>
+      </div>
+    </nav>
+
+    <!-- ============ HERO ============ -->
+    <header class="hero">
+      <div class="streaks"></div>
+      <div class="scan"></div>
+      <div class="ghost" aria-hidden="true">
+        <div class="ripwrap"><span class="rip"></span></div>
+        <div class="cur">
+          <svg width="17" height="17" viewBox="0 0 16 16" fill="none">
+            <path d="M2 2l5 12 2-5 5-2z" fill="#f5a623" stroke="#0a0a0c" stroke-width="0.8" />
+          </svg>
+        </div>
+      </div>
+      <div class="wrap">
+        <div class="inner">
+          <h1 class="reveal">Watch what your users actually did.</h1>
+          <p class="sub reveal">
+            Orange Replay records every session, surfaces the errors and rage clicks on its own, and
+            replays them pixel-for-pixel. Stop guessing — press play.
+          </p>
+
+          <div class="works reveal">
+            <div class="label">Works with</div>
+            <div class="logos">
+              <span class="lg"
+                ><svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="12" r="2" fill="#61dafb" />
+                  <g stroke="#61dafb" stroke-width="1" opacity="0.85" fill="none">
+                    <ellipse cx="12" cy="12" rx="10" ry="4" />
+                    <ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(60 12 12)" />
+                    <ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(120 12 12)" />
+                  </g></svg
+                >React</span
+              >
+              <span class="lg"
+                ><svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                  <path d="M2 3h4l6 10L18 3h4L12 21z" fill="#41b883" />
+                  <path d="M6 3h3l3 5 3-5h3L12 14z" fill="#35495e" /></svg
+                >Vue</span
+              >
+              <span class="lg"
+                ><svg width="17" height="17" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M18.7 4.6c-2-2.9-6-3.8-8.9-2L5 5.5A5.6 5.6 0 0 0 3.3 13a5.3 5.3 0 0 0-.8 2 5.7 5.7 0 0 0 1 4.3c2 2.9 6 3.8 8.9 2l4.8-3a5.6 5.6 0 0 0 1.7-7.4 5.3 5.3 0 0 0 .8-2 5.7 5.7 0 0 0-1-4.3z"
+                    fill="#ff3e00"
+                  /></svg
+                >Svelte</span
+              >
+              <span class="lg"
+                ><svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="12" r="11" fill="#fff" />
+                  <path
+                    d="M9 7v10M9 7l7 10M16 7v6"
+                    stroke="#000"
+                    stroke-width="1.6"
+                    stroke-linecap="round"
+                  /></svg
+                >Next.js</span
+              >
+              <span class="lg"
+                ><svg width="17" height="17" viewBox="0 0 24 24" fill="none">
+                  <rect x="2" y="2" width="20" height="20" rx="3" fill="#f0db4f" />
+                  <path
+                    d="M8 18c.4.6 1 1 1.9 1 .9 0 1.4-.4 1.4-1.6V11h1.8v6.5c0 2-1.2 3-2.9 3-1.5 0-2.5-.8-3-1.7L8 18zm6.2-.2c.4.7 1 1.2 2 1.2.8 0 1.3-.4 1.3-1 0-.7-.5-.9-1.5-1.3l-.5-.2c-1.5-.6-2.4-1.4-2.4-3 0-1.5 1.1-2.6 2.9-2.6 1.3 0 2.2.4 2.8 1.6l-1.5 1c-.3-.6-.7-.8-1.3-.8-.5 0-.9.3-.9.8 0 .6.4.8 1.3 1.2l.5.2c1.7.7 2.6 1.5 2.6 3.1 0 1.8-1.4 2.7-3.3 2.7-1.8 0-3-.9-3.6-2l1.4-.9z"
+                    fill="#000"
+                  /></svg
+                >Vanilla JS</span
+              >
+            </div>
+          </div>
+
+          <div class="btns reveal">
+            <a class="btn-primary" href="#">
+              <span class="lbl">Start free</span>
+              <span class="box"
+                ><svg width="13" height="13" viewBox="0 0 12 12" fill="none">
+                  <path
+                    d="M3 9L9 3M9 3H4.5M9 3v4.5"
+                    stroke="#000"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+            </a>
+            <a class="btn-ghost" href="#">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path
+                  d="M4.5 2.5h5L12 5v8.5H4.5z"
+                  stroke="#a3a3a3"
+                  stroke-width="1.2"
+                  stroke-linejoin="round"
+                />
+                <path
+                  d="M6 6.5h4M6 9h4M6 11.5h2.5"
+                  stroke="#a3a3a3"
+                  stroke-width="1.2"
+                  stroke-linecap="round"
+                />
+              </svg>
+              Read the docs
+            </a>
+          </div>
+          <p class="meta reveal">
+            10,000 sessions / month free · install in under 2 minutes · no credit card
+          </p>
+        </div>
+      </div>
+    </header>
+
+    <!-- ============ 01 · CAPTURE ============ -->
+    <section class="section" id="capture">
+      <div class="wrap">
+        <div class="sec-kicker reveal">
+          <span class="ts"><span class="node"></span>00:00</span>
+          <h2 class="sec-head">
+            <span class="text-strong">Capture.</span>
+            <span class="text-faint"
+              >One snippet records every session — full DOM, clicks, and network — straight to the
+              edge.</span
+            >
+          </h2>
+        </div>
+        <p class="sec-note reveal">
+          Under 20&nbsp;KB, async, and scrubbing PII before anything leaves the browser. No
+          sampling, no replay gaps.
+        </p>
+        <div class="shot reveal">
+          <span class="edge"></span>
+          <div class="app">
+            <div class="appnav1">
+              <span class="mark"></span><span class="b">Orange Replay</span>
+              <span class="sep">/</span>
+              <span class="switcher">acme-web <span class="car">▾</span></span>
+              <span class="env2">Production</span>
+              <span class="r"
+                ><span class="lnk">Docs</span><span class="lnk">Changelog</span
+                ><span class="ava"></span
+              ></span>
+            </div>
+            <div class="appnav2">
+              <span class="on">Overview</span><span>Sessions</span><span>Live</span
+              ><span>Errors</span><span>Settings</span>
+              <span class="k">⌘K</span>
+            </div>
+            <div class="appbody">
+              <div class="apphead">
+                <span class="h">Overview<small>last 24 hours · updated 12s ago</small></span>
+                <span class="acts"
+                  ><span class="minibtn">Share</span
+                  ><span class="minibtn pr">Install snippet</span></span
+                >
+              </div>
+              <div class="stats">
+                <div class="stat">
+                  <div class="k">Sessions</div>
+                  <div class="v">128</div>
+                  <div class="d"><em>+12%</em> vs 7d avg</div>
+                </div>
+                <div class="stat">
+                  <div class="k">With errors</div>
+                  <div class="v warm">4</div>
+                  <div class="d"><em class="bad">+2</em> vs yesterday</div>
+                </div>
+                <div class="stat">
+                  <div class="k">Rage clicks</div>
+                  <div class="v warm">2</div>
+                  <div class="d">1 page affected</div>
+                </div>
+                <div class="stat">
+                  <div class="k">Median duration</div>
+                  <div class="v">6:48</div>
+                  <div class="d">across 12 pages</div>
+                </div>
+                <div class="stat">
+                  <div class="k">Stored</div>
+                  <div class="v">5.1<span style="font-size: 11px">MB</span></div>
+                  <div class="d">24h window</div>
+                </div>
+              </div>
+              <div class="zone">
+                <div class="panel">
+                  <div class="ptitle">
+                    <b>Friction history</b
+                    ><span>cell = day · color = error &amp; rage density</span>
+                  </div>
+                  <div class="heat">
+                    <i class="t2"></i><i class="t1"></i><i class="t3"></i><i class="t2"></i
+                    ><i class="t1"></i><i></i><i></i> <i class="t3"></i><i class="t2"></i
+                    ><i class="t2"></i><i class="a1"></i><i class="t1"></i><i></i><i></i>
+                    <i class="t2"></i><i class="a2"></i><i class="t3"></i><i class="t2"></i
+                    ><i class="a1"></i><i class="t1"></i><i></i> <i class="a3"></i><i class="t2"></i
+                    ><i class="a2"></i><i class="r1"></i><i class="t2"></i><i></i><i></i>
+                    <i class="t2"></i><i class="r2"></i><i class="a3"></i><i class="t3"></i
+                    ><i class="a2"></i><i class="t1"></i><i></i> <i class="r3"></i><i class="a2"></i
+                    ><i class="r2"></i><i class="a3"></i><i class="t2"></i><i></i><i></i>
+                    <i class="a2"></i><i class="t3"></i><i class="t2"></i><i class="r2"></i
+                    ><i class="a1"></i><i class="t1"></i><i></i> <i class="t3"></i><i class="t2"></i
+                    ><i class="a2"></i><i class="t2"></i><i class="t3"></i><i></i><i></i>
+                    <i class="t1"></i><i class="t2"></i><i class="t2"></i><i class="t1"></i
+                    ><i class="t2"></i><i></i><i></i> <i class="t2"></i><i class="t3"></i
+                    ><i class="t1"></i><i class="t2"></i><i class="t1"></i><i class="t1"></i><i></i>
+                  </div>
+                  <div class="legend">
+                    <span>Calmer</span>
+                    <div class="grad-bar"></div>
+                    <span>More friction</span><span style="margin-left: auto">May — Jul 2026</span>
+                  </div>
+                </div>
+                <div class="panel live-rail">
+                  <div class="ptitle"><b>Live now</b><span class="watch">3 watching</span></div>
+                  <div class="lrow">
+                    <span class="pulse"></span>
+                    <div>
+                      <div class="who">/checkout</div>
+                      <div class="where">🇺🇸 San Francisco · Chrome</div>
+                    </div>
+                    <span class="t">4:12</span>
+                  </div>
+                  <div class="lrow">
+                    <span class="pulse"></span>
+                    <div>
+                      <div class="who">/pricing</div>
+                      <div class="where">🇯🇵 Tokyo · Safari</div>
+                    </div>
+                    <span class="t">0:47</span>
+                  </div>
+                  <div class="lrow">
+                    <span class="pulse"></span>
+                    <div>
+                      <div class="who">/onboarding</div>
+                      <div class="where">🇧🇷 São Paulo · Chrome</div>
+                    </div>
+                    <span class="t">2:03</span>
+                  </div>
+                </div>
+              </div>
+              <div class="tablewrap">
+                <div class="toolbar">
+                  <div class="filter">Country <b>All</b></div>
+                  <div class="filter">Duration <b>Any</b></div>
+                  <div class="filter">Errors <b>Any</b></div>
+                  <div class="grow"></div>
+                  <span class="count">128 sessions · 24h</span>
+                </div>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Session</th>
+                      <th>Status</th>
+                      <th>Activity</th>
+                      <th class="r">Duration</th>
+                      <th>Client</th>
+                      <th class="r">When</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>
+                        <div class="page">/checkout</div>
+                        <div class="rmeta">🇺🇸 San Francisco · 23 clicks</div>
+                      </td>
+                      <td>
+                        <span class="pill err"><i></i>1 error</span>
+                      </td>
+                      <td>
+                        <div class="spark">
+                          <i style="height: 30%"></i><i style="height: 55%"></i
+                          ><i style="height: 40%"></i><i style="height: 70%"></i
+                          ><i class="e" style="height: 95%"></i><i style="height: 35%"></i
+                          ><i style="height: 50%"></i><i style="height: 25%"></i>
+                        </div>
+                      </td>
+                      <td class="r num strong">10:12</td>
+                      <td class="num">Chrome · macOS</td>
+                      <td class="r when">48m</td>
+                    </tr>
+                    <tr>
+                      <td>
+                        <div class="page">/support</div>
+                        <div class="rmeta">🇮🇳 Bengaluru · 41 clicks</div>
+                      </td>
+                      <td>
+                        <span class="pill err"><i></i>3 errors</span>
+                        <span class="pill rage"><i></i>2 rage</span>
+                      </td>
+                      <td>
+                        <div class="spark">
+                          <i style="height: 45%"></i><i style="height: 60%"></i
+                          ><i class="e" style="height: 85%"></i><i style="height: 70%"></i
+                          ><i class="e" style="height: 95%"></i><i style="height: 55%"></i
+                          ><i class="e" style="height: 80%"></i><i style="height: 40%"></i>
+                        </div>
+                      </td>
+                      <td class="r num strong">15:21</td>
+                      <td class="num">Chrome · Android</td>
+                      <td class="r when">2h</td>
+                    </tr>
+                    <tr>
+                      <td>
+                        <div class="page">/pricing</div>
+                        <div class="rmeta">🇩🇪 Berlin · 9 clicks</div>
+                      </td>
+                      <td>
+                        <span class="pill ok"><i></i>clean</span>
+                      </td>
+                      <td>
+                        <div class="spark">
+                          <i style="height: 40%"></i><i style="height: 28%"></i
+                          ><i style="height: 48%"></i><i style="height: 22%"></i
+                          ><i style="height: 38%"></i><i style="height: 18%"></i
+                          ><i style="height: 30%"></i><i style="height: 14%"></i>
+                        </div>
+                      </td>
+                      <td class="r num strong">3:04</td>
+                      <td class="num">Firefox · Windows</td>
+                      <td class="r when">1h</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 02 · REPLAY ============ -->
+    <section class="section" id="replay">
+      <div class="wrap">
+        <div class="sec-kicker reveal">
+          <span class="ts"><span class="node"></span>04:12</span>
+          <h2 class="sec-head">
+            <span class="text-strong">Replay.</span>
+            <span class="text-faint"
+              >Pixel-perfect DOM playback on a timeline that jumps straight to the moment it
+              broke.</span
+            >
+          </h2>
+        </div>
+        <p class="sec-note reveal">
+          It's the real DOM, not a video. Scrub with the keyboard; console, network, and clicks stay
+          synced to the frame.
+        </p>
+        <div class="shot reveal">
+          <span class="edge"></span>
+          <div class="app">
+            <div class="appnav1">
+              <span class="mark"></span><span class="b">Orange Replay</span>
+              <span class="sep">/</span>
+              <span class="switcher" style="font-family: var(--mono); font-size: 11px"
+                >Sessions / sess_8f2a</span
+              >
+              <span class="r"
+                ><span class="lnk">Share</span><span class="lnk">Copy link</span
+                ><span class="ava"></span
+              ></span>
+            </div>
+            <div class="replay">
+              <div class="stage">
+                <div class="viewport">
+                  <div class="vp-bar">
+                    <span class="vp-dot"></span><span class="vp-dot"></span
+                    ><span class="vp-dot"></span><span class="vp-url">acme.com/checkout</span>
+                  </div>
+                  <div class="vp-skel">
+                    <div class="l" style="width: 52%; height: 15px"></div>
+                    <div class="l" style="width: 88%"></div>
+                    <div class="l" style="width: 80%"></div>
+                    <div class="l" style="width: 66%"></div>
+                    <div class="vp-cta"></div>
+                  </div>
+                  <div class="vp-click">rage · ×4</div>
+                  <div class="vp-cursor">
+                    <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+                      <path
+                        d="M2 2l5 12 2-5 5-2z"
+                        fill="#f5a623"
+                        stroke="#0a0a0c"
+                        stroke-width="0.8"
+                      />
+                    </svg>
+                  </div>
+                </div>
+                <div class="player">
+                  <div class="play"></div>
+                  <span class="tc">4:12</span>
+                  <div class="timeline">
+                    <div class="base"></div>
+                    <span class="tl-act" style="left: 3%; height: 8px"></span
+                    ><span class="tl-act" style="left: 8%; height: 14px"></span>
+                    <span class="tl-act" style="left: 14%; height: 10px"></span
+                    ><span class="tl-act" style="left: 21%; height: 16px"></span>
+                    <span class="tl-act" style="left: 29%; height: 7px"></span
+                    ><span class="tl-act" style="left: 37%; height: 15px"></span>
+                    <span class="tl-act" style="left: 46%; height: 18px"></span
+                    ><span class="tl-act" style="left: 56%; height: 9px"></span>
+                    <span class="tl-act" style="left: 65%; height: 13px"></span
+                    ><span class="tl-act" style="left: 74%; height: 16px"></span>
+                    <span class="tl-act" style="left: 83%; height: 8px"></span
+                    ><span class="tl-act" style="left: 91%; height: 12px"></span>
+                    <span class="tl-err" style="left: 56%"></span>
+                    <span class="tl-ph"></span>
+                  </div>
+                  <span class="tc">10:12</span>
+                  <div class="keys"><kbd>←</kbd><kbd>→</kbd><kbd>space</kbd></div>
+                </div>
+              </div>
+              <div class="side">
+                <div class="st">Event stream</div>
+                <div class="ev">
+                  <span class="dot clk"></span>Click · “Apply coupon”<span class="tt">3:58</span>
+                </div>
+                <div class="ev">
+                  <span class="dot net"></span>POST /api/coupon 200<span class="tt">3:59</span>
+                </div>
+                <div class="ev cur">
+                  <span class="dot rage"></span>Rage click · ×4<span class="tt">4:09</span>
+                </div>
+                <div class="ev">
+                  <span class="dot err"></span>TypeError: total is undefined<span class="tt"
+                    >4:12</span
+                  >
+                </div>
+                <div class="ev">
+                  <span class="dot net"></span>POST /api/checkout 500<span class="tt">4:12</span>
+                </div>
+                <div class="ev">
+                  <span class="dot clk"></span>Click · “Retry”<span class="tt">4:20</span>
+                </div>
+                <div class="st">Console</div>
+                <div class="ev">
+                  <span class="dot err"></span>Uncaught (in promise)<span class="tt">4:12</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 03 · FIND FRICTION ============ -->
+    <section class="section" id="friction">
+      <div class="wrap">
+        <div class="sec-kicker reveal">
+          <span class="ts"><span class="node"></span>10:12</span>
+          <h2 class="sec-head">
+            <span class="text-strong">Diagnose.</span>
+            <span class="text-faint"
+              >Errors and rage clicks, ranked and surfaced before you ever go looking for
+              them.</span
+            >
+          </h2>
+        </div>
+        <p class="sec-note reveal">
+          Auto-detected signals, filters that cut straight to the pain, and a friction heatmap so
+          regressions jump off the page.
+        </p>
+        <div class="shot reveal">
+          <span class="edge"></span>
+          <div class="app">
+            <div class="appnav1">
+              <span class="mark"></span><span class="b">Orange Replay</span>
+              <span class="sep">/</span>
+              <span class="switcher">acme-web <span class="car">▾</span></span>
+              <span class="env2">Production</span>
+              <span class="r"
+                ><span class="lnk">Docs</span><span class="lnk">Changelog</span
+                ><span class="ava"></span
+              ></span>
+            </div>
+            <div class="appnav2">
+              <span>Overview</span><span>Sessions</span><span>Live</span
+              ><span class="on">Errors</span><span>Settings</span>
+              <span class="k">⌘K</span>
+            </div>
+            <div class="appbody">
+              <div class="apphead">
+                <span class="h"
+                  >Sessions with friction<small>24 hours · sorted by impact</small></span
+                >
+                <span class="acts"
+                  ><span class="minibtn">Export</span
+                  ><span class="minibtn pr">Create alert</span></span
+                >
+              </div>
+              <div class="zone">
+                <div class="tablewrap">
+                  <div class="toolbar">
+                    <div class="filter">Errors <b>≥ 1</b></div>
+                    <div class="filter">Rage <b>Any</b></div>
+                    <div class="filter">Sort <b>Friction</b></div>
+                    <div class="grow"></div>
+                    <span class="count">6 flagged · 24h</span>
+                  </div>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Session</th>
+                        <th>Status</th>
+                        <th>Activity</th>
+                        <th class="r">Dur</th>
+                        <th class="r">When</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td>
+                          <div class="page">/support</div>
+                          <div class="rmeta">🇮🇳 Bengaluru · 41 clicks</div>
+                        </td>
+                        <td>
+                          <span class="pill err"><i></i>3 errors</span>
+                          <span class="pill rage"><i></i>2 rage</span>
+                        </td>
+                        <td>
+                          <div class="spark">
+                            <i style="height: 45%"></i><i style="height: 60%"></i
+                            ><i class="e" style="height: 85%"></i><i style="height: 70%"></i
+                            ><i class="e" style="height: 95%"></i><i style="height: 55%"></i
+                            ><i class="e" style="height: 80%"></i><i style="height: 40%"></i>
+                          </div>
+                        </td>
+                        <td class="r num strong">15:21</td>
+                        <td class="r when">2h</td>
+                      </tr>
+                      <tr>
+                        <td>
+                          <div class="page">/checkout</div>
+                          <div class="rmeta">🇺🇸 San Francisco · 23 clicks</div>
+                        </td>
+                        <td>
+                          <span class="pill err"><i></i>1 error</span>
+                        </td>
+                        <td>
+                          <div class="spark">
+                            <i style="height: 30%"></i><i style="height: 55%"></i
+                            ><i style="height: 40%"></i><i style="height: 70%"></i
+                            ><i class="e" style="height: 95%"></i><i style="height: 35%"></i
+                            ><i style="height: 50%"></i><i style="height: 25%"></i>
+                          </div>
+                        </td>
+                        <td class="r num strong">10:12</td>
+                        <td class="r when">48m</td>
+                      </tr>
+                      <tr>
+                        <td>
+                          <div class="page">/settings/billing</div>
+                          <div class="rmeta">🇬🇧 London · 17 clicks</div>
+                        </td>
+                        <td>
+                          <span class="pill rage"><i></i>1 rage</span>
+                        </td>
+                        <td>
+                          <div class="spark">
+                            <i style="height: 35%"></i><i style="height: 42%"></i
+                            ><i style="height: 30%"></i><i class="e" style="height: 78%"></i
+                            ><i style="height: 40%"></i><i style="height: 52%"></i
+                            ><i style="height: 33%"></i><i style="height: 28%"></i>
+                          </div>
+                        </td>
+                        <td class="r num strong">6:33</td>
+                        <td class="r when">3h</td>
+                      </tr>
+                      <tr>
+                        <td>
+                          <div class="page">/onboarding/step-2</div>
+                          <div class="rmeta">🇨🇦 Toronto · 12 clicks</div>
+                        </td>
+                        <td>
+                          <span class="pill err"><i></i>1 error</span>
+                        </td>
+                        <td>
+                          <div class="spark">
+                            <i style="height: 40%"></i><i style="height: 30%"></i
+                            ><i style="height: 52%"></i><i class="e" style="height: 88%"></i
+                            ><i style="height: 36%"></i><i style="height: 44%"></i
+                            ><i style="height: 26%"></i><i style="height: 30%"></i>
+                          </div>
+                        </td>
+                        <td class="r num strong">4:48</td>
+                        <td class="r when">4h</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div class="panel">
+                  <div class="ptitle"><b>Friction history</b><span>10 weeks</span></div>
+                  <div class="heat">
+                    <i class="t2"></i><i class="t1"></i><i class="t3"></i><i class="t2"></i
+                    ><i class="t1"></i><i></i><i></i> <i class="t3"></i><i class="t2"></i
+                    ><i class="a1"></i><i class="t1"></i><i></i><i></i><i></i> <i class="a2"></i
+                    ><i class="t3"></i><i class="t2"></i><i class="a1"></i><i class="t1"></i><i></i
+                    ><i></i> <i class="a3"></i><i class="a2"></i><i class="r1"></i><i class="t2"></i
+                    ><i></i><i></i><i></i> <i class="r2"></i><i class="a3"></i><i class="t3"></i
+                    ><i class="a2"></i><i class="t1"></i><i></i><i></i> <i class="r3"></i
+                    ><i class="r2"></i><i class="a3"></i><i class="t2"></i><i></i><i></i><i></i>
+                    <i class="a2"></i><i class="t2"></i><i class="r2"></i><i class="a1"></i
+                    ><i class="t1"></i><i></i><i></i> <i class="t3"></i><i class="a2"></i
+                    ><i class="t2"></i><i class="t3"></i><i></i><i></i><i></i>
+                  </div>
+                  <div class="legend">
+                    <span>Calmer</span>
+                    <div class="grad-bar"></div>
+                    <span>More</span>
+                  </div>
+                  <div
+                    style="margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--dash)"
+                  >
+                    <div class="ptitle" style="margin-bottom: 9px"><b>Top error</b></div>
+                    <div style="font-family: var(--mono); font-size: 11.5px; color: #ffb3b0">
+                      TypeError: total is undefined
+                    </div>
+                    <div style="font-size: 11px; color: var(--dim); margin-top: 5px">
+                      7 sessions · /checkout · first seen 2h ago
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ SOCIAL PROOF ============ -->
+    <div class="wrap"><div class="divider"></div></div>
+    <section class="proof">
+      <div class="wrap">
+        <div class="sec-kicker reveal" style="display: block">
+          <h2 class="sec-head" style="max-width: 20ch">
+            <span class="text-strong">Made for teams who are done guessing.</span>
+            <span class="text-faint"
+              >Product, support, and engineering — all watching the same session.</span
+            >
+          </h2>
+        </div>
+        <div class="logos reveal">
+          <span class="lg"
+            ><span class="mark" style="width: 18px; height: 18px; border-radius: 5px"></span
+            >Northwind</span
+          >
+          <span class="lg"
+            ><span class="mark" style="width: 18px; height: 18px; border-radius: 5px"></span
+            >Loftify</span
+          >
+          <span class="lg"
+            ><span class="mark" style="width: 18px; height: 18px; border-radius: 5px"></span
+            >Beacon</span
+          >
+          <span class="lg"
+            ><span class="mark" style="width: 18px; height: 18px; border-radius: 5px"></span
+            >Parcel</span
+          >
+          <span class="lg"
+            ><span class="mark" style="width: 18px; height: 18px; border-radius: 5px"></span
+            >Cadence</span
+          >
+        </div>
+        <div class="quote reveal">
+          <p>
+            “We used to spend a whole standup arguing about what the user <u>probably</u> did. Now
+            we just open the replay. The rage-click flag alone paid for itself the first week.”
+          </p>
+          <div class="by">
+            <span class="ava2"></span>
+            <div>
+              <div class="nm">Dana Reyes</div>
+              <div class="rl">Head of Product · placeholder testimonial</div>
+            </div>
+          </div>
+        </div>
+        <p class="joinus reveal">
+          We're building the fastest way to see your own product. <u>Join us</u>.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ FOOTER ============ -->
+    <footer>
+      <div class="wrap">
+        <div class="footgrid">
+          <div class="bigline reveal">
+            See what happened.<br />
+            <span class="c-blue">Record</span
+            ><span class="thumb"
+              ><svg viewBox="0 0 62 32" preserveAspectRatio="none">
+                <polyline
+                  points="4,20 12,14 18,22 26,8 32,18 40,10 48,24 58,12"
+                  fill="none"
+                  stroke="#4478b8"
+                  stroke-width="1.6"
+                /></svg></span
+            >&nbsp;it,<br />
+            <span class="c-amber">replay</span
+            ><span class="thumb"
+              ><svg viewBox="0 0 62 32">
+                <path d="M26 10l12 6-12 6z" fill="#c8823b" />
+                <line
+                  x1="10"
+                  y1="16"
+                  x2="24"
+                  y2="16"
+                  stroke="#3a3a3a"
+                  stroke-width="1.4"
+                /></svg></span
+            >&nbsp;it,<br />
+            and <span class="c-green">fix</span
+            ><span class="thumb"
+              ><svg viewBox="0 0 62 32">
+                <path
+                  d="M20 17l5 5 12-12"
+                  fill="none"
+                  stroke="#4c8c57"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                /></svg></span
+            >&nbsp;it<br />
+            <span class="w">before the ticket lands.</span>
+          </div>
+          <div class="footcols reveal">
+            <div>
+              <h5>Product</h5>
+              <a href="#capture">Capture</a><a href="#replay">Replay</a
+              ><a href="#friction">Diagnose</a><a href="#">Live</a><a href="#">Pricing</a>
+            </div>
+            <div>
+              <h5>Developers</h5>
+              <a href="#">Docs</a><a href="#">Quickstart</a><a href="#">SDK</a
+              ><a href="#">MCP server</a><a href="#">Changelog</a>
+            </div>
+            <div>
+              <h5>Company</h5>
+              <a href="#">About</a><a href="#">Blog</a><a href="#">Careers</a><a href="#">Privacy</a
+              ><a href="#">Terms</a>
+            </div>
+          </div>
+        </div>
+        <div class="footbot">
+          <span class="c">© 2026 Orange Replay</span>
+          <span class="edge"
+            ><span class="mark" style="width: 15px; height: 15px; border-radius: 5px"></span> Built
+            on <b>Cloudflare Workers</b> · shipped from the edge</span
+          >
+        </div>
+      </div>
+    </footer>
+
+    <script>
+      (function () {
+        var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+        // reveal-on-scroll
+        var els = Array.prototype.slice.call(document.querySelectorAll(".reveal"));
+        if (reduce || !("IntersectionObserver" in window)) {
+          els.forEach(function (el) {
+            el.classList.add("in");
+          });
+        } else {
+          var io = new IntersectionObserver(
+            function (entries) {
+              entries.forEach(function (e) {
+                if (e.isIntersecting) {
+                  e.target.classList.add("in");
+                  io.unobserve(e.target);
+                }
+              });
+            },
+            { threshold: 0.1, rootMargin: "0px 0px -8% 0px" },
+          );
+          els.forEach(function (el) {
+            io.observe(el);
+          });
+        }
+
+        // scroll playhead — the amber head + fill track your scroll position
+        var fill = document.querySelector(".scrub .fill");
+        var head = document.querySelector(".scrub .head");
+        if (fill && head) {
+          var ticking = false;
+          var update = function () {
+            var max = document.documentElement.scrollHeight - window.innerHeight;
+            var p = max > 0 ? Math.min(1, Math.max(0, window.scrollY / max)) : 0;
+            var pct = (p * 100).toFixed(2) + "%";
+            fill.style.height = pct;
+            head.style.top = pct;
+            ticking = false;
+          };
+          window.addEventListener(
+            "scroll",
+            function () {
+              if (!ticking) {
+                ticking = true;
+                window.requestAnimationFrame(update);
+              }
+            },
+            { passive: true },
+          );
+          window.addEventListener("resize", update, { passive: true });
+          update();
+        }
+      })();
+    </script>
+  </body>
+</html>
