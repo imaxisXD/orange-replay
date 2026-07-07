@@ -1,9 +1,9 @@
-import { decodeBatchBytes } from "./worker-core.ts";
+import { decodeBatchWithStats, type DecodedReplayEvents } from "./worker-core.ts";
 import { makeDecodeWorkerSource, type DecodeWorkerResponse } from "./worker-entry.ts";
 import type { DecodeWorkerOptions, ReplayEvent } from "./types.ts";
 
 interface PendingDecode {
-  resolve: (events: ReplayEvent[]) => void;
+  resolve: (decoded: DecodedReplayEvents) => void;
   reject: (error: unknown) => void;
   timeoutId: ReturnType<typeof setTimeout>;
 }
@@ -54,19 +54,23 @@ export class DecodeWorkerHost {
   }
 
   async decodeBatch(payload: Uint8Array): Promise<ReplayEvent[]> {
+    return (await this.decodeBatchWithStats(payload)).events;
+  }
+
+  async decodeBatchWithStats(payload: Uint8Array): Promise<DecodedReplayEvents> {
     if (this.worker === undefined) {
       if (!this.synchronousFallback) {
         throw this.terminalError ?? new Error("Replay worker is not available.");
       }
 
-      return decodeBatchBytes(payload);
+      return decodeBatchWithStats(payload);
     }
 
     const id = this.nextId;
     this.nextId += 1;
     const buffer = exactArrayBuffer(payload);
 
-    const result = new Promise<ReplayEvent[]>((resolve, reject) => {
+    const result = new Promise<DecodedReplayEvents>((resolve, reject) => {
       const timeoutId = setTimeout(() => {
         const pending = this.pending.get(id);
         if (pending === undefined) {
@@ -121,7 +125,7 @@ export class DecodeWorkerHost {
       return;
     }
 
-    pending.resolve(message.events);
+    pending.resolve({ decodedBytes: message.decodedBytes, events: message.events });
   }
 
   private handleWorkerFailure(error: unknown): void {

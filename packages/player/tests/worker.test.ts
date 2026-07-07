@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import type { ReplayEvent } from "../src/types.ts";
-import { installDecodeWorkerEntry } from "../src/worker-entry.ts";
+import { installDecodeWorkerEntry, makeDecodeWorkerSource } from "../src/worker-entry.ts";
+import {
+  decodeBatchBytes,
+  decodeBatchWithStats,
+  MAX_DECODED_BATCH_BYTES,
+  MAX_DECODED_BATCH_EVENTS,
+  MAX_REPLAY_JSON_TRAILING_WHITESPACE_CHARS,
+} from "../src/worker-core.ts";
 import { DecodeWorkerHost } from "../src/worker-host.ts";
 
 const encoder = new TextEncoder();
@@ -33,6 +40,195 @@ describe("decode worker protocol", () => {
     const events = [makeEvent(2_000, "gzipped")];
 
     expect(await host.decodeBatch(await gzipJson(events))).toEqual(events);
+  });
+
+  it("returns the real decoded byte count", async () => {
+    const events = [makeEvent(2_100, "stats")];
+    const payload = encoder.encode(JSON.stringify(events));
+
+    await expect(decodeBatchWithStats(payload)).resolves.toEqual({
+      decodedBytes: payload.byteLength,
+      events,
+    });
+  });
+
+  it("rejects replay batches that decode to too many bytes", async () => {
+    await expect(decodeBatchBytes(new Uint8Array(MAX_DECODED_BATCH_BYTES + 1))).rejects.toThrow(
+      "Replay batch is too large after decoding.",
+    );
+  });
+
+  it("rejects gzip replay batches that expand too much", async () => {
+    const payload = await gzipBytes(new Uint8Array(MAX_DECODED_BATCH_BYTES + 1).fill(32));
+
+    await expect(decodeBatchBytes(payload)).rejects.toThrow(
+      "Replay batch is too large after decoding.",
+    );
+  });
+
+  it("rejects replay batches padded with too much trailing whitespace", async () => {
+    const payload = encoder.encode(
+      `${JSON.stringify([makeEvent(2_200, "padding")])}${" ".repeat(
+        MAX_REPLAY_JSON_TRAILING_WHITESPACE_CHARS + 1,
+      )}`,
+    );
+
+    await expect(decodeBatchBytes(payload)).rejects.toThrow(
+      "Replay batch JSON has too much trailing whitespace.",
+    );
+  });
+
+  it("rejects replay events with an unknown event type", async () => {
+    const payload = encoder.encode(JSON.stringify([{ type: 99, timestamp: 1, data: {} }]));
+
+    await expect(decodeBatchBytes(payload)).rejects.toThrow(
+      "Replay batch contains an invalid replay event type.",
+    );
+  });
+
+  it("rejects full snapshots without a valid root node", async () => {
+    const payload = encoder.encode(JSON.stringify([{ type: 2, timestamp: 1, data: {} }]));
+
+    await expect(decodeBatchBytes(payload)).rejects.toThrow(
+      "Replay batch contains an invalid full snapshot.",
+    );
+  });
+
+  it("rejects full snapshots with malformed child node trees", async () => {
+    const payload = encoder.encode(
+      JSON.stringify([{ type: 2, timestamp: 1, data: { node: { id: 1, type: 0 } } }]),
+    );
+
+    await expect(decodeBatchBytes(payload)).rejects.toThrow(
+      "Replay batch contains an invalid full snapshot node.",
+    );
+  });
+
+  it("rejects text nodes that carry element fields", async () => {
+    const payload = encoder.encode(
+      JSON.stringify([
+        {
+          type: 2,
+          timestamp: 1,
+          data: {
+            node: {
+              id: 1,
+              type: 2,
+              tagName: "style",
+              attributes: {},
+              childNodes: [
+                {
+                  id: 2,
+                  type: 3,
+                  tagName: "div",
+                  textContent: '@import "https://internal.example/a.css";',
+                },
+              ],
+            },
+          },
+        },
+      ]),
+    );
+
+    await expect(decodeBatchBytes(payload)).rejects.toThrow(
+      "Replay batch contains an invalid full snapshot node.",
+    );
+  });
+
+  it("rejects meta events without viewport fields", async () => {
+    const payload = encoder.encode(
+      JSON.stringify([{ type: 4, timestamp: 1, data: { href: "/" } }]),
+    );
+
+    await expect(decodeBatchBytes(payload)).rejects.toThrow(
+      "Replay batch contains invalid meta data.",
+    );
+  });
+
+  it("rejects malformed mutation events", async () => {
+    const payload = encoder.encode(
+      JSON.stringify([{ type: 3, timestamp: 1, data: { source: 0, texts: [] } }]),
+    );
+
+    await expect(decodeBatchBytes(payload)).rejects.toThrow(
+      "Replay batch contains invalid mutation data.",
+    );
+  });
+
+  it("rejects mutation adds with malformed child node trees", async () => {
+    const payload = encoder.encode(
+      JSON.stringify([
+        {
+          type: 3,
+          timestamp: 1,
+          data: {
+            source: 0,
+            texts: [],
+            attributes: [],
+            removes: [],
+            adds: [{ parentId: 1, node: { id: 2, type: 2, tagName: "div", attributes: {} } }],
+          },
+        },
+      ]),
+    );
+
+    await expect(decodeBatchBytes(payload)).rejects.toThrow(
+      "Replay batch contains invalid mutation data.",
+    );
+  });
+
+  it("rejects replay event arrays before queueing an oversized shape", async () => {
+    const payload = encoder.encode(
+      JSON.stringify([
+        {
+          type: 3,
+          timestamp: 1,
+          data: {
+            source: 1,
+            positions: Array.from({ length: 10_001 }, () => ({ x: 1, y: 1, id: 1, timeOffset: 0 })),
+          },
+        },
+      ]),
+    );
+
+    await expect(decodeBatchBytes(payload)).rejects.toThrow(
+      "Replay batch contains invalid mutation data.",
+    );
+  });
+
+  it("keeps the generated inline worker source on the same validation path", () => {
+    const source = makeDecodeWorkerSource();
+
+    expect(source).toContain("validateFullSnapshotData");
+    expect(source).toContain("validateSnapshotAttributes");
+    expect(source).toContain("MAX_REPLAY_EVENT_ARRAY_ITEMS");
+    expect(source).toContain("MAX_REPLAY_JSON_TRAILING_WHITESPACE_CHARS");
+    expect(source).toContain("validateTextLikeNode");
+    expect(source).toContain("decodedBytes");
+    expect(source).toContain("Replay batch contains an invalid full snapshot.");
+  });
+
+  it("rejects replay batches with too many events", async () => {
+    const events = Array.from({ length: MAX_DECODED_BATCH_EVENTS + 1 }, (_, index) =>
+      makeEvent(index, "many"),
+    );
+
+    await expect(decodeBatchBytes(encoder.encode(JSON.stringify(events)))).rejects.toThrow(
+      "Replay batch has too many events.",
+    );
+  });
+
+  it("rejects replay events with too much nesting", async () => {
+    const event = makeEvent(1, "deep") as ReplayEvent & { data: unknown };
+    let data: unknown = {};
+    for (let index = 0; index < 45; index += 1) {
+      data = { child: data };
+    }
+    event.data = data;
+
+    await expect(decodeBatchBytes(encoder.encode(JSON.stringify([event])))).rejects.toThrow(
+      "Replay event is too deeply nested.",
+    );
   });
 
   it("rejects pending decodes on timeout and uses a restarted worker next", async () => {
@@ -153,7 +349,11 @@ function makeRestartingWorker(): {
 }
 
 async function gzipJson(events: readonly ReplayEvent[]): Promise<Uint8Array> {
-  const body = new Response(encoder.encode(JSON.stringify(events))).body;
+  return gzipBytes(encoder.encode(JSON.stringify(events)));
+}
+
+async function gzipBytes(bytes: Uint8Array): Promise<Uint8Array> {
+  const body = new Response(bytes as unknown as BodyInit).body;
   if (body === null) {
     throw new Error("test gzip body missing");
   }

@@ -18,11 +18,11 @@ interface ResolvedOverlayOptions {
 }
 
 const defaultOptions: ResolvedOverlayOptions = {
-  cursorColor: "#f5a623",
+  cursorColor: "oklch(0.784 0.159 72.991)",
   cursorOpacity: 0.75,
-  clickColor: "#f5a623",
+  clickColor: "oklch(0.784 0.159 72.991)",
   clickOpacity: 0.7,
-  rageColor: "#f4534e",
+  rageColor: "oklch(0.662 0.198 25.892)",
   rageOpacity: 0.78,
   trailMs: 1_000,
 };
@@ -30,6 +30,10 @@ const defaultOptions: ResolvedOverlayOptions = {
 const LIVE_MIN_TRAIL_WINDOW_MS = 2_000;
 const LIVE_CLICK_WINDOW_MS = 4_000;
 const RAGE_DRAW_WINDOW_MS = 900;
+const MAX_CURSOR_POINTS = 20_000;
+const MAX_CLICK_POINTS = 10_000;
+const MAX_RAGE_BURSTS = 5_000;
+const MAX_RAGE_DETECTION_WINDOW_CLICKS = 500;
 
 export class ReplayOverlay {
   private readonly canvas: HTMLCanvasElement;
@@ -88,8 +92,12 @@ export class ReplayOverlay {
     if (options.liveEdgeMs !== undefined) {
       this.trimLiveWindow(options.liveEdgeMs);
     }
+    this.trimPointLimits();
 
-    this.rageBursts = detectRageClickBursts(this.clicks);
+    this.rageBursts = shouldRunRageDetectionForClicks(this.clicks)
+      ? detectRageClickBursts(this.clicks)
+      : [];
+    this.trimPointLimits();
   }
 
   bringToFront(): void {
@@ -212,6 +220,13 @@ export class ReplayOverlay {
 
     this.cursor = trimPointsBefore(this.cursor, cursorCutoff);
     this.clicks = trimPointsBefore(this.clicks, clickCutoff);
+    this.rageBursts = trimPointsBefore(this.rageBursts, clickCutoff);
+  }
+
+  private trimPointLimits(): void {
+    this.cursor = trimPointCount(this.cursor, MAX_CURSOR_POINTS);
+    this.clicks = trimPointCount(this.clicks, MAX_CLICK_POINTS);
+    this.rageBursts = trimPointCount(this.rageBursts, MAX_RAGE_BURSTS);
   }
 }
 
@@ -282,6 +297,36 @@ function trimPointsBefore<T extends { timeMs: number }>(
   }
 
   return points.slice(firstKeptIndex);
+}
+
+function trimPointCount<T>(points: readonly T[], maxPoints: number): T[] {
+  if (points.length <= maxPoints) {
+    return [...points];
+  }
+  return points.slice(points.length - maxPoints);
+}
+
+export function shouldRunRageDetectionForClicks(clicks: readonly ClickPoint[]): boolean {
+  let windowStart = 0;
+  for (let index = 0; index < clicks.length; index += 1) {
+    const click = clicks[index];
+    if (click === undefined) {
+      continue;
+    }
+
+    while (
+      windowStart < index &&
+      click.timeMs - (clicks[windowStart]?.timeMs ?? click.timeMs) > RAGE_CLICK_WINDOW_MS
+    ) {
+      windowStart += 1;
+    }
+
+    if (index - windowStart + 1 > MAX_RAGE_DETECTION_WINDOW_CLICKS) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function cleanOpacity(value: number | undefined, fallback: number): number {

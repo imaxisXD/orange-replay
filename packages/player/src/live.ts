@@ -16,9 +16,43 @@ export interface LiveKeyframeBuffer {
   waiting: boolean;
   started: boolean;
   events: ReplayEvent[];
+  batches: BufferedLiveReplayBatch[];
+  nextOrder: number;
+  estimatedBytes: number;
+  waitingStartedAt: number;
 }
 
 const LIVE_SEEN_KEY_LIMIT = 4_096;
+const DEFAULT_KEYFRAME_EVENT_LIMIT = 5_000;
+const DEFAULT_KEYFRAME_BYTE_LIMIT = 512 * 1024;
+const DEFAULT_KEYFRAME_WAIT_MS = 15_000;
+
+export interface LiveKeyframeLimits {
+  maxBytes?: number;
+  maxEvents?: number;
+  maxWaitMs?: number;
+  now?: number;
+}
+
+export type LiveKeyframeAcceptStatus = "accepted" | "overflow" | "waiting";
+
+export interface LiveKeyframeAcceptResult {
+  events: ReplayEvent[];
+  status: LiveKeyframeAcceptStatus;
+}
+
+export interface LiveReplayBatch {
+  tab: string;
+  seq: number;
+  events: readonly ReplayEvent[];
+}
+
+interface BufferedLiveReplayBatch {
+  tab: string;
+  seq: number;
+  order: number;
+  events: ReplayEvent[];
+}
 
 export function createLiveFrameState(): LiveFrameState {
   return {
@@ -31,33 +65,80 @@ export function createLiveKeyframeBuffer(): LiveKeyframeBuffer {
     waiting: false,
     started: false,
     events: [],
+    batches: [],
+    nextOrder: 0,
+    estimatedBytes: 0,
+    waitingStartedAt: 0,
   };
 }
 
-export function startWaitingForKeyframe(buffer: LiveKeyframeBuffer): void {
+export function startWaitingForKeyframe(buffer: LiveKeyframeBuffer, now = Date.now()): void {
   buffer.waiting = true;
   buffer.started = false;
   buffer.events = [];
+  buffer.batches = [];
+  buffer.nextOrder = 0;
+  buffer.estimatedBytes = 0;
+  buffer.waitingStartedAt = now;
 }
 
 export function stopWaitingForKeyframe(buffer: LiveKeyframeBuffer): void {
   buffer.waiting = false;
   buffer.started = false;
   buffer.events = [];
+  buffer.batches = [];
+  buffer.nextOrder = 0;
+  buffer.estimatedBytes = 0;
+  buffer.waitingStartedAt = 0;
 }
 
 export function acceptLiveEventsAfterKeyframe(
   buffer: LiveKeyframeBuffer,
   events: readonly ReplayEvent[],
 ): ReplayEvent[] {
+  return acceptLiveEventsAfterKeyframeWithStatus(buffer, events).events;
+}
+
+export function acceptLiveEventsAfterKeyframeWithStatus(
+  buffer: LiveKeyframeBuffer,
+  events: readonly ReplayEvent[],
+  limits: LiveKeyframeLimits = {},
+): LiveKeyframeAcceptResult {
+  return acceptLiveEventBatchAfterKeyframeWithStatus(
+    buffer,
+    { tab: "legacy", seq: buffer.nextOrder, events },
+    limits,
+  );
+}
+
+export function acceptLiveEventBatchAfterKeyframeWithStatus(
+  buffer: LiveKeyframeBuffer,
+  batch: LiveReplayBatch,
+  limits: LiveKeyframeLimits = {},
+): LiveKeyframeAcceptResult {
   if (!buffer.waiting || buffer.started) {
-    return [...events];
+    return { events: [...batch.events], status: "accepted" };
   }
 
-  buffer.events.push(...events);
+  buffer.batches.push({
+    tab: batch.tab,
+    seq: batch.seq,
+    order: buffer.nextOrder,
+    events: [...batch.events],
+  });
+  buffer.nextOrder += 1;
+  buffer.batches.sort(compareBufferedLiveReplayBatches);
+  buffer.events = buffer.batches.flatMap((stored) => stored.events);
+  buffer.estimatedBytes += estimateReplayBytes(batch.events);
+
   const snapshotIndex = buffer.events.findIndex(isFullSnapshotEvent);
   if (snapshotIndex < 0) {
-    return [];
+    if (keyframeBufferExceededLimit(buffer, limits)) {
+      startWaitingForKeyframe(buffer, limits.now);
+      return { events: [], status: "overflow" };
+    }
+
+    return { events: [], status: "waiting" };
   }
 
   const startIndex =
@@ -66,9 +147,13 @@ export function acceptLiveEventsAfterKeyframe(
       : snapshotIndex;
   const acceptedEvents = buffer.events.slice(startIndex);
   buffer.events = [];
+  buffer.batches = [];
+  buffer.nextOrder = 0;
+  buffer.estimatedBytes = 0;
   buffer.started = true;
   buffer.waiting = false;
-  return acceptedEvents;
+  buffer.waitingStartedAt = 0;
+  return { events: acceptedEvents, status: "accepted" };
 }
 
 export function acceptLiveFrame(
@@ -112,4 +197,38 @@ function isFullSnapshotEvent(event: ReplayEvent): boolean {
 
 function isMetaEvent(event: ReplayEvent | undefined): boolean {
   return event?.type === EventType.Meta;
+}
+
+function keyframeBufferExceededLimit(
+  buffer: LiveKeyframeBuffer,
+  limits: LiveKeyframeLimits,
+): boolean {
+  const maxEvents = limits.maxEvents ?? DEFAULT_KEYFRAME_EVENT_LIMIT;
+  const maxBytes = limits.maxBytes ?? DEFAULT_KEYFRAME_BYTE_LIMIT;
+  const maxWaitMs = limits.maxWaitMs ?? DEFAULT_KEYFRAME_WAIT_MS;
+  const now = limits.now ?? Date.now();
+  const waitedMs = buffer.waitingStartedAt > 0 ? Math.max(0, now - buffer.waitingStartedAt) : 0;
+
+  return (
+    buffer.events.length > maxEvents || buffer.estimatedBytes > maxBytes || waitedMs > maxWaitMs
+  );
+}
+
+function estimateReplayBytes(events: readonly ReplayEvent[]): number {
+  let total = 0;
+  for (const event of events) {
+    try {
+      total += JSON.stringify(event).length;
+    } catch {
+      total += 1_024;
+    }
+  }
+  return total;
+}
+
+function compareBufferedLiveReplayBatches(
+  left: BufferedLiveReplayBatch,
+  right: BufferedLiveReplayBatch,
+): number {
+  return left.tab.localeCompare(right.tab) || left.seq - right.seq || left.order - right.order;
 }

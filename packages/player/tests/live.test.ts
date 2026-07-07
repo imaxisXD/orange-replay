@@ -3,6 +3,8 @@ import type { BatchIndex } from "@orange-replay/shared/types";
 import { encodeIngestBody } from "@orange-replay/shared/wire";
 import {
   acceptLiveEventsAfterKeyframe,
+  acceptLiveEventBatchAfterKeyframeWithStatus,
+  acceptLiveEventsAfterKeyframeWithStatus,
   acceptLiveFrame,
   createLiveKeyframeBuffer,
   createLiveFrameState,
@@ -60,6 +62,49 @@ describe("live frame handling", () => {
       snapshot,
       tail,
     ]);
+    expect(buffer.waiting).toBe(false);
+    expect(buffer.started).toBe(true);
+  });
+
+  it("resets the pre-keyframe buffer when live events exceed the cap", () => {
+    const buffer = createLiveKeyframeBuffer();
+    startWaitingForKeyframe(buffer, 1_000);
+
+    const result = acceptLiveEventsAfterKeyframeWithStatus(
+      buffer,
+      [incrementalEvent(1), incrementalEvent(2)],
+      { maxEvents: 1, now: 1_001 },
+    );
+
+    expect(result).toEqual({ events: [], status: "overflow" });
+    expect(buffer.waiting).toBe(true);
+    expect(buffer.started).toBe(false);
+    expect(buffer.events).toEqual([]);
+  });
+
+  it("orders buffered live batches by tab and seq before accepting the keyframe", () => {
+    const buffer = createLiveKeyframeBuffer();
+    startWaitingForKeyframe(buffer);
+
+    const meta = metaEvent(2);
+    const snapshot = fullSnapshotEvent(3);
+    const tail = incrementalEvent(4);
+
+    expect(
+      acceptLiveEventBatchAfterKeyframeWithStatus(buffer, {
+        tab: "tab-a",
+        seq: 2,
+        events: [tail],
+      }),
+    ).toEqual({ events: [], status: "waiting" });
+
+    expect(
+      acceptLiveEventBatchAfterKeyframeWithStatus(buffer, {
+        tab: "tab-a",
+        seq: 1,
+        events: [meta, snapshot],
+      }),
+    ).toEqual({ events: [meta, snapshot, tail], status: "accepted" });
     expect(buffer.waiting).toBe(false);
     expect(buffer.started).toBe(true);
   });

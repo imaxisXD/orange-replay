@@ -1,10 +1,15 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
-import type { SessionManifest } from "@orange-replay/shared/types";
-import { buildSegment } from "@orange-replay/shared/wire";
+import type { BatchIndex, SessionManifest } from "@orange-replay/shared/types";
+import { buildSegment, encodeIngestBody } from "@orange-replay/shared/wire";
 import { fetchSegmentBytes, liveSocketUrl, loadSession, mintLiveTicket } from "../src/api.ts";
 import { OrangePlayer } from "../src/player.ts";
-import { decodeSegmentEvents } from "../src/segments.ts";
+import {
+  decodeSegmentBatches,
+  decodeSegmentEvents,
+  MAX_DECODED_SEGMENT_EVENTS,
+  MAX_DECODED_SEGMENT_EVENT_BYTES,
+} from "../src/segments.ts";
 import type { ReplayEvent } from "../src/types.ts";
 import { DecodeWorkerHost } from "../src/worker-host.ts";
 
@@ -55,6 +60,149 @@ describe("manifest and segment loading", () => {
       "https://api.example.test/api/v1/projects/project/sessions/session/manifest",
       "https://api.example.test/api/v1/projects/project/sessions/session/segments/seg-000001.ors",
     ]);
+  });
+
+  it("preserves tab indexes when decoding encoded segment batches", async () => {
+    const tabAEvents = [makeEvent(1_100, "tab-a-full")];
+    const tabBEvents = [makeEvent(1_200, "tab-b-click")];
+    const segment = buildSegment([
+      encodeIngestBody(makeIndex("tab-b", 0, 1_200), await gzipJson(tabBEvents)),
+      encodeIngestBody(makeIndex("tab-a", 0, 1_100), await gzipJson(tabAEvents)),
+    ]);
+    const worker = new DecodeWorkerHost({ allowSynchronousFallback: true });
+
+    const batches = await decodeSegmentBatches(segment, worker);
+
+    expect(batches.map((batch) => batch.index.tab)).toEqual(["tab-a", "tab-b"]);
+    expect(batches.map((batch) => batch.events)).toEqual([tabAEvents, tabBEvents]);
+  });
+
+  it("decodes segment batches one at a time", async () => {
+    const segment = buildSegment([
+      encodeIngestBody(makeIndex("tab-a", 0, 1_100), encoder.encode("batch-a")),
+      encodeIngestBody(makeIndex("tab-b", 0, 1_200), encoder.encode("batch-b")),
+    ]);
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const worker = {
+      decodeBatchWithStats: async () => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        inFlight -= 1;
+        return { decodedBytes: 64, events: [makeEvent(1_100, "decoded")] };
+      },
+    } as unknown as DecodeWorkerHost;
+
+    await decodeSegmentBatches(segment, worker);
+
+    expect(maxInFlight).toBe(1);
+  });
+
+  it("rejects segments with too many decoded events", async () => {
+    const segment = buildSegment([
+      encodeIngestBody(makeIndex("tab-a", 0, 1_100), encoder.encode("batch-a")),
+    ]);
+    const worker = {
+      decodeBatchWithStats: async () => ({
+        decodedBytes: 64,
+        events: Array.from({ length: MAX_DECODED_SEGMENT_EVENTS + 1 }, (_, index) =>
+          makeEvent(index, "event"),
+        ),
+      }),
+    } as unknown as DecodeWorkerHost;
+
+    await expect(decodeSegmentBatches(segment, worker)).rejects.toThrow(
+      "Replay segment has too many events.",
+    );
+  });
+
+  it("rejects segments when aggregate decoded bytes exceed the limit", async () => {
+    const segment = buildSegment([
+      encodeIngestBody(makeIndex("tab-a", 0, 1_100), encoder.encode("batch-a")),
+    ]);
+    const worker = {
+      decodeBatchWithStats: async () => ({
+        decodedBytes: MAX_DECODED_SEGMENT_EVENT_BYTES + 1,
+        events: [makeEvent(1_100, "decoded")],
+      }),
+    } as unknown as DecodeWorkerHost;
+
+    await expect(decodeSegmentBatches(segment, worker)).rejects.toThrow(
+      "Replay segment is too large after decoding.",
+    );
+  });
+
+  it("waits for the first segment before loading later replay segments", async () => {
+    const segment0 = buildSegment([
+      encodeIngestBody(makeIndex("tab-a", 0, 1_000), await gzipJson([makeEvent(1_000, "first")])),
+    ]);
+    const segment1 = buildSegment([
+      encodeIngestBody(makeIndex("tab-a", 1, 8_000), await gzipJson([makeEvent(8_000, "later")])),
+    ]);
+    const manifest = makeManifest(segment0.byteLength);
+    manifest.endedAt = 10_000;
+    manifest.durationMs = 9_000;
+    manifest.segments = [
+      manifest.segments[0]!,
+      {
+        key: "p/project/session/seg-000002.ors",
+        bytes: segment1.byteLength,
+        t0: 7_000,
+        t1: 10_000,
+        batches: 1,
+      },
+    ];
+
+    let resolveFirstSegment: ((response: Response) => void) | undefined;
+    const fetchCalls: string[] = [];
+    const api = {
+      baseUrl: "https://api.example.test",
+      fetch: async (url: string | URL | Request) => {
+        const requestUrl = requestUrlString(url);
+        fetchCalls.push(requestUrl);
+        if (requestUrl.endsWith("/manifest")) {
+          return Response.json(manifest);
+        }
+        if (requestUrl.endsWith("/seg-000001.ors")) {
+          return await new Promise<Response>((resolve) => {
+            resolveFirstSegment = resolve;
+          });
+        }
+        if (requestUrl.endsWith("/seg-000002.ors")) {
+          return new Response(segment1 as unknown as BodyInit, {
+            headers: { "content-type": "application/octet-stream" },
+          });
+        }
+        return Response.json({ error: "not_found" }, { status: 404 });
+      },
+    };
+
+    const container = document.createElement("div");
+    document.body.append(container);
+    const player = new OrangePlayer(container, {
+      api,
+      projectId: "project",
+      sessionId: "session",
+      token: "dev-token",
+      worker: { allowSynchronousFallback: true },
+    });
+
+    await player.ready();
+    await waitFor(() => resolveFirstSegment !== undefined);
+    const seekPromise = player.seek(8_000);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(fetchCalls.some((url) => url.endsWith("/seg-000002.ors"))).toBe(false);
+
+    resolveFirstSegment?.(
+      new Response(segment0 as unknown as BodyInit, {
+        headers: { "content-type": "application/octet-stream" },
+      }),
+    );
+    await seekPromise;
+    await waitFor(() => fetchCalls.some((url) => url.endsWith("/seg-000002.ors")));
+    player.destroy();
+    container.remove();
   });
 
   it("mints live tickets with bearer auth and uses ticket socket URLs", async () => {
@@ -203,6 +351,18 @@ function makeManifest(segmentBytes: number): SessionManifest {
 
 function makeEvent(timestamp: number, name: string): ReplayEvent {
   return { type: 0, timestamp, data: { name } } as ReplayEvent;
+}
+
+function makeIndex(tab: string, seq: number, time: number): BatchIndex {
+  return {
+    v: 1,
+    s: "session",
+    tab,
+    seq,
+    t0: time,
+    t1: time,
+    e: [{ t: time, k: "custom", d: tab }],
+  };
 }
 
 function requestUrlString(url: string | URL | Request): string {
