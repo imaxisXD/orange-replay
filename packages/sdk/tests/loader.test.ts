@@ -51,9 +51,10 @@ afterEach(() => {
 
 describe("loader", () => {
   it("builds a bounded auto-init snippet without storing click targets", async () => {
-    const { buildLoaderSnippet } = await import("../src/loader.ts");
+    const { buildLoaderScriptTag, buildLoaderSnippet } = await import("../src/loader.ts");
     const snippet = buildLoaderSnippet({
       bundleUrl: "https://cdn.test/orange-replay.iife.js",
+      queueLimit: 1,
       init: {
         key: "write-key",
         ingestUrl: "https://ingest.test",
@@ -63,8 +64,68 @@ describe("loader", () => {
 
     expect(snippet).toContain('"key":"write-key"');
     expect(snippet).toContain('"blockSelector":".secret-panel"');
+    expect(snippet).toContain("queueLimit:1");
     expect(snippet).toContain("q.length>=l");
     expect(snippet).not.toContain("target:e.target");
+
+    const scriptTag = buildLoaderScriptTag({
+      bundleUrl: "https://cdn.test/orange-replay.iife.js",
+      init: { key: "write-key", ingestUrl: "https://ingest.test" },
+    });
+    expect(scriptTag).toMatch(/^<script>\n/);
+    expect(scriptTag).toMatch(/\n<\/script>$/);
+  });
+
+  it("escapes config values for inline script tags", async () => {
+    const { buildLoaderScriptTag } = await import("../src/loader.ts");
+    const scriptTag = buildLoaderScriptTag({
+      bundleUrl: "https://cdn.test/sdk.js?</script><script>alert(1)</script>",
+      init: {
+        key: "or_live_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ingestUrl: "https://ingest.test/\u2028\u2029",
+        blockSelector: "[data-x='a&b>c']",
+      },
+    });
+
+    const innerScript = scriptTag.slice("<script>\n".length, -"\n</script>".length);
+    expect(innerScript).not.toContain("</script><script>");
+    expect(innerScript).not.toContain("\u2028");
+    expect(innerScript).not.toContain("\u2029");
+    expect(innerScript).toContain("\\u003c/script\\u003e");
+    expect(innerScript).toContain("\\u0026");
+    expect(innerScript).toContain("\\u003e");
+  });
+
+  it("keeps dollar patterns literal in generated snippets", async () => {
+    const { buildLoaderSnippet } = await import("../src/loader.ts");
+    const snippet = buildLoaderSnippet({
+      bundleUrl: "https://cdn.test/$'-$&.js",
+      init: {
+        key: "or_live_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ingestUrl: "https://ingest.test/$&",
+        blockSelector: '[data-test="$\'"]',
+      },
+    });
+
+    expect(snippet).toContain('"https://cdn.test/$\'-$\\u0026.js"');
+    expect(snippet).toContain('"ingestUrl":"https://ingest.test/$\\u0026"');
+    expect(snippet).toContain('"blockSelector":"[data-test=\\"$\'\\"]"');
+    expect(snippet).not.toContain("__BUNDLE_URL__");
+    expect(snippet).not.toContain("__INIT_CONFIG__");
+  });
+
+  it("does not rescan substituted bundle URLs for placeholders", async () => {
+    const { buildLoaderSnippet } = await import("../src/loader.ts");
+    const snippet = buildLoaderSnippet({
+      bundleUrl: "https://cdn.test/__INIT_CONFIG__/sdk.js",
+      init: {
+        key: "or_live_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ingestUrl: "https://ingest.test",
+      },
+    });
+
+    expect(snippet).toContain('"https://cdn.test/__INIT_CONFIG__/sdk.js"');
+    expect(snippet).toContain('init:{"key":"or_live_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"');
   });
 
   it("drains pre-buffered events into the first SDK batch", async () => {
