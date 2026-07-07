@@ -109,14 +109,13 @@ export interface StoredProjectConfig extends ProjectConfig {
 }
 
 export interface ProjectConfigUpdate {
+  expectedVersion: number;
   sampleRate: number;
   retentionDays: number;
   allowedOrigins: string[];
   maskPolicyVersion: number;
   maskRules: MaskRule[];
   capture: CaptureToggles;
-  quotaState: ProjectQuotaState;
-  jurisdiction?: ProjectJurisdiction | null;
 }
 
 export interface ProjectKeyAudit {

@@ -31,6 +31,8 @@ import {
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const LIVE_AUTH_HEADER = "x-or-live-auth";
+const MIN_API_TOKEN_LENGTH = 32;
+const MIN_LIVE_TICKET_SECRET_LENGTH = 32;
 const API_SECURITY_HEADERS = {
   "x-content-type-options": "nosniff",
   "referrer-policy": "no-referrer",
@@ -92,6 +94,7 @@ async function routeRequest(
   if (request.method === "GET" && sessionsMatch) {
     const projectId = sessionsMatch[1];
     if (!projectId || !isValidPathId(projectId)) return jsonError("invalid_path_id", 400);
+    if (!authCanAccessProject(auth, projectId)) return jsonError("forbidden", 403);
     wideEvent.set({ project_id: projectId });
     return listSessions(url, env, projectId);
   }
@@ -100,6 +103,7 @@ async function routeRequest(
   if (request.method === "GET" && projectLiveMatch) {
     const projectId = projectLiveMatch[1];
     if (!projectId || !isValidPathId(projectId)) return jsonError("invalid_path_id", 400);
+    if (!authCanAccessProject(auth, projectId)) return jsonError("forbidden", 403);
     wideEvent.set({ project_id: projectId });
     return listLiveSessions(env, projectId, requestId);
   }
@@ -108,6 +112,7 @@ async function routeRequest(
   if (configMatch) {
     const projectId = configMatch[1];
     if (!projectId || !isValidPathId(projectId)) return jsonError("invalid_path_id", 400);
+    if (!authCanAccessProject(auth, projectId)) return jsonError("forbidden", 403);
     wideEvent.set({ project_id: projectId });
     if (request.method === "GET") return getProjectConfig(env, projectId);
     if (request.method === "PUT") return putProjectConfig(request, env, projectId, wideEvent);
@@ -117,6 +122,7 @@ async function routeRequest(
   if (request.method === "GET" && installStatusMatch) {
     const projectId = installStatusMatch[1];
     if (!projectId || !isValidPathId(projectId)) return jsonError("invalid_path_id", 400);
+    if (!authCanAccessProject(auth, projectId)) return jsonError("forbidden", 403);
     wideEvent.set({ project_id: projectId });
     return getInstallStatus(env, projectId, requestId);
   }
@@ -125,6 +131,7 @@ async function routeRequest(
   if (request.method === "GET" && keysMatch) {
     const projectId = keysMatch[1];
     if (!projectId || !isValidPathId(projectId)) return jsonError("invalid_path_id", 400);
+    if (!authCanAccessProject(auth, projectId)) return jsonError("forbidden", 403);
     wideEvent.set({ project_id: projectId });
     return getProjectKeys(env, projectId, wideEvent);
   }
@@ -135,6 +142,7 @@ async function routeRequest(
   if (request.method === "GET" && manifestMatch) {
     const ids = parseProjectSessionIds(manifestMatch);
     if (!ids.ok) return jsonError("invalid_path_id", 400);
+    if (!authCanAccessProject(auth, ids.projectId)) return jsonError("forbidden", 403);
     wideEvent.set({ project_id: ids.projectId, session_id: ids.sessionId });
     return getManifest(env, ids.projectId, ids.sessionId);
   }
@@ -145,6 +153,7 @@ async function routeRequest(
   if (request.method === "POST" && liveTicketMatch) {
     const ids = parseProjectSessionIds(liveTicketMatch);
     if (!ids.ok) return jsonError("invalid_path_id", 400);
+    if (!authCanAccessProject(auth, ids.projectId)) return jsonError("forbidden", 403);
     wideEvent.set({ project_id: ids.projectId, session_id: ids.sessionId });
     return mintLiveTicket(env, ids.projectId, ids.sessionId);
   }
@@ -155,6 +164,7 @@ async function routeRequest(
   if (request.method === "GET" && segmentMatch) {
     const ids = parseProjectSessionIds(segmentMatch);
     if (!ids.ok) return jsonError("invalid_path_id", 400);
+    if (!authCanAccessProject(auth, ids.projectId)) return jsonError("forbidden", 403);
 
     const name = segmentMatch[3];
     if (!name || !isValidSegmentName(name)) return jsonError("invalid_segment_name", 400);
@@ -200,11 +210,12 @@ async function putProjectConfig(
     return jsonError(parsed.error, 400);
   }
 
-  const config = await writeStoredProjectConfig(env, projectId, parsed.value);
-  if (config === null) return jsonError("not_found", 404);
+  const result = await writeStoredProjectConfig(env, projectId, parsed.value);
+  if (result.status === "not_found") return jsonError("not_found", 404);
+  if (result.status === "version_conflict") return jsonError("config_version_conflict", 409);
 
-  wideEvent.set({ config_version: config.version });
-  return jsonResponse(config);
+  wideEvent.set({ config_version: result.config.version });
+  return jsonResponse(result.config);
 }
 
 async function getInstallStatus(env: Env, projectId: string, requestId: string): Promise<Response> {
@@ -244,6 +255,10 @@ async function listSessions(url: URL, env: Env, projectId: string): Promise<Resp
 }
 
 async function getManifest(env: Env, projectId: string, sessionId: string): Promise<Response> {
+  if (!(await sessionIsReadable(env, projectId, sessionId))) {
+    return jsonError("not_found", 404);
+  }
+
   const object = await env.RECORDINGS.get(manifestKey(projectId, sessionId));
   if (object === null) return jsonError("not_found", 404);
 
@@ -252,7 +267,8 @@ async function getManifest(env: Env, projectId: string, sessionId: string): Prom
       "content-type": "application/json",
       // Manifests are written once at finalize and never mutate (immutable
       // R2 create-only PUT), so they are as cacheable as segments.
-      "cache-control": "public, max-age=31536000, immutable",
+      "cache-control": "private, max-age=31536000, immutable",
+      vary: "Authorization",
     }),
   });
 }
@@ -266,6 +282,10 @@ async function getSegment(
   name: string,
   wideEvent: ReturnType<typeof startWideEvent>,
 ): Promise<Response> {
+  if (!(await sessionIsReadable(env, projectId, sessionId))) {
+    return jsonError("not_found", 404);
+  }
+
   try {
     const cached = await caches.default.match(request);
     if (cached !== undefined) {
@@ -283,6 +303,7 @@ async function getSegment(
     headers: secureHeaders({
       "content-type": "application/octet-stream",
       "cache-control": "public, max-age=31536000, immutable",
+      vary: "Authorization",
       etag: object.httpEtag,
     }),
   });
@@ -346,8 +367,11 @@ async function fetchPresence(
 async function checkAuth(
   request: Request,
   env: Env,
-): Promise<{ ok: true } | { ok: false; status: 401 | 503; error: string }> {
-  if (!env.DEV_API_TOKEN) {
+): Promise<
+  { ok: true; projects: ReadonlySet<string> } | { ok: false; status: 401 | 503; error: string }
+> {
+  const apiAuth = readApiAuthConfig(env);
+  if (apiAuth === null) {
     return { ok: false, status: 503, error: "auth_not_configured" };
   }
 
@@ -366,7 +390,7 @@ async function checkAuth(
     return { ok: false, status: 401, error: "unauthorized" };
   }
 
-  const expected = encoder.encode(env.DEV_API_TOKEN);
+  const expected = encoder.encode(apiAuth.token);
   const actual = encoder.encode(actualToken);
   if (expected.byteLength !== actual.byteLength) {
     return { ok: false, status: 401, error: "unauthorized" };
@@ -376,7 +400,11 @@ async function checkAuth(
     return { ok: false, status: 401, error: "unauthorized" };
   }
 
-  return { ok: true };
+  return { ok: true, projects: apiAuth.projects };
+}
+
+function authCanAccessProject(auth: { projects: ReadonlySet<string> }, projectId: string): boolean {
+  return auth.projects.has(projectId);
 }
 
 function parseProjectSessionIds(
@@ -413,12 +441,17 @@ function routeName(pathname: string): string {
 }
 
 async function mintLiveTicket(env: Env, projectId: string, sessionId: string): Promise<Response> {
-  if (env.DEV_API_TOKEN === undefined) {
+  const liveTicketSecret = readLiveTicketSecret(env);
+  if (liveTicketSecret === null) {
     return jsonError("auth_not_configured", 503);
   }
 
+  if (await sessionDeletionIsPending(env, projectId, sessionId)) {
+    return jsonError("not_found", 404);
+  }
+
   const expiresAt = Date.now() + LIVE_TICKET_TTL_MS;
-  const signature = await signLiveTicket(env.DEV_API_TOKEN, projectId, sessionId, expiresAt);
+  const signature = await signLiveTicket(liveTicketSecret, projectId, sessionId, expiresAt);
   const ticketBody = `${expiresAt}.${base64UrlEncode(signature)}`;
   return jsonResponse({
     ticket: base64UrlEncode(encoder.encode(ticketBody)),
@@ -437,7 +470,8 @@ async function verifyLiveTicketRequest(
   }
 
   const ticket = url.searchParams.get("ticket");
-  if (ticket === null || ticket.length === 0 || env.DEV_API_TOKEN === undefined) {
+  const liveTicketSecret = readLiveTicketSecret(env);
+  if (ticket === null || ticket.length === 0 || liveTicketSecret === null) {
     return { ok: false };
   }
 
@@ -456,19 +490,19 @@ async function verifyLiveTicketRequest(
     return { ok: false };
   }
 
-  const key = await liveTicketKey(env.DEV_API_TOKEN, ["verify"]);
+  const key = await liveTicketKey(liveTicketSecret, ["verify"]);
   const message = liveTicketMessage(projectId, sessionId, expiresAt);
   const ok = await crypto.subtle.verify("HMAC", key, signature, message);
   return ok ? { ok: true } : { ok: false };
 }
 
 async function signLiveTicket(
-  apiToken: string,
+  liveTicketSecret: string,
   projectId: string,
   sessionId: string,
   expiresAt: number,
 ): Promise<Uint8Array> {
-  const key = await liveTicketKey(apiToken, ["sign"]);
+  const key = await liveTicketKey(liveTicketSecret, ["sign"]);
   const signature = await crypto.subtle.sign(
     "HMAC",
     key,
@@ -481,14 +515,103 @@ function liveTicketMessage(projectId: string, sessionId: string, expiresAt: numb
   return encoder.encode(`${projectId}:${sessionId}:${expiresAt}`);
 }
 
-function liveTicketKey(apiToken: string, usages: Array<"sign" | "verify">): Promise<CryptoKey> {
+function liveTicketKey(
+  liveTicketSecret: string,
+  usages: Array<"sign" | "verify">,
+): Promise<CryptoKey> {
   return crypto.subtle.importKey(
     "raw",
-    encoder.encode(apiToken),
+    encoder.encode(liveTicketSecret),
     { name: "HMAC", hash: "SHA-256" },
     false,
     usages,
   );
+}
+
+function readApiAuthConfig(env: Env): { token: string; projects: ReadonlySet<string> } | null {
+  const token = readApiToken(env);
+  const projects = readApiProjectIds(env);
+  if (token === null || projects === null) {
+    return null;
+  }
+
+  return { token, projects };
+}
+
+function readApiToken(env: Pick<Env, "DEV_API_TOKEN">): string | null {
+  const token = env.DEV_API_TOKEN;
+  if (typeof token !== "string") {
+    return null;
+  }
+
+  if (token.length < MIN_API_TOKEN_LENGTH || token.trim() !== token) {
+    return null;
+  }
+
+  return token;
+}
+
+function readLiveTicketSecret(env: Pick<Env, "LIVE_TICKET_SECRET">): string | null {
+  const secret = env.LIVE_TICKET_SECRET;
+  if (typeof secret !== "string") {
+    return null;
+  }
+
+  if (secret.length < MIN_LIVE_TICKET_SECRET_LENGTH || secret.trim() !== secret) {
+    return null;
+  }
+
+  return secret;
+}
+
+function readApiProjectIds(env: Pick<Env, "DEV_API_PROJECT_IDS">): ReadonlySet<string> | null {
+  const value = env.DEV_API_PROJECT_IDS;
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const projects = new Set<string>();
+  for (const part of value.split(",")) {
+    const projectId = part.trim();
+    if (projectId.length === 0 || !isValidPathId(projectId)) {
+      return null;
+    }
+    projects.add(projectId);
+  }
+
+  return projects.size === 0 ? null : projects;
+}
+
+async function sessionDeletionIsPending(
+  env: Env,
+  projectId: string,
+  sessionId: string,
+): Promise<boolean> {
+  const row = await shardDb(env, 0)
+    .prepare("SELECT 1 FROM session_deletions WHERE project_id = ? AND session_id = ? LIMIT 1")
+    .bind(projectId, sessionId)
+    .first();
+  return row !== null;
+}
+
+async function sessionIsReadable(env: Env, projectId: string, sessionId: string): Promise<boolean> {
+  const row = await shardDb(env, 0)
+    .prepare(
+      `SELECT 1
+        FROM sessions
+        WHERE project_id = ?
+          AND session_id = ?
+          AND NOT EXISTS (
+            SELECT 1
+            FROM session_deletions d
+            WHERE d.project_id = sessions.project_id
+              AND d.session_id = sessions.session_id
+          )
+        LIMIT 1`,
+    )
+    .bind(projectId, sessionId)
+    .first();
+  return row !== null;
 }
 
 async function readJsonBodyCapped(

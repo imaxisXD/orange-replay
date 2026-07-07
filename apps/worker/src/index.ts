@@ -5,7 +5,7 @@ import { startWideEvent, uuidv7 } from "@orange-replay/shared";
 import { handleApi } from "./api/handler.ts";
 import { handleFinalizeBatch } from "./consumer/queue.ts";
 import { sweepExpiredSessions } from "./consumer/sweeper.ts";
-import { setWorkerLoggerVersion, type Env, type FinalizeMessage } from "./env.ts";
+import { isDevTestMode, setWorkerLoggerVersion, type Env, type FinalizeMessage } from "./env.ts";
 import { handleIngest } from "./ingest/handler.ts";
 import { handleTestRoutes } from "./test/harness-routes.ts";
 
@@ -23,7 +23,7 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === "/v1/ingest") return handleIngest(request, env, ctx);
     if (url.pathname.startsWith("/api/")) return handleApi(request, env, ctx);
-    if (url.pathname.startsWith("/__test/") && env.DEV_TEST_ROUTES === "1") {
+    if (url.pathname.startsWith("/__test/") && isDevTestMode(env)) {
       return handleTestRoutes(request, env, ctx);
     }
     // Logging contract: every HTTP request emits one wide event — unmatched

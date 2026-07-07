@@ -6,6 +6,8 @@ export const HDR_FLAGS = "x-or-flags";
 export const HDR_REQUEST_ID = "x-or-request-id";
 
 export const FLAG_UNCOMPRESSED = 1 << 0;
+export const PERSISTED_REPLAY_FLAG_MASK = 0;
+export const INGEST_HEADER_FLAG_MASK = FLAG_UNCOMPRESSED | PERSISTED_REPLAY_FLAG_MASK;
 
 export const MAX_COMPRESSED_BATCH_BYTES = 1024 * 1024;
 export const MAX_INDEX_JSON_BYTES = 64 * 1024;
@@ -14,6 +16,7 @@ export const MAX_PRESENCE_BODY_BYTES = 8 * 1024;
 export const MAX_PRESENCE_ID_CHARS = 64;
 export const MAX_PRESENCE_TEXT_CHARS = 2048;
 export const MAX_BATCHES_PER_SEGMENT = 4096;
+export const MAX_MANIFEST_SEGMENTS = 10_000;
 export const MAX_SEQ = 10_000_000;
 
 export const SDK_FLUSH_DEFAULT_MS = 15_000;
@@ -27,6 +30,7 @@ export const PRESENCE_HEARTBEAT_MS = 20_000;
 export const SESSION_APPEND_RATE_LIMIT_COUNT = 30;
 export const SESSION_APPEND_RATE_LIMIT_WINDOW_MS = 10_000;
 export const LIVE_TICKET_TTL_MS = 60_000;
+export const PROJECT_CONFIG_CACHE_TTL_SECONDS = 60;
 
 export function sessionPrefix(projectId: string, sessionId: string): string {
   return `p/${projectId}/${sessionId}`;

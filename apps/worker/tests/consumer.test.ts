@@ -73,6 +73,22 @@ describe("consumer queue and sweeper", () => {
     expect(body.events).toHaveLength(2);
   }, 30_000);
 
+  it("keeps the same session id separate across projects", async () => {
+    const sharedSessionId = `shared-${Date.now()}`;
+    const first = makeFinalizeMessage("tenant-a", { sessionId: sharedSessionId });
+    const second = makeFinalizeMessage("tenant-b", { sessionId: sharedSessionId });
+
+    await sendFinalizeMessage(first);
+    await sendFinalizeMessage(second);
+    const firstBody = await waitForSession(first.sessionId, first.projectId);
+    const secondBody = await waitForSession(second.sessionId, second.projectId);
+
+    expect(firstBody.session?.["project_id"]).toBe(first.projectId);
+    expect(secondBody.session?.["project_id"]).toBe(second.projectId);
+    expect(firstBody.usage[0]?.["sessions"]).toBe(1);
+    expect(secondBody.usage[0]?.["sessions"]).toBe(1);
+  }, 30_000);
+
   it("rolls back the whole index when a later statement fails", async () => {
     const message = makeFinalizeMessage("rollback");
     await failEventInsert(message.sessionId);
@@ -138,11 +154,21 @@ describe("consumer queue and sweeper", () => {
     await expectR2Object(liveKey, true);
   });
 
-  it("keeps event rows when a session delete fails during sweep", async () => {
+  it("keeps retry state when a session delete fails after object cleanup", async () => {
     const now = Date.now();
     const expired = makeSessionRow("deletefail", now - 60_000);
+    const expiredPrefix = sessionPrefix(
+      String(expired["project_id"]),
+      String(expired["session_id"]),
+    );
+    const manifestKey = `${expiredPrefix}/manifest.json`;
 
-    await seedSession(expired, [], [{ t: now - 2_000, kind: "error", detail: "keep event" }]);
+    await seedSession(
+      expired,
+      [manifestKey],
+      [{ t: now - 2_000, kind: "error", detail: "keep event" }],
+    );
+    await expectR2Object(manifestKey, true);
     await failSessionDelete(String(expired["session_id"]));
 
     const sweep = await worker.fetch("/__test/consumer/sweep", { method: "POST" });
@@ -151,11 +177,15 @@ describe("consumer queue and sweeper", () => {
     const body = await readSession(String(expired["session_id"]));
     expect(body.session?.["session_id"]).toBe(expired["session_id"]);
     expect(body.events).toHaveLength(1);
+    await expectR2Object(manifestKey, false);
   });
 });
 
-function makeFinalizeMessage(name: string): FinalizeMessage {
-  const sessionId = `session-${name}-${Date.now()}`;
+function makeFinalizeMessage(
+  name: string,
+  overrides: Partial<Pick<FinalizeMessage, "sessionId">> = {},
+): FinalizeMessage {
+  const sessionId = overrides.sessionId ?? `session-${name}-${Date.now()}`;
   const projectId = `project-${name}`;
   const orgId = `org-${name}`;
   const startedAt = Date.UTC(2026, 0, 15, 10, 0, 0);
@@ -189,12 +219,12 @@ function makeFinalizeMessage(name: string): FinalizeMessage {
       device: "desktop",
       browser: "Chrome",
       os: "macOS",
-      entryUrl: "/checkout",
+      entryUrl: "https://app.example/checkout",
       urlCount: 3,
     },
     retentionDays: 30,
     events: [
-      { t: startedAt + 100, k: "error", d: "e".repeat(250) },
+      { t: startedAt + 100, k: "error", d: "e".repeat(200) },
       { t: startedAt + 200, k: "custom", d: "checked out" },
     ],
   };
@@ -270,11 +300,11 @@ async function seedSession(
   expect(res.status).toBe(200);
 }
 
-async function waitForSession(sessionId: string): Promise<ConsumerSessionBody> {
+async function waitForSession(sessionId: string, projectId?: string): Promise<ConsumerSessionBody> {
   const deadline = Date.now() + 15_000;
 
   while (Date.now() < deadline) {
-    const body = await readSession(sessionId);
+    const body = await readSession(sessionId, projectId);
     if (body.session !== null) return body;
     await delay(pollDelayMs);
   }
@@ -302,8 +332,13 @@ async function waitForStableUsage(sessionId: string): Promise<ConsumerSessionBod
   throw new Error(`usage for ${sessionId} was not readable`);
 }
 
-async function readSession(sessionId: string): Promise<ConsumerSessionBody> {
-  const res = await worker.fetch(`/__test/consumer/session?id=${encodeURIComponent(sessionId)}`);
+async function readSession(sessionId: string, projectId?: string): Promise<ConsumerSessionBody> {
+  const url = new URL("/__test/consumer/session", "https://worker.test");
+  url.searchParams.set("id", sessionId);
+  if (projectId !== undefined) {
+    url.searchParams.set("project", projectId);
+  }
+  const res = await worker.fetch(`${url.pathname}${url.search}`);
   expect(res.status).toBe(200);
   return (await res.json()) as ConsumerSessionBody;
 }

@@ -10,6 +10,7 @@ import {
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   mapConfigRowToProjectConfig,
+  ingestPostHeaders,
   parseProjectConfig,
   readContentLength,
   sanitizeBatchIndexEvents,
@@ -18,6 +19,8 @@ import {
 import { handleIngest } from "../src/ingest/handler.ts";
 import type { Env } from "../src/env.ts";
 
+const validWriteKey = testWriteKey("unit");
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -25,7 +28,7 @@ afterEach(() => {
 describe("ingest header validation", () => {
   it("accepts valid headers and defaults flags to zero", () => {
     const headers = new Headers({
-      [HDR_KEY]: "raw-key",
+      [HDR_KEY]: validWriteKey,
       [HDR_SESSION]: "session_12345678",
       [HDR_TAB]: "tab_1",
       [HDR_SEQ]: "12",
@@ -34,7 +37,7 @@ describe("ingest header validation", () => {
     expect(validateIngestHeaders(headers)).toEqual({
       ok: true,
       value: {
-        key: "raw-key",
+        key: validWriteKey,
         sessionId: "session_12345678",
         tab: "tab_1",
         seq: 12,
@@ -58,6 +61,20 @@ describe("ingest header validation", () => {
       validateIngestHeaders(
         new Headers({
           [HDR_KEY]: "raw-key",
+          [HDR_SESSION]: "session_12345678",
+          [HDR_TAB]: "tab_1",
+          [HDR_SEQ]: "0",
+        }),
+      ),
+    ).toEqual({
+      ok: false,
+      error: `${HDR_KEY} must be a generated key like or_live_ plus 32 base64url characters`,
+    });
+
+    expect(
+      validateIngestHeaders(
+        new Headers({
+          [HDR_KEY]: validWriteKey,
           [HDR_SESSION]: "short",
           [HDR_TAB]: "tab_1",
           [HDR_SEQ]: "0",
@@ -73,7 +90,7 @@ describe("ingest header validation", () => {
     expect(
       validateIngestHeaders(
         new Headers({
-          [HDR_KEY]: "raw-key",
+          [HDR_KEY]: validWriteKey,
           [HDR_SESSION]: "session_12345678",
           [HDR_TAB]: "tab_1",
           [HDR_SEQ]: String(MAX_SEQ + 1),
@@ -84,14 +101,26 @@ describe("ingest header validation", () => {
     expect(
       validateIngestHeaders(
         new Headers({
-          [HDR_KEY]: "raw-key",
+          [HDR_KEY]: validWriteKey,
           [HDR_SESSION]: "session_12345678",
           [HDR_TAB]: "tab_1",
           [HDR_SEQ]: "0",
           [HDR_FLAGS]: "-1",
         }),
       ),
-    ).toEqual({ ok: false, error: `${HDR_FLAGS} must be a non-negative integer` });
+    ).toEqual({ ok: false, error: `${HDR_FLAGS} can only include supported ingest flags` });
+
+    expect(
+      validateIngestHeaders(
+        new Headers({
+          [HDR_KEY]: validWriteKey,
+          [HDR_SESSION]: "session_12345678",
+          [HDR_TAB]: "tab_1",
+          [HDR_SEQ]: "0",
+          [HDR_FLAGS]: "2147483648",
+        }),
+      ),
+    ).toEqual({ ok: false, error: `${HDR_FLAGS} can only include supported ingest flags` });
   });
 
   it("rejects missing or invalid content lengths", async () => {
@@ -117,7 +146,7 @@ describe("ingest header validation", () => {
       new Request("https://replay.test/v1/ingest", {
         method: "POST",
         headers: {
-          [HDR_KEY]: "raw-key",
+          [HDR_KEY]: validWriteKey,
           [HDR_SESSION]: "session_12345678",
           [HDR_TAB]: "tab_1",
           [HDR_SEQ]: "0",
@@ -132,6 +161,27 @@ describe("ingest header validation", () => {
     expect(await response.json()).toEqual({
       error: "content-length must be a valid integer",
     });
+  });
+
+  it("fails closed when production rate limiting is not configured", async () => {
+    vi.spyOn(globalThis["console"], "log").mockImplementation(() => undefined);
+    const response = await handleIngest(
+      new Request("https://replay.test/v1/ingest", {
+        method: "POST",
+        headers: {
+          [HDR_KEY]: validWriteKey,
+          [HDR_SESSION]: "session_12345678",
+          [HDR_TAB]: "tab_1",
+          [HDR_SEQ]: "0",
+          "content-length": "0",
+        },
+      }),
+      {} as Env,
+      {} as Parameters<typeof handleIngest>[2],
+    );
+
+    expect(response.status).toBe(429);
+    expect(await response.json()).toEqual({ error: "rate_limited" });
   });
 });
 
@@ -211,6 +261,34 @@ describe("ingest config row mapping", () => {
       }),
     ).toBeNull();
   });
+
+  it("rejects empty allowed origins from stored config rows", () => {
+    expect(
+      mapConfigRowToProjectConfig({
+        projectId: "project_4",
+        active: 1,
+        orgId: "org_4",
+        retentionDays: 30,
+        jurisdiction: null,
+        sampleRate: 1,
+        allowedOrigins: JSON.stringify([]),
+        maskPolicyVersion: 1,
+        quotaState: "ok",
+        shard: 0,
+      }),
+    ).toBeNull();
+  });
+
+  it("does not turn empty allowed origins into wildcard CORS", () => {
+    const headers = ingestPostHeaders(
+      new Request("https://worker.test/v1/ingest", {
+        headers: { origin: "https://site.example" },
+      }),
+      [],
+    );
+
+    expect(headers.get("access-control-allow-origin")).toBeNull();
+  });
 });
 
 describe("ingest sidecar event sanitizing", () => {
@@ -254,4 +332,41 @@ describe("ingest sidecar event sanitizing", () => {
     expect(sanitized.index.e[2]).toEqual({ t: 4, k: "custom" });
     expect(sanitized.index.e.every((event) => Number.isFinite(event.t))).toBe(true);
   });
+
+  it("truncates large metadata before the batch can inflate storage", () => {
+    const index = {
+      v: 1,
+      s: "session_12345678",
+      tab: "tab_1",
+      seq: 0,
+      t0: 1,
+      t1: 2,
+      e: Array.from({ length: 80 }, (_, eventIndex) => ({
+        t: eventIndex,
+        k: "custom",
+        m: {
+          [`long_key_${eventIndex}_${"k".repeat(300)}`]: "v".repeat(800),
+        },
+      })),
+    } satisfies BatchIndex;
+
+    const sanitized = sanitizeBatchIndexEvents(index);
+    const metaBytes = sanitized.index.e.reduce((total, event) => {
+      return total + new TextEncoder().encode(JSON.stringify(event.m ?? {})).byteLength;
+    }, 0);
+
+    expect(metaBytes).toBeLessThanOrEqual(16 * 1024);
+    const firstMeta = sanitized.index.e[0]?.m;
+    expect(firstMeta).toBeDefined();
+    const [firstKey, firstValue] = Object.entries(firstMeta ?? {})[0] ?? ["", ""];
+    expect(firstKey.length).toBeLessThanOrEqual(200);
+    expect(String(firstValue).length).toBeLessThanOrEqual(200);
+  });
 });
+
+function testWriteKey(label: string): string {
+  return `or_live_${label
+    .replace(/[^A-Za-z0-9_-]/g, "_")
+    .padEnd(32, "0")
+    .slice(0, 32)}`;
+}

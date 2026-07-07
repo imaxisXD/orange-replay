@@ -1,7 +1,13 @@
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
-import { manifestKey, parseSegment, segmentBatch, segmentKey } from "@orange-replay/shared";
+import {
+  decodeIngestBody,
+  manifestKey,
+  parseSegment,
+  segmentBatch,
+  segmentKey,
+} from "@orange-replay/shared";
 import type { BatchIndex, SessionManifest } from "@orange-replay/shared";
 import { unstable_dev } from "wrangler";
 
@@ -27,6 +33,9 @@ beforeAll(async () => {
     persist: false,
     experimental: { disableExperimentalWarning: true },
   });
+
+  const schema = await worker.fetch("/__test/consumer/seed-schema", { method: "POST" });
+  expect(schema.status).toBe(200);
 }, 120_000);
 
 afterAll(async () => {
@@ -112,7 +121,7 @@ describe("SessionRecorder Durable Object", () => {
     const parsed = parseSegment(segmentBytes);
 
     expect(parsed.count).toBe(1);
-    expect(Buffer.from(segmentBatch(parsed, 0))).toEqual(payload);
+    expect(Buffer.from(decodeIngestBody(segmentBatch(parsed, 0)).payload)).toEqual(payload);
   });
 
   it("dedupes an already flushed batch for the whole session", async () => {
@@ -271,9 +280,9 @@ describe("SessionRecorder Durable Object", () => {
     expect(Buffer.from(manifestAfter)).toEqual(Buffer.from(manifestBefore));
   });
 
-  it("purges the finalized tombstone after the purge alarm", async () => {
-    const projectId = "project-tombstone-purge";
-    const sessionId = "session-tombstone-purge";
+  it("keeps the finalized tombstone through the retention window", async () => {
+    const projectId = "project-tombstone-retained";
+    const sessionId = "session-tombstone-retained";
 
     await append({
       projectId,
@@ -287,11 +296,39 @@ describe("SessionRecorder Durable Object", () => {
 
     const finalizedDebug = await readDebug(projectId, sessionId);
     expect(finalizedDebug.finalized).toBe(true);
+    expect(finalizedDebug.tombstonePurgeAt).toBeGreaterThan(Date.now() + 86_400_000);
 
-    const purgedDebug = await pollDebug(projectId, sessionId, (body) => !body.finalized, 10_000);
-    expect(purgedDebug.hasState).toBe(false);
-    expect(purgedDebug.finalized).toBe(false);
-  }, 15_000);
+    const lateResult = await append({
+      projectId,
+      sessionId,
+      tab: "tab-late",
+      seq: 0,
+      payload: bytes("late-reuse"),
+      t0: 4400,
+    });
+    expect(lateResult.closed).toBe(true);
+  });
+
+  it("rejects a fresh session while a deletion marker exists", async () => {
+    const projectId = "project-delete-fence";
+    const sessionId = "session-delete-fence";
+
+    await seedDeletionMarker(projectId, sessionId);
+    const result = await append({
+      projectId,
+      sessionId,
+      tab: "tab-a",
+      seq: 0,
+      payload: bytes("blocked-by-marker"),
+      t0: 4500,
+    });
+
+    expect(result.closed).toBe(true);
+    expect(await readDebug(projectId, sessionId)).toMatchObject({
+      finalized: false,
+      hasState: false,
+    });
+  });
 
   it("keeps gzip-like payload bytes unchanged", async () => {
     const projectId = "project-exact-bytes";
@@ -305,7 +342,7 @@ describe("SessionRecorder Durable Object", () => {
     const segmentBytes = await readR2Bytes(segmentKey(projectId, sessionId, 1));
     const parsed = parseSegment(segmentBytes);
 
-    expect(Buffer.from(segmentBatch(parsed, 0))).toEqual(payload);
+    expect(Buffer.from(decodeIngestBody(segmentBatch(parsed, 0)).payload)).toEqual(payload);
   });
 
   it("skips empty stored bodies so a poison row cannot wedge finalize", async () => {
@@ -331,7 +368,7 @@ describe("SessionRecorder Durable Object", () => {
     expect(manifest.counts.batches).toBe(1);
     expect(parsed.count).toBe(1);
     // hex-normalize: Buffer vs Uint8Array are structurally unequal to toEqual
-    expect(Buffer.from(segmentBatch(parsed, 0)).toString("hex")).toBe(
+    expect(Buffer.from(decodeIngestBody(segmentBatch(parsed, 0)).payload).toString("hex")).toBe(
       Buffer.from(payload).toString("hex"),
     );
   });
@@ -358,10 +395,10 @@ describe("SessionRecorder Durable Object", () => {
     const second = parseSegment(await readR2Bytes(segmentKey(projectId, sessionId, 2)));
     const payloadValues: number[] = [];
     for (let index = 0; index < first.count; index += 1) {
-      payloadValues.push(segmentBatch(first, index)[0] ?? 0);
+      payloadValues.push(decodeIngestBody(segmentBatch(first, index)).payload[0] ?? 0);
     }
     for (let index = 0; index < second.count; index += 1) {
-      payloadValues.push(segmentBatch(second, index)[0] ?? 0);
+      payloadValues.push(decodeIngestBody(segmentBatch(second, index)).payload[0] ?? 0);
     }
 
     expect(first.count).toBe(4096);
@@ -564,6 +601,38 @@ describe("SessionRecorder Durable Object", () => {
     expect(await readPresenceDebug(projectId)).toMatchObject({ rows: 0 });
   });
 
+  it("keeps presence time and metadata monotonic", async () => {
+    const projectId = "project-presence-monotonic";
+    const sessionId = "session-presence-monotonic";
+
+    await presencePing({
+      projectId,
+      sessionId,
+      startedAt: 1000,
+      lastSeen: 3000,
+      entryUrl: "/new",
+      browser: "Firefox",
+    });
+    await presencePing({
+      projectId,
+      sessionId,
+      startedAt: 1000,
+      lastSeen: 2000,
+      entryUrl: "/old",
+      browser: "Safari",
+    });
+
+    const active = await readPresenceList(projectId, 3200);
+    expect(active.sessions).toMatchObject([
+      {
+        session_id: sessionId,
+        last_seen: 3000,
+        entry_url: "/new",
+        browser: "Firefox",
+      },
+    ]);
+  });
+
   it("sets install status only on the first presence ping", async () => {
     const projectId = "project-install-status";
 
@@ -671,6 +740,15 @@ async function append(input: AppendInput): Promise<AppendResultBody> {
   return (await response.json()) as AppendResultBody;
 }
 
+async function seedDeletionMarker(projectId: string, sessionId: string): Promise<void> {
+  const response = await worker.fetch("/__test/consumer/seed-deletion", {
+    method: "POST",
+    body: JSON.stringify({ projectId, sessionId }),
+  });
+
+  expect(response.status).toBe(200);
+}
+
 async function seedBatches(input: {
   projectId: string;
   sessionId: string;
@@ -755,30 +833,14 @@ async function waitForR2Bytes(key: string): Promise<Uint8Array> {
   throw new Error(`R2 object was not written: ${key}`);
 }
 
-async function pollDebug(
-  projectId: string,
-  sessionId: string,
-  ready: (body: DebugBody) => boolean,
-  deadlineMs: number,
-): Promise<DebugBody> {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < deadlineMs) {
-    const body = await readDebug(projectId, sessionId);
-    if (ready(body)) {
-      return body;
-    }
-    await sleep(100);
-  }
-
-  throw new Error(`debug state did not match within ${deadlineMs}ms`);
-}
-
 async function readManifestPayloads(manifest: SessionManifest): Promise<string[]> {
   const payloads: string[] = [];
   for (const segment of manifest.segments) {
     const parsed = parseSegment(await readR2Bytes(segment.key));
     for (let index = 0; index < parsed.count; index += 1) {
-      payloads.push(Buffer.from(segmentBatch(parsed, index)).toString("hex"));
+      payloads.push(
+        Buffer.from(decodeIngestBody(segmentBatch(parsed, index)).payload).toString("hex"),
+      );
     }
   }
   return payloads;
@@ -867,6 +929,7 @@ async function presencePing(input: {
   startedAt: number;
   lastSeen: number;
   entryUrl: string;
+  browser?: string;
 }): Promise<void> {
   const response = await worker.fetch("/__test/do/presence/ping", {
     method: "POST",
@@ -878,7 +941,7 @@ async function presencePing(input: {
       entryUrl: input.entryUrl,
       country: "US",
       city: "Austin",
-      browser: "Chrome",
+      browser: input.browser ?? "Chrome",
       os: "macOS",
       device: "desktop",
     }),

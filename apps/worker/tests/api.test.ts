@@ -13,7 +13,8 @@ import { unstable_dev } from "wrangler";
 import type { SessionRow } from "../src/api/helpers.ts";
 
 const workerDir = fileURLToPath(new URL("..", import.meta.url));
-const token = "test-token";
+const token = "test-token-0000000000000000000000";
+const liveTicketSecret = "test-live-ticket-secret-0000000000";
 const listProjectId = "api_list_project";
 const sameTimeProjectId = "api_same_time_project";
 const assetProjectId = "api_asset_project";
@@ -24,17 +25,33 @@ const configProjectId = "api_config_project";
 const keysProjectId = "api_keys_project";
 const ticketProjectId = "api_ticket_project";
 const ticketSessionId = "api_ticket_session";
+const apiProjectIds = [
+  listProjectId,
+  sameTimeProjectId,
+  assetProjectId,
+  liveProjectId,
+  installProjectId,
+  configProjectId,
+  keysProjectId,
+  ticketProjectId,
+].join(",");
 const segmentName = "seg-000001.ors";
 const segmentBytes = new Uint8Array([0, 1, 2, 3, 254, 255]);
 
 let worker: Awaited<ReturnType<typeof unstable_dev>>;
 let workerWithoutToken: Awaited<ReturnType<typeof unstable_dev>>;
+let workerWithEmptyToken: Awaited<ReturnType<typeof unstable_dev>>;
 let assetManifestJson = "";
 
 beforeAll(async () => {
   worker = await unstable_dev(`${workerDir}src/index.ts`, {
     config: `${workerDir}wrangler.jsonc`,
-    vars: { DEV_TEST_ROUTES: "1", DEV_API_TOKEN: token },
+    vars: {
+      DEV_TEST_ROUTES: "1",
+      DEV_API_TOKEN: token,
+      DEV_API_PROJECT_IDS: apiProjectIds,
+      LIVE_TICKET_SECRET: liveTicketSecret,
+    },
     persist: false,
     experimental: { disableExperimentalWarning: true },
   });
@@ -52,9 +69,24 @@ beforeAll(async () => {
   });
 }, 120_000);
 
+beforeAll(async () => {
+  workerWithEmptyToken = await unstable_dev(`${workerDir}src/index.ts`, {
+    config: `${workerDir}wrangler.jsonc`,
+    vars: {
+      DEV_TEST_ROUTES: "1",
+      DEV_API_TOKEN: "",
+      DEV_API_PROJECT_IDS: apiProjectIds,
+      LIVE_TICKET_SECRET: liveTicketSecret,
+    },
+    persist: false,
+    experimental: { disableExperimentalWarning: true },
+  });
+}, 120_000);
+
 afterAll(async () => {
   await worker?.stop();
   await workerWithoutToken?.stop();
+  await workerWithEmptyToken?.stop();
 });
 
 describe("dashboard api", () => {
@@ -86,6 +118,15 @@ describe("dashboard api", () => {
     });
     expect(wrong.status).toBe(401);
     expect(await wrong.json()).toEqual({ error: "unauthorized" });
+  });
+
+  it("rejects valid bearer tokens outside their project scope", async () => {
+    const forbidden = await worker.fetch("/api/v1/projects/other_project/sessions", {
+      headers: authHeaders(),
+    });
+
+    expect(forbidden.status).toBe(403);
+    expect(await forbidden.json()).toEqual({ error: "forbidden" });
   });
 
   it("rejects missing or wrong bearer tokens for live, config, and install status", async () => {
@@ -168,7 +209,8 @@ describe("dashboard api", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("application/json");
-    expect(res.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+    expect(res.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
+    expect(res.headers.get("vary")).toBe("Authorization");
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
     expect(res.headers.get("referrer-policy")).toBe("no-referrer");
     expect(await res.text()).toBe(assetManifestJson);
@@ -183,9 +225,37 @@ describe("dashboard api", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("application/octet-stream");
     expect(res.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+    expect(res.headers.get("vary")).toBe("Authorization");
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
     expect(res.headers.get("referrer-policy")).toBe("no-referrer");
     expect(Array.from(new Uint8Array(await res.arrayBuffer()))).toEqual(Array.from(segmentBytes));
+  });
+
+  it("does not serve cached segments after the session row is gone", async () => {
+    const session = makeSession({
+      session_id: "api_cache_deleted_session",
+      project_id: assetProjectId,
+      started_at: 7000,
+      ended_at: 8000,
+      duration_ms: 1000,
+      bytes: segmentBytes.byteLength,
+      segment_count: 1,
+    });
+    const manifest = makeManifest(session, [{ name: segmentName, bytes: segmentBytes }]);
+    await seedSession(session, manifest, [{ name: segmentName, bytes: segmentBytes }]);
+
+    const segmentPath = `/api/v1/projects/${assetProjectId}/sessions/${session.session_id}/segments/${segmentName}`;
+    const firstRead = await worker.fetch(segmentPath, { headers: authHeaders() });
+    expect(firstRead.status).toBe(200);
+
+    const deleteRow = await worker.fetch("/__test/api/delete-session-row", {
+      method: "POST",
+      body: JSON.stringify({ projectId: assetProjectId, sessionId: session.session_id }),
+    });
+    expect(deleteRow.status).toBe(200);
+
+    const secondRead = await worker.fetch(segmentPath, { headers: authHeaders() });
+    expect(secondRead.status).toBe(404);
   });
 
   it("rejects unsafe segment names", async () => {
@@ -273,7 +343,7 @@ describe("dashboard api", () => {
 
   it("validates and stores project config in D1 before refreshing KV", async () => {
     const keyHash = await seedIngestKey(
-      "api-config-key",
+      testWriteKey("api_config"),
       makeProjectConfig({ projectId: configProjectId }),
       true,
     );
@@ -301,7 +371,30 @@ describe("dashboard api", () => {
     expect(await oversized.json()).toEqual({ error: "body_too_large" });
     expect((await getProjectConfig(configProjectId)).version).toBe(1);
 
+    const emptyOrigins = await worker.fetch(`/api/v1/projects/${configProjectId}/config`, {
+      method: "PUT",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({
+        expectedVersion: before.version,
+        sampleRate: 1,
+        retentionDays: 30,
+        allowedOrigins: [],
+        maskPolicyVersion: 1,
+        maskRules: [],
+        capture: {
+          heatmaps: false,
+          console: false,
+          network: false,
+          canvas: false,
+        },
+      }),
+    });
+    expect(emptyOrigins.status).toBe(400);
+    expect(await emptyOrigins.json()).toEqual({ error: "invalid_project_config" });
+    expect((await getProjectConfig(configProjectId)).version).toBe(1);
+
     const update = {
+      expectedVersion: before.version,
       sampleRate: 0.25,
       retentionDays: 45,
       allowedOrigins: ["https://app.example"],
@@ -313,8 +406,6 @@ describe("dashboard api", () => {
         network: false,
         canvas: false,
       },
-      quotaState: "soft" as const,
-      jurisdiction: "eu" as const,
     };
     const saved = await worker.fetch(`/api/v1/projects/${configProjectId}/config`, {
       method: "PUT",
@@ -332,8 +423,7 @@ describe("dashboard api", () => {
       maskPolicyVersion: 2,
       maskRules: [{ selector: ".secret", action: "block" }],
       capture: update.capture,
-      quotaState: "soft",
-      jurisdiction: "eu",
+      quotaState: "ok",
       version: 2,
     });
 
@@ -342,11 +432,23 @@ describe("dashboard api", () => {
 
     const cached = await readConfigCache(keyHash);
     expect(cached).toEqual(savedConfig);
+
+    const stale = await worker.fetch(`/api/v1/projects/${configProjectId}/config`, {
+      method: "PUT",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({
+        ...update,
+        expectedVersion: before.version,
+        sampleRate: 0.5,
+      }),
+    });
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toEqual({ error: "config_version_conflict" });
   });
 
   it("lists write key audit rows without plaintext keys", async () => {
     const keyHash = await seedIngestKey(
-      "api-keys-key",
+      testWriteKey("api_keys"),
       makeProjectConfig({ projectId: keysProjectId }),
       false,
     );
@@ -403,7 +505,7 @@ describe("dashboard api", () => {
 
   it("connects live WebSockets with tickets and rejects token fallback", async () => {
     await seedIngestKey(
-      "api-ticket-key",
+      testWriteKey("api_ticket"),
       makeProjectConfig({ projectId: ticketProjectId, orgId: "api_ticket_org" }),
       false,
     );
@@ -438,6 +540,41 @@ describe("dashboard api", () => {
       expect(JSON.parse(res.body)).toEqual({ error: "unauthorized" });
     }
   });
+
+  it("rejects forged live tickets when the API token is empty", async () => {
+    const forged = signLiveTicketWithSecret(
+      "",
+      assetProjectId,
+      assetSessionId,
+      Date.now() + 60_000,
+    );
+    const res = await requestLiveUpgrade(
+      `/api/v1/projects/${assetProjectId}/sessions/${assetSessionId}/live?ticket=${encodeURIComponent(
+        forged,
+      )}`,
+      workerWithEmptyToken,
+    );
+
+    expect(res.status).toBe(401);
+    expect(JSON.parse(res.body)).toEqual({ error: "unauthorized" });
+  });
+
+  it("rejects live tickets signed with the dashboard API token", async () => {
+    const forged = signLiveTicketWithSecret(
+      token,
+      assetProjectId,
+      assetSessionId,
+      Date.now() + 60_000,
+    );
+    const res = await requestLiveUpgrade(
+      `/api/v1/projects/${assetProjectId}/sessions/${assetSessionId}/live?ticket=${encodeURIComponent(
+        forged,
+      )}`,
+    );
+
+    expect(res.status).toBe(401);
+    expect(JSON.parse(res.body)).toEqual({ error: "unauthorized" });
+  });
 });
 
 interface SessionsResponse {
@@ -454,12 +591,12 @@ interface HttpResponse {
   body: string;
 }
 
-function requestLiveUpgrade(path: string): Promise<HttpResponse> {
+function requestLiveUpgrade(path: string, targetWorker = worker): Promise<HttpResponse> {
   return new Promise((resolve, reject) => {
     const request = httpRequest(
       {
-        hostname: worker.address,
-        port: worker.port,
+        hostname: targetWorker.address,
+        port: targetWorker.port,
         method: "GET",
         path,
         headers: {
@@ -776,7 +913,16 @@ function makeManifest(
 }
 
 function signLiveTicket(projectId: string, sessionId: string, expiresAt: number): string {
-  const signature = createHmac("sha256", token)
+  return signLiveTicketWithSecret(liveTicketSecret, projectId, sessionId, expiresAt);
+}
+
+function signLiveTicketWithSecret(
+  secret: string,
+  projectId: string,
+  sessionId: string,
+  expiresAt: number,
+): string {
+  const signature = createHmac("sha256", secret)
     .update(`${projectId}:${sessionId}:${expiresAt}`)
     .digest("base64url");
   return Buffer.from(`${expiresAt}.${signature}`).toString("base64url");
@@ -803,4 +949,11 @@ function makeProjectConfig(overrides: Partial<ProjectConfig> = {}): ProjectConfi
     version: 1,
     ...overrides,
   };
+}
+
+function testWriteKey(label: string): string {
+  return `or_live_${label
+    .replace(/[^A-Za-z0-9_-]/g, "_")
+    .padEnd(32, "0")
+    .slice(0, 32)}`;
 }

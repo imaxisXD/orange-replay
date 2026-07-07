@@ -8,10 +8,14 @@ Design: `../../ARCHITECTURE.md`. Execution contract: `../../PLAN.md`.
 
 ```sh
 cp .dev.vars.example .dev.vars
-vp install               # once, from the repo root
-wrangler d1 migrations apply orange-replay-idx-00 --local
-wrangler dev             # boots workerd with local R2/KV/D1/queue simulations
+vp install # once, from the repo root
+vp exec --filter @orange-replay/worker -- wrangler d1 migrations apply orange-replay-idx-00 --local
+vp exec --filter @orange-replay/worker -- wrangler dev --port 8787
 ```
+
+From the repo root, `vp run dev` starts both this Worker and the dashboard.
+`DEV_API_PROJECT_IDS` in `.dev.vars` must include every project id you want to
+open through the dashboard API.
 
 Seed a project + write key through the guarded test surface (requires
 `DEV_TEST_ROUTES=1`):
@@ -19,7 +23,7 @@ Seed a project + write key through the guarded test surface (requires
 ```sh
 curl -X POST http://localhost:8787/__test/ingest/seed \
   -H 'content-type: application/json' \
-  -d '{"key":"or_dev_key","kv":true,"config":{"projectId":"p1","orgId":"o1","shard":0,"active":true,"sampleRate":1,"allowedOrigins":["*"],"maskPolicyVersion":1,"quotaState":"ok","retentionDays":30}}'
+  -d '{"key":"or_live_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","kv":true,"config":{"projectId":"p1","orgId":"o1","shard":0,"active":true,"sampleRate":1,"allowedOrigins":["*"],"maskPolicyVersion":1,"quotaState":"ok","retentionDays":30}}'
 ```
 
 ## Tests

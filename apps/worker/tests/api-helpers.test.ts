@@ -41,7 +41,7 @@ describe("api helper decisions", () => {
 
     const query = buildSessionsQuery("project_1", parsed.options);
     expect(query).toEqual({
-      sql: "SELECT session_id, project_id, org_id, started_at, ended_at, duration_ms, country, region, city, device, browser, os, entry_url, url_count, clicks, errors, rages, navs, bytes, segment_count, flags, manifest_key, expires_at FROM sessions INDEXED BY idx_sessions_project_time WHERE project_id = ? AND started_at < ? AND country = ? AND browser = ? AND errors > 0 AND duration_ms >= ? ORDER BY started_at DESC, session_id DESC LIMIT ?",
+      sql: "SELECT session_id, project_id, org_id, started_at, ended_at, duration_ms, country, region, city, device, browser, os, entry_url, url_count, clicks, errors, rages, navs, bytes, segment_count, flags, manifest_key, expires_at FROM sessions INDEXED BY idx_sessions_project_time WHERE project_id = ? AND NOT EXISTS (SELECT 1 FROM session_deletions d WHERE d.project_id = sessions.project_id AND d.session_id = sessions.session_id) AND started_at < ? AND country = ? AND browser = ? AND errors > 0 AND duration_ms >= ? ORDER BY started_at DESC, session_id DESC LIMIT ?",
       bindings: ["project_1", 3000, "US", "Chrome", 500, 100],
     });
   });
@@ -54,7 +54,7 @@ describe("api helper decisions", () => {
 
     const query = buildSessionsQuery("project_1", parsed.options);
     expect(query).toEqual({
-      sql: "SELECT session_id, project_id, org_id, started_at, ended_at, duration_ms, country, region, city, device, browser, os, entry_url, url_count, clicks, errors, rages, navs, bytes, segment_count, flags, manifest_key, expires_at FROM sessions INDEXED BY idx_sessions_project_time WHERE project_id = ? AND (started_at < ? OR (started_at = ? AND session_id < ?)) ORDER BY started_at DESC, session_id DESC LIMIT ?",
+      sql: "SELECT session_id, project_id, org_id, started_at, ended_at, duration_ms, country, region, city, device, browser, os, entry_url, url_count, clicks, errors, rages, navs, bytes, segment_count, flags, manifest_key, expires_at FROM sessions INDEXED BY idx_sessions_project_time WHERE project_id = ? AND NOT EXISTS (SELECT 1 FROM session_deletions d WHERE d.project_id = sessions.project_id AND d.session_id = sessions.session_id) AND (started_at < ? OR (started_at = ? AND session_id < ?)) ORDER BY started_at DESC, session_id DESC LIMIT ?",
       bindings: ["project_1", 3000, 3000, "session_b", 10],
     });
   });

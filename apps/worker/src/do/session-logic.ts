@@ -2,6 +2,7 @@ import {
   CLOSE_SESSION_AFTER_IDLE_MS,
   FLUSH_TAIL_AFTER_IDLE_MS,
   MAX_BATCHES_PER_SEGMENT,
+  MAX_MANIFEST_SEGMENTS,
   MAX_SEQ,
   SDK_FLUSH_DEFAULT_MS,
   SDK_FLUSH_LIVE_MS,
@@ -41,6 +42,7 @@ export interface SessionState {
   lastFlushAt: number;
   bufferedBytes: number;
   totalPayloadBytes: number;
+  totalEventBytes: number;
   batchCount: number;
   segmentCount: number;
   flags: number;
@@ -74,7 +76,10 @@ export const CLIENT_TIME_PAST_WINDOW_MS = 86_400_000;
 export const CLIENT_TIME_FUTURE_WINDOW_MS = 60_000;
 export const FINALIZE_MESSAGE_BUDGET_BYTES = 100_000;
 export const MAX_MANIFEST_TIMELINE_EVENTS = 10_000;
+export const MAX_SEGMENT_TIMELINE_BYTES = 128 * 1024;
+export const MAX_MANIFEST_TIMELINE_BYTES = 256 * 1024;
 export const MAX_SESSION_STORED_BYTES = 512 * 1024 * 1024;
+export const MAX_SESSION_EVENT_BYTES = 64 * 1024 * 1024;
 
 const utf8Encoder = new TextEncoder();
 
@@ -199,10 +204,11 @@ export function buildSessionManifest(
   state: SessionState,
   segments: readonly SegmentForManifest[],
 ): SessionManifest {
-  const timeline = segments
-    .flatMap((segment) => segment.events)
-    .toSorted((left, right) => left.t - right.t)
-    .slice(0, MAX_MANIFEST_TIMELINE_EVENTS);
+  const timeline = capTimelineEventsToBudget(
+    segments.flatMap((segment) => segment.events).toSorted((left, right) => left.t - right.t),
+    MAX_MANIFEST_TIMELINE_EVENTS,
+    MAX_MANIFEST_TIMELINE_BYTES,
+  );
   const endedAt = Math.max(state.lastActivity, ...segments.map((segment) => segment.t1));
   const attrs: SessionManifest["attrs"] = { ...state.attrs };
 
@@ -267,6 +273,32 @@ export function countTimelineEvents(segments: readonly SegmentForManifest[]): nu
   return segments.reduce((total, segment) => total + segment.events.length, 0);
 }
 
+export function capTimelineEventsToBudget(
+  events: readonly IndexEvent[],
+  maxEvents = MAX_MANIFEST_TIMELINE_EVENTS,
+  budgetBytes = MAX_SEGMENT_TIMELINE_BYTES,
+): IndexEvent[] {
+  const kept: IndexEvent[] = [];
+  let bytesUsed = 2;
+
+  for (const event of events) {
+    if (kept.length >= maxEvents) {
+      break;
+    }
+
+    const eventBytes = serializedBytes(event);
+    const nextBytes = bytesUsed + eventBytes + (kept.length === 0 ? 0 : 1);
+    if (nextBytes > budgetBytes) {
+      break;
+    }
+
+    kept.push(event);
+    bytesUsed = nextBytes;
+  }
+
+  return kept;
+}
+
 export function chunkForSegments<T>(
   rows: readonly T[],
   maxBatchesPerSegment = MAX_BATCHES_PER_SEGMENT,
@@ -303,12 +335,18 @@ export function clampIndexForStorage(
 
 export function shouldDropForSessionCap(input: {
   totalPayloadBytes: number;
+  totalEventBytes: number;
   batchCount: number;
+  segmentCount: number;
   payloadBytes: number;
+  eventBytes: number;
 }): boolean {
   return (
     input.batchCount >= MAX_SEQ ||
-    input.totalPayloadBytes + input.payloadBytes > MAX_SESSION_STORED_BYTES
+    input.segmentCount >= MAX_MANIFEST_SEGMENTS ||
+    input.totalEventBytes + input.eventBytes > MAX_SESSION_EVENT_BYTES ||
+    input.totalPayloadBytes + input.payloadBytes + input.totalEventBytes + input.eventBytes >
+      MAX_SESSION_STORED_BYTES
   );
 }
 

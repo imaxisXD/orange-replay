@@ -2,6 +2,8 @@ import {
   FLAG_UNCOMPRESSED,
   HDR_REQUEST_ID,
   MAX_COMPRESSED_BATCH_BYTES,
+  PROJECT_CONFIG_CACHE_TTL_SECONDS,
+  PERSISTED_REPLAY_FLAG_MASK,
   SDK_FLUSH_DEFAULT_MS,
   configKvKey,
   decodeIngestBody,
@@ -12,7 +14,7 @@ import {
 import { shouldSampleSession } from "@orange-replay/shared/sampling";
 import type { EdgeAttrs, IngestAck, ProjectConfig, WideEventOutcome } from "@orange-replay/shared";
 import type { AppendArgs } from "../do/contract.ts";
-import { setWorkerLoggerVersion, shardDb } from "../env.ts";
+import { isDevTestMode, setWorkerLoggerVersion, shardDb } from "../env.ts";
 import type { Env } from "../env.ts";
 import {
   MAX_INGEST_BODY_BYTES,
@@ -86,7 +88,7 @@ async function handleIngestPost(
     }
 
     const { key, sessionId, tab, seq, flags } = headersResult.value;
-    let cleanedFlags = flags;
+    const cleanedFlags = flags & PERSISTED_REPLAY_FLAG_MASK;
     event.set({ session_id: sessionId, tab, seq, flags: cleanedFlags });
 
     // Content-Length is optional (proxies may re-chunk requests) but when
@@ -103,6 +105,11 @@ async function handleIngestPost(
     }
 
     const keyHash = await sha256Hex(key);
+    if (!(await ingestIpRateLimitAllows(env, env.INGEST_LOOKUP_RATE_LIMITER, request, "lookup"))) {
+      event.set({ rate_limit: "lookup" });
+      return finish({ error: "rate_limited" }, 429, "rate_limited");
+    }
+
     const configResult = await loadProjectConfig(env, ctx, keyHash);
     event.set({ kv_hit: configResult.kvHit });
 
@@ -121,10 +128,39 @@ async function handleIngestPost(
       return finish({ error: "unknown or inactive ingest key" }, 401, "client_error");
     }
 
-    if (!originIsAllowed(request, config.allowedOrigins)) {
+    // SDK write keys are public browser credentials. Reject disallowed browser
+    // origins before shared project/session limit accounting so copied keys from
+    // blocked sites cannot drain legitimate ingest capacity.
+    if (!browserOriginIsAllowed(request, config.allowedOrigins)) {
       return finish({ error: "origin is not allowed" }, 403, "client_error");
     }
 
+    if (
+      !(await ingestRateLimitAllows(
+        env,
+        env.INGEST_PROJECT_RATE_LIMITER,
+        `project:${config.projectId}:${keyHash}`,
+      ))
+    ) {
+      event.set({ rate_limit: "project" });
+      return finish({ error: "rate_limited" }, 429, "rate_limited");
+    }
+
+    if (
+      seq === 0 &&
+      !(await ingestRateLimitAllows(
+        env,
+        env.INGEST_SESSION_RATE_LIMITER,
+        `session-create:${config.projectId}`,
+      ))
+    ) {
+      event.set({ rate_limit: "session" });
+      return finish({ error: "rate_limited" }, 429, "rate_limited");
+    }
+
+    // Origin is only a browser/CORS policy check; non-browser clients can forge
+    // it, so lookup limits, project limits, session limits, quotas, payload
+    // caps, and DO caps remain the abuse controls before any write is accepted.
     if (config.quotaState === "exceeded") {
       event.set({ live: false });
       return finish(
@@ -134,10 +170,10 @@ async function handleIngestPost(
       );
     }
 
-    // Server-side sampling re-check (ARCHITECTURE §2): the SDK already makes
-    // this deterministic decision client-side; re-deriving it here means a
-    // client that ignores sampleRate cannot force ingestion of out-of-sample
-    // sessions. Same shared FNV-1a decision, so honest clients never see it.
+    // Sampling is deterministic over a browser-provided session id, so it is an
+    // honest-client optimization and compatibility check, not an abuse boundary.
+    // Actual cost controls are the rate limiters, quota state, body caps, and
+    // Durable Object session caps above/below this branch.
     if (!shouldSampleSession(sessionId, config.sampleRate)) {
       event.set({ live: false, drop_reason: "sampled_out" });
       return finish(
@@ -181,7 +217,6 @@ async function handleIngestPost(
 
     if ((flags & FLAG_UNCOMPRESSED) !== 0) {
       payload = await gzipPayload(payload);
-      cleanedFlags = flags - FLAG_UNCOMPRESSED;
       event.set({ flags: cleanedFlags });
       const compressedPayloadSizeError = validatePayloadSize(payload);
       if (compressedPayloadSizeError !== null) {
@@ -240,6 +275,34 @@ async function handleIngestPost(
     event.set({ status_code: statusCode });
     event.emit(outcome);
   }
+}
+
+async function ingestRateLimitAllows(
+  env: Env,
+  limiter: Env["INGEST_LOOKUP_RATE_LIMITER"],
+  scope: string,
+): Promise<boolean> {
+  if (limiter === undefined) {
+    return isDevTestMode(env);
+  }
+
+  const key = await sha256Hex(scope);
+  try {
+    const result = await limiter.limit({ key });
+    return result.success;
+  } catch {
+    return false;
+  }
+}
+
+async function ingestIpRateLimitAllows(
+  env: Env,
+  limiter: Env["INGEST_LOOKUP_RATE_LIMITER"],
+  request: Request,
+  scope: string,
+): Promise<boolean> {
+  const source = request.headers.get("cf-connecting-ip")?.trim() || "unknown";
+  return ingestRateLimitAllows(env, limiter, `${scope}:ip:${source}`);
 }
 
 function loggedIngestEdgeResponse(
@@ -302,7 +365,11 @@ async function loadProjectConfig(
     .first<ProjectConfigRow>();
   const d1Config = mapConfigRowToProjectConfig(row ?? null);
   if (d1Config !== null) {
-    ctx.waitUntil(env.CONFIG.put(configKvKey(keyHash), JSON.stringify(d1Config)));
+    ctx.waitUntil(
+      env.CONFIG.put(configKvKey(keyHash), JSON.stringify(d1Config), {
+        expirationTtl: PROJECT_CONFIG_CACHE_TTL_SECONDS,
+      }),
+    );
   }
 
   return { config: d1Config, kvHit: false };
@@ -310,14 +377,17 @@ async function loadProjectConfig(
 
 async function getCachedProjectConfig(env: Env, keyHash: string): Promise<unknown> {
   try {
-    return await env.CONFIG.get(configKvKey(keyHash), { type: "json", cacheTtl: 60 });
+    return await env.CONFIG.get(configKvKey(keyHash), {
+      type: "json",
+      cacheTtl: PROJECT_CONFIG_CACHE_TTL_SECONDS,
+    });
   } catch {
     return null;
   }
 }
 
-function originIsAllowed(request: Request, allowedOrigins: readonly string[]): boolean {
-  if (allowedOrigins.length === 0 || allowedOrigins.includes("*")) {
+function browserOriginIsAllowed(request: Request, allowedOrigins: readonly string[]): boolean {
+  if (allowedOrigins.includes("*")) {
     return true;
   }
 

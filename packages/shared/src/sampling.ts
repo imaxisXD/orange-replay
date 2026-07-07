@@ -1,8 +1,8 @@
 /**
- * Deterministic session sampling, shared by the SDK (client-side decision)
- * and the ingest worker (server-side abuse re-check, ARCHITECTURE §2). Both
- * sides MUST agree, so this is the single implementation: FNV-1a over the
- * session id mapped to [0, 1).
+ * Deterministic session sampling, shared by the SDK and ingest worker.
+ * This is an honest-client optimization, not an abuse boundary: session ids
+ * are browser-provided, so server-side rate limits, quotas, and caps must
+ * enforce cost controls independently of sampleRate.
  */
 export function shouldSampleSession(sessionId: string, sampleRate: number): boolean {
   if (sampleRate <= 0) {

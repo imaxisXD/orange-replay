@@ -176,6 +176,7 @@ describe("schemas", () => {
       seq: 0,
       t0: 1,
       t1: 2,
+      u: "/home?view=checkout#step",
       e: [{ t: 1, k: "click" }],
     };
     const manifest: SessionManifest = {
@@ -186,7 +187,7 @@ describe("schemas", () => {
       startedAt: 1,
       endedAt: 2,
       durationMs: 1,
-      segments: [{ key: "key", bytes: 1, t0: 1, t1: 2, batches: 1 }],
+      segments: [{ key: "p/project/session/seg-000001.ors", bytes: 1, t0: 1, t1: 2, batches: 1 }],
       timeline: batch.e,
       counts: { batches: 1, events: 1, clicks: 1, errors: 0, rages: 0, navs: 0 },
       bytes: 1,
@@ -199,6 +200,7 @@ describe("schemas", () => {
     expect(
       ingestAckSchema.parse({ ok: true, live: true, flushMs: 4_000, checkpoint: true }),
     ).toEqual({ ok: true, live: true, flushMs: 4_000, checkpoint: true });
+    expect(batchIndexSchema.safeParse({ ...batch, u: "javascript:alert(1)" }).success).toBe(false);
   });
 
   it("validates finalize messages with session flags", () => {

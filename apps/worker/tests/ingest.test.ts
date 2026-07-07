@@ -18,6 +18,7 @@ import { unstable_dev } from "wrangler";
 
 const workerDir = fileURLToPath(new URL("..", import.meta.url));
 const payloadBytes = new TextEncoder().encode("payload");
+const presenceFailureKey = testWriteKey("presence_failure");
 
 let worker: Awaited<ReturnType<typeof unstable_dev>>;
 let workerWithPresenceFailure: Awaited<ReturnType<typeof unstable_dev>>;
@@ -31,7 +32,7 @@ beforeAll(async () => {
     experimental: { disableExperimentalWarning: true },
   });
 
-  await seedKey("setup-key", makeConfig(), false);
+  await seedKey(testWriteKey("setup"), makeConfig(), false);
 }, 120_000);
 
 beforeAll(async () => {
@@ -45,7 +46,7 @@ beforeAll(async () => {
     experimental: { disableExperimentalWarning: true },
   });
 
-  await seedKey("presence-failure-key", makeConfig(), true, workerWithPresenceFailure);
+  await seedKey(presenceFailureKey, makeConfig(), true, workerWithPresenceFailure);
 }, 120_000);
 
 afterAll(async () => {
@@ -70,7 +71,7 @@ describe("ingest route", () => {
   it("rejects an unknown key", async () => {
     const sessionId = nextSessionId("unknown");
     const res = await postIngest({
-      key: "unknown-key",
+      key: testWriteKey("unknown"),
       sessionId,
       tab: "tab_1",
       seq: 0,
@@ -82,7 +83,7 @@ describe("ingest route", () => {
   });
 
   it("accepts a key seeded through KV", async () => {
-    const key = "kv-key";
+    const key = testWriteKey("kv");
     await seedKey(key, makeConfig(), true);
     const sessionId = nextSessionId("kv");
     const res = await postIngest({
@@ -102,7 +103,7 @@ describe("ingest route", () => {
   });
 
   it("accepts a key seeded only in D1 by reading through and backfilling", async () => {
-    const key = "d1-key";
+    const key = testWriteKey("d1");
     await seedKey(key, makeConfig(), false);
     const sessionId = nextSessionId("d1");
     const res = await postIngest({
@@ -122,7 +123,7 @@ describe("ingest route", () => {
   });
 
   it("enforces the origin allowlist", async () => {
-    const key = "origin-key";
+    const key = testWriteKey("origin");
     await seedKey(key, makeConfig({ allowedOrigins: ["https://good.example"] }), true);
 
     const wrongSessionId = nextSessionId("badorigin");
@@ -151,7 +152,7 @@ describe("ingest route", () => {
   });
 
   it("drops quota-exceeded batches without surfacing an SDK error", async () => {
-    const key = "quota-key";
+    const key = testWriteKey("quota");
     const config = makeConfig({ quotaState: "exceeded" });
     await seedKey(key, config, true);
     const sessionId = nextSessionId("quota");
@@ -176,8 +177,8 @@ describe("ingest route", () => {
     });
   });
 
-  it("re-checks sampling server-side and drops out-of-sample sessions", async () => {
-    const key = "sample-key";
+  it("re-checks sampling server-side and drops unsampled honest-client sessions", async () => {
+    const key = testWriteKey("sample");
     // Deterministic: pick a rate strictly below/above this session's hash so
     // the same shared FNV-1a decision falls on both sides of the line.
     const sessionId = nextSessionId("sample");
@@ -198,7 +199,7 @@ describe("ingest route", () => {
       pendingBatches: 0,
     });
 
-    const inKey = "sample-key-in";
+    const inKey = testWriteKey("sample_in");
     await seedKey(
       inKey,
       { ...makeConfig({ sampleRate: Math.min(unit + 0.0001, 1) }), projectId: config.projectId },
@@ -215,7 +216,7 @@ describe("ingest route", () => {
   });
 
   it("rate limits runaway appends for one session", async () => {
-    const key = "rate-key";
+    const key = testWriteKey("rate");
     await seedKey(key, makeConfig(), true);
     const sessionId = nextSessionId("rate");
     let lastResponse: Response | null = null;
@@ -238,7 +239,7 @@ describe("ingest route", () => {
   });
 
   it("rejects a header and index mismatch", async () => {
-    const key = "mismatch-key";
+    const key = testWriteKey("mismatch");
     await seedKey(key, makeConfig(), true);
     const sessionId = nextSessionId("match");
     const indexSessionId = nextSessionId("mismatch");
@@ -254,7 +255,7 @@ describe("ingest route", () => {
   });
 
   it("rejects oversized content by length", async () => {
-    const key = "large-key";
+    const key = testWriteKey("large");
     await seedKey(key, makeConfig(), true);
     const sessionId = nextSessionId("large");
     const size = MAX_COMPRESSED_BATCH_BYTES + MAX_INDEX_JSON_BYTES + 1;
@@ -272,7 +273,7 @@ describe("ingest route", () => {
   });
 
   it("rejects an empty payload after the sidecar separator", async () => {
-    const key = "empty-payload-key";
+    const key = testWriteKey("empty_payload");
     await seedKey(key, makeConfig(), true);
     const sessionId = nextSessionId("empty");
     const res = await postIngest({
@@ -288,7 +289,7 @@ describe("ingest route", () => {
   });
 
   it("rejects payloads over the compressed batch cap even when the sidecar is small", async () => {
-    const key = "payload-large-key";
+    const key = testWriteKey("payload_large");
     await seedKey(key, makeConfig(), true);
     const sessionId = nextSessionId("payloadlarge");
     const res = await postIngest({
@@ -309,7 +310,7 @@ describe("ingest route", () => {
   });
 
   it("rejects a sidecar where t0 is after t1", async () => {
-    const key = "bad-time-key";
+    const key = testWriteKey("bad_time");
     await seedKey(key, makeConfig(), true);
     const sessionId = nextSessionId("badtime");
     const index = makeIndex(sessionId, "tab_bad_time", 0);
@@ -327,7 +328,7 @@ describe("ingest route", () => {
   });
 
   it("gzips uncompressed fallback payloads before appending", async () => {
-    const key = "plain-key";
+    const key = testWriteKey("plain");
     await seedKey(key, makeConfig(), true);
     const sessionId = nextSessionId("plain");
     const res = await postIngest({
@@ -346,7 +347,7 @@ describe("ingest route", () => {
     const sessionId = nextSessionId("presencefail");
     const res = await postIngest(
       {
-        key: "presence-failure-key",
+        key: presenceFailureKey,
         sessionId,
         tab: "tab_presence_fail",
         seq: 0,
@@ -472,4 +473,11 @@ function nextSessionId(label: string): string {
 function nextSuffix(): string {
   id += 1;
   return String(id).padStart(8, "0");
+}
+
+function testWriteKey(label: string): string {
+  return `or_live_${label
+    .replace(/[^A-Za-z0-9_-]/g, "_")
+    .padEnd(32, "0")
+    .slice(0, 32)}`;
 }

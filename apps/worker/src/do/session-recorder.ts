@@ -1,9 +1,12 @@
 import {
   buildSegment,
   encodeIngestBody,
+  finalizeMessageSchema,
   HDR_REQUEST_ID,
+  MAX_MANIFEST_SEGMENTS,
   manifestKey,
   segmentKey,
+  sessionManifestSchema,
   startWideEvent,
   uuidv7,
 } from "@orange-replay/shared";
@@ -16,17 +19,19 @@ import type {
 } from "@orange-replay/shared";
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "../env.ts";
-import { setWorkerLoggerVersion } from "../env.ts";
+import { devTestRoutesFlag, setWorkerLoggerVersion, shardDb } from "../env.ts";
 import type { AppendArgs, AppendResult } from "./contract.ts";
 import { resolvePresenceTiming, shouldSendPresencePing } from "./presence-logic.ts";
 import {
   buildSessionManifest,
   capFinalizeMessageToBudget,
+  capTimelineEventsToBudget,
   chunkForSegments,
   clampIndexForStorage,
   countTimelineEvents,
   decideSegmentFlush,
   filterFinalizeEvents,
+  MAX_MANIFEST_TIMELINE_EVENTS,
   nextAlarmAfterAlarm,
   resolveSessionTiming,
   shouldDropForSessionCap,
@@ -38,6 +43,7 @@ import type { SegmentFlushReason, SegmentForManifest, SessionState } from "./ses
 import type { AppendRateLimitState } from "./session-logic.ts";
 
 type SqlRowValue = ArrayBuffer | string | number | null;
+const utf8Encoder = new TextEncoder();
 
 interface StateRow {
   [key: string]: SqlRowValue;
@@ -61,6 +67,11 @@ interface CountRow {
   count: number;
 }
 
+interface SessionFenceRow {
+  [key: string]: SqlRowValue;
+  found: number;
+}
+
 interface SegmentRow {
   [key: string]: SqlRowValue;
   n: number;
@@ -70,6 +81,17 @@ interface SegmentRow {
   t1: number;
   batches: number;
   events: string;
+}
+
+interface SegmentIntentRow extends SegmentRow {
+  rows_json: string;
+  body: ArrayBuffer;
+  batch_bytes: number;
+}
+
+interface SegmentIntentBatchRef {
+  tab: string;
+  seq: number;
 }
 
 interface DebugState {
@@ -87,6 +109,19 @@ interface SegmentFlushResult {
   reason: SegmentFlushReason;
   bytes: number;
   batches: number;
+}
+
+interface SegmentIntent {
+  n: number;
+  key: string;
+  bytes: number;
+  t0: number;
+  t1: number;
+  batches: number;
+  events: string;
+  rows: SegmentIntentBatchRef[];
+  body: Uint8Array;
+  batchBytes: number;
 }
 
 export interface TestSeedBatchesArgs {
@@ -109,6 +144,7 @@ export interface TestSeedBatchesArgs {
 interface FinalizedTombstone {
   finalized: true;
   finalizedAt: number;
+  purgeAt: number;
   firstRequestId: string;
   projectId?: string;
   orgId?: string;
@@ -146,7 +182,7 @@ export class SessionRecorder extends DurableObject<Env> {
 
   async appendBatch(args: AppendArgs): Promise<AppendResult> {
     const event = startWideEvent("worker", "do.append", args.requestId);
-    const timing = resolveSessionTiming(this.env.DEV_TEST_ROUTES, this.env.TEST_TIMINGS);
+    const timing = resolveSessionTiming(devTestRoutesFlag(this.env), this.env.TEST_TIMINGS);
     let result: AppendResult = { live: false, closed: false, flushMs: sdkFlushMs(false, timing) };
     let outcome: WideEventOutcome = "success";
     let dropReason: "session_closed" | "session_cap" | undefined;
@@ -175,10 +211,22 @@ export class SessionRecorder extends DurableObject<Env> {
           return result;
         }
 
-        state = createFreshState(args);
+        if (
+          (await this.recordingExists(args.projectId, args.sessionId)) ||
+          (await this.sessionIsDeletionFenced(args.projectId, args.sessionId, args.shard))
+        ) {
+          outcome = "dropped";
+          dropReason = "session_closed";
+          result = { live: false, closed: true, flushMs: sdkFlushMs(false, timing) };
+          return result;
+        }
+
+        state = this.sessionState ?? createFreshState(args);
       }
 
       const clampedIndex = clampIndexForStorage(args.index, state.startedAt, args.receivedAt);
+      const eventsJson = JSON.stringify(clampedIndex.e);
+      const eventBytes = encodedBytes(eventsJson);
       duplicate = this.batchExists(args.tab, args.seq);
       viewerCount = this.ctx.getWebSockets("viewer").length;
 
@@ -194,8 +242,11 @@ export class SessionRecorder extends DurableObject<Env> {
       if (
         shouldDropForSessionCap({
           totalPayloadBytes: state.totalPayloadBytes,
+          totalEventBytes: state.totalEventBytes,
           batchCount: state.batchCount,
+          segmentCount: state.segmentCount,
           payloadBytes: args.payload.byteLength,
+          eventBytes,
         })
       ) {
         outcome = "dropped";
@@ -230,7 +281,7 @@ export class SessionRecorder extends DurableObject<Env> {
         clampedIndex.t1,
         args.payload.byteLength,
         args.flags,
-        JSON.stringify(clampedIndex.e),
+        eventsJson,
         exactArrayBuffer(args.payload),
       );
       duplicate = insert.rowsWritten === 0;
@@ -244,9 +295,12 @@ export class SessionRecorder extends DurableObject<Env> {
         return result;
       }
 
-      updateStateWithBatch(state, args, clampedIndex);
+      updateStateWithBatch(state, args, clampedIndex, eventBytes);
 
-      const presenceTiming = resolvePresenceTiming(this.env.DEV_TEST_ROUTES, this.env.TEST_TIMINGS);
+      const presenceTiming = resolvePresenceTiming(
+        devTestRoutesFlag(this.env),
+        this.env.TEST_TIMINGS,
+      );
       if (
         shouldSendPresencePing({
           lastPingAt: state.lastPresencePingAt,
@@ -328,7 +382,6 @@ export class SessionRecorder extends DurableObject<Env> {
   }
 
   async debug(): Promise<DebugState> {
-    const timing = resolveSessionTiming(this.env.DEV_TEST_ROUTES, this.env.TEST_TIMINGS);
     const stateBytes = this.stateBytes();
     return {
       hasState: this.sessionState !== null,
@@ -340,7 +393,7 @@ export class SessionRecorder extends DurableObject<Env> {
       firstRequestId: this.sessionState?.firstRequestId ?? this.finalizedTombstone?.firstRequestId,
       ...(this.finalizedTombstone === null
         ? {}
-        : { tombstonePurgeAt: this.finalizedTombstone.finalizedAt + timing.closeMs * 4 }),
+        : { tombstonePurgeAt: this.finalizedTombstone.purgeAt }),
     };
   }
 
@@ -376,6 +429,7 @@ export class SessionRecorder extends DurableObject<Env> {
         state.startedAt,
         args.receivedAt,
       );
+      const eventsJson = JSON.stringify(index.e);
 
       this.ctx.storage.sql.exec(
         `INSERT OR IGNORE INTO batches
@@ -387,11 +441,16 @@ export class SessionRecorder extends DurableObject<Env> {
         index.t1,
         payload.byteLength,
         args.flags,
-        JSON.stringify(index.e),
+        eventsJson,
         exactArrayBuffer(payload),
       );
 
-      updateStateWithBatch(state, { ...args, seq, index, payload }, index);
+      updateStateWithBatch(
+        state,
+        { ...args, seq, index, payload },
+        index,
+        encodedBytes(eventsJson),
+      );
     }
 
     this.sessionState = state;
@@ -413,7 +472,7 @@ export class SessionRecorder extends DurableObject<Env> {
       "do.alarm",
       this.sessionState?.firstRequestId ?? this.finalizedTombstone?.firstRequestId,
     );
-    const timing = resolveSessionTiming(this.env.DEV_TEST_ROUTES, this.env.TEST_TIMINGS);
+    const timing = resolveSessionTiming(devTestRoutesFlag(this.env), this.env.TEST_TIMINGS);
     let alarmKind: "tail_flush" | "close" | "purge_tombstone" | "noop" = "noop";
     let projectId = this.sessionState?.projectId ?? this.finalizedTombstone?.projectId;
     let orgId = this.sessionState?.orgId ?? this.finalizedTombstone?.orgId;
@@ -422,7 +481,7 @@ export class SessionRecorder extends DurableObject<Env> {
     try {
       this.alarmAt = null;
       if (this.finalizedTombstone !== null) {
-        const purgeAt = this.finalizedTombstone.finalizedAt + timing.closeMs * 4;
+        const purgeAt = this.finalizedTombstone.purgeAt;
         if (Date.now() >= purgeAt) {
           alarmKind = "purge_tombstone";
           await this.ctx.storage.deleteAll();
@@ -632,6 +691,18 @@ export class SessionRecorder extends DurableObject<Env> {
         batches INTEGER,
         events TEXT
       );
+      CREATE TABLE IF NOT EXISTS segment_intents (
+        n INTEGER PRIMARY KEY,
+        key TEXT NOT NULL,
+        bytes INTEGER NOT NULL,
+        t0 INTEGER NOT NULL,
+        t1 INTEGER NOT NULL,
+        batches INTEGER NOT NULL,
+        events TEXT NOT NULL,
+        rows_json TEXT NOT NULL,
+        body BLOB NOT NULL,
+        batch_bytes INTEGER NOT NULL
+      );
     `);
   }
 
@@ -659,10 +730,10 @@ export class SessionRecorder extends DurableObject<Env> {
 
     const parsed = JSON.parse(row.v) as unknown;
     if (isFinalizedTombstone(parsed)) {
-      return { state: null, tombstone: parsed };
+      return { state: null, tombstone: normalizeFinalizedTombstone(parsed) };
     }
 
-    return { state: parsed as SessionState, tombstone: null };
+    return { state: normalizeSessionState(parsed as SessionState), tombstone: null };
   }
 
   private persistState(state: SessionState): void {
@@ -677,6 +748,12 @@ export class SessionRecorder extends DurableObject<Env> {
   private pendingBatchCount(): number {
     return this.ctx.storage.sql
       .exec<CountRow>("SELECT COUNT(*) AS count FROM batches WHERE body IS NOT NULL")
+      .one().count;
+  }
+
+  private pendingBatchBytes(): number {
+    return this.ctx.storage.sql
+      .exec<CountRow>("SELECT COALESCE(SUM(bytes), 0) AS count FROM batches WHERE body IS NOT NULL")
       .one().count;
   }
 
@@ -705,6 +782,40 @@ export class SessionRecorder extends DurableObject<Env> {
       .toArray();
   }
 
+  private maxSegmentNumber(): number {
+    const row = this.ctx.storage.sql
+      .exec<CountRow>("SELECT COALESCE(MAX(n), 0) AS count FROM segments")
+      .toArray()[0];
+    return row?.count ?? 0;
+  }
+
+  private pendingSegmentIntent(): SegmentIntent | null {
+    const row = this.ctx.storage.sql
+      .exec<SegmentIntentRow>(
+        `SELECT n, key, bytes, t0, t1, batches, events, rows_json, body, batch_bytes
+          FROM segment_intents
+          ORDER BY n
+          LIMIT 1`,
+      )
+      .toArray()[0];
+    if (row === undefined) {
+      return null;
+    }
+
+    return {
+      n: row.n,
+      key: row.key,
+      bytes: row.bytes,
+      t0: row.t0,
+      t1: row.t1,
+      batches: row.batches,
+      events: row.events,
+      rows: parseSegmentIntentRows(row.rows_json),
+      body: new Uint8Array(row.body),
+      batchBytes: row.batch_bytes,
+    };
+  }
+
   private segmentRefs(): SegmentRef[] {
     return this.segmentRows().map((row) => ({
       key: row.key,
@@ -730,6 +841,44 @@ export class SessionRecorder extends DurableObject<Env> {
     return sockets.length;
   }
 
+  private async recordingExists(projectId: string, sessionId: string): Promise<boolean> {
+    const manifest = await this.env.RECORDINGS.head(manifestKey(projectId, sessionId));
+    if (manifest !== null) {
+      return true;
+    }
+
+    return (await this.env.RECORDINGS.head(segmentKey(projectId, sessionId, 1))) !== null;
+  }
+
+  private async sessionIsDeletionFenced(
+    projectId: string,
+    sessionId: string,
+    shard: number,
+  ): Promise<boolean> {
+    const row = await shardDb(this.env, shard)
+      .prepare(
+        `SELECT 1 AS found FROM sessions WHERE project_id = ? AND session_id = ?
+        UNION ALL
+        SELECT 1 AS found FROM session_deletions WHERE project_id = ? AND session_id = ?
+        LIMIT 1`,
+      )
+      .bind(projectId, sessionId, projectId, sessionId)
+      .first<SessionFenceRow>();
+
+    return row !== null;
+  }
+
+  private async assertRecordingMatches(key: string, expected: Uint8Array): Promise<void> {
+    const existing = await this.env.RECORDINGS.get(key);
+    if (existing === null) {
+      throw new Error(`R2 create-only write was not confirmed: ${key}`);
+    }
+    const actual = new Uint8Array(await existing.arrayBuffer());
+    if (!bytesEqual(actual, expected)) {
+      throw new Error(`R2 create-only write does not match expected object: ${key}`);
+    }
+  }
+
   private async flushSegment(reason: SegmentFlushReason): Promise<SegmentFlushResult | null> {
     if (this.activeFlush !== null) {
       return await this.activeFlush;
@@ -752,14 +901,30 @@ export class SessionRecorder extends DurableObject<Env> {
       return null;
     }
 
+    const recoveredSegmentCount = this.maxSegmentNumber();
+    if (recoveredSegmentCount > state.segmentCount) {
+      state.segmentCount = recoveredSegmentCount;
+      this.persistState(state);
+    }
+
+    let totalSegmentBytes = 0;
+    let totalBatches = 0;
+    const pendingIntent = this.pendingSegmentIntent();
+    if (pendingIntent !== null) {
+      await this.completeSegmentIntent(state, pendingIntent);
+      totalSegmentBytes += pendingIntent.bytes;
+      totalBatches += pendingIntent.batches;
+    }
+
     const rows = this.pendingBatchRows();
     if (rows.length === 0) {
-      return null;
+      return totalBatches === 0
+        ? null
+        : { reason, bytes: totalSegmentBytes, batches: totalBatches };
     }
 
     const emptyRows = rows.filter((row) => row.bytes === 0 || row.body.byteLength === 0);
     const segmentRows = rows.filter((row) => row.bytes > 0 && row.body.byteLength > 0);
-    const emptyBytes = emptyRows.reduce((total, row) => total + row.bytes, 0);
 
     for (const row of emptyRows) {
       this.ctx.storage.sql.exec(
@@ -769,66 +934,126 @@ export class SessionRecorder extends DurableObject<Env> {
       );
     }
 
-    if (segmentRows.length === 0) {
-      state.bufferedBytes = Math.max(0, state.bufferedBytes - emptyBytes);
+    if (emptyRows.length > 0) {
+      state.bufferedBytes = this.pendingBatchBytes();
       state.lastFlushAt = Date.now();
       this.persistState(state);
-      return null;
     }
 
-    let totalSegmentBytes = 0;
-    let totalBatches = 0;
-    let flushedBodyBytes = emptyBytes;
+    if (segmentRows.length === 0) {
+      return totalBatches === 0
+        ? null
+        : { reason, bytes: totalSegmentBytes, batches: totalBatches };
+    }
 
     for (const chunk of chunkForSegments(segmentRows)) {
-      const bodies = chunk.map((row) => new Uint8Array(row.body));
+      if (state.segmentCount >= MAX_MANIFEST_SEGMENTS) {
+        for (const row of chunk) {
+          this.ctx.storage.sql.exec(
+            "UPDATE batches SET body = NULL WHERE tab = ? AND seq = ? AND body IS NOT NULL",
+            row.tab,
+            row.seq,
+          );
+        }
+        state.bufferedBytes = this.pendingBatchBytes();
+        state.lastFlushAt = Date.now();
+        this.persistState(state);
+        continue;
+      }
+
+      const bodies = chunk.map((row) =>
+        encodeIngestBody(batchIndexForSegmentRow(state.sessionId, row), new Uint8Array(row.body)),
+      );
       const bodyBytes = chunk.reduce((total, row) => total + row.bytes, 0);
       const segment = buildSegment(bodies);
-      const events = chunk
-        .flatMap((row) => parseEvents(row.events))
-        .toSorted((left, right) => left.t - right.t);
+      const events = capTimelineEventsToBudget(
+        chunk.flatMap((row) => parseEvents(row.events)).toSorted((left, right) => left.t - right.t),
+        MAX_MANIFEST_TIMELINE_EVENTS,
+      );
       const nextSegmentNumber = state.segmentCount + 1;
       const key = segmentKey(state.projectId, state.sessionId, nextSegmentNumber);
       const t0 = Math.min(...chunk.map((row) => row.t0));
       const t1 = Math.max(...chunk.map((row) => row.t1));
-
-      const written = await this.env.RECORDINGS.put(key, segment, {
-        onlyIf: { etagDoesNotMatch: "*" },
-      });
-      if (written === null) {
-        throw new Error(`R2 object already exists: ${key}`);
-      }
-
-      this.ctx.storage.sql.exec(
-        "INSERT INTO segments (n, key, bytes, t0, t1, batches, events) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        nextSegmentNumber,
+      const intent: SegmentIntent = {
+        n: nextSegmentNumber,
         key,
-        segment.byteLength,
+        bytes: segment.byteLength,
         t0,
         t1,
-        chunk.length,
-        JSON.stringify(events),
-      );
+        batches: chunk.length,
+        events: JSON.stringify(events),
+        rows: chunk.map((row) => ({ tab: row.tab, seq: row.seq })),
+        body: segment,
+        batchBytes: bodyBytes,
+      };
 
-      for (const row of chunk) {
-        this.ctx.storage.sql.exec(
-          "UPDATE batches SET body = NULL WHERE tab = ? AND seq = ? AND body IS NOT NULL",
-          row.tab,
-          row.seq,
-        );
-      }
-
-      flushedBodyBytes += bodyBytes;
-      totalSegmentBytes += segment.byteLength;
-      totalBatches += chunk.length;
-      state.bufferedBytes = Math.max(0, state.bufferedBytes - flushedBodyBytes);
-      state.segmentCount = nextSegmentNumber;
-      state.lastFlushAt = Date.now();
-      this.persistState(state);
-      flushedBodyBytes = 0;
+      this.persistSegmentIntent(intent);
+      await this.completeSegmentIntent(state, intent);
+      totalSegmentBytes += intent.bytes;
+      totalBatches += intent.batches;
     }
 
     return { reason, bytes: totalSegmentBytes, batches: totalBatches };
+  }
+
+  private persistSegmentIntent(intent: SegmentIntent): void {
+    this.ctx.storage.sql.exec(
+      `INSERT OR REPLACE INTO segment_intents
+        (n, key, bytes, t0, t1, batches, events, rows_json, body, batch_bytes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      intent.n,
+      intent.key,
+      intent.bytes,
+      intent.t0,
+      intent.t1,
+      intent.batches,
+      intent.events,
+      JSON.stringify(intent.rows),
+      exactArrayBuffer(intent.body),
+      intent.batchBytes,
+    );
+  }
+
+  private async completeSegmentIntent(state: SessionState, intent: SegmentIntent): Promise<void> {
+    const written = await this.env.RECORDINGS.put(intent.key, intent.body, {
+      onlyIf: { etagDoesNotMatch: "*" },
+    });
+    if (written === null) {
+      await this.assertRecordingMatches(intent.key, intent.body);
+    }
+
+    this.ctx.storage.sql.exec(
+      `INSERT INTO segments (n, key, bytes, t0, t1, batches, events)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(n) DO UPDATE SET
+          key = excluded.key,
+          bytes = excluded.bytes,
+          t0 = excluded.t0,
+          t1 = excluded.t1,
+          batches = excluded.batches,
+          events = excluded.events`,
+      intent.n,
+      intent.key,
+      intent.bytes,
+      intent.t0,
+      intent.t1,
+      intent.batches,
+      intent.events,
+    );
+
+    for (const row of intent.rows) {
+      this.ctx.storage.sql.exec(
+        "UPDATE batches SET body = NULL WHERE tab = ? AND seq = ? AND body IS NOT NULL",
+        row.tab,
+        row.seq,
+      );
+    }
+
+    state.bufferedBytes = this.pendingBatchBytes();
+    state.segmentCount = Math.max(state.segmentCount, intent.n);
+    state.lastFlushAt = Date.now();
+    this.persistState(state);
+    this.ctx.storage.sql.exec("DELETE FROM segment_intents WHERE n = ?", intent.n);
   }
 
   private async setAlarmIfUseful(desiredAt: number, flushTailMs: number): Promise<void> {
@@ -876,14 +1101,6 @@ export class SessionRecorder extends DurableObject<Env> {
       );
       const key = manifestKey(state.projectId, state.sessionId);
 
-      const manifestWritten = await this.env.RECORDINGS.put(key, JSON.stringify(manifest), {
-        httpMetadata: { contentType: "application/json" },
-        onlyIf: { etagDoesNotMatch: "*" },
-      });
-      if (manifestWritten === null) {
-        throw new Error(`R2 object already exists: ${key}`);
-      }
-
       const message = capFinalizeMessageToBudget({
         type: "session.finalized",
         sessionId: state.sessionId,
@@ -902,6 +1119,16 @@ export class SessionRecorder extends DurableObject<Env> {
         retentionDays: state.retentionDays,
         events: filterFinalizeEvents(manifest.timeline),
       } satisfies FinalizeMessage);
+      sessionManifestSchema.parse(manifest);
+      finalizeMessageSchema.parse(message);
+
+      const manifestWritten = await this.env.RECORDINGS.put(key, JSON.stringify(manifest), {
+        httpMetadata: { contentType: "application/json" },
+        onlyIf: { etagDoesNotMatch: "*" },
+      });
+      if (manifestWritten === null) {
+        await this.assertRecordingMatches(key, utf8Encoder.encode(JSON.stringify(manifest)));
+      }
 
       await this.env.FINALIZE_QUEUE.send(message, { contentType: "json" });
       presenceRemoveError = this.queuePresenceRemove(
@@ -919,9 +1146,11 @@ export class SessionRecorder extends DurableObject<Env> {
       }
 
       const finalizedAt = Date.now();
+      const purgeAt = finalizedAt + state.retentionDays * 86_400_000;
       const tombstone: FinalizedTombstone = {
         finalized: true,
         finalizedAt,
+        purgeAt,
         firstRequestId: state.firstRequestId,
         projectId: state.projectId,
         orgId: state.orgId,
@@ -929,6 +1158,7 @@ export class SessionRecorder extends DurableObject<Env> {
       };
       this.ctx.storage.sql.exec("DELETE FROM batches");
       this.ctx.storage.sql.exec("DELETE FROM segments");
+      this.ctx.storage.sql.exec("DELETE FROM segment_intents");
       this.ctx.storage.sql.exec("DELETE FROM state");
       this.ctx.storage.sql.exec(
         "INSERT INTO state (id, v) VALUES (1, ?)",
@@ -936,9 +1166,8 @@ export class SessionRecorder extends DurableObject<Env> {
       );
       this.sessionState = null;
       this.finalizedTombstone = tombstone;
-      const timing = resolveSessionTiming(this.env.DEV_TEST_ROUTES, this.env.TEST_TIMINGS);
-      await this.ctx.storage.setAlarm(finalizedAt + timing.closeMs * 4);
-      this.alarmAt = finalizedAt + timing.closeMs * 4;
+      await this.ctx.storage.setAlarm(purgeAt);
+      this.alarmAt = purgeAt;
     } catch (err) {
       event.fail(err);
       throw err;
@@ -1028,7 +1257,7 @@ export class SessionRecorder extends DurableObject<Env> {
   }
 
   private throwIfPresenceFailsForTest(): void {
-    const timing = resolvePresenceTiming(this.env.DEV_TEST_ROUTES, this.env.TEST_TIMINGS);
+    const timing = resolvePresenceTiming(devTestRoutesFlag(this.env), this.env.TEST_TIMINGS);
     if (timing.forceFailure) {
       throw new Error("presence registry is unavailable");
     }
@@ -1058,6 +1287,7 @@ function createFreshState(args: AppendArgs): SessionState {
     lastFlushAt: args.receivedAt,
     bufferedBytes: 0,
     totalPayloadBytes: 0,
+    totalEventBytes: 0,
     batchCount: 0,
     segmentCount: 0,
     flags: 0,
@@ -1067,16 +1297,28 @@ function createFreshState(args: AppendArgs): SessionState {
   };
 }
 
+function normalizeSessionState(state: SessionState): SessionState {
+  return {
+    ...state,
+    totalEventBytes:
+      typeof state.totalEventBytes === "number" && Number.isFinite(state.totalEventBytes)
+        ? state.totalEventBytes
+        : 0,
+  };
+}
+
 function updateStateWithBatch(
   state: SessionState,
   args: AppendArgs,
   clampedIndex: AppendArgs["index"],
+  eventBytes: number,
 ): void {
   state.lastActivity = args.receivedAt;
   state.bufferedBytes += args.payload.byteLength;
   state.totalPayloadBytes += args.payload.byteLength;
+  state.totalEventBytes += eventBytes;
   state.batchCount += 1;
-  state.flags |= args.flags;
+  state.flags = (state.flags | args.flags) >>> 0;
 
   if (clampedIndex.u !== undefined && clampedIndex.u.length > 0) {
     state.entryUrl ??= clampedIndex.u;
@@ -1092,9 +1334,67 @@ function exactArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return bytes.slice().buffer;
 }
 
+function encodedBytes(value: string): number {
+  return utf8Encoder.encode(value).byteLength;
+}
+
 function parseEvents(raw: string): IndexEvent[] {
   const parsed = JSON.parse(raw) as unknown;
   return Array.isArray(parsed) ? (parsed as IndexEvent[]) : [];
+}
+
+function parseSegmentIntentRows(raw: string): SegmentIntentBatchRef[] {
+  const parsed = JSON.parse(raw) as unknown;
+  if (!Array.isArray(parsed)) {
+    throw new Error("segment intent rows are invalid");
+  }
+
+  return parsed.map((value) => {
+    if (!isSegmentIntentBatchRef(value)) {
+      throw new Error("segment intent rows are invalid");
+    }
+
+    return { tab: value.tab, seq: value.seq };
+  });
+}
+
+function isSegmentIntentBatchRef(value: unknown): value is SegmentIntentBatchRef {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record["tab"] === "string" &&
+    record["tab"].length > 0 &&
+    Number.isSafeInteger(record["seq"]) &&
+    typeof record["seq"] === "number" &&
+    record["seq"] >= 0
+  );
+}
+
+function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.byteLength !== right.byteLength) {
+    return false;
+  }
+
+  let difference = 0;
+  for (let index = 0; index < left.byteLength; index += 1) {
+    difference |= (left[index] ?? 0) ^ (right[index] ?? 0);
+  }
+  return difference === 0;
+}
+
+function batchIndexForSegmentRow(sessionId: string, row: BatchRow): AppendArgs["index"] {
+  return {
+    v: 1,
+    s: sessionId,
+    tab: row.tab,
+    seq: row.seq,
+    t0: row.t0,
+    t1: row.t1,
+    e: parseEvents(row.events),
+  };
 }
 
 function isFinalizedTombstone(value: unknown): value is FinalizedTombstone {
@@ -1109,6 +1409,17 @@ function isFinalizedTombstone(value: unknown): value is FinalizedTombstone {
     Number.isFinite(candidate["finalizedAt"]) &&
     typeof candidate["firstRequestId"] === "string"
   );
+}
+
+function normalizeFinalizedTombstone(value: FinalizedTombstone): FinalizedTombstone {
+  if (typeof value.purgeAt === "number" && Number.isFinite(value.purgeAt)) {
+    return value;
+  }
+
+  return {
+    ...value,
+    purgeAt: value.finalizedAt + 86_400_000,
+  };
 }
 
 function testIndex(sessionId: string, tab: string, seq: number, t0: number): AppendArgs["index"] {

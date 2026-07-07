@@ -37,6 +37,8 @@ export async function sweepExpiredSessions(env: Env): Promise<void> {
       const rows = await selectExpiredSessions(db, now);
       if (rows.length === 0) break;
 
+      await markRowsForDeletion(db, rows, now);
+
       for (const row of rows) {
         totals.objectsDeleted += await deleteSessionObjects(env.RECORDINGS, row);
       }
@@ -64,6 +66,11 @@ async function selectExpiredSessions(db: D1Database, now: number): Promise<Expir
       `SELECT session_id AS sessionId, project_id AS projectId
       FROM sessions
       WHERE expires_at < ?
+        OR EXISTS (
+          SELECT 1 FROM session_deletions d
+          WHERE d.project_id = sessions.project_id
+            AND d.session_id = sessions.session_id
+        )
       LIMIT 200`,
     )
     .bind(now)
@@ -98,6 +105,27 @@ async function deleteSessionObjects(bucket: R2Bucket, row: ExpiredSessionRow): P
   return objectsDeleted;
 }
 
+async function markRowsForDeletion(
+  db: D1Database,
+  rows: readonly ExpiredSessionRow[],
+  now: number,
+): Promise<void> {
+  for (const chunk of chunkList(rows, D1_DELETE_CHUNK_SIZE)) {
+    const placeholders = chunk.map(() => "(?, ?, ?, 1)").join(", ");
+    const values = chunk.flatMap((row) => [row.projectId, row.sessionId, now]);
+    await db
+      .prepare(
+        `INSERT INTO session_deletions (project_id, session_id, requested_at, attempts)
+        VALUES ${placeholders}
+        ON CONFLICT(project_id, session_id) DO UPDATE SET
+          attempts = attempts + 1,
+          last_error = NULL`,
+      )
+      .bind(...values)
+      .run();
+  }
+}
+
 async function deleteRowsForSessions(
   db: D1Database,
   rows: readonly ExpiredSessionRow[],
@@ -105,13 +133,20 @@ async function deleteRowsForSessions(
   let rowsDeleted = 0;
 
   for (const chunk of chunkList(rows, D1_DELETE_CHUNK_SIZE)) {
-    const sessionIds = chunk.map((row) => row.sessionId);
-    const placeholders = sessionIds.map(() => "?").join(", ");
+    const placeholders = chunk.map(() => "(?, ?)").join(", ");
+    const values = chunk.flatMap((row) => [row.projectId, row.sessionId]);
     const results = await db.batch([
       db
-        .prepare(`DELETE FROM session_events WHERE session_id IN (${placeholders})`)
-        .bind(...sessionIds),
-      db.prepare(`DELETE FROM sessions WHERE session_id IN (${placeholders})`).bind(...sessionIds),
+        .prepare(`DELETE FROM session_events WHERE (project_id, session_id) IN (${placeholders})`)
+        .bind(...values),
+      db
+        .prepare(`DELETE FROM sessions WHERE (project_id, session_id) IN (${placeholders})`)
+        .bind(...values),
+      db
+        .prepare(
+          `DELETE FROM session_deletions WHERE (project_id, session_id) IN (${placeholders})`,
+        )
+        .bind(...values),
     ]);
     rowsDeleted += results[1]?.meta.changes ?? 0;
   }

@@ -1,17 +1,18 @@
 import { finalizeMessageSchema } from "@orange-replay/shared";
-import { parseRecordingObjectKey } from "../api/helpers.ts";
+import { isValidPathId, parseRecordingObjectKey } from "../api/helpers.ts";
 import { finalizeTraceKey, indexSession } from "../consumer/queue.ts";
 import { sweepExpiredSessions } from "../consumer/sweeper.ts";
 import type { Env } from "../env.ts";
 
 const SCHEMA_STATEMENTS = [
   "CREATE TABLE IF NOT EXISTS orgs (id TEXT PRIMARY KEY, name TEXT NOT NULL, shard INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL)",
-  'CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, name TEXT NOT NULL, jurisdiction TEXT, retention_days INTEGER NOT NULL DEFAULT 30, sample_rate REAL NOT NULL DEFAULT 1.0, allowed_origins TEXT NOT NULL DEFAULT \'["*"]\', mask_policy_version INTEGER NOT NULL DEFAULT 1, mask_rules TEXT NOT NULL DEFAULT \'[]\', capture_toggles TEXT NOT NULL DEFAULT \'{"heatmaps":false,"console":false,"network":false,"canvas":false}\', quota_state TEXT NOT NULL DEFAULT \'ok\', config_version INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL)',
+  'CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, name TEXT NOT NULL, jurisdiction TEXT, retention_days INTEGER NOT NULL DEFAULT 30, sample_rate REAL NOT NULL DEFAULT 1.0, allowed_origins TEXT NOT NULL, mask_policy_version INTEGER NOT NULL DEFAULT 1, mask_rules TEXT NOT NULL DEFAULT \'[]\', capture_toggles TEXT NOT NULL DEFAULT \'{"heatmaps":false,"console":false,"network":false,"canvas":false}\', quota_state TEXT NOT NULL DEFAULT \'ok\', config_version INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL)',
   "CREATE TABLE IF NOT EXISTS keys (key_hash TEXT PRIMARY KEY, project_id TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL)",
-  "CREATE TABLE IF NOT EXISTS sessions (session_id TEXT PRIMARY KEY, project_id TEXT NOT NULL, org_id TEXT NOT NULL, started_at INTEGER NOT NULL, ended_at INTEGER NOT NULL, duration_ms INTEGER NOT NULL, country TEXT, region TEXT, city TEXT, device TEXT, browser TEXT, os TEXT, entry_url TEXT, url_count INTEGER NOT NULL DEFAULT 0, clicks INTEGER NOT NULL DEFAULT 0, errors INTEGER NOT NULL DEFAULT 0, rages INTEGER NOT NULL DEFAULT 0, navs INTEGER NOT NULL DEFAULT 0, bytes INTEGER NOT NULL DEFAULT 0, segment_count INTEGER NOT NULL DEFAULT 0, flags INTEGER NOT NULL DEFAULT 0, manifest_key TEXT NOT NULL, expires_at INTEGER NOT NULL)",
+  "CREATE TABLE IF NOT EXISTS sessions (session_id TEXT NOT NULL, project_id TEXT NOT NULL, org_id TEXT NOT NULL, started_at INTEGER NOT NULL, ended_at INTEGER NOT NULL, duration_ms INTEGER NOT NULL, country TEXT, region TEXT, city TEXT, device TEXT, browser TEXT, os TEXT, entry_url TEXT, url_count INTEGER NOT NULL DEFAULT 0, clicks INTEGER NOT NULL DEFAULT 0, errors INTEGER NOT NULL DEFAULT 0, rages INTEGER NOT NULL DEFAULT 0, navs INTEGER NOT NULL DEFAULT 0, bytes INTEGER NOT NULL DEFAULT 0, segment_count INTEGER NOT NULL DEFAULT 0, flags INTEGER NOT NULL DEFAULT 0, manifest_key TEXT NOT NULL, expires_at INTEGER NOT NULL, PRIMARY KEY (project_id, session_id))",
   "CREATE INDEX IF NOT EXISTS idx_sessions_project_time ON sessions(project_id, started_at DESC)",
   "CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at)",
-  "CREATE TABLE IF NOT EXISTS session_events (session_id TEXT NOT NULL, t INTEGER NOT NULL, kind TEXT NOT NULL, detail TEXT, PRIMARY KEY (session_id, t, kind))",
+  "CREATE TABLE IF NOT EXISTS session_events (project_id TEXT NOT NULL, session_id TEXT NOT NULL, t INTEGER NOT NULL, kind TEXT NOT NULL, detail TEXT, PRIMARY KEY (project_id, session_id, t, kind))",
+  "CREATE TABLE IF NOT EXISTS session_deletions (project_id TEXT NOT NULL, session_id TEXT NOT NULL, requested_at INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT, PRIMARY KEY (project_id, session_id))",
   "CREATE TABLE IF NOT EXISTS usage_monthly (org_id TEXT NOT NULL, month TEXT NOT NULL, sessions INTEGER NOT NULL DEFAULT 0, bytes INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (org_id, month))",
 ];
 
@@ -79,6 +80,10 @@ export async function handleConsumerTestRoutes(
     return seedSession(request, env);
   }
 
+  if (request.method === "POST" && path === "/__test/consumer/seed-deletion") {
+    return seedDeletionMarker(request, env);
+  }
+
   if (request.method === "POST" && path === "/__test/consumer/fail-event-insert") {
     return failEventInsert(url, env);
   }
@@ -132,14 +137,23 @@ async function readSession(url: URL, env: Env): Promise<Response> {
   if (sessionId === null || sessionId.length === 0) {
     return Response.json({ error: "missing session id" }, { status: 400 });
   }
+  const projectId = url.searchParams.get("project");
 
-  const session = await env.IDX_00.prepare("SELECT * FROM sessions WHERE session_id = ?")
-    .bind(sessionId)
-    .first<JsonRecord>();
+  const session =
+    projectId === null || projectId.length === 0
+      ? await env.IDX_00.prepare(
+          "SELECT * FROM sessions WHERE session_id = ? ORDER BY project_id LIMIT 1",
+        )
+          .bind(sessionId)
+          .first<JsonRecord>()
+      : await env.IDX_00.prepare("SELECT * FROM sessions WHERE project_id = ? AND session_id = ?")
+          .bind(projectId, sessionId)
+          .first<JsonRecord>();
+  const eventProjectId = typeof session?.["project_id"] === "string" ? session["project_id"] : "";
   const events = await env.IDX_00.prepare(
-    "SELECT session_id, t, kind, detail FROM session_events WHERE session_id = ? ORDER BY t, kind",
+    "SELECT project_id, session_id, t, kind, detail FROM session_events WHERE project_id = ? AND session_id = ? ORDER BY t, kind",
   )
-    .bind(sessionId)
+    .bind(eventProjectId, sessionId)
     .all<JsonRecord>();
   const orgId = typeof session?.["org_id"] === "string" ? session["org_id"] : "";
   const usage =
@@ -214,13 +228,39 @@ async function seedSession(request: Request, env: Env): Promise<Response> {
   }
 
   await insertSessionRow(env.IDX_00, session);
-  await seedSessionEvents(env.IDX_00, session["session_id"], body["events"]);
+  await seedSessionEvents(env.IDX_00, session["project_id"], session["session_id"], body["events"]);
 
   for (const key of parsedKeys) {
     if (key.ok) {
       await env.RECORDINGS.put(key.key, "ok");
     }
   }
+
+  return Response.json({ ok: true });
+}
+
+async function seedDeletionMarker(request: Request, env: Env): Promise<Response> {
+  const body = await readJsonBody(request);
+  if (body instanceof Response) return body;
+
+  const projectId = body["projectId"];
+  const sessionId = body["sessionId"];
+  if (
+    typeof projectId !== "string" ||
+    typeof sessionId !== "string" ||
+    !isValidPathId(projectId) ||
+    !isValidPathId(sessionId)
+  ) {
+    return Response.json({ error: "projectId and sessionId are required" }, { status: 400 });
+  }
+
+  await env.IDX_00.prepare(
+    `INSERT INTO session_deletions (project_id, session_id, requested_at, attempts)
+    VALUES (?, ?, ?, 1)
+    ON CONFLICT(project_id, session_id) DO UPDATE SET attempts = attempts + 1`,
+  )
+    .bind(projectId, sessionId, Date.now())
+    .run();
 
   return Response.json({ ok: true });
 }
@@ -316,19 +356,27 @@ async function insertSessionRow(db: D1Database, session: JsonRecord): Promise<vo
 
 async function seedSessionEvents(
   db: D1Database,
+  projectId: unknown,
   sessionId: unknown,
   events: unknown,
 ): Promise<void> {
-  if (typeof sessionId !== "string" || !Array.isArray(events)) return;
+  if (typeof projectId !== "string" || typeof sessionId !== "string" || !Array.isArray(events))
+    return;
 
   const statements = events
     .filter(isRecord)
     .map((event) =>
       db
         .prepare(
-          "INSERT OR IGNORE INTO session_events (session_id, t, kind, detail) VALUES (?, ?, ?, ?)",
+          "INSERT OR IGNORE INTO session_events (project_id, session_id, t, kind, detail) VALUES (?, ?, ?, ?, ?)",
         )
-        .bind(sessionId, event["t"] ?? 0, event["kind"] ?? "custom", event["detail"] ?? null),
+        .bind(
+          projectId,
+          sessionId,
+          event["t"] ?? 0,
+          event["kind"] ?? "custom",
+          event["detail"] ?? null,
+        ),
     );
   if (statements.length > 0) {
     await db.batch(statements);

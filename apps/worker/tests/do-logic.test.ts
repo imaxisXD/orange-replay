@@ -16,12 +16,14 @@ import type { FinalizeMessage } from "@orange-replay/shared";
 import {
   buildSessionManifest,
   capFinalizeMessageToBudget,
+  capTimelineEventsToBudget,
   chunkForSegments,
   clampIndexForStorage,
   decideSegmentFlush,
   FINALIZE_MESSAGE_BUDGET_BYTES,
   filterFinalizeEvents,
   MAX_MANIFEST_TIMELINE_EVENTS,
+  MAX_SEGMENT_TIMELINE_BYTES,
   nextAlarmAfterAlarm,
   resolveSessionTiming,
   sdkFlushMs,
@@ -154,6 +156,7 @@ describe("SessionRecorder pure logic", () => {
       lastFlushAt: 1600,
       bufferedBytes: 0,
       totalPayloadBytes: 10,
+      totalEventBytes: 10,
       batchCount: 2,
       segmentCount: 2,
       flags: 3,
@@ -309,6 +312,7 @@ describe("SessionRecorder pure logic", () => {
       lastFlushAt: 1,
       bufferedBytes: 0,
       totalPayloadBytes: 0,
+      totalEventBytes: 0,
       batchCount: 0,
       segmentCount: 1,
       flags: 0,
@@ -336,28 +340,107 @@ describe("SessionRecorder pure logic", () => {
     expect(manifest.counts.events).toBe(MAX_MANIFEST_TIMELINE_EVENTS);
   });
 
+  it("caps timeline events by serialized bytes", () => {
+    const events = Array.from({ length: 10 }, (_, index) => ({
+      t: index,
+      k: "custom" as const,
+      d: "x".repeat(200),
+      m: { detail: "y".repeat(200) },
+    }));
+
+    const capped = capTimelineEventsToBudget(events, 10, 900);
+
+    expect(capped.length).toBeGreaterThan(0);
+    expect(capped.length).toBeLessThan(events.length);
+    expect(new TextEncoder().encode(JSON.stringify(capped)).byteLength).toBeLessThanOrEqual(900);
+  });
+
+  it("keeps segment timeline JSON under the Durable Object byte budget", () => {
+    const events = Array.from({ length: MAX_MANIFEST_TIMELINE_EVENTS }, (_, index) => ({
+      t: index,
+      k: "custom" as const,
+      d: "x".repeat(200),
+      m: Object.fromEntries(
+        Array.from({ length: 16 }, (__, metaIndex) => [
+          `key-${metaIndex}`.padEnd(200, "k"),
+          "v".repeat(200),
+        ]),
+      ),
+    }));
+
+    const capped = capTimelineEventsToBudget(events);
+
+    expect(capped.length).toBeGreaterThan(0);
+    expect(capped.length).toBeLessThan(events.length);
+    expect(new TextEncoder().encode(JSON.stringify(capped)).byteLength).toBeLessThanOrEqual(
+      MAX_SEGMENT_TIMELINE_BYTES,
+    );
+  });
+
   it("drops new batches when the per-session caps are reached", () => {
     expect(
       shouldDropForSessionCap({
         totalPayloadBytes: 512 * 1024 * 1024,
+        totalEventBytes: 0,
         batchCount: 1,
+        segmentCount: 0,
         payloadBytes: 1,
+        eventBytes: 0,
       }),
     ).toBe(true);
 
     expect(
       shouldDropForSessionCap({
         totalPayloadBytes: 10,
+        totalEventBytes: 0,
         batchCount: 10_000_000,
+        segmentCount: 0,
         payloadBytes: 1,
+        eventBytes: 0,
       }),
     ).toBe(true);
 
     expect(
       shouldDropForSessionCap({
         totalPayloadBytes: 10,
+        totalEventBytes: 64 * 1024 * 1024,
         batchCount: 1,
+        segmentCount: 0,
         payloadBytes: 1,
+        eventBytes: 1,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldDropForSessionCap({
+        totalPayloadBytes: 512 * 1024 * 1024 - 20,
+        totalEventBytes: 10,
+        batchCount: 1,
+        segmentCount: 0,
+        payloadBytes: 9,
+        eventBytes: 2,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldDropForSessionCap({
+        totalPayloadBytes: 10,
+        totalEventBytes: 10,
+        batchCount: 1,
+        segmentCount: 10_000,
+        payloadBytes: 1,
+        eventBytes: 1,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldDropForSessionCap({
+        totalPayloadBytes: 10,
+        totalEventBytes: 10,
+        batchCount: 1,
+        segmentCount: 0,
+        payloadBytes: 1,
+        eventBytes: 1,
       }),
     ).toBe(false);
   });

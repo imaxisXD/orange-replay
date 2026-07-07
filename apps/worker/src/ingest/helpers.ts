@@ -5,9 +5,11 @@ import {
   HDR_SEQ,
   HDR_SESSION,
   HDR_TAB,
+  INGEST_HEADER_FLAG_MASK,
   MAX_COMPRESSED_BATCH_BYTES,
   MAX_INDEX_JSON_BYTES,
   MAX_SEQ,
+  batchIndexSchema,
   projectConfigSchema,
 } from "@orange-replay/shared";
 import type { BatchIndex, IndexEvent, IndexEventKind, ProjectConfig } from "@orange-replay/shared";
@@ -46,7 +48,7 @@ export function ingestPreflightHeaders(request: Request): Headers {
 export function ingestPostHeaders(request: Request, allowedOrigins?: readonly string[]): Headers {
   const headers = new Headers(JSON_SECURITY_HEADERS);
 
-  if (allowedOrigins === undefined || allowedOrigins.length === 0 || allowedOrigins.includes("*")) {
+  if (allowedOrigins === undefined || allowedOrigins.includes("*")) {
     headers.set("access-control-allow-origin", "*");
     return headers;
   }
@@ -87,10 +89,17 @@ export interface ProjectConfigRow {
 
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
 const TAB_ID_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
+const WRITE_KEY_PATTERN = /^or_live_[A-Za-z0-9_-]{32}$/;
 const INTEGER_PATTERN = /^[0-9]+$/;
 const MAX_EVENTS_PER_BATCH = 200;
 const MAX_EVENT_DETAIL_CHARS = 200;
 const MAX_EVENT_META_KEYS = 16;
+const MAX_EVENT_META_KEY_CHARS = 200;
+const MAX_EVENT_META_VALUE_CHARS = 200;
+const MAX_EVENT_META_BYTES = 2 * 1024;
+const MAX_BATCH_META_BYTES = 16 * 1024;
+const MAX_INDEX_URL_CHARS = 2048;
+const MAX_INDEX_ENC_KEY_CHARS = 64;
 const INDEX_EVENT_KINDS = new Set<IndexEventKind>([
   "click",
   "rage",
@@ -108,6 +117,12 @@ export function validateIngestHeaders(headers: Headers): HeaderValidationResult 
   const key = headers.get(HDR_KEY);
   if (key === null || key.length === 0) {
     return { ok: false, error: `${HDR_KEY} is required` };
+  }
+  if (!WRITE_KEY_PATTERN.test(key)) {
+    return {
+      ok: false,
+      error: `${HDR_KEY} must be a generated key like or_live_ plus 32 base64url characters`,
+    };
   }
 
   const sessionId = headers.get(HDR_SESSION);
@@ -132,9 +147,10 @@ export function validateIngestHeaders(headers: Headers): HeaderValidationResult 
   }
 
   const rawFlags = headers.get(HDR_FLAGS);
-  const flags = rawFlags === null ? 0 : readIntegerHeader(headers, HDR_FLAGS, 0);
+  const flags =
+    rawFlags === null ? 0 : readIntegerHeader(headers, HDR_FLAGS, 0, INGEST_HEADER_FLAG_MASK);
   if (flags === null) {
-    return { ok: false, error: `${HDR_FLAGS} must be a non-negative integer` };
+    return { ok: false, error: `${HDR_FLAGS} can only include supported ingest flags` };
   }
 
   return { ok: true, value: { key, sessionId, tab, seq, flags } };
@@ -242,6 +258,7 @@ export function sanitizeBatchIndexEvents(index: BatchIndex): {
 } {
   const events: IndexEvent[] = [];
   let eventsDropped = 0;
+  let metaBytesUsed = 0;
 
   for (const event of index.e as unknown[]) {
     if (events.length >= MAX_EVENTS_PER_BATCH) {
@@ -249,16 +266,72 @@ export function sanitizeBatchIndexEvents(index: BatchIndex): {
       continue;
     }
 
-    const cleanEvent = sanitizeIndexEvent(event);
+    const cleanEvent = sanitizeIndexEvent(event, MAX_BATCH_META_BYTES - metaBytesUsed);
     if (cleanEvent === null) {
       eventsDropped += 1;
       continue;
     }
 
-    events.push(cleanEvent);
+    metaBytesUsed += cleanEvent.metaBytes;
+    events.push(cleanEvent.event);
   }
 
-  return { index: { ...index, e: events }, eventsDropped };
+  const cleanIndex = {
+    v: index.v,
+    s: index.s,
+    tab: index.tab,
+    seq: index.seq,
+    t0: index.t0,
+    t1: index.t1,
+    e: events,
+    ...optionalIndexUrl(index.u),
+    ...optionalIndexEncoding(index.enc),
+  };
+  const parsed = batchIndexSchema.safeParse(cleanIndex);
+
+  return {
+    index: parsed.success ? parsed.data : { ...index, e: events, u: undefined, enc: undefined },
+    eventsDropped,
+  };
+}
+
+function optionalIndexUrl(value: unknown): { u?: string } {
+  if (typeof value !== "string" || value.length > MAX_INDEX_URL_CHARS) {
+    return {};
+  }
+  if (!isSafeReplayUrl(value)) {
+    return {};
+  }
+  return { u: value };
+}
+
+function optionalIndexEncoding(value: unknown): { enc?: { k: string } } {
+  if (!isRecord(value)) {
+    return {};
+  }
+  const key = value["k"];
+  if (typeof key !== "string" || key.length === 0 || key.length > MAX_INDEX_ENC_KEY_CHARS) {
+    return {};
+  }
+  return { enc: { k: key } };
+}
+
+function isSafeReplayUrl(value: string): boolean {
+  if (value.startsWith("/") && !value.startsWith("//")) {
+    try {
+      const url = new URL(value, "https://orange-replay.invalid");
+      return url.protocol === "https:" && url.pathname.startsWith("/");
+    } catch {
+      return false;
+    }
+  }
+
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 function readIntegerHeader(
@@ -323,7 +396,10 @@ function nullableString(value: unknown): string | undefined | null {
   return typeof value === "string" ? value : null;
 }
 
-function sanitizeIndexEvent(value: unknown): IndexEvent | null {
+function sanitizeIndexEvent(
+  value: unknown,
+  remainingMetaBytes: number,
+): { event: IndexEvent; metaBytes: number } | null {
   if (!isRecord(value)) {
     return null;
   }
@@ -343,16 +419,24 @@ function sanitizeIndexEvent(value: unknown): IndexEvent | null {
     event.d = detail.slice(0, MAX_EVENT_DETAIL_CHARS);
   }
 
-  const meta = sanitizeEventMeta(value["m"]);
+  const meta = sanitizeEventMeta(value["m"], remainingMetaBytes);
+  let metaBytes = 0;
   if (meta !== undefined) {
-    event.m = meta;
+    event.m = meta.value;
+    metaBytes = meta.bytes;
   }
 
-  return event;
+  return { event, metaBytes };
 }
 
-function sanitizeEventMeta(value: unknown): Record<string, string | number> | undefined {
+function sanitizeEventMeta(
+  value: unknown,
+  remainingBatchBytes: number,
+): { value: Record<string, string | number>; bytes: number } | undefined {
   if (!isRecord(value)) {
+    return undefined;
+  }
+  if (remainingBatchBytes <= 0) {
     return undefined;
   }
 
@@ -363,18 +447,35 @@ function sanitizeEventMeta(value: unknown): Record<string, string | number> | un
 
   const output: Record<string, string | number> = {};
   for (const [key, item] of entries) {
+    const cleanKey = key.slice(0, MAX_EVENT_META_KEY_CHARS);
+    if (cleanKey.length === 0) {
+      continue;
+    }
+
     if (typeof item !== "string" && typeof item !== "number") {
       return undefined;
     }
 
-    if (typeof item === "number" && !Number.isFinite(item)) {
+    let cleanItem: string | number;
+    if (typeof item === "string") {
+      cleanItem = item.slice(0, MAX_EVENT_META_VALUE_CHARS);
+    } else if (Number.isFinite(item)) {
+      cleanItem = item;
+    } else {
       return undefined;
     }
 
-    output[key] = item;
+    const next = { ...output, [cleanKey]: cleanItem };
+    const nextBytes = encoder.encode(JSON.stringify(next)).byteLength;
+    if (nextBytes > MAX_EVENT_META_BYTES || nextBytes > remainingBatchBytes) {
+      break;
+    }
+
+    output[cleanKey] = cleanItem;
   }
 
-  return output;
+  const bytes = encoder.encode(JSON.stringify(output)).byteLength;
+  return Object.keys(output).length > 0 ? { value: output, bytes } : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

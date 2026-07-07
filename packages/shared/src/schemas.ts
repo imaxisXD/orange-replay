@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { MAX_SEQ } from "./constants.ts";
+import { MAX_BATCHES_PER_SEGMENT, MAX_MANIFEST_SEGMENTS, MAX_SEQ } from "./constants.ts";
 import type {
   BatchIndex,
   FinalizeMessage,
@@ -24,21 +24,45 @@ const indexEventKindSchema = z.enum([
   "vital",
 ]);
 
-const eventMetaSchema = z.record(z.string(), z.union([z.string(), z.number()]));
+const MAX_EVENT_DETAIL_CHARS = 200;
+const MAX_EVENT_META_KEYS = 16;
+const MAX_EVENT_META_KEY_CHARS = 200;
+const MAX_EVENT_META_VALUE_CHARS = 200;
+const MAX_INDEX_EVENTS_PER_BATCH = 200;
+const MAX_MANIFEST_TIMELINE_EVENTS = 10_000;
+const MAX_R2_KEY_CHARS = 512;
+const MAX_ENTRY_URL_CHARS = 2048;
+const MAX_ENC_KEY_CHARS = 64;
+
+const eventMetaSchema = z
+  .record(
+    z.string().min(1).max(MAX_EVENT_META_KEY_CHARS),
+    z.union([z.string().max(MAX_EVENT_META_VALUE_CHARS), z.number()]),
+  )
+  .refine((value) => Object.keys(value).length <= MAX_EVENT_META_KEYS, {
+    message: `event metadata must have at most ${MAX_EVENT_META_KEYS} keys`,
+  });
 const pathIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
+const segmentKeySchema = z
+  .string()
+  .max(MAX_R2_KEY_CHARS)
+  .regex(/^p\/[A-Za-z0-9_-]{1,64}\/[A-Za-z0-9_-]{1,64}\/seg-[0-9]{6}\.ors$/);
+const replayUrlSchema = z.string().max(MAX_ENTRY_URL_CHARS).refine(isSafeReplayUrl, {
+  message: "entryUrl must be an http(s) URL or a relative path",
+});
 
 const indexEventSchema: z.ZodType<IndexEvent> = z
   .object({
     t: z.number(),
     k: indexEventKindSchema,
-    d: z.string().optional(),
+    d: z.string().max(MAX_EVENT_DETAIL_CHARS).optional(),
     m: eventMetaSchema.optional(),
   })
   .strict();
 
 const encSchema = z
   .object({
-    k: z.string(),
+    k: z.string().min(1).max(MAX_ENC_KEY_CHARS),
   })
   .strict();
 
@@ -56,18 +80,18 @@ const edgeAttrsSchema = z
 
 const sessionAttrsSchema: z.ZodType<SessionManifest["attrs"]> = edgeAttrsSchema
   .extend({
-    entryUrl: z.string().optional(),
+    entryUrl: replayUrlSchema.optional(),
     urlCount: z.number().int().nonnegative().optional(),
   })
   .strict();
 
 const segmentRefSchema: z.ZodType<SegmentRef> = z
   .object({
-    key: z.string(),
+    key: segmentKeySchema,
     bytes: z.number().int().nonnegative(),
     t0: z.number(),
     t1: z.number(),
-    batches: z.number().int().nonnegative(),
+    batches: z.number().int().nonnegative().max(MAX_BATCHES_PER_SEGMENT),
   })
   .strict();
 
@@ -107,7 +131,7 @@ const projectConfigObject = z
     shard: z.number().int().nonnegative(),
     active: z.boolean(),
     sampleRate: z.number().min(0).max(1),
-    allowedOrigins: z.array(z.string()),
+    allowedOrigins: z.array(z.string()).min(1),
     maskPolicyVersion: z.number().int().nonnegative(),
     maskRules: maskRulesSchema.optional(),
     capture: captureTogglesSchema.optional(),
@@ -121,13 +145,13 @@ const projectConfigObject = z
 export const batchIndexSchema: z.ZodType<BatchIndex> = z
   .object({
     v: z.literal(1),
-    s: z.string(),
-    tab: z.string(),
+    s: pathIdSchema,
+    tab: pathIdSchema,
     seq: z.number().int().min(0).max(MAX_SEQ),
     t0: z.number(),
     t1: z.number(),
-    e: z.array(indexEventSchema),
-    u: z.string().optional(),
+    e: z.array(indexEventSchema).max(MAX_INDEX_EVENTS_PER_BATCH),
+    u: replayUrlSchema.optional(),
     enc: encSchema.optional(),
   })
   .strict()
@@ -148,28 +172,27 @@ export const storedProjectConfigSchema: z.ZodType<StoredProjectConfig> = project
 
 export const projectConfigUpdateSchema: z.ZodType<ProjectConfigUpdate> = z
   .object({
+    expectedVersion: z.number().int().nonnegative(),
     sampleRate: z.number().min(0).max(1),
     retentionDays: z.number().int().min(1).max(365),
-    allowedOrigins: z.array(z.string().min(1).max(500)).max(100),
+    allowedOrigins: z.array(z.string().min(1).max(500)).min(1).max(100),
     maskPolicyVersion: z.number().int().nonnegative(),
     maskRules: maskRulesSchema.max(200),
     capture: captureTogglesSchema,
-    quotaState: z.enum(["ok", "soft", "exceeded"]),
-    jurisdiction: z.enum(["eu", "fedramp"]).nullable().optional(),
   })
   .strict();
 
 export const sessionManifestSchema: z.ZodType<SessionManifest> = z
   .object({
     v: z.literal(1),
-    sessionId: z.string(),
-    projectId: z.string(),
-    orgId: z.string(),
+    sessionId: pathIdSchema,
+    projectId: pathIdSchema,
+    orgId: pathIdSchema,
     startedAt: z.number(),
     endedAt: z.number(),
     durationMs: z.number().nonnegative(),
-    segments: z.array(segmentRefSchema),
-    timeline: z.array(indexEventSchema),
+    segments: z.array(segmentRefSchema).max(MAX_MANIFEST_SEGMENTS),
+    timeline: z.array(indexEventSchema).max(MAX_MANIFEST_TIMELINE_EVENTS),
     counts: sessionCountsSchema,
     bytes: z.number().int().nonnegative(),
     flags: z.number().int().nonnegative(),
@@ -177,6 +200,24 @@ export const sessionManifestSchema: z.ZodType<SessionManifest> = z
     attrs: sessionAttrsSchema,
   })
   .strict();
+
+function isSafeReplayUrl(value: string): boolean {
+  if (value.startsWith("/") && !value.startsWith("//")) {
+    try {
+      const parsed = new URL(value, "https://orange-replay.invalid");
+      return parsed.protocol === "https:" && parsed.pathname.startsWith("/");
+    } catch {
+      return false;
+    }
+  }
+
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
 
 export const ingestAckSchema: z.ZodType<IngestAck> = z
   .object({

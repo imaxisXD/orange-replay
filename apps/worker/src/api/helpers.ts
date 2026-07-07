@@ -145,7 +145,10 @@ export function parseSessionListQuery(params: URLSearchParams): ParsedSessionLis
 }
 
 export function buildSessionsQuery(projectId: string, options: SessionListOptions): SessionsQuery {
-  const whereClauses = ["project_id = ?"];
+  const whereClauses = [
+    "project_id = ?",
+    "NOT EXISTS (SELECT 1 FROM session_deletions d WHERE d.project_id = sessions.project_id AND d.session_id = sessions.session_id)",
+  ];
   const bindings: SessionQueryValue[] = [projectId];
 
   if (options.before !== undefined) {

@@ -8,6 +8,10 @@ import type { SessionRecorder } from "./do/session-recorder.ts";
 
 export type { FinalizeMessage };
 
+export interface RateLimitBinding {
+  limit(input: { key: string }): Promise<{ success: boolean }>;
+}
+
 export interface Env {
   SESSION: DurableObjectNamespace<SessionRecorder>;
   PRESENCE: DurableObjectNamespace<PresenceRegistry>;
@@ -15,11 +19,19 @@ export interface Env {
   CONFIG: KVNamespace;
   IDX_00: D1Database;
   FINALIZE_QUEUE: Queue<FinalizeMessage>;
+  INGEST_LOOKUP_RATE_LIMITER?: RateLimitBinding;
+  INGEST_PROJECT_RATE_LIMITER?: RateLimitBinding;
+  INGEST_SESSION_RATE_LIMITER?: RateLimitBinding;
   TRENDS?: AnalyticsEngineDataset;
+  CF_VERSION_METADATA?: WorkerVersionMetadata;
+  /** Deployment environment name. Production disables all dev-only test gates. */
+  WORKER_ENV?: string;
   /** Bearer token for dashboard API auth (v1). Set via .dev.vars / secret. */
   DEV_API_TOKEN?: string;
-  /** Build or deploy version included in every wide event. Defaults to "dev". */
-  APP_VERSION?: string;
+  /** Comma-separated project ids that DEV_API_TOKEN may access. */
+  DEV_API_PROJECT_IDS?: string;
+  /** Server-only HMAC secret for live WebSocket tickets. */
+  LIVE_TICKET_SECRET?: string;
   /** "1" enables /__test/* routes. Never set in production config. */
   DEV_TEST_ROUTES?: string;
   /**
@@ -38,6 +50,20 @@ export function shardDb(env: Env, _shard: number): D1Database {
   return env.IDX_00;
 }
 
-export function setWorkerLoggerVersion(env: Pick<Env, "APP_VERSION">): void {
-  setWideEventVersion(env.APP_VERSION);
+export function setWorkerLoggerVersion(env: Pick<Env, "CF_VERSION_METADATA">): void {
+  setWideEventVersion(env.CF_VERSION_METADATA?.tag ?? env.CF_VERSION_METADATA?.id);
+}
+
+export function isDevTestMode(env: Pick<Env, "DEV_TEST_ROUTES" | "WORKER_ENV">): boolean {
+  const workerEnv = env.WORKER_ENV?.trim().toLowerCase();
+  return (
+    env.DEV_TEST_ROUTES === "1" &&
+    (workerEnv === "development" || workerEnv === "test" || workerEnv === "local")
+  );
+}
+
+export function devTestRoutesFlag(
+  env: Pick<Env, "DEV_TEST_ROUTES" | "WORKER_ENV">,
+): "1" | undefined {
+  return isDevTestMode(env) ? "1" : undefined;
 }

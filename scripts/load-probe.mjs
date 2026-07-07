@@ -19,7 +19,7 @@ const WORKER = args.worker ?? "http://127.0.0.1:8787";
 const SESSIONS = Number(args.sessions ?? 50);
 const BATCHES = Number(args.batches ?? 10);
 const CONCURRENCY = Number(args.concurrency ?? 10);
-const KEY = "or_load_probe_key";
+const KEY = "or_live_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const PROJECT = "load-probe";
 
 function encodeIngestBody(index, payload) {
@@ -142,7 +142,7 @@ const waitMs = Number(args.finalizeWait ?? 20000);
 console.log(`waiting ${waitMs / 1000}s for finalize + consumer indexing...`);
 await new Promise((r) => setTimeout(r, waitMs));
 
-const token = args.token ?? "dev-local-token";
+const token = args.token ?? "dev-local-token-0000000000000000";
 let indexed = 0;
 let before;
 for (;;) {

@@ -4,7 +4,7 @@ import {
   type FinalizeMessage,
   type WideEventOutcome,
 } from "@orange-replay/shared";
-import { setWorkerLoggerVersion, shardDb, type Env } from "../env.ts";
+import { isDevTestMode, setWorkerLoggerVersion, shardDb, type Env } from "../env.ts";
 import {
   durationMsFromTimes,
   expiresAtFromEndedAt,
@@ -48,6 +48,14 @@ async function handleFinalizeMessage(message: Message<FinalizeMessage>, env: Env
 
   try {
     if (!parsed.success) {
+      if (looksLikeFinalizeJob(message.body)) {
+        const lastAllowedAttempt = message.attempts >= QUEUE_MAX_RETRIES;
+        outcome = lastAllowedAttempt ? "dropped" : "server_error";
+        wideEvent.set({ msg: "invalid finalize message", dlq: lastAllowedAttempt });
+        message.retry({ delaySeconds: retryDelaySeconds(message.attempts) });
+        return;
+      }
+
       outcome = "client_error";
       wideEvent.set({ msg: "invalid finalize message" });
       message.ack();
@@ -81,8 +89,17 @@ async function handleFinalizeMessage(message: Message<FinalizeMessage>, env: Env
   }
 }
 
+function looksLikeFinalizeJob(value: unknown): boolean {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    (value as { type?: unknown }).type === "session.finalized" &&
+    typeof (value as { manifestKey?: unknown }).manifestKey === "string"
+  );
+}
+
 async function writeFinalizeTraceForTest(env: Env, message: FinalizeMessage): Promise<void> {
-  if (env.DEV_TEST_ROUTES !== "1") {
+  if (!isDevTestMode(env)) {
     return;
   }
 
@@ -135,7 +152,7 @@ export async function indexSession(
           manifest_key,
           expires_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(session_id) DO NOTHING`,
+        ON CONFLICT(project_id, session_id) DO NOTHING`,
       )
       .bind(
         finalizeMessage.sessionId,
@@ -179,20 +196,21 @@ export async function indexSession(
   ];
 
   if (finalizeMessage.events.length > 0) {
-    const eventValues = finalizeMessage.events.map(() => "(?, ?, ?, ?)").join(", ");
+    const eventValues = finalizeMessage.events.map(() => "(?, ?, ?, ?, ?)").join(", ");
     statements.push(
       db
         .prepare(
-          `WITH incoming(session_id, t, kind, detail) AS (
+          `WITH incoming(project_id, session_id, t, kind, detail) AS (
             VALUES ${eventValues}
           )
-          INSERT OR IGNORE INTO session_events (session_id, t, kind, detail)
-          SELECT session_id, t, kind, detail
+          INSERT OR IGNORE INTO session_events (project_id, session_id, t, kind, detail)
+          SELECT project_id, session_id, t, kind, detail
           FROM incoming
           WHERE (SELECT changes()) > 0`,
         )
         .bind(
           ...finalizeMessage.events.flatMap((event) => [
+            finalizeMessage.projectId,
             finalizeMessage.sessionId,
             event.t,
             event.k,

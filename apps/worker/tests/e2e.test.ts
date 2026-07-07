@@ -26,8 +26,9 @@ const timings = {
 };
 const pollIntervalMs = 250;
 const dayMs = 86_400_000;
-const apiToken = "e2e-token";
-const ingestKey = "or_e2e_key";
+const apiToken = "e2e-token-0000000000000000000000";
+const liveTicketSecret = "e2e-live-ticket-secret-0000000000";
+const ingestKey = testWriteKey("e2e");
 const projectId = "pe2e";
 const orgId = "oe2e";
 const sessionId = "sess-e2e-000000000001";
@@ -48,6 +49,8 @@ beforeAll(async () => {
     vars: {
       DEV_TEST_ROUTES: "1",
       DEV_API_TOKEN: apiToken,
+      DEV_API_PROJECT_IDS: projectId,
+      LIVE_TICKET_SECRET: liveTicketSecret,
       TEST_TIMINGS: JSON.stringify(timings),
     },
     persist: false,
@@ -194,10 +197,13 @@ describe("a session lives and is replayed", () => {
 
       expect(segmentRes.status).toBe(200);
       expect(segmentRes.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+      expect(segmentRes.headers.get("vary")).toBe("Authorization");
 
       const parsed = parseSegment(new Uint8Array(await segmentRes.arrayBuffer()));
       for (let index = 0; index < parsed.count; index += 1) {
-        const payloadHex = hex(segmentBatch(parsed, index));
+        const decoded = decodeIngestBody(segmentBatch(parsed, index));
+        const payloadHex = hex(decoded.payload);
+        expect(decoded.index.s).toBe(sessionId);
         expect(expectedPayloads.has(payloadHex)).toBe(true);
         seenPayloads.add(payloadHex);
         extractedBatchCount += 1;
@@ -430,7 +436,7 @@ function makeBatch(input: {
     seq: input.seq,
     t0: input.t0,
     t1: input.t0 + 70,
-    u: input.url,
+    u: input.url.startsWith("/") ? `https://app.example${input.url}` : input.url,
     e: input.events,
   };
 
@@ -579,7 +585,7 @@ function signLiveTicket(
   targetSessionId: string,
   expiresAt: number,
 ): string {
-  const signature = createHmac("sha256", apiToken)
+  const signature = createHmac("sha256", liveTicketSecret)
     .update(`${targetProjectId}:${targetSessionId}:${expiresAt}`)
     .digest("base64url");
   return Buffer.from(`${expiresAt}.${signature}`).toString("base64url");
@@ -642,4 +648,11 @@ function isArrayBufferBody(value: unknown): value is { arrayBuffer(): Promise<Ar
     "arrayBuffer" in value &&
     typeof value.arrayBuffer === "function"
   );
+}
+
+function testWriteKey(label: string): string {
+  return `or_live_${label
+    .replace(/[^A-Za-z0-9_-]/g, "_")
+    .padEnd(32, "0")
+    .slice(0, 32)}`;
 }

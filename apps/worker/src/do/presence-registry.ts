@@ -9,7 +9,7 @@ import {
 import type { WideEventOutcome } from "@orange-replay/shared";
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "../env.ts";
-import { setWorkerLoggerVersion } from "../env.ts";
+import { devTestRoutesFlag, isDevTestMode, setWorkerLoggerVersion } from "../env.ts";
 import { resolvePresenceTiming } from "./presence-logic.ts";
 import type { PresenceSession } from "./presence-logic.ts";
 
@@ -143,11 +143,7 @@ export class PresenceRegistry extends DurableObject<Env> {
       return jsonResponse({ firstEventAt: this.firstEventAt() });
     }
 
-    if (
-      request.method === "POST" &&
-      url.pathname === "/debug" &&
-      this.env.DEV_TEST_ROUTES === "1"
-    ) {
+    if (request.method === "POST" && url.pathname === "/debug" && isDevTestMode(this.env)) {
       const json = await readJson(request);
       if (!json.ok) return jsonResponse({ error: json.error }, { status: json.status });
       const body = readListBody(json.value);
@@ -208,13 +204,13 @@ export class PresenceRegistry extends DurableObject<Env> {
         (session_id, started_at, last_seen, entry_url, country, city, browser, os, device)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(session_id) DO UPDATE SET
-          last_seen = excluded.last_seen,
-          entry_url = COALESCE(excluded.entry_url, presence.entry_url),
-          country = COALESCE(excluded.country, presence.country),
-          city = COALESCE(excluded.city, presence.city),
-          browser = COALESCE(excluded.browser, presence.browser),
-          os = COALESCE(excluded.os, presence.os),
-          device = COALESCE(excluded.device, presence.device)`,
+          last_seen = MAX(presence.last_seen, excluded.last_seen),
+          entry_url = CASE WHEN excluded.last_seen >= presence.last_seen THEN COALESCE(excluded.entry_url, presence.entry_url) ELSE presence.entry_url END,
+          country = CASE WHEN excluded.last_seen >= presence.last_seen THEN COALESCE(excluded.country, presence.country) ELSE presence.country END,
+          city = CASE WHEN excluded.last_seen >= presence.last_seen THEN COALESCE(excluded.city, presence.city) ELSE presence.city END,
+          browser = CASE WHEN excluded.last_seen >= presence.last_seen THEN COALESCE(excluded.browser, presence.browser) ELSE presence.browser END,
+          os = CASE WHEN excluded.last_seen >= presence.last_seen THEN COALESCE(excluded.os, presence.os) ELSE presence.os END,
+          device = CASE WHEN excluded.last_seen >= presence.last_seen THEN COALESCE(excluded.device, presence.device) ELSE presence.device END`,
       input.sessionId,
       input.startedAt,
       input.lastSeen,
@@ -232,7 +228,7 @@ export class PresenceRegistry extends DurableObject<Env> {
   }
 
   private list(now: number): PresenceSession[] {
-    const ttl = resolvePresenceTiming(this.env.DEV_TEST_ROUTES, this.env.TEST_TIMINGS).ttlMs;
+    const ttl = resolvePresenceTiming(devTestRoutesFlag(this.env), this.env.TEST_TIMINGS).ttlMs;
     const cutoff = now - ttl;
     this.ctx.storage.sql.exec("DELETE FROM presence WHERE last_seen < ?", cutoff);
 

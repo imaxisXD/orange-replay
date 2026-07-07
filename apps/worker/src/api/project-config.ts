@@ -2,6 +2,7 @@ import {
   captureTogglesSchema,
   configKvKey,
   maskRulesSchema,
+  PROJECT_CONFIG_CACHE_TTL_SECONDS,
   projectConfigUpdateSchema,
   storedProjectConfigSchema,
 } from "@orange-replay/shared";
@@ -28,6 +29,8 @@ const projectConfigColumns = [
   "ALTER TABLE projects ADD COLUMN mask_rules TEXT NOT NULL DEFAULT '[]'",
   `ALTER TABLE projects ADD COLUMN capture_toggles TEXT NOT NULL DEFAULT '{"heatmaps":false,"console":false,"network":false,"canvas":false}'`,
 ] as const;
+let projectConfigColumnsEnsured = false;
+let projectConfigColumnsPending: Promise<void> | undefined;
 
 const projectConfigSelect = `
   SELECT
@@ -105,17 +108,18 @@ export async function writeStoredProjectConfig(
   env: Env,
   projectId: string,
   update: ProjectConfigUpdate,
-): Promise<StoredProjectConfig | null> {
+): Promise<
+  | { status: "saved"; config: StoredProjectConfig }
+  | { status: "not_found" }
+  | { status: "version_conflict" }
+> {
   const db = shardDb(env, 0);
   await ensureProjectConfigColumns(db);
 
   const current = await readStoredProjectConfig(env, projectId);
   if (current === null) {
-    return null;
+    return { status: "not_found" };
   }
-
-  const nextJurisdiction =
-    update.jurisdiction === undefined ? (current.jurisdiction ?? null) : update.jurisdiction;
 
   const result = await db
     .prepare(
@@ -126,10 +130,8 @@ export async function writeStoredProjectConfig(
           mask_policy_version = ?,
           mask_rules = ?,
           capture_toggles = ?,
-          quota_state = ?,
-          jurisdiction = ?,
           config_version = config_version + 1
-        WHERE id = ?`,
+        WHERE id = ? AND config_version = ?`,
     )
     .bind(
       update.sampleRate,
@@ -138,14 +140,16 @@ export async function writeStoredProjectConfig(
       update.maskPolicyVersion,
       JSON.stringify(update.maskRules),
       JSON.stringify(update.capture),
-      update.quotaState,
-      nextJurisdiction,
       projectId,
+      update.expectedVersion,
     )
     .run();
 
   if ((result.meta.changes ?? 0) < 1) {
-    return null;
+    if ((await readStoredProjectConfig(env, projectId)) === null) {
+      return { status: "not_found" };
+    }
+    return { status: "version_conflict" };
   }
 
   const stored = await readStoredProjectConfig(env, projectId);
@@ -154,7 +158,7 @@ export async function writeStoredProjectConfig(
   }
 
   await writeConfigCacheForProject(env, stored);
-  return stored;
+  return { status: "saved", config: stored };
 }
 
 export async function readProjectKeys(env: Env, projectId: string): Promise<ProjectKeyAudit[]> {
@@ -176,14 +180,26 @@ export async function readProjectKeys(env: Env, projectId: string): Promise<Proj
 }
 
 async function ensureProjectConfigColumns(db: D1Database): Promise<void> {
-  for (const statement of projectConfigColumns) {
-    try {
-      await db.prepare(statement).run();
-    } catch (error) {
-      if (!isDuplicateColumnError(error)) {
-        throw error;
+  if (projectConfigColumnsEnsured) {
+    return;
+  }
+  projectConfigColumnsPending ??= (async () => {
+    for (const statement of projectConfigColumns) {
+      try {
+        await db.prepare(statement).run();
+      } catch (error) {
+        if (!isDuplicateColumnError(error)) {
+          throw error;
+        }
       }
     }
+    projectConfigColumnsEnsured = true;
+  })();
+  try {
+    await projectConfigColumnsPending;
+  } catch (error) {
+    projectConfigColumnsPending = undefined;
+    throw error;
   }
 }
 
@@ -198,7 +214,9 @@ async function writeConfigCacheForProject(env: Env, config: StoredProjectConfig)
       ...config,
       active: row.active === 1,
     };
-    await env.CONFIG.put(configKvKey(row.key_hash), JSON.stringify(cachedConfig));
+    await env.CONFIG.put(configKvKey(row.key_hash), JSON.stringify(cachedConfig), {
+      expirationTtl: PROJECT_CONFIG_CACHE_TTL_SECONDS,
+    });
   }
 }
 
