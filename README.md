@@ -18,21 +18,24 @@ cd orange-replay
 export PATH="$HOME/.vite-plus/bin:$PATH"
 vp install
 
-cp apps/worker/.dev.vars.example apps/worker/.dev.vars
-cd apps/worker
-wrangler d1 migrations apply orange-replay-idx-00 --local
-wrangler dev
+vp run dev
 ```
 
-In a second terminal:
+This starts the Worker on `http://localhost:8787` and the dashboard on
+`http://localhost:5200`. Set `CLEAR_DEV_PORTS=1` only when you want the dev
+script to stop existing listeners on those ports first. It uses
+`apps/worker/.dev.vars` when present, otherwise it uses
+`apps/worker/.dev.vars.example`.
+
+To run the dashboard only:
 
 ```sh
 export PATH="$HOME/.vite-plus/bin:$PATH"
 cd apps/dashboard
-vp dev
+vp dev --port 5200
 ```
 
-In a third terminal for the demo site:
+For the demo site:
 
 ```sh
 export PATH="$HOME/.vite-plus/bin:$PATH"
@@ -61,12 +64,13 @@ The dashboard uses the dev bearer token from `apps/worker/.dev.vars.example`.
 - [Architecture](./ARCHITECTURE.md)
 - [Plan](./PLAN.md)
 - [Handoff](./HANDOFF.md)
+- [Production deployment](./docs/deployment.md)
 - [Self-host guide](./docs/self-host.md)
 - [SDK install guide](./docs/install-sdk.md)
 - [Design language](./docs/design-language.md)
 
 ## Status
 
-Local-first v1 is in progress. Deferred: Analytics Engine verification, Pipelines/Iceberg lake, Vectorize/AI, heatmaps backend, processing lane, end-to-end encryption tier, BYOC provisioner, GitHub OAuth, template publishing, deploys, and OSS license choice.
+Local-first v1 is complete. Production deployment uses Cloudflare Workers with a separate production Wrangler config. Deferred: Analytics Engine verification, Pipelines/Iceberg lake, Vectorize/AI, heatmaps backend, processing lane, end-to-end encryption tier, BYOC provisioner, GitHub OAuth, template publishing, and OSS license choice.
 
 License: not yet chosen.

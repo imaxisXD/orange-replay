@@ -82,6 +82,7 @@ export async function checkTemplate(options) {
 function parseArgs(args) {
   const options = {
     check: false,
+    allowTestOutput: false,
     outDir: undefined,
     root: defaultRoot,
     stamp: "unstamped",
@@ -103,6 +104,10 @@ function parseArgs(args) {
       index += 1;
       continue;
     }
+    if (arg === "--allow-test-output") {
+      options.allowTestOutput = true;
+      continue;
+    }
     if (arg === "--root") {
       options.root = resolveCliPath(readArgValue(args, index, arg));
       index += 1;
@@ -116,6 +121,7 @@ function parseArgs(args) {
   }
 
   options.outDir ??= resolve(options.root, defaultTemplateDir);
+  assertSafeOutputDir(options.root, options.outDir, options.allowTestOutput);
   return options;
 }
 
@@ -131,15 +137,81 @@ function resolveCliPath(value) {
   return isAbsolute(value) ? value : resolve(process.cwd(), value);
 }
 
+function assertSafeOutputDir(root, outDir, allowTestOutput = false) {
+  const cleanRoot = resolve(root);
+  const cleanOutDir = resolve(outDir);
+  const defaultOutDir = resolve(cleanRoot, defaultTemplateDir);
+  const blockedPaths = [
+    cleanRoot,
+    resolve(cleanRoot, workerDir),
+    resolve(cleanRoot, sourceMigrationsPath),
+    resolve(cleanRoot, "apps"),
+    resolve(cleanRoot, "packages"),
+    resolve(cleanRoot, "scripts"),
+  ];
+
+  if (samePath(cleanOutDir, defaultOutDir)) {
+    return;
+  }
+
+  if (
+    blockedPaths.some((blockedPath) => isBlockedSourceOutput(cleanRoot, blockedPath, cleanOutDir))
+  ) {
+    throw new Error("--out cannot point at repo source directories");
+  }
+
+  if (allowTestOutput) {
+    if (samePath(cleanOutDir, cleanRoot) || isPathInside(cleanRoot, cleanOutDir)) {
+      throw new Error("--out test directory cannot be inside the repo root");
+    }
+    if (!hasTemplateTestParent(cleanOutDir)) {
+      throw new Error("--out test directory must be under an orange-replay template test folder");
+    }
+    return;
+  }
+
+  if (!isPathInside(cleanRoot, cleanOutDir)) {
+    throw new Error("--out must be infra/template or a temporary test directory");
+  }
+
+  throw new Error("--out is only supported for infra/template or temporary test directories");
+}
+
+function isBlockedSourceOutput(root, blockedPath, outDir) {
+  const cleanRoot = resolve(root);
+  const cleanBlockedPath = resolve(blockedPath);
+  const cleanOutDir = resolve(outDir);
+  if (samePath(cleanBlockedPath, cleanOutDir)) {
+    return true;
+  }
+  return !samePath(cleanBlockedPath, cleanRoot) && isPathInside(cleanBlockedPath, cleanOutDir);
+}
+
+function samePath(left, right) {
+  return resolve(left) === resolve(right);
+}
+
+function isPathInside(parent, child) {
+  const relativePath = relative(resolve(parent), resolve(child));
+  return relativePath.length > 0 && !relativePath.startsWith("..") && !isAbsolute(relativePath);
+}
+
+function hasTemplateTestParent(outDir) {
+  return resolve(outDir)
+    .split(sep)
+    .some((part) => part.startsWith("orange-replay-template-test-"));
+}
+
 function printHelp() {
   console.log(`Usage: node scripts/mirror-template.mjs [--check] [--stamp ISO_OR_UNSTAMPED] [--out DIR]
 
 Creates infra/template from apps/worker so the self-host template cannot drift.
 
 Options:
-  --check        Compare the current template with freshly generated output.
-  --stamp VALUE  Manifest generatedAt value. Default: unstamped.
-  --out DIR      Template output directory. Default: infra/template.
+  --check              Compare the current template with freshly generated output.
+  --stamp VALUE        Manifest generatedAt value. Default: unstamped.
+  --out DIR            Template output directory. Default: infra/template.
+  --allow-test-output  Allow --out under an orange-replay template test folder.
 `);
 }
 
@@ -191,15 +263,23 @@ function buildTemplateWrangler(source) {
   if (source.observability !== undefined) {
     appendObject(lines, "observability", source.observability);
   }
+  appendObject(
+    lines,
+    "version_metadata",
+    source.version_metadata ?? {
+      binding: "CF_VERSION_METADATA",
+    },
+  );
 
   appendDurableObjects(lines, source.durable_objects);
   appendMigrations(lines, source.migrations);
   appendR2Buckets(lines, source.r2_buckets);
   appendKvNamespaces(lines, source.kv_namespaces);
   appendD1Databases(lines, source.d1_databases);
+  appendRateLimits(lines, source.ratelimits);
   appendQueues(lines, source.queues);
   appendTriggers(lines, source.triggers);
-  appendVars(lines, source.vars);
+  appendSecretNotes(lines);
   lines.push("}");
 
   return `${lines.join("\n")}\n`;
@@ -305,6 +385,26 @@ function appendD1Databases(lines, databases) {
   lines.push("  ],");
 }
 
+function appendRateLimits(lines, ratelimits) {
+  const cleanRateLimits = Array.isArray(ratelimits) ? ratelimits : [];
+  if (cleanRateLimits.length === 0) {
+    return;
+  }
+
+  lines.push('  "ratelimits": [');
+  for (const limit of cleanRateLimits) {
+    lines.push(
+      `    // # created by setup docs: ${String(limit.name)} protects public ingest before Durable Object writes.`,
+    );
+    lines.push("    {");
+    lines.push(`      "name": ${JSON.stringify(limit.name)},`);
+    lines.push(`      "namespace_id": ${JSON.stringify(limit.namespace_id)},`);
+    lines.push(`      "simple": ${inlineObject(limit.simple ?? {})},`);
+    lines.push("    },");
+  }
+  lines.push("  ],");
+}
+
 function appendQueues(lines, queues) {
   const producers = Array.isArray(queues?.producers) ? queues.producers : [];
   const consumers = Array.isArray(queues?.consumers) ? queues.consumers : [];
@@ -344,17 +444,11 @@ function appendTriggers(lines, triggers) {
   lines.push("  },");
 }
 
-function appendVars(lines, vars) {
-  lines.push('  "vars": {');
-  const safeVars = Object.entries(vars ?? {}).filter(
-    ([key]) => !["DEV_API_TOKEN", "DEV_TEST_ROUTES", "TEST_TIMINGS"].includes(key),
-  );
-  for (const [key, value] of safeVars) {
-    lines.push(`    ${JSON.stringify(key)}: ${JSON.stringify(value)},`);
-  }
-  lines.push("    // DEV_API_TOKEN is created with `wrangler secret put DEV_API_TOKEN`.");
-  lines.push("    // Do not put the token value in this file.");
-  lines.push("  },");
+function appendSecretNotes(lines) {
+  lines.push("  // DEV_API_TOKEN is created with `wrangler secret put DEV_API_TOKEN`.");
+  lines.push("  // DEV_API_PROJECT_IDS is created with `wrangler secret put DEV_API_PROJECT_IDS`.");
+  lines.push("  // LIVE_TICKET_SECRET is created with `wrangler secret put LIVE_TICKET_SECRET`.");
+  lines.push("  // Do not put secret values in this file.");
 }
 
 function buildTemplateReadme() {

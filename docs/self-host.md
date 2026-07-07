@@ -46,14 +46,17 @@ wrangler queues create or-dlq
 
 The template expects these bindings:
 
-| Binding                | Cloudflare resource | Name used by the template  |
-| ---------------------- | ------------------- | -------------------------- |
-| `IDX_00`               | D1 database         | `orange-replay-idx-00`     |
-| `RECORDINGS`           | R2 bucket           | `orange-replay-recordings` |
-| `CONFIG`               | KV namespace        | `CONFIG`                   |
-| `FINALIZE_QUEUE`       | Queue producer      | `or-session-finalized`     |
-| `or-session-finalized` | Queue consumer      | `or-session-finalized`     |
-| `or-dlq`               | Dead-letter queue   | `or-dlq`                   |
+| Binding                       | Cloudflare resource | Name used by the template    |
+| ----------------------------- | ------------------- | ---------------------------- |
+| `IDX_00`                      | D1 database         | `orange-replay-idx-00`       |
+| `RECORDINGS`                  | R2 bucket           | `orange-replay-recordings`   |
+| `CONFIG`                      | KV namespace        | `CONFIG`                     |
+| `INGEST_LOOKUP_RATE_LIMITER`  | Rate limit binding  | declared in `wrangler.jsonc` |
+| `INGEST_PROJECT_RATE_LIMITER` | Rate limit binding  | declared in `wrangler.jsonc` |
+| `INGEST_SESSION_RATE_LIMITER` | Rate limit binding  | declared in `wrangler.jsonc` |
+| `FINALIZE_QUEUE`              | Queue producer      | `or-session-finalized`       |
+| `or-session-finalized`        | Queue consumer      | `or-session-finalized`       |
+| `or-dlq`                      | Dead-letter queue   | `or-dlq`                     |
 
 Durable Object classes are declared in `wrangler.jsonc`; Wrangler creates their namespaces during deploy.
 
@@ -64,7 +67,7 @@ Open `infra/template/wrangler.jsonc`.
 - Replace `REPLACE_WITH_D1_ID` with the `database_id` printed by `wrangler d1 create`.
 - Replace `REPLACE_WITH_KV_ID` with the `id` printed by `wrangler kv namespace create CONFIG`.
 
-R2 buckets and queues use their names directly, so there is no id to paste for them.
+R2 buckets, queues, and rate-limit bindings use the names and namespace IDs in the template directly, so there is no id to paste for them.
 
 ## 3. Apply D1 Migrations
 
@@ -76,17 +79,21 @@ wrangler d1 migrations apply orange-replay-idx-00
 
 The mirror script copies `apps/worker/migrations` into `infra/template/migrations` verbatim.
 
-## 4. Set The API Token Secret
+## 4. Set The API Token Secrets
 
-Self-host v1 uses one bearer token for dashboard and API access:
+Self-host v1 uses a bearer token scoped to explicit project ids:
 
 ```sh
 wrangler secret put DEV_API_TOKEN
+wrangler secret put DEV_API_PROJECT_IDS
+wrangler secret put LIVE_TICKET_SECRET
 ```
 
-Use a long random value. Do not put the value in `wrangler.jsonc`.
+Use long random values, at least 32 characters, for `DEV_API_TOKEN` and `LIVE_TICKET_SECRET`. `DEV_API_PROJECT_IDS` is a comma-separated list, for example `project_demo`. Do not put any of these values in `wrangler.jsonc`.
 
-For real self-host use, put Cloudflare Access in front of the dashboard and API routes. The single token is the v1 app-level check; Cloudflare Access gives you the account login and SSO layer.
+For real self-host use, put Cloudflare Access in front of the dashboard and API routes. The project-scoped token is the v1 app-level check; Cloudflare Access gives you the account login and SSO layer.
+
+When building the dashboard outside the production deploy script, set `VITE_DEFAULT_PROJECT_ID` to one of the ids in `DEV_API_PROJECT_IDS`. The dashboard uses it only for the first route and login token check.
 
 ## 5. Deploy
 

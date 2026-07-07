@@ -1,26 +1,20 @@
 # Install The SDK
 
-Paste the loader snippet before `</head>`. The dashboard Install page is the source of truth; it calls `buildLoaderSnippet` from `@orange-replay/sdk/loader` with your project values.
+Paste the loader snippet before `</head>`. The dashboard Install page is the source of truth; it calls `buildLoaderScriptTag` from `@orange-replay/sdk/loader` with your project values.
 
-```text
-<script>
-(function(c){var w=window,d=document;if(w.__orLoaderStarted)return;w.__orLoaderStarted=1;var q=w.__orq=w.__orq||[],r=w.__orCleanup=w.__orCleanup||[],l=c.queueLimit>0?Math.floor(c.queueLimit):100,b="[data-orange-block]"+(c.init&&c.init.blockSelector?", "+c.init.blockSelector:""),n=function(){return Date.now()},t=function(v){v=String(v);return v.length>200?v.slice(0,200):v},p=function(o){if(typeof o.t!=="number")o.t=n();if(q.length>=l)q.splice(0,q.length-l+1);q.push(o)},a=function(x,y,f){x.addEventListener(y,f,true);r.push(function(){x.removeEventListener(y,f,true)})},h=function(v){return String(v).replace(/[^a-zA-Z0-9_-]/g,"_")},g=function(e){var z=e.tagName.toLowerCase(),i=e.id?"#"+h(e.id):"",c="",j=0;if(e.classList)for(;j<e.classList.length&&j<3;j++)c+="."+h(e.classList[j]);return z+i+c},s=function(e){if(!e||!e.tagName)return"unknown";for(var p=[],x=e;x&&p.length<3;x=x.parentElement)p.unshift(g(x));return t(p.join(" > "))},m=function(e){try{return e&&e.closest&&e.closest(b)?"[blocked]":s(e)}catch(_){try{return e&&e.closest&&e.closest("[data-orange-block]")?"[blocked]":s(e)}catch(_){return s(e)}}};if(c.init){w.__orInit=c.init;p({k:"init",o:c.init})}a(w,"error",function(e){p({k:"error",m:t(e.message||String(e.error||"error"))})});a(w,"unhandledrejection",function(e){var r=e.reason;p({k:"unhandledrejection",m:t(r&&r.message?r.message:String(r))})});a(d,"click",function(e){p({k:"click",d:m(e.target),x:e.clientX||0,y:e.clientY||0,w:w.innerWidth||0,h:w.innerHeight||0})});p({k:"vital",n:"navigation",start:w.performance&&w.performance.timeOrigin||n()});var o=d.createElement("script");o.async=1;o.src=c.bundleUrl;d.head.appendChild(o)})({bundleUrl:"https://YOUR_HOST/or-recorder.js",init:{"key":"YOUR_WRITE_KEY","ingestUrl":"https://YOUR_HOST"}});
-</script>
-```
+The Install page does not copy placeholder credentials. Paste the raw write key that was shown when you created it, confirm the Worker URL or custom domain, then copy the generated snippet. Production write keys use the `or_live_` prefix followed by 32 base64url characters.
 
-Replace:
-
-- `YOUR_HOST` with your Worker URL or custom domain.
-- `YOUR_WRITE_KEY` with the project write key.
+The SDK write key is a public browser credential, not a server secret. It identifies the project for ingest and is still checked on every batch, but any browser page that loads the SDK can see it. Use exact allowed origins for browser CORS, and rely on server-side lookup limits, project limits, session limits, quotas, payload caps, and session caps for abuse control. Sampling is an honest-client optimization, not an abuse control. Do not put dashboard API tokens or Cloudflare tokens in browser code.
 
 The dashboard builds the same snippet with:
 
 ```ts
-import { buildLoaderSnippet } from "@orange-replay/sdk/loader";
+import { buildLoaderScriptTag } from "@orange-replay/sdk/loader";
 
-const snippet = buildLoaderSnippet({
-  bundleUrl: "https://YOUR_HOST/or-recorder.js",
-  init: { key: "YOUR_WRITE_KEY", ingestUrl: "https://YOUR_HOST" },
+const origin = new URL(workerUrl).origin;
+const snippet = buildLoaderScriptTag({
+  bundleUrl: `${origin}/or-recorder.js`,
+  init: { key: rawWriteKey, ingestUrl: origin },
 });
 ```
 
