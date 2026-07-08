@@ -15,7 +15,7 @@
       /* ===========================================================
      Orange Replay — landing page
      Marketing shell: monochrome, editorial, huge left-aligned type
-       (design language studied from polylane.com)
+       (design language studied from polylane.com + quiver.ai frame)
      Product screenshots: the real Orange Replay design system
        (dotted grid, amber accent, .lit cards) — scoped to .app
      Type: Uncut Sans (SIL OFL 1.1) · labels/numerals in a mono stack
@@ -36,18 +36,16 @@
       }
 
       :root {
-        /* monochrome marketing shell (neutral scale on pure black) */
         --bg: #000000;
         --white: #ffffff;
-        --text: #d4d4d4; /* body            */
-        --sub: #a3a3a3; /* subhead         */
-        --faint: #737373; /* labels + faint  */
+        --text: #d4d4d4;
+        --sub: #a3a3a3;
+        --faint: #737373;
         --dimmer: #525252;
-        --line: #262626; /* borders         */
+        --line: #262626;
         --line2: #171717;
         --panel: #0b0b0d;
 
-        /* muted accent trio (used sparingly — footer words, hovers) */
         --blue: #4478b8;
         --a-amber: #c8823b;
         --a-green: #4c8c57;
@@ -55,6 +53,9 @@
         /* our touch: amber is the "orange" in Orange Replay + the friction spectrum */
         --accent: #f5a623;
         --grad-friction: linear-gradient(90deg, #2dd4bf, #f5a623, #f4534e);
+
+        /* quiver-inspired: framed column + gutter texture */
+        --rule: #1e1e22;
 
         --sans: "Uncut Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
         --mono: ui-monospace, "SF Mono", "Geist Mono", Menlo, monospace;
@@ -66,7 +67,6 @@
       }
 
       body {
-        background: var(--bg);
         color: var(--text);
         font-family: var(--sans);
         font-size: 16px;
@@ -74,8 +74,29 @@
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
         min-height: 100vh;
-        overflow-x: hidden;
+        /* clip (not hidden) — hidden would make <body> a scroll container and break position:sticky */
+        overflow-x: clip;
+        /* full-bleed gutter texture (dotted diagonal lines); the centered .frame paints solid over the middle */
+        background-color: #050506;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' fill='none'%3E%3Cg opacity='0.13' fill='white'%3E%3Crect x='13' y='9' width='1' height='1'/%3E%3Crect x='37' y='33' width='1' height='1'/%3E%3Crect x='11' y='11' width='1' height='1'/%3E%3Crect x='35' y='35' width='1' height='1'/%3E%3Crect x='9' y='13' width='1' height='1'/%3E%3Crect x='33' y='37' width='1' height='1'/%3E%3Crect x='7' y='15' width='1' height='1'/%3E%3Crect x='31' y='39' width='1' height='1'/%3E%3Crect x='5' y='17' width='1' height='1'/%3E%3Crect x='29' y='41' width='1' height='1'/%3E%3Crect x='3' y='19' width='1' height='1'/%3E%3Crect x='27' y='43' width='1' height='1'/%3E%3Crect x='1' y='21' width='1' height='1'/%3E%3Crect x='25' y='45' width='1' height='1'/%3E%3Crect x='23' y='47' width='1' height='1'/%3E%3Crect x='15' y='7' width='1' height='1'/%3E%3Crect x='39' y='31' width='1' height='1'/%3E%3Crect x='17' y='5' width='1' height='1'/%3E%3Crect x='41' y='29' width='1' height='1'/%3E%3Crect x='19' y='3' width='1' height='1'/%3E%3Crect x='43' y='27' width='1' height='1'/%3E%3Crect x='21' y='1' width='1' height='1'/%3E%3Crect x='45' y='25' width='1' height='1'/%3E%3Crect x='47' y='23' width='1' height='1'/%3E%3Crect x='21' y='25' width='1' height='1'/%3E%3Crect x='19' y='27' width='1' height='1'/%3E%3Crect x='17' y='29' width='1' height='1'/%3E%3Crect x='15' y='31' width='1' height='1'/%3E%3Crect x='13' y='33' width='1' height='1'/%3E%3Crect x='11' y='35' width='1' height='1'/%3E%3Crect x='9' y='37' width='1' height='1'/%3E%3Crect x='7' y='39' width='1' height='1'/%3E%3Crect x='5' y='41' width='1' height='1'/%3E%3Crect x='3' y='43' width='1' height='1'/%3E%3Crect x='1' y='45' width='1' height='1'/%3E%3Crect x='23' y='23' width='1' height='1'/%3E%3Crect x='25' y='21' width='1' height='1'/%3E%3Crect x='27' y='19' width='1' height='1'/%3E%3Crect x='29' y='17' width='1' height='1'/%3E%3Crect x='31' y='15' width='1' height='1'/%3E%3Crect x='33' y='13' width='1' height='1'/%3E%3Crect x='35' y='11' width='1' height='1'/%3E%3Crect x='37' y='9' width='1' height='1'/%3E%3Crect x='39' y='7' width='1' height='1'/%3E%3Crect x='41' y='5' width='1' height='1'/%3E%3Crect x='43' y='3' width='1' height='1'/%3E%3Crect x='45' y='1' width='1' height='1'/%3E%3C/g%3E%3C/svg%3E");
+        background-size: 48px 48px;
       }
+
+      /* the framed central column (quiver's continuous-rule frame), dashed like our .lit cards */
+      .frame {
+        position: relative;
+        max-width: 1240px;
+        margin: 0 auto;
+        background: var(--bg);
+        border-left: 1px dashed var(--rule);
+        border-right: 1px dashed var(--rule);
+      }
+      .frame > section,
+      .frame > .stack,
+      .frame > footer {
+        border-top: 1px dashed var(--rule);
+      }
+
       ::selection {
         background: rgba(255, 255, 255, 0.16);
         color: #fff;
@@ -94,10 +115,9 @@
       .wrap {
         max-width: var(--wrap);
         margin: 0 auto;
-        padding: 0 max(24px, 5vw);
+        padding: 0 max(24px, 4vw);
       }
 
-      /* small mono uppercase label */
       .label {
         font-family: var(--mono);
         font-size: 11px;
@@ -114,9 +134,39 @@
         z-index: 60;
         display: flex;
         align-items: center;
-        padding: 20px max(24px, 5vw);
-        background: rgba(0, 0, 0, 0.6);
-        backdrop-filter: blur(12px);
+        padding: 20px max(24px, 4vw);
+        background: transparent;
+        /* pull 1px each side so ::after's vertical rules land exactly on the frame's rule line */
+        margin: 0 -1px;
+      }
+      /* full-width black band behind the nav (covers the gutter pattern) + the full-bleed bottom rule */
+      .nav::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 100vw;
+        z-index: -1;
+        background: #070709;
+        border-bottom: 1px dashed var(--rule);
+        transition:
+          background 300ms ease,
+          border-color 300ms ease;
+      }
+      /* as the page scrolls, warm the band by a hair (subtle) + amber underline */
+      .nav.scrolled::before {
+        background: linear-gradient(rgba(245, 166, 35, 0.03), rgba(245, 166, 35, 0.008)), #08080b;
+        border-bottom-color: rgba(245, 166, 35, 0.38);
+      }
+      /* vertical dashed rules at the framed-column edges — painted above the black band */
+      .nav::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        border-left: 1px dashed #34343c;
+        border-right: 1px dashed #34343c;
       }
       .wordmark {
         display: inline-flex;
@@ -173,7 +223,6 @@
         gap: 14px;
       }
 
-      /* accent focus ring (a11y + brand) */
       a:focus-visible,
       button:focus-visible {
         outline: 2px solid var(--accent);
@@ -181,13 +230,14 @@
         border-radius: 5px;
       }
 
+      /* ===== primary button (the one style used everywhere) ===== */
       .cta-pill {
         display: inline-flex;
         align-items: center;
         gap: 10px;
         background: #fff;
         color: #000;
-        border-radius: 999px;
+        border-radius: 9px;
         padding: 6px 7px 6px 15px;
         font-size: 14px;
         font-weight: 550;
@@ -209,84 +259,23 @@
         align-items: center;
         justify-content: center;
       }
-
-      /* ===== our touch: scroll playhead — the page is a replay you scrub ===== */
-      .scrub {
-        position: fixed;
-        left: 0;
-        top: 0;
-        bottom: 0;
-        width: 3px;
-        z-index: 55;
-        pointer-events: none;
+      /* larger version for hero + CTA (button consistency) */
+      .cta-pill.lg {
+        font-size: 15px;
+        gap: 12px;
+        padding: 8px 8px 8px 20px;
+        border-radius: 10px;
       }
-      .scrub .track {
-        position: absolute;
-        inset: 0;
-        background: rgba(255, 255, 255, 0.06);
-      }
-      .scrub .fill {
-        position: absolute;
-        left: 0;
-        top: 0;
-        width: 100%;
-        height: 0;
-        background: linear-gradient(180deg, rgba(245, 166, 35, 0.15), var(--accent));
-      }
-      .scrub .head {
-        position: absolute;
-        left: 50%;
-        top: 0;
-        width: 9px;
-        height: 9px;
-        border-radius: 50%;
-        background: var(--accent);
-        transform: translate(-50%, -50%);
-        box-shadow: 0 0 10px rgba(245, 166, 35, 0.85);
+      .cta-pill.lg .circ {
+        width: 28px;
+        height: 28px;
       }
 
-      /* ===== buttons ===== */
       .btns {
         display: flex;
         gap: 12px;
         flex-wrap: wrap;
         align-items: center;
-      }
-      .btn-primary {
-        display: inline-flex;
-        align-items: stretch;
-        background: #fff;
-        color: #000;
-        border-radius: 11px;
-        font-size: 15px;
-        font-weight: 560;
-        letter-spacing: -0.01em;
-        overflow: hidden;
-        transition:
-          transform 140ms ease,
-          box-shadow 140ms ease;
-      }
-      .btn-primary:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 12px 30px rgba(255, 255, 255, 0.12);
-      }
-      .btn-primary .lbl {
-        display: flex;
-        align-items: center;
-        gap: 9px;
-        padding: 12px 16px;
-      }
-      .btn-primary .box {
-        display: flex;
-        align-items: center;
-        padding: 0 13px;
-        border-left: 1px solid rgba(0, 0, 0, 0.14);
-      }
-      .btn-primary .box svg {
-        transition: transform 160ms ease;
-      }
-      .btn-primary:hover .box svg {
-        transform: translate(2px, -2px);
       }
       .btn-ghost {
         display: inline-flex;
@@ -295,7 +284,7 @@
         background: transparent;
         color: #e5e5e5;
         border: 1px solid var(--line);
-        border-radius: 11px;
+        border-radius: 9px;
         padding: 12px 17px;
         font-size: 15px;
         font-weight: 480;
@@ -313,27 +302,6 @@
         position: relative;
         padding: 96px 0 118px;
         overflow: hidden;
-      }
-      /* our touch: faint dotted grid (our canvas) instead of polylane's diagonal hairlines */
-      .hero .streaks {
-        position: absolute;
-        inset: 0;
-        pointer-events: none;
-        z-index: 0;
-        background-image: radial-gradient(circle, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
-        background-size: 26px 26px;
-        -webkit-mask-image: radial-gradient(
-          125% 110% at 74% 24%,
-          #000 0%,
-          rgba(0, 0, 0, 0.5) 46%,
-          transparent 80%
-        );
-        mask-image: radial-gradient(
-          125% 110% at 74% 24%,
-          #000 0%,
-          rgba(0, 0, 0, 0.5) 46%,
-          transparent 80%
-        );
       }
       /* a single amber "scan line" sweeping the canvas */
       .hero .scan {
@@ -359,35 +327,6 @@
         position: relative;
         z-index: 2;
         max-width: 1040px;
-      }
-
-      /* ===== living hero: ghost replay cursor drifting through the whitespace ===== */
-      .ghost {
-        position: absolute;
-        inset: 0;
-        z-index: 1;
-        pointer-events: none;
-      }
-      .ghost .cur,
-      .ghost .ripwrap {
-        position: absolute;
-        left: 0;
-        top: 0;
-        will-change: transform;
-        animation: ghost-move 12s ease-in-out infinite;
-      }
-      .ghost .cur svg {
-        filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5));
-      }
-      .ghost .ripwrap .rip {
-        width: 22px;
-        height: 22px;
-        margin: -3px 0 0 -3px;
-        border-radius: 50%;
-        background: rgba(245, 166, 35, 0.32);
-        transform: scale(0.2);
-        opacity: 0;
-        animation: ghost-click 12s ease-in-out infinite;
       }
       .hero h1 {
         font-size: clamp(2.9rem, 7.6vw, 6.25rem);
@@ -426,13 +365,6 @@
       .hero .btns {
         margin-top: 40px;
       }
-      .hero .meta {
-        margin-top: 22px;
-        font-family: var(--mono);
-        font-size: 13px;
-        color: var(--faint);
-        letter-spacing: -0.01em;
-      }
 
       /* ===== section shell ===== */
       .section {
@@ -444,29 +376,15 @@
         gap: 22px;
         max-width: 1000px;
       }
-      /* our touch: section markers are timeline timestamps on amber nodes */
       .sec-kicker .ts {
         font-family: var(--mono);
-        font-size: 13px;
+        font-size: 14px;
         color: var(--accent);
-        letter-spacing: 0.02em;
+        letter-spacing: 0.04em;
         display: inline-flex;
         align-items: center;
-        gap: 9px;
-        padding-top: 9px;
+        padding-top: 8px;
         flex: none;
-        min-width: 62px;
-      }
-      .sec-kicker .ts .node {
-        width: 7px;
-        height: 7px;
-        border-radius: 50%;
-        background: var(--accent);
-        flex: none;
-        box-shadow: 0 0 8px rgba(245, 166, 35, 0.7);
-      }
-      .sec-kicker.in .ts .node {
-        animation: node-flash 640ms ease-out;
       }
       .sec-head {
         font-size: clamp(1.85rem, 3.3vw, 2.55rem);
@@ -481,24 +399,63 @@
         color: var(--faint);
       }
       .sec-note {
-        margin: 22px 0 0 84px;
+        margin: 22px 0 0 60px;
         max-width: 60ch;
         color: var(--sub);
         font-size: 1rem;
         line-height: 1.55;
       }
 
-      /* ===== product frame — our touch: the .lit dashed-grain-bloom card ===== */
+      /* ===== sticky stacking cards (Capture · Replay · Diagnose) ===== */
+      .stack {
+        position: relative;
+      }
+      .stack-tail {
+        height: 46vh;
+      }
+      .stack-card {
+        --card-top: 92px;
+        --card-peek: 18px;
+        --card-dwell: 14vh;
+        --dim: 0; /* 0 = full/front, 1 = fully dimmed (incoming OR receding); set by JS */
+        position: sticky;
+        top: calc(var(--card-top) + var(--i) * var(--card-peek));
+        z-index: calc(1 + var(--i));
+        margin-bottom: var(--card-dwell);
+      }
+      .stack-card:last-child {
+        --card-dwell: 0px;
+      }
+      .card-inner {
+        position: relative;
+        /* same background as the page — no separate panel; still opaque so stacking occludes */
+        background: var(--bg);
+        padding: 28px 0 0;
+        transform: scale(calc(1 - 0.035 * var(--dim)));
+        transform-origin: 50% 0;
+        filter: brightness(calc(1 - 0.4 * var(--dim)));
+        transition:
+          transform 80ms linear,
+          filter 80ms linear;
+        will-change: transform, filter;
+      }
+      .stack-card .shot {
+        max-height: 46vh;
+      }
+      .stack-card .sec-note {
+        display: none;
+      }
+
+      /* ===== product frame — the .lit dashed-bloom card ===== */
       .shot {
-        margin-top: 44px;
-        border-radius: 16px;
+        margin-top: 34px;
+        border-radius: 10px;
         overflow: hidden;
         position: relative;
         border: none;
         background: var(--panel);
         box-shadow: 0 40px 100px -30px rgba(0, 0, 0, 0.9);
       }
-      /* dashed border, fading from the top-left (our signature) */
       .shot::after {
         content: "";
         position: absolute;
@@ -506,7 +463,7 @@
         border-radius: inherit;
         pointer-events: none;
         z-index: 4;
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Crect x='0.5' y='0.5' width='100%25' height='100%25' fill='none' rx='15.5' ry='15.5' stroke='white' stroke-opacity='0.32' stroke-width='1' stroke-dasharray='12 4'/%3E%3C/svg%3E");
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Crect x='0.5' y='0.5' width='100%25' height='100%25' fill='none' rx='9.5' ry='9.5' stroke='white' stroke-opacity='0.32' stroke-width='1' stroke-dasharray='12 4'/%3E%3C/svg%3E");
         -webkit-mask-image: radial-gradient(
           170% 130% at 0% 0%,
           #000 0%,
@@ -522,7 +479,6 @@
           rgba(0, 0, 0, 0.08) 100%
         );
       }
-      /* top-left bloom */
       .shot::before {
         content: "";
         position: absolute;
@@ -532,7 +488,6 @@
         z-index: 3;
         background: radial-gradient(60% 45% at 4% 0%, rgba(255, 255, 255, 0.06), transparent 60%);
       }
-      /* friction-gradient top edge (the brand-mark spectrum) */
       .shot .edge {
         position: absolute;
         inset: 0 0 auto 0;
@@ -542,6 +497,17 @@
         opacity: 0.7;
         -webkit-mask-image: linear-gradient(90deg, transparent, #000 25%, #000 75%, transparent);
         mask-image: linear-gradient(90deg, transparent, #000 25%, #000 75%, transparent);
+      }
+      /* bottom fade — dissolves the cropped screenshot into the card background */
+      .shot-fade {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 112px;
+        z-index: 2;
+        pointer-events: none;
+        background: linear-gradient(to top, var(--bg), transparent);
       }
 
       /* =========================================================
@@ -700,7 +666,6 @@
         border-color: var(--text);
         font-weight: 600;
       }
-
       .stats {
         display: flex;
         align-items: stretch;
@@ -744,7 +709,6 @@
       .stat .d em.bad {
         color: var(--red);
       }
-
       .zone {
         display: grid;
         grid-template-columns: 1fr 290px;
@@ -874,7 +838,6 @@
         border-radius: 6px;
         padding: 3px 9px;
       }
-
       .tablewrap {
         background: var(--panel);
         border: 1px solid var(--line);
@@ -1011,7 +974,6 @@
         font-size: 11.5px;
         color: var(--dim);
       }
-
       .player {
         background: var(--panel);
         border: 1px solid var(--line);
@@ -1102,8 +1064,6 @@
         padding: 2px 6px;
         color: var(--mut);
       }
-
-      /* replay screen layout */
       .replay {
         display: grid;
         grid-template-columns: 1fr 232px;
@@ -1167,31 +1127,6 @@
         border-radius: 7px;
         background: linear-gradient(90deg, #3a2a10, #4a3410);
       }
-      .vp-cursor {
-        position: absolute;
-        right: 46px;
-        bottom: 44px;
-      }
-      .vp-cursor::after {
-        content: "";
-        position: absolute;
-        inset: -4px;
-        border-radius: 50%;
-        background: rgba(245, 166, 35, 0.22);
-        animation: ripple 2.2s infinite;
-      }
-      .vp-cursor svg {
-        position: relative;
-        z-index: 2;
-      }
-      .vp-click {
-        position: absolute;
-        right: 26px;
-        bottom: 66px;
-        font-family: var(--mono);
-        font-size: 10px;
-        color: var(--amber);
-      }
       .replay .side {
         padding: 14px;
         display: flex;
@@ -1246,95 +1181,512 @@
         color: var(--dim);
       }
 
-      /* ===== social proof ===== */
-      /* our touch: divider carries the teal→amber→red friction spectrum */
-      .divider {
-        height: 1px;
-        background: var(--grad-friction);
-        opacity: 0.8;
-        -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
-        mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+      /* ===== features bento ===== */
+      .bento {
+        margin-top: 48px;
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 14px;
       }
-      .proof {
-        padding: 92px 0;
+      .tile {
+        position: relative;
+        border: none;
+        border-radius: 10px;
+        background: #08080a;
+        padding: 26px 26px 28px;
+        overflow: hidden;
+        box-shadow: 0 14px 34px rgba(0, 0, 0, 0.42);
+        transition: background 160ms ease;
       }
-      .proof .logos {
-        margin-top: 34px;
+      .tile:hover {
+        background: #0c0c0e;
+      }
+      .tile.wide {
+        grid-column: span 2;
+      }
+      .tile .ic {
+        width: 34px;
+        height: 34px;
+        border-radius: 7px;
+        border: 1px solid var(--line);
+        background: #101013;
         display: flex;
         align-items: center;
-        gap: 40px;
-        flex-wrap: wrap;
+        justify-content: center;
+        margin-bottom: 18px;
       }
-      .proof .logos .lg {
+      .tile h3 {
+        font-size: 17px;
+        font-weight: 560;
+        letter-spacing: -0.02em;
+        color: #f2f2f2;
+      }
+      .tile p {
+        margin-top: 9px;
+        color: var(--faint);
+        font-size: 13.5px;
+        line-height: 1.55;
+        max-width: 44ch;
+      }
+      .tile code {
+        font-family: var(--mono);
+        font-size: 0.92em;
+        color: var(--sub);
+      }
+      .tile.live {
+        display: flex;
+        gap: 32px;
+        align-items: center;
+      }
+      .tile.live .body {
+        flex: 1;
+      }
+      .live-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        font-family: var(--mono);
+        font-size: 10.5px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #34d399;
+        margin-bottom: 14px;
+      }
+      .live-badge span {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #34d399;
+        box-shadow: 0 0 8px rgba(52, 211, 153, 0.7);
+        animation: pulse 1.8s infinite;
+      }
+      .lv-rail {
+        flex: none;
+        width: 320px;
+        border-left: 1px solid var(--line);
+        padding-left: 30px;
+      }
+      .lv-row {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        padding: 9px 0;
+        border-bottom: 1px solid var(--line2);
+      }
+      .lv-row:last-child {
+        border-bottom: none;
+      }
+      .lv-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #34d399;
+        box-shadow: 0 0 8px rgba(52, 211, 153, 0.7);
+        flex: none;
+        animation: pulse 1.8s infinite;
+      }
+      .lv-page {
+        font-size: 13px;
+        font-weight: 520;
+        color: #e8e8e8;
+      }
+      .lv-meta {
+        font-size: 11.5px;
+        color: var(--dimmer);
+      }
+      .lv-t {
+        margin-left: auto;
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--faint);
+      }
+
+      /* ===== "who it's for" — screenshot floating over a gradient tile ===== */
+      .audience {
+        margin-top: 46px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+      .aud {
+        position: relative;
+        border: none;
+        border-radius: 10px;
+        overflow: hidden;
+        background: #08080a;
+      }
+      .aud .stage {
+        position: relative;
+        height: 216px;
+        overflow: hidden;
+        border-bottom: 1px dashed #2a2a30;
+      }
+      .aud .grad {
+        position: absolute;
+        inset: 0;
+      }
+      .aud.amber .grad {
+        background:
+          radial-gradient(120% 120% at 16% 8%, rgba(245, 166, 35, 0.38), transparent 58%),
+          linear-gradient(135deg, #1b140b, #0a0a0c);
+      }
+      .aud.blue .grad {
+        background:
+          radial-gradient(120% 120% at 16% 8%, rgba(68, 120, 184, 0.42), transparent 58%),
+          linear-gradient(135deg, #0e1627, #0a0a0c);
+      }
+      .aud.teal .grad {
+        background:
+          radial-gradient(120% 120% at 16% 8%, rgba(45, 212, 191, 0.32), transparent 58%),
+          linear-gradient(135deg, #0c1f1c, #0a0a0c);
+      }
+      .aud.green .grad {
+        background:
+          radial-gradient(120% 120% at 16% 8%, rgba(52, 211, 153, 0.32), transparent 58%),
+          linear-gradient(135deg, #0d1f16, #0a0a0c);
+      }
+      .aud .tex {
+        position: absolute;
+        inset: 0;
+        z-index: 0;
+        pointer-events: none;
+        opacity: 0.7;
+        -webkit-mask-image: radial-gradient(
+          140% 120% at 20% 10%,
+          #000 0%,
+          rgba(0, 0, 0, 0.35) 60%,
+          transparent 100%
+        );
+        mask-image: radial-gradient(
+          140% 120% at 20% 10%,
+          #000 0%,
+          rgba(0, 0, 0, 0.35) 60%,
+          transparent 100%
+        );
+      }
+      .tx-dots {
+        background-image: radial-gradient(circle, rgba(255, 255, 255, 0.16) 1px, transparent 1px);
+        background-size: 13px 13px;
+      }
+      .tx-grid {
+        background-image:
+          linear-gradient(rgba(255, 255, 255, 0.1) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.1) 1px, transparent 1px);
+        background-size: 22px 22px;
+      }
+      .tx-zig {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='12'%3E%3Cpath d='M0 10L11 2L22 10' fill='none' stroke='white' stroke-opacity='0.16' stroke-width='1'/%3E%3C/svg%3E");
+        background-size: 22px 12px;
+      }
+      .tx-cross {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='26'%3E%3Cpath d='M13 9v8M9 13h8' stroke='white' stroke-opacity='0.18' stroke-width='1'/%3E%3C/svg%3E");
+        background-size: 26px 26px;
+      }
+      /* .lit dashed border + bloom shared by bento tiles and audience cards */
+      .tile::before,
+      .aud::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        pointer-events: none;
+        z-index: 4;
+        background: radial-gradient(58% 44% at 5% 0%, rgba(255, 255, 255, 0.055), transparent 60%);
+      }
+      .tile::after,
+      .aud::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        pointer-events: none;
+        z-index: 5;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Crect x='0.5' y='0.5' width='100%25' height='100%25' fill='none' rx='9.5' ry='9.5' stroke='white' stroke-opacity='0.42' stroke-width='1' stroke-dasharray='12 4'/%3E%3C/svg%3E");
+        -webkit-mask-image: radial-gradient(
+          170% 130% at 0% 0%,
+          #000 0%,
+          rgba(0, 0, 0, 0.42) 24%,
+          rgba(0, 0, 0, 0.22) 46%,
+          rgba(0, 0, 0, 0.1) 68%,
+          rgba(0, 0, 0, 0.07) 100%
+        );
+        mask-image: radial-gradient(
+          170% 130% at 0% 0%,
+          #000 0%,
+          rgba(0, 0, 0, 0.42) 24%,
+          rgba(0, 0, 0, 0.22) 46%,
+          rgba(0, 0, 0, 0.1) 68%,
+          rgba(0, 0, 0, 0.07) 100%
+        );
+        opacity: 0.9;
+        transition: opacity 160ms ease;
+      }
+      .tile:hover::after,
+      .aud:hover::after {
+        opacity: 1;
+      }
+      .aud .float {
+        position: absolute;
+        left: 34px;
+        right: 34px;
+        top: 44px;
+        bottom: -1px;
+        background: #111114;
+        border: 1px solid #26262d;
+        border-radius: 9px 9px 0 0;
+        box-shadow: 0 -12px 44px rgba(0, 0, 0, 0.55);
+        padding: 16px 18px;
+        overflow: hidden;
+        z-index: 1;
+      }
+      .aud .cap {
+        padding: 22px 24px 26px;
+      }
+      .aud .cap .k {
+        font-family: var(--mono);
+        font-size: 10.5px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--dimmer);
+      }
+      .aud .cap h3 {
+        font-size: 17px;
+        font-weight: 560;
+        letter-spacing: -0.015em;
+        color: #f2f2f2;
+        margin-top: 11px;
+      }
+      .aud .cap p {
+        color: var(--faint);
+        font-size: 13.5px;
+        line-height: 1.55;
+        margin-top: 8px;
+      }
+      .mini-head {
+        font-size: 11px;
+        color: var(--faint);
+        margin-bottom: 12px;
+      }
+      .mini-pills {
+        display: flex;
+        gap: 7px;
+      }
+      .mp {
+        font-size: 11px;
+        font-weight: 550;
+        border-radius: 999px;
+        padding: 3px 9px;
+        border: 1px solid #2a2a30;
+        color: var(--sub);
+      }
+      .mp.rage {
+        color: #ffd9a0;
+        border-color: rgba(245, 166, 35, 0.4);
+        background: rgba(245, 166, 35, 0.09);
+      }
+      .mp.err {
+        color: #ffb3b0;
+        border-color: rgba(244, 83, 78, 0.4);
+        background: rgba(244, 83, 78, 0.09);
+      }
+      .mini-bars {
+        display: flex;
+        align-items: flex-end;
+        gap: 3px;
+        height: 30px;
+        margin-top: 16px;
+      }
+      .mini-bars i {
+        width: 11px;
+        background: #26262d;
+        border-radius: 2px;
+        height: 45%;
+      }
+      .mini-bars i:nth-child(odd) {
+        height: 65%;
+      }
+      .mini-bars i.hot {
+        background: var(--accent);
+        height: 100%;
+      }
+      .mini-line {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-family: var(--mono);
+        font-size: 11.5px;
+        color: var(--sub);
+        padding: 4px 0;
+      }
+      .mini-line .d {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        flex: none;
+      }
+      .d.red {
+        background: #f4534e;
+      }
+      .d.teal {
+        background: #2dd4bf;
+      }
+      .d.green {
+        background: #34d399;
+      }
+      .d.pulse {
+        box-shadow: 0 0 8px rgba(52, 211, 153, 0.7);
+        animation: pulse 1.8s infinite;
+      }
+      .mini-sub {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--dimmer);
+        margin-top: 9px;
+      }
+      .mini-watch {
+        margin-top: 11px;
+        font-size: 11.5px;
+        color: #34d399;
+        border: 1px dashed rgba(52, 211, 153, 0.4);
+        border-radius: 6px;
+        padding: 4px 10px;
+        display: inline-flex;
+        gap: 6px;
+      }
+      .mini-big {
+        font-family: var(--mono);
+        font-size: 27px;
+        font-weight: 600;
+        color: #f2f2f2;
+        letter-spacing: -0.02em;
+      }
+      .mini-big span {
+        font-size: 12px;
+        color: var(--faint);
+        font-weight: 400;
+        font-family: var(--sans);
+      }
+      .mini-delta {
+        font-family: var(--mono);
+        font-size: 11.5px;
+        color: #34d399;
+        margin-top: 10px;
+      }
+
+      /* ===== roadmap strip (clearly-labeled, not-yet-shipped) ===== */
+      .roadmap .rm-kicker {
         display: inline-flex;
         align-items: center;
         gap: 9px;
-        color: var(--faint);
-        font-size: 15px;
-        font-weight: 500;
-        letter-spacing: -0.01em;
+        font-family: var(--mono);
+        font-size: 11px;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: var(--dimmer);
       }
-      .quote {
-        margin-top: 52px;
-        border-left: 1px solid #333;
-        padding-left: 26px;
-        max-width: 62ch;
-      }
-      .quote p {
-        font-size: clamp(1.1rem, 1.8vw, 1.4rem);
-        font-weight: 400;
-        line-height: 1.45;
-        color: #e5e5e5;
-        letter-spacing: -0.01em;
-      }
-      .quote p u {
-        text-decoration-color: var(--accent);
-        text-underline-offset: 4px;
-        text-decoration-thickness: 1.5px;
-      }
-      .quote .by {
-        margin-top: 24px;
-        display: flex;
-        align-items: center;
-        gap: 12px;
-      }
-      .quote .by .ava2 {
-        width: 36px;
-        height: 36px;
+      .roadmap .rm-kicker::before {
+        content: "";
+        width: 7px;
+        height: 7px;
         border-radius: 50%;
-        background: linear-gradient(135deg, #333, #555);
-        border: 1px solid var(--line);
+        border: 1px solid var(--dimmer);
       }
-      .quote .by .nm {
-        font-size: 14px;
-        font-weight: 550;
-        color: #ededed;
+      .roadmap .sec-head {
+        margin-top: 16px;
       }
-      .quote .by .rl {
-        font-size: 13px;
-        color: var(--faint);
+      .rm-grid {
+        margin-top: 38px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0 56px;
       }
-      .proof .joinus {
-        margin-top: 40px;
-        color: var(--faint);
+      .rm-item {
+        display: flex;
+        gap: 16px;
+        align-items: flex-start;
+        padding: 20px 0;
+        border-top: 1px dashed #2a2a2a;
+      }
+      .rm-item .pill {
+        flex: none;
+        margin-top: 2px;
+        font-family: var(--mono);
+        font-size: 10px;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--dimmer);
+        border: 1px dashed #3a3a3a;
+        border-radius: 999px;
+        padding: 3px 9px;
+      }
+      .rm-item b {
         font-size: 15px;
+        font-weight: 550;
+        letter-spacing: -0.01em;
+        color: var(--sub);
       }
-      .proof .joinus u {
-        color: #ededed;
-        text-underline-offset: 4px;
-        text-decoration-color: var(--accent);
-        text-decoration-thickness: 1.5px;
+      .rm-item p {
+        margin-top: 6px;
+        color: var(--dimmer);
+        font-size: 13px;
+        line-height: 1.5;
+        max-width: 44ch;
       }
 
-      /* ===== footer ===== */
-      footer {
-        border-top: 1px solid var(--line);
+      /* faint full-section texture backdrops */
+      .sec-tex {
+        position: absolute;
+        inset: 0;
+        z-index: 0;
+        pointer-events: none;
+        opacity: 0.55;
+        -webkit-mask-image: radial-gradient(120% 90% at 50% 0%, #000, transparent 78%);
+        mask-image: radial-gradient(120% 90% at 50% 0%, #000, transparent 78%);
       }
-      .footgrid {
-        display: grid;
-        grid-template-columns: 1.5fr 1fr;
-        gap: 40px;
-        padding: 92px 0 40px;
+      .sec-tex.zig {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='34' height='18'%3E%3Cpath d='M0 15L17 3L34 15' fill='none' stroke='white' stroke-opacity='0.05' stroke-width='1'/%3E%3C/svg%3E");
+        background-size: 34px 18px;
+      }
+      #roadmap {
+        position: relative;
+      }
+      #roadmap > .wrap {
+        position: relative;
+        z-index: 1;
+      }
+
+      /* ===== CTA band — grid-textured closer ===== */
+      .cta-band {
+        position: relative;
+        padding: 104px 0 112px;
+        text-align: center;
+        overflow: hidden;
+      }
+      .cta-band .grid-tex {
+        position: absolute;
+        inset: 0;
+        z-index: 0;
+        pointer-events: none;
+        background-image:
+          linear-gradient(var(--rule) 1px, transparent 1px),
+          linear-gradient(90deg, var(--rule) 1px, transparent 1px);
+        background-size: 54px 54px;
+        -webkit-mask-image: radial-gradient(78% 130% at 50% 50%, transparent 18%, #000 78%);
+        mask-image: radial-gradient(78% 130% at 50% 50%, transparent 18%, #000 78%);
+        opacity: 0.8;
+      }
+      .cta-band .inner {
+        position: relative;
+        z-index: 1;
+      }
+      .cta-band .bigline {
+        margin: 0 auto;
+        text-align: center;
+        max-width: none;
+      }
+      .cta-band .btns {
+        justify-content: center;
+        margin-top: 38px;
       }
       .bigline {
         font-size: clamp(1.9rem, 4.4vw, 3.45rem);
@@ -1342,7 +1694,6 @@
         line-height: 1.14;
         letter-spacing: -0.025em;
         color: #fff;
-        max-width: 15ch;
       }
       .bigline .w {
         color: var(--sub);
@@ -1375,11 +1726,32 @@
         width: 100%;
         height: 100%;
       }
+
+      /* ===== footer ===== */
+      footer {
+        border-top: 1px solid var(--line);
+      }
+      .footgrid {
+        display: grid;
+        grid-template-columns: 1.15fr 2fr;
+        gap: 40px 48px;
+        padding: 72px 0 48px;
+        align-items: start;
+      }
+      .fbrand .wordmark b {
+        font-size: 16px;
+      }
+      .fbrand p {
+        color: var(--faint);
+        font-size: 13.5px;
+        line-height: 1.6;
+        margin-top: 18px;
+        max-width: 32ch;
+      }
       .footcols {
-        display: flex;
-        gap: 46px;
-        justify-content: flex-end;
-        flex-wrap: wrap;
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 30px;
       }
       .footcols h5 {
         font-family: var(--mono);
@@ -1416,92 +1788,16 @@
         font-family: var(--mono);
         font-size: 12px;
         color: var(--dimmer);
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
       }
       .footbot .edge b {
-        color: var(--faint);
-        font-weight: 500;
+        color: #f6821f; /* Cloudflare brand orange */
+        font-weight: 600;
       }
 
       /* ===== animations ===== */
       @keyframes pulse {
         50% {
           opacity: 0.25;
-        }
-      }
-      @keyframes ripple {
-        0% {
-          transform: scale(0.6);
-          opacity: 0.8;
-        }
-        100% {
-          transform: scale(2.6);
-          opacity: 0;
-        }
-      }
-      @keyframes node-flash {
-        0% {
-          box-shadow: 0 0 0 rgba(245, 166, 35, 0);
-        }
-        35% {
-          box-shadow: 0 0 14px 2px rgba(245, 166, 35, 0.95);
-        }
-        100% {
-          box-shadow: 0 0 8px rgba(245, 166, 35, 0.7);
-        }
-      }
-      /* ghost cursor path through the hero whitespace (right side) */
-      @keyframes ghost-move {
-        0% {
-          transform: translate(70vw, 210px);
-        }
-        16% {
-          transform: translate(80vw, 300px);
-        }
-        22% {
-          transform: translate(80vw, 300px);
-        }
-        46% {
-          transform: translate(63vw, 470px);
-        }
-        52% {
-          transform: translate(63vw, 470px);
-        }
-        74% {
-          transform: translate(87vw, 380px);
-        }
-        100% {
-          transform: translate(70vw, 210px);
-        }
-      }
-      @keyframes ghost-click {
-        0%,
-        16% {
-          transform: scale(0.2);
-          opacity: 0;
-        }
-        19% {
-          transform: scale(0.2);
-          opacity: 0.7;
-        }
-        24% {
-          transform: scale(2.4);
-          opacity: 0;
-        }
-        46% {
-          transform: scale(0.2);
-          opacity: 0.7;
-        }
-        51% {
-          transform: scale(2.6);
-          opacity: 0;
-        }
-        52%,
-        100% {
-          transform: scale(0.2);
-          opacity: 0;
         }
       }
       .reveal {
@@ -1519,26 +1815,14 @@
         opacity: 1;
         transform: none;
       }
-      @media (max-width: 1100px) {
-        .ghost {
-          display: none;
-        }
-      }
       @media (prefers-reduced-motion: reduce) {
         html {
           scroll-behavior: auto;
         }
         .pulse,
-        .vp-cursor::after,
-        .ghost .cur,
-        .ghost .ripwrap,
-        .ghost .rip {
-          animation: none;
-        }
-        .ghost {
-          display: none;
-        }
-        .sec-kicker.in .ts .node {
+        .lv-dot,
+        .live-badge span,
+        .d.pulse {
           animation: none;
         }
         .reveal {
@@ -1546,10 +1830,50 @@
           transform: none;
           transition: none;
         }
+        .stack-card {
+          position: static;
+          margin-bottom: 0;
+        }
+        .card-inner {
+          transform: none !important;
+          filter: none !important;
+          margin-bottom: 34px;
+        }
+        .stack-card .shot {
+          max-height: none;
+        }
+        .shot-fade {
+          display: none;
+        }
+        .stack-card .sec-note {
+          display: block;
+        }
       }
 
       /* ===== responsive ===== */
       @media (max-width: 1000px) {
+        /* below this width a pinned card can exceed the viewport — fall back to normal flow */
+        .stack {
+          padding-bottom: 0;
+        }
+        .stack-card {
+          position: static;
+          margin-bottom: 0;
+        }
+        .card-inner {
+          transform: none !important;
+          filter: none !important;
+          margin-bottom: 34px;
+        }
+        .stack-card .shot {
+          max-height: none;
+        }
+        .shot-fade {
+          display: none;
+        }
+        .stack-card .sec-note {
+          display: block;
+        }
         .zone {
           grid-template-columns: 1fr;
         }
@@ -1563,12 +1887,29 @@
           border-right: none;
           border-bottom: 1px solid var(--line);
         }
+        .tile.live {
+          flex-direction: column;
+          align-items: stretch;
+        }
+        .tile.live .lv-rail {
+          width: auto;
+          border-left: none;
+          border-top: 1px solid var(--line);
+          padding-left: 0;
+          padding-top: 18px;
+          margin-top: 20px;
+        }
+        .bento {
+          grid-template-columns: 1fr 1fr;
+        }
         .footgrid {
           grid-template-columns: 1fr;
-          gap: 56px;
+          gap: 44px;
         }
-        .footcols {
-          justify-content: flex-start;
+      }
+      @media (max-width: 760px) {
+        .audience {
+          grid-template-columns: 1fr;
         }
       }
       @media (max-width: 680px) {
@@ -1584,12 +1925,18 @@
         .sec-kicker {
           gap: 14px;
         }
-        .sec-kicker .ts {
-          min-width: 0;
-          padding-top: 6px;
+        .bento {
+          grid-template-columns: 1fr;
+        }
+        .tile.wide {
+          grid-column: span 1;
+        }
+        .rm-grid {
+          grid-template-columns: 1fr;
         }
         .footcols {
-          gap: 30px;
+          grid-template-columns: 1fr 1fr;
+          gap: 26px 30px;
         }
         .appnav2 .k,
         .stat:nth-child(n + 4) {
@@ -1605,787 +1952,1157 @@
     </style>
   </head>
   <body>
-    <!-- scroll playhead — you're scrubbing the page like a replay -->
-    <div class="scrub" aria-hidden="true">
-      <div class="track"></div>
-      <div class="fill"></div>
-      <div class="head"></div>
-    </div>
-
-    <!-- ============ NAV ============ -->
-    <nav class="nav">
-      <a class="wordmark" href="#"><span class="mark"></span><b>orange replay</b></a>
-      <div class="links">
-        <a href="#capture">Product</a>
-        <a href="#friction">Features</a>
-        <a href="#">Docs</a>
-        <a href="#">Changelog</a>
-        <a href="#">Pricing</a>
-      </div>
-      <div class="right">
-        <a class="cta-pill" href="#"
-          >Start free
-          <span class="circ"
-            ><svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-              <path
-                d="M3 9L9 3M9 3H4.5M9 3v4.5"
-                stroke="#fff"
-                stroke-width="1.4"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              /></svg
-          ></span>
-        </a>
-      </div>
-    </nav>
-
-    <!-- ============ HERO ============ -->
-    <header class="hero">
-      <div class="streaks"></div>
-      <div class="scan"></div>
-      <div class="ghost" aria-hidden="true">
-        <div class="ripwrap"><span class="rip"></span></div>
-        <div class="cur">
-          <svg width="17" height="17" viewBox="0 0 16 16" fill="none">
-            <path d="M2 2l5 12 2-5 5-2z" fill="#f5a623" stroke="#0a0a0c" stroke-width="0.8" />
-          </svg>
+    <div class="frame">
+      <!-- ============ NAV ============ -->
+      <nav class="nav">
+        <a class="wordmark" href="#"><span class="mark"></span><b>orange replay</b></a>
+        <div class="links">
+          <a href="#capture">Product</a>
+          <a href="#features">Features</a>
+          <a href="#">Docs</a>
+          <a href="#">Changelog</a>
+          <a href="#">Pricing</a>
         </div>
-      </div>
-      <div class="wrap">
-        <div class="inner">
-          <h1 class="reveal">Watch what your users actually did.</h1>
-          <p class="sub reveal">
-            Orange Replay records every session, surfaces the errors and rage clicks on its own, and
-            replays them pixel-for-pixel. Stop guessing — press play.
-          </p>
+        <div class="right">
+          <a class="cta-pill" href="#"
+            >Start free
+            <span class="circ"
+              ><svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                <path
+                  d="M3 9L9 3M9 3H4.5M9 3v4.5"
+                  stroke="#fff"
+                  stroke-width="1.4"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                /></svg
+            ></span>
+          </a>
+        </div>
+      </nav>
 
-          <div class="works reveal">
-            <div class="label">Works with</div>
-            <div class="logos">
-              <span class="lg"
-                ><svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <circle cx="12" cy="12" r="2" fill="#61dafb" />
-                  <g stroke="#61dafb" stroke-width="1" opacity="0.85" fill="none">
-                    <ellipse cx="12" cy="12" rx="10" ry="4" />
-                    <ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(60 12 12)" />
-                    <ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(120 12 12)" />
-                  </g></svg
-                >React</span
-              >
-              <span class="lg"
-                ><svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                  <path d="M2 3h4l6 10L18 3h4L12 21z" fill="#41b883" />
-                  <path d="M6 3h3l3 5 3-5h3L12 14z" fill="#35495e" /></svg
-                >Vue</span
-              >
-              <span class="lg"
-                ><svg width="17" height="17" viewBox="0 0 24 24" fill="none">
-                  <path
-                    d="M18.7 4.6c-2-2.9-6-3.8-8.9-2L5 5.5A5.6 5.6 0 0 0 3.3 13a5.3 5.3 0 0 0-.8 2 5.7 5.7 0 0 0 1 4.3c2 2.9 6 3.8 8.9 2l4.8-3a5.6 5.6 0 0 0 1.7-7.4 5.3 5.3 0 0 0 .8-2 5.7 5.7 0 0 0-1-4.3z"
-                    fill="#ff3e00"
-                  /></svg
-                >Svelte</span
-              >
-              <span class="lg"
-                ><svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                  <circle cx="12" cy="12" r="11" fill="#fff" />
-                  <path
-                    d="M9 7v10M9 7l7 10M16 7v6"
-                    stroke="#000"
-                    stroke-width="1.6"
-                    stroke-linecap="round"
-                  /></svg
-                >Next.js</span
-              >
-              <span class="lg"
-                ><svg width="17" height="17" viewBox="0 0 24 24" fill="none">
-                  <rect x="2" y="2" width="20" height="20" rx="3" fill="#f0db4f" />
-                  <path
-                    d="M8 18c.4.6 1 1 1.9 1 .9 0 1.4-.4 1.4-1.6V11h1.8v6.5c0 2-1.2 3-2.9 3-1.5 0-2.5-.8-3-1.7L8 18zm6.2-.2c.4.7 1 1.2 2 1.2.8 0 1.3-.4 1.3-1 0-.7-.5-.9-1.5-1.3l-.5-.2c-1.5-.6-2.4-1.4-2.4-3 0-1.5 1.1-2.6 2.9-2.6 1.3 0 2.2.4 2.8 1.6l-1.5 1c-.3-.6-.7-.8-1.3-.8-.5 0-.9.3-.9.8 0 .6.4.8 1.3 1.2l.5.2c1.7.7 2.6 1.5 2.6 3.1 0 1.8-1.4 2.7-3.3 2.7-1.8 0-3-.9-3.6-2l1.4-.9z"
-                    fill="#000"
-                  /></svg
-                >Vanilla JS</span
-              >
+      <!-- ============ HERO ============ -->
+      <header class="hero">
+        <div class="scan"></div>
+        <div class="wrap">
+          <div class="inner">
+            <h1 class="reveal">Watch what your users actually did.</h1>
+            <p class="sub reveal">
+              Orange Replay records every session, surfaces the errors and rage clicks on its own,
+              and replays them pixel-for-pixel. Stop guessing — press play.
+            </p>
+
+            <div class="works reveal">
+              <div class="label">Works with</div>
+              <div class="logos">
+                <span class="lg"
+                  ><svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="2" fill="#61dafb" />
+                    <g stroke="#61dafb" stroke-width="1" opacity="0.85" fill="none">
+                      <ellipse cx="12" cy="12" rx="10" ry="4" />
+                      <ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(60 12 12)" />
+                      <ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(120 12 12)" />
+                    </g></svg
+                  >React</span
+                >
+                <span class="lg"
+                  ><svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                    <path d="M2 3h4l6 10L18 3h4L12 21z" fill="#41b883" />
+                    <path d="M6 3h3l3 5 3-5h3L12 14z" fill="#35495e" /></svg
+                  >Vue</span
+                >
+                <span class="lg"
+                  ><svg width="17" height="17" viewBox="0 0 24 24" fill="none">
+                    <path
+                      d="M18.7 4.6c-2-2.9-6-3.8-8.9-2L5 5.5A5.6 5.6 0 0 0 3.3 13a5.3 5.3 0 0 0-.8 2 5.7 5.7 0 0 0 1 4.3c2 2.9 6 3.8 8.9 2l4.8-3a5.6 5.6 0 0 0 1.7-7.4 5.3 5.3 0 0 0 .8-2 5.7 5.7 0 0 0-1-4.3z"
+                      fill="#ff3e00"
+                    /></svg
+                  >Svelte</span
+                >
+                <span class="lg"
+                  ><svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="11" fill="#fff" />
+                    <path
+                      d="M9 7v10M9 7l7 10M16 7v6"
+                      stroke="#000"
+                      stroke-width="1.6"
+                      stroke-linecap="round"
+                    /></svg
+                  >Next.js</span
+                >
+                <span class="lg"
+                  ><svg width="17" height="17" viewBox="0 0 24 24" fill="none">
+                    <rect x="2" y="2" width="20" height="20" rx="3" fill="#f0db4f" />
+                    <path
+                      d="M8 18c.4.6 1 1 1.9 1 .9 0 1.4-.4 1.4-1.6V11h1.8v6.5c0 2-1.2 3-2.9 3-1.5 0-2.5-.8-3-1.7L8 18zm6.2-.2c.4.7 1 1.2 2 1.2.8 0 1.3-.4 1.3-1 0-.7-.5-.9-1.5-1.3l-.5-.2c-1.5-.6-2.4-1.4-2.4-3 0-1.5 1.1-2.6 2.9-2.6 1.3 0 2.2.4 2.8 1.6l-1.5 1c-.3-.6-.7-.8-1.3-.8-.5 0-.9.3-.9.8 0 .6.4.8 1.3 1.2l.5.2c1.7.7 2.6 1.5 2.6 3.1 0 1.8-1.4 2.7-3.3 2.7-1.8 0-3-.9-3.6-2l1.4-.9z"
+                      fill="#000"
+                    /></svg
+                  >Vanilla JS</span
+                >
+              </div>
+            </div>
+
+            <div class="btns reveal">
+              <a class="cta-pill lg" href="#">
+                Start free
+                <span class="circ"
+                  ><svg width="13" height="13" viewBox="0 0 12 12" fill="none">
+                    <path
+                      d="M3 9L9 3M9 3H4.5M9 3v4.5"
+                      stroke="#fff"
+                      stroke-width="1.4"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    /></svg
+                ></span>
+              </a>
+              <!-- links to the live product demo / dashboard (page not built yet) -->
+              <a class="btn-ghost" href="#">
+                <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+                  <path d="M4 3l7 4-7 4z" fill="#f5a623" />
+                </svg>
+                Live demo
+              </a>
             </div>
           </div>
+        </div>
+      </header>
 
-          <div class="btns reveal">
-            <a class="btn-primary" href="#">
-              <span class="lbl">Start free</span>
-              <span class="box"
-                ><svg width="13" height="13" viewBox="0 0 12 12" fill="none">
+      <!-- ============ FEATURE STACK — sticky stacking cards ============ -->
+      <div class="stack">
+        <!-- 01 · CAPTURE -->
+        <article class="stack-card" id="capture" style="--i: 0">
+          <div class="wrap">
+            <div class="card-inner">
+              <div class="sec-kicker">
+                <span class="ts">01</span>
+                <h2 class="sec-head">
+                  <span class="text-strong">Capture.</span>
+                  <span class="text-faint"
+                    >One snippet records every session — full DOM, clicks, and network — straight to
+                    the edge.</span
+                  >
+                </h2>
+              </div>
+              <p class="sec-note">
+                Under 20&nbsp;KB, async, and scrubbing PII before anything leaves the browser. No
+                sampling, no replay gaps.
+              </p>
+              <div class="shot">
+                <span class="edge"></span>
+                <span class="shot-fade" aria-hidden="true"></span>
+                <div class="app">
+                  <div class="appnav1">
+                    <span class="mark"></span><span class="b">Orange Replay</span>
+                    <span class="sep">/</span>
+                    <span class="switcher">acme-web <span class="car">▾</span></span>
+                    <span class="env2">Production</span>
+                    <span class="r"
+                      ><span class="lnk">Docs</span><span class="lnk">Changelog</span
+                      ><span class="ava"></span
+                    ></span>
+                  </div>
+                  <div class="appnav2">
+                    <span class="on">Overview</span><span>Sessions</span><span>Live</span
+                    ><span>Errors</span><span>Settings</span>
+                    <span class="k">⌘K</span>
+                  </div>
+                  <div class="appbody">
+                    <div class="apphead">
+                      <span class="h">Overview<small>last 24 hours · updated 12s ago</small></span>
+                      <span class="acts"
+                        ><span class="minibtn">Share</span
+                        ><span class="minibtn pr">Install snippet</span></span
+                      >
+                    </div>
+                    <div class="stats">
+                      <div class="stat">
+                        <div class="k">Sessions</div>
+                        <div class="v">128</div>
+                        <div class="d"><em>+12%</em> vs 7d avg</div>
+                      </div>
+                      <div class="stat">
+                        <div class="k">With errors</div>
+                        <div class="v warm">4</div>
+                        <div class="d"><em class="bad">+2</em> vs yesterday</div>
+                      </div>
+                      <div class="stat">
+                        <div class="k">Rage clicks</div>
+                        <div class="v warm">2</div>
+                        <div class="d">1 page affected</div>
+                      </div>
+                      <div class="stat">
+                        <div class="k">Median duration</div>
+                        <div class="v">6:48</div>
+                        <div class="d">across 12 pages</div>
+                      </div>
+                      <div class="stat">
+                        <div class="k">Stored</div>
+                        <div class="v">5.1<span style="font-size: 11px">MB</span></div>
+                        <div class="d">24h window</div>
+                      </div>
+                    </div>
+                    <div class="zone">
+                      <div class="panel">
+                        <div class="ptitle">
+                          <b>Friction history</b
+                          ><span>cell = day · color = error &amp; rage density</span>
+                        </div>
+                        <div class="heat">
+                          <i class="t2"></i><i class="t1"></i><i class="t3"></i><i class="t2"></i
+                          ><i class="t1"></i><i></i><i></i> <i class="t3"></i><i class="t2"></i
+                          ><i class="t2"></i><i class="a1"></i><i class="t1"></i><i></i><i></i>
+                          <i class="t2"></i><i class="a2"></i><i class="t3"></i><i class="t2"></i
+                          ><i class="a1"></i><i class="t1"></i><i></i> <i class="a3"></i
+                          ><i class="t2"></i><i class="a2"></i><i class="r1"></i><i class="t2"></i
+                          ><i></i><i></i> <i class="t2"></i><i class="r2"></i><i class="a3"></i
+                          ><i class="t3"></i><i class="a2"></i><i class="t1"></i><i></i>
+                          <i class="r3"></i><i class="a2"></i><i class="r2"></i><i class="a3"></i
+                          ><i class="t2"></i><i></i><i></i> <i class="a2"></i><i class="t3"></i
+                          ><i class="t2"></i><i class="r2"></i><i class="a1"></i><i class="t1"></i
+                          ><i></i> <i class="t3"></i><i class="t2"></i><i class="a2"></i
+                          ><i class="t2"></i><i class="t3"></i><i></i><i></i> <i class="t1"></i
+                          ><i class="t2"></i><i class="t2"></i><i class="t1"></i><i class="t2"></i
+                          ><i></i><i></i> <i class="t2"></i><i class="t3"></i><i class="t1"></i
+                          ><i class="t2"></i><i class="t1"></i><i class="t1"></i><i></i>
+                        </div>
+                        <div class="legend">
+                          <span>Calmer</span>
+                          <div class="grad-bar"></div>
+                          <span>More friction</span
+                          ><span style="margin-left: auto">May — Jul 2026</span>
+                        </div>
+                      </div>
+                      <div class="panel live-rail">
+                        <div class="ptitle">
+                          <b>Live now</b><span class="watch">3 watching</span>
+                        </div>
+                        <div class="lrow">
+                          <span class="pulse"></span>
+                          <div>
+                            <div class="who">/checkout</div>
+                            <div class="where">🇺🇸 San Francisco · Chrome</div>
+                          </div>
+                          <span class="t">4:12</span>
+                        </div>
+                        <div class="lrow">
+                          <span class="pulse"></span>
+                          <div>
+                            <div class="who">/pricing</div>
+                            <div class="where">🇯🇵 Tokyo · Safari</div>
+                          </div>
+                          <span class="t">0:47</span>
+                        </div>
+                        <div class="lrow">
+                          <span class="pulse"></span>
+                          <div>
+                            <div class="who">/onboarding</div>
+                            <div class="where">🇧🇷 São Paulo · Chrome</div>
+                          </div>
+                          <span class="t">2:03</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="tablewrap">
+                      <div class="toolbar">
+                        <div class="filter">Country <b>All</b></div>
+                        <div class="filter">Duration <b>Any</b></div>
+                        <div class="filter">Errors <b>Any</b></div>
+                        <div class="grow"></div>
+                        <span class="count">128 sessions · 24h</span>
+                      </div>
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Session</th>
+                            <th>Status</th>
+                            <th>Activity</th>
+                            <th class="r">Duration</th>
+                            <th>Client</th>
+                            <th class="r">When</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td>
+                              <div class="page">/checkout</div>
+                              <div class="rmeta">🇺🇸 San Francisco · 23 clicks</div>
+                            </td>
+                            <td>
+                              <span class="pill err"><i></i>1 error</span>
+                            </td>
+                            <td>
+                              <div class="spark">
+                                <i style="height: 30%"></i><i style="height: 55%"></i
+                                ><i style="height: 40%"></i><i style="height: 70%"></i
+                                ><i class="e" style="height: 95%"></i><i style="height: 35%"></i
+                                ><i style="height: 50%"></i><i style="height: 25%"></i>
+                              </div>
+                            </td>
+                            <td class="r num strong">10:12</td>
+                            <td class="num">Chrome · macOS</td>
+                            <td class="r when">48m</td>
+                          </tr>
+                          <tr>
+                            <td>
+                              <div class="page">/support</div>
+                              <div class="rmeta">🇮🇳 Bengaluru · 41 clicks</div>
+                            </td>
+                            <td>
+                              <span class="pill err"><i></i>3 errors</span>
+                              <span class="pill rage"><i></i>2 rage</span>
+                            </td>
+                            <td>
+                              <div class="spark">
+                                <i style="height: 45%"></i><i style="height: 60%"></i
+                                ><i class="e" style="height: 85%"></i><i style="height: 70%"></i
+                                ><i class="e" style="height: 95%"></i><i style="height: 55%"></i
+                                ><i class="e" style="height: 80%"></i><i style="height: 40%"></i>
+                              </div>
+                            </td>
+                            <td class="r num strong">15:21</td>
+                            <td class="num">Chrome · Android</td>
+                            <td class="r when">2h</td>
+                          </tr>
+                          <tr>
+                            <td>
+                              <div class="page">/pricing</div>
+                              <div class="rmeta">🇩🇪 Berlin · 9 clicks</div>
+                            </td>
+                            <td>
+                              <span class="pill ok"><i></i>clean</span>
+                            </td>
+                            <td>
+                              <div class="spark">
+                                <i style="height: 40%"></i><i style="height: 28%"></i
+                                ><i style="height: 48%"></i><i style="height: 22%"></i
+                                ><i style="height: 38%"></i><i style="height: 18%"></i
+                                ><i style="height: 30%"></i><i style="height: 14%"></i>
+                              </div>
+                            </td>
+                            <td class="r num strong">3:04</td>
+                            <td class="num">Firefox · Windows</td>
+                            <td class="r when">1h</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <!-- 02 · REPLAY -->
+        <article class="stack-card" id="replay" style="--i: 1">
+          <div class="wrap">
+            <div class="card-inner">
+              <div class="sec-kicker">
+                <span class="ts">02</span>
+                <h2 class="sec-head">
+                  <span class="text-strong">Replay.</span>
+                  <span class="text-faint"
+                    >Pixel-perfect DOM playback on a timeline that jumps straight to the moment it
+                    broke.</span
+                  >
+                </h2>
+              </div>
+              <p class="sec-note">
+                It's the real DOM, not a video. Scrub with the keyboard; console, network, and
+                clicks stay synced to the frame.
+              </p>
+              <div class="shot">
+                <span class="edge"></span>
+                <span class="shot-fade" aria-hidden="true"></span>
+                <div class="app">
+                  <div class="appnav1">
+                    <span class="mark"></span><span class="b">Orange Replay</span>
+                    <span class="sep">/</span>
+                    <span class="switcher" style="font-family: var(--mono); font-size: 11px"
+                      >Sessions / sess_8f2a</span
+                    >
+                    <span class="r"
+                      ><span class="lnk">Share</span><span class="lnk">Copy link</span
+                      ><span class="ava"></span
+                    ></span>
+                  </div>
+                  <div class="replay">
+                    <div class="stage">
+                      <div class="viewport">
+                        <div class="vp-bar">
+                          <span class="vp-dot"></span><span class="vp-dot"></span
+                          ><span class="vp-dot"></span><span class="vp-url">acme.com/checkout</span>
+                        </div>
+                        <div class="vp-skel">
+                          <div class="l" style="width: 52%; height: 15px"></div>
+                          <div class="l" style="width: 88%"></div>
+                          <div class="l" style="width: 80%"></div>
+                          <div class="l" style="width: 66%"></div>
+                          <div class="vp-cta"></div>
+                        </div>
+                      </div>
+                      <div class="player">
+                        <div class="play"></div>
+                        <span class="tc">4:12</span>
+                        <div class="timeline">
+                          <div class="base"></div>
+                          <span class="tl-act" style="left: 3%; height: 8px"></span
+                          ><span class="tl-act" style="left: 8%; height: 14px"></span>
+                          <span class="tl-act" style="left: 14%; height: 10px"></span
+                          ><span class="tl-act" style="left: 21%; height: 16px"></span>
+                          <span class="tl-act" style="left: 29%; height: 7px"></span
+                          ><span class="tl-act" style="left: 37%; height: 15px"></span>
+                          <span class="tl-act" style="left: 46%; height: 18px"></span
+                          ><span class="tl-act" style="left: 56%; height: 9px"></span>
+                          <span class="tl-act" style="left: 65%; height: 13px"></span
+                          ><span class="tl-act" style="left: 74%; height: 16px"></span>
+                          <span class="tl-act" style="left: 83%; height: 8px"></span
+                          ><span class="tl-act" style="left: 91%; height: 12px"></span>
+                          <span class="tl-err" style="left: 56%"></span>
+                          <span class="tl-ph"></span>
+                        </div>
+                        <span class="tc">10:12</span>
+                        <div class="keys"><kbd>←</kbd><kbd>→</kbd><kbd>space</kbd></div>
+                      </div>
+                    </div>
+                    <div class="side">
+                      <div class="st">Event stream</div>
+                      <div class="ev">
+                        <span class="dot clk"></span>Click · “Apply coupon”<span class="tt"
+                          >3:58</span
+                        >
+                      </div>
+                      <div class="ev">
+                        <span class="dot net"></span>POST /api/coupon 200<span class="tt"
+                          >3:59</span
+                        >
+                      </div>
+                      <div class="ev cur">
+                        <span class="dot rage"></span>Rage click · ×4<span class="tt">4:09</span>
+                      </div>
+                      <div class="ev">
+                        <span class="dot err"></span>TypeError: total is undefined<span class="tt"
+                          >4:12</span
+                        >
+                      </div>
+                      <div class="ev">
+                        <span class="dot net"></span>POST /api/checkout 500<span class="tt"
+                          >4:12</span
+                        >
+                      </div>
+                      <div class="ev">
+                        <span class="dot clk"></span>Click · “Retry”<span class="tt">4:20</span>
+                      </div>
+                      <div class="st">Console</div>
+                      <div class="ev">
+                        <span class="dot err"></span>Uncaught (in promise)<span class="tt"
+                          >4:12</span
+                        >
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <!-- 03 · DIAGNOSE -->
+        <article class="stack-card" id="friction" style="--i: 2">
+          <div class="wrap">
+            <div class="card-inner">
+              <div class="sec-kicker">
+                <span class="ts">03</span>
+                <h2 class="sec-head">
+                  <span class="text-strong">Diagnose.</span>
+                  <span class="text-faint"
+                    >Errors and rage clicks, ranked and surfaced before you ever go looking for
+                    them.</span
+                  >
+                </h2>
+              </div>
+              <p class="sec-note">
+                Auto-detected signals, filters that cut straight to the pain, and a friction heatmap
+                so regressions jump off the page.
+              </p>
+              <div class="shot">
+                <span class="edge"></span>
+                <span class="shot-fade" aria-hidden="true"></span>
+                <div class="app">
+                  <div class="appnav1">
+                    <span class="mark"></span><span class="b">Orange Replay</span>
+                    <span class="sep">/</span>
+                    <span class="switcher">acme-web <span class="car">▾</span></span>
+                    <span class="env2">Production</span>
+                    <span class="r"
+                      ><span class="lnk">Docs</span><span class="lnk">Changelog</span
+                      ><span class="ava"></span
+                    ></span>
+                  </div>
+                  <div class="appnav2">
+                    <span>Overview</span><span>Sessions</span><span>Live</span
+                    ><span class="on">Errors</span><span>Settings</span>
+                    <span class="k">⌘K</span>
+                  </div>
+                  <div class="appbody">
+                    <div class="apphead">
+                      <span class="h"
+                        >Sessions with friction<small>24 hours · sorted by impact</small></span
+                      >
+                      <span class="acts"
+                        ><span class="minibtn">Export</span
+                        ><span class="minibtn pr">Create alert</span></span
+                      >
+                    </div>
+                    <div class="zone">
+                      <div class="tablewrap">
+                        <div class="toolbar">
+                          <div class="filter">Errors <b>≥ 1</b></div>
+                          <div class="filter">Rage <b>Any</b></div>
+                          <div class="filter">Sort <b>Friction</b></div>
+                          <div class="grow"></div>
+                          <span class="count">6 flagged · 24h</span>
+                        </div>
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>Session</th>
+                              <th>Status</th>
+                              <th>Activity</th>
+                              <th class="r">Dur</th>
+                              <th class="r">When</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr>
+                              <td>
+                                <div class="page">/support</div>
+                                <div class="rmeta">🇮🇳 Bengaluru · 41 clicks</div>
+                              </td>
+                              <td>
+                                <span class="pill err"><i></i>3 errors</span>
+                                <span class="pill rage"><i></i>2 rage</span>
+                              </td>
+                              <td>
+                                <div class="spark">
+                                  <i style="height: 45%"></i><i style="height: 60%"></i
+                                  ><i class="e" style="height: 85%"></i><i style="height: 70%"></i
+                                  ><i class="e" style="height: 95%"></i><i style="height: 55%"></i
+                                  ><i class="e" style="height: 80%"></i><i style="height: 40%"></i>
+                                </div>
+                              </td>
+                              <td class="r num strong">15:21</td>
+                              <td class="r when">2h</td>
+                            </tr>
+                            <tr>
+                              <td>
+                                <div class="page">/checkout</div>
+                                <div class="rmeta">🇺🇸 San Francisco · 23 clicks</div>
+                              </td>
+                              <td>
+                                <span class="pill err"><i></i>1 error</span>
+                              </td>
+                              <td>
+                                <div class="spark">
+                                  <i style="height: 30%"></i><i style="height: 55%"></i
+                                  ><i style="height: 40%"></i><i style="height: 70%"></i
+                                  ><i class="e" style="height: 95%"></i><i style="height: 35%"></i
+                                  ><i style="height: 50%"></i><i style="height: 25%"></i>
+                                </div>
+                              </td>
+                              <td class="r num strong">10:12</td>
+                              <td class="r when">48m</td>
+                            </tr>
+                            <tr>
+                              <td>
+                                <div class="page">/settings/billing</div>
+                                <div class="rmeta">🇬🇧 London · 17 clicks</div>
+                              </td>
+                              <td>
+                                <span class="pill rage"><i></i>1 rage</span>
+                              </td>
+                              <td>
+                                <div class="spark">
+                                  <i style="height: 35%"></i><i style="height: 42%"></i
+                                  ><i style="height: 30%"></i><i class="e" style="height: 78%"></i
+                                  ><i style="height: 40%"></i><i style="height: 52%"></i
+                                  ><i style="height: 33%"></i><i style="height: 28%"></i>
+                                </div>
+                              </td>
+                              <td class="r num strong">6:33</td>
+                              <td class="r when">3h</td>
+                            </tr>
+                            <tr>
+                              <td>
+                                <div class="page">/onboarding/step-2</div>
+                                <div class="rmeta">🇨🇦 Toronto · 12 clicks</div>
+                              </td>
+                              <td>
+                                <span class="pill err"><i></i>1 error</span>
+                              </td>
+                              <td>
+                                <div class="spark">
+                                  <i style="height: 40%"></i><i style="height: 30%"></i
+                                  ><i style="height: 52%"></i><i class="e" style="height: 88%"></i
+                                  ><i style="height: 36%"></i><i style="height: 44%"></i
+                                  ><i style="height: 26%"></i><i style="height: 30%"></i>
+                                </div>
+                              </td>
+                              <td class="r num strong">4:48</td>
+                              <td class="r when">4h</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                      <div class="panel">
+                        <div class="ptitle"><b>Friction history</b><span>10 weeks</span></div>
+                        <div class="heat">
+                          <i class="t2"></i><i class="t1"></i><i class="t3"></i><i class="t2"></i
+                          ><i class="t1"></i><i></i><i></i> <i class="t3"></i><i class="t2"></i
+                          ><i class="a1"></i><i class="t1"></i><i></i><i></i><i></i>
+                          <i class="a2"></i><i class="t3"></i><i class="t2"></i><i class="a1"></i
+                          ><i class="t1"></i><i></i><i></i> <i class="a3"></i><i class="a2"></i
+                          ><i class="r1"></i><i class="t2"></i><i></i><i></i><i></i>
+                          <i class="r2"></i><i class="a3"></i><i class="t3"></i><i class="a2"></i
+                          ><i class="t1"></i><i></i><i></i> <i class="r3"></i><i class="r2"></i
+                          ><i class="a3"></i><i class="t2"></i><i></i><i></i><i></i>
+                          <i class="a2"></i><i class="t2"></i><i class="r2"></i><i class="a1"></i
+                          ><i class="t1"></i><i></i><i></i> <i class="t3"></i><i class="a2"></i
+                          ><i class="t2"></i><i class="t3"></i><i></i><i></i><i></i>
+                        </div>
+                        <div class="legend">
+                          <span>Calmer</span>
+                          <div class="grad-bar"></div>
+                          <span>More</span>
+                        </div>
+                        <div
+                          style="
+                            margin-top: 16px;
+                            padding-top: 14px;
+                            border-top: 1px dashed var(--dash);
+                          "
+                        >
+                          <div class="ptitle" style="margin-bottom: 9px"><b>Top error</b></div>
+                          <div style="font-family: var(--mono); font-size: 11.5px; color: #ffb3b0">
+                            TypeError: total is undefined
+                          </div>
+                          <div style="font-size: 11px; color: var(--dim); margin-top: 5px">
+                            7 sessions · /checkout · first seen 2h ago
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <div class="stack-tail" aria-hidden="true"></div>
+      </div>
+
+      <!-- ============ FEATURES BENTO ============ -->
+      <section class="section" id="features">
+        <div class="wrap">
+          <div class="sec-kicker reveal" style="display: block">
+            <h2 class="sec-head" style="max-width: 22ch">
+              <span class="text-strong">More than a replay button.</span>
+              <span class="text-faint"
+                >Live watch, an instant timeline, privacy by default, and one-command self-host —
+                all in the same edge-native box.</span
+              >
+            </h2>
+          </div>
+          <div class="bento reveal">
+            <div class="tile live wide">
+              <div class="body">
+                <div class="live-badge"><span></span>Live now</div>
+                <h3>Watch sessions as they happen.</h3>
+                <p>
+                  Live isn't a delayed batch job bolted on the side — the session's Durable Object
+                  is already a WebSocket hub, so following a user in real time (and jumping in when
+                  a checkout stalls) costs almost nothing. Join mid-session and a checkpoint
+                  keyframe catches you up in seconds.
+                </p>
+              </div>
+              <div class="lv-rail">
+                <div class="lv-row">
+                  <span class="lv-dot"></span>
+                  <div>
+                    <div class="lv-page">/checkout</div>
+                    <div class="lv-meta">🇺🇸 San Francisco · Chrome</div>
+                  </div>
+                  <span class="lv-t">4:12</span>
+                </div>
+                <div class="lv-row">
+                  <span class="lv-dot"></span>
+                  <div>
+                    <div class="lv-page">/pricing</div>
+                    <div class="lv-meta">🇯🇵 Tokyo · Safari</div>
+                  </div>
+                  <span class="lv-t">0:47</span>
+                </div>
+                <div class="lv-row">
+                  <span class="lv-dot"></span>
+                  <div>
+                    <div class="lv-page">/onboarding</div>
+                    <div class="lv-meta">🇧🇷 São Paulo · Chrome</div>
+                  </div>
+                  <span class="lv-t">2:03</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="tile">
+              <div class="ic">
+                <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+                  <path d="M2 10h16" stroke="#8b8b95" stroke-width="1.4" stroke-linecap="round" />
                   <path
-                    d="M3 9L9 3M9 3H4.5M9 3v4.5"
-                    stroke="#000"
+                    d="M6 6.5v7M13 6.5v7"
+                    stroke="#8b8b95"
+                    stroke-width="1.4"
+                    stroke-linecap="round"
+                  />
+                  <path d="M9.5 4v12" stroke="#f5a623" stroke-width="1.6" stroke-linecap="round" />
+                  <circle cx="9.5" cy="10" r="2" fill="#f5a623" />
+                </svg>
+              </div>
+              <h3>Instant timeline</h3>
+              <p>
+                The scrubber paints from the manifest before a single byte of video-DOM downloads —
+                errors and rage clicks are already plotted. Jump to the moment it broke, then start
+                loading.
+              </p>
+            </div>
+
+            <div class="tile">
+              <div class="ic">
+                <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+                  <path
+                    d="M5.5 13a3 3 0 0 1-.4-6 4.2 4.2 0 0 1 8.1-1.2A3.2 3.2 0 0 1 15 13z"
+                    stroke="#f5a623"
+                    stroke-width="1.3"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </div>
+              <h3>Self-host in minutes</h3>
+              <p>
+                One <code>wrangler deploy</code> to your own Cloudflare account. No ClickHouse, no
+                Kafka, no Kubernetes — recordings never leave your infrastructure.
+              </p>
+            </div>
+
+            <div class="tile">
+              <div class="ic">
+                <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+                  <path
+                    d="M10 2.5l6 2.5v4.2c0 3.7-2.6 6-6 7.3-3.4-1.3-6-3.6-6-7.3V5z"
+                    stroke="#8b8b95"
+                    stroke-width="1.3"
+                    stroke-linejoin="round"
+                  />
+                  <path
+                    d="M7.2 10l1.9 1.9L13 8"
+                    stroke="#f5a623"
                     stroke-width="1.5"
                     stroke-linecap="round"
                     stroke-linejoin="round"
-                  /></svg
-              ></span>
-            </a>
-            <a class="btn-ghost" href="#">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path
-                  d="M4.5 2.5h5L12 5v8.5H4.5z"
-                  stroke="#a3a3a3"
-                  stroke-width="1.2"
-                  stroke-linejoin="round"
-                />
-                <path
-                  d="M6 6.5h4M6 9h4M6 11.5h2.5"
-                  stroke="#a3a3a3"
-                  stroke-width="1.2"
-                  stroke-linecap="round"
-                />
-              </svg>
-              Read the docs
-            </a>
-          </div>
-          <p class="meta reveal">
-            10,000 sessions / month free · install in under 2 minutes · no credit card
-          </p>
-        </div>
-      </div>
-    </header>
+                  />
+                </svg>
+              </div>
+              <h3>Privacy on by default</h3>
+              <p>
+                Inputs, text, and PII are masked in the browser
+                <em style="font-style: normal; color: var(--sub)">before</em> capture —
+                default-deny, not an opt-in checkbox. The server never even receives the raw bytes.
+              </p>
+            </div>
 
-    <!-- ============ 01 · CAPTURE ============ -->
-    <section class="section" id="capture">
-      <div class="wrap">
-        <div class="sec-kicker reveal">
-          <span class="ts"><span class="node"></span>00:00</span>
-          <h2 class="sec-head">
-            <span class="text-strong">Capture.</span>
-            <span class="text-faint"
-              >One snippet records every session — full DOM, clicks, and network — straight to the
-              edge.</span
-            >
-          </h2>
-        </div>
-        <p class="sec-note reveal">
-          Under 20&nbsp;KB, async, and scrubbing PII before anything leaves the browser. No
-          sampling, no replay gaps.
-        </p>
-        <div class="shot reveal">
-          <span class="edge"></span>
-          <div class="app">
-            <div class="appnav1">
-              <span class="mark"></span><span class="b">Orange Replay</span>
-              <span class="sep">/</span>
-              <span class="switcher">acme-web <span class="car">▾</span></span>
-              <span class="env2">Production</span>
-              <span class="r"
-                ><span class="lnk">Docs</span><span class="lnk">Changelog</span
-                ><span class="ava"></span
-              ></span>
+            <div class="tile">
+              <div class="ic">
+                <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+                  <circle cx="10" cy="10" r="7.3" stroke="#8b8b95" stroke-width="1.3" />
+                  <path
+                    d="M2.7 10h14.6M10 2.7c2 2 3 4.6 3 7.3s-1 5.3-3 7.3c-2-2-3-4.6-3-7.3s1-5.3 3-7.3z"
+                    stroke="#8b8b95"
+                    stroke-width="1.1"
+                  />
+                  <circle cx="10" cy="10" r="2" fill="#f5a623" />
+                </svg>
+              </div>
+              <h3>Residency as a checkbox</h3>
+              <p>
+                Pin a project's recordings to a region — Durable Object and R2 jurisdictions, a real
+                guarantee, not a placement hint. Metadata elsewhere is scrubbed.
+              </p>
             </div>
-            <div class="appnav2">
-              <span class="on">Overview</span><span>Sessions</span><span>Live</span
-              ><span>Errors</span><span>Settings</span>
-              <span class="k">⌘K</span>
+
+            <div class="tile wide">
+              <div class="ic">
+                <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+                  <rect
+                    x="2.2"
+                    y="5"
+                    width="15.6"
+                    height="10"
+                    rx="2"
+                    stroke="#8b8b95"
+                    stroke-width="1.3"
+                  />
+                  <path
+                    d="M5 8h.01M7.5 8h.01M10 8h.01M12.5 8h.01M6 11h5"
+                    stroke="#8b8b95"
+                    stroke-width="1.3"
+                    stroke-linecap="round"
+                  />
+                  <path d="M13.4 10.2l2.2 1.3-2.2 1.3z" fill="#f5a623" />
+                </svg>
+              </div>
+              <h3>A player built for people who live in the replay</h3>
+              <p>
+                Step frames and skip to errors from the keyboard, change speed, skip idle time, and
+                scale any recording to fit your viewport. Cursor trails, click ripples, and rage
+                bursts are drawn right on the replay.
+              </p>
             </div>
-            <div class="appbody">
-              <div class="apphead">
-                <span class="h">Overview<small>last 24 hours · updated 12s ago</small></span>
-                <span class="acts"
-                  ><span class="minibtn">Share</span
-                  ><span class="minibtn pr">Install snippet</span></span
-                >
+
+            <div class="tile">
+              <div class="ic">
+                <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+                  <path
+                    d="M8.5 11.5a3 3 0 0 0 4.2 0l2-2a3 3 0 0 0-4.2-4.2l-1 1M11.5 8.5a3 3 0 0 0-4.2 0l-2 2a3 3 0 0 0 4.2 4.2l1-1"
+                    stroke="#f5a623"
+                    stroke-width="1.4"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
               </div>
-              <div class="stats">
-                <div class="stat">
-                  <div class="k">Sessions</div>
-                  <div class="v">128</div>
-                  <div class="d"><em>+12%</em> vs 7d avg</div>
-                </div>
-                <div class="stat">
-                  <div class="k">With errors</div>
-                  <div class="v warm">4</div>
-                  <div class="d"><em class="bad">+2</em> vs yesterday</div>
-                </div>
-                <div class="stat">
-                  <div class="k">Rage clicks</div>
-                  <div class="v warm">2</div>
-                  <div class="d">1 page affected</div>
-                </div>
-                <div class="stat">
-                  <div class="k">Median duration</div>
-                  <div class="v">6:48</div>
-                  <div class="d">across 12 pages</div>
-                </div>
-                <div class="stat">
-                  <div class="k">Stored</div>
-                  <div class="v">5.1<span style="font-size: 11px">MB</span></div>
-                  <div class="d">24h window</div>
-                </div>
-              </div>
-              <div class="zone">
-                <div class="panel">
-                  <div class="ptitle">
-                    <b>Friction history</b
-                    ><span>cell = day · color = error &amp; rage density</span>
-                  </div>
-                  <div class="heat">
-                    <i class="t2"></i><i class="t1"></i><i class="t3"></i><i class="t2"></i
-                    ><i class="t1"></i><i></i><i></i> <i class="t3"></i><i class="t2"></i
-                    ><i class="t2"></i><i class="a1"></i><i class="t1"></i><i></i><i></i>
-                    <i class="t2"></i><i class="a2"></i><i class="t3"></i><i class="t2"></i
-                    ><i class="a1"></i><i class="t1"></i><i></i> <i class="a3"></i><i class="t2"></i
-                    ><i class="a2"></i><i class="r1"></i><i class="t2"></i><i></i><i></i>
-                    <i class="t2"></i><i class="r2"></i><i class="a3"></i><i class="t3"></i
-                    ><i class="a2"></i><i class="t1"></i><i></i> <i class="r3"></i><i class="a2"></i
-                    ><i class="r2"></i><i class="a3"></i><i class="t2"></i><i></i><i></i>
-                    <i class="a2"></i><i class="t3"></i><i class="t2"></i><i class="r2"></i
-                    ><i class="a1"></i><i class="t1"></i><i></i> <i class="t3"></i><i class="t2"></i
-                    ><i class="a2"></i><i class="t2"></i><i class="t3"></i><i></i><i></i>
-                    <i class="t1"></i><i class="t2"></i><i class="t2"></i><i class="t1"></i
-                    ><i class="t2"></i><i></i><i></i> <i class="t2"></i><i class="t3"></i
-                    ><i class="t1"></i><i class="t2"></i><i class="t1"></i><i class="t1"></i><i></i>
-                  </div>
-                  <div class="legend">
-                    <span>Calmer</span>
-                    <div class="grad-bar"></div>
-                    <span>More friction</span><span style="margin-left: auto">May — Jul 2026</span>
-                  </div>
-                </div>
-                <div class="panel live-rail">
-                  <div class="ptitle"><b>Live now</b><span class="watch">3 watching</span></div>
-                  <div class="lrow">
-                    <span class="pulse"></span>
-                    <div>
-                      <div class="who">/checkout</div>
-                      <div class="where">🇺🇸 San Francisco · Chrome</div>
-                    </div>
-                    <span class="t">4:12</span>
-                  </div>
-                  <div class="lrow">
-                    <span class="pulse"></span>
-                    <div>
-                      <div class="who">/pricing</div>
-                      <div class="where">🇯🇵 Tokyo · Safari</div>
-                    </div>
-                    <span class="t">0:47</span>
-                  </div>
-                  <div class="lrow">
-                    <span class="pulse"></span>
-                    <div>
-                      <div class="who">/onboarding</div>
-                      <div class="where">🇧🇷 São Paulo · Chrome</div>
-                    </div>
-                    <span class="t">2:03</span>
-                  </div>
-                </div>
-              </div>
-              <div class="tablewrap">
-                <div class="toolbar">
-                  <div class="filter">Country <b>All</b></div>
-                  <div class="filter">Duration <b>Any</b></div>
-                  <div class="filter">Errors <b>Any</b></div>
-                  <div class="grow"></div>
-                  <span class="count">128 sessions · 24h</span>
-                </div>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Session</th>
-                      <th>Status</th>
-                      <th>Activity</th>
-                      <th class="r">Duration</th>
-                      <th>Client</th>
-                      <th class="r">When</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td>
-                        <div class="page">/checkout</div>
-                        <div class="rmeta">🇺🇸 San Francisco · 23 clicks</div>
-                      </td>
-                      <td>
-                        <span class="pill err"><i></i>1 error</span>
-                      </td>
-                      <td>
-                        <div class="spark">
-                          <i style="height: 30%"></i><i style="height: 55%"></i
-                          ><i style="height: 40%"></i><i style="height: 70%"></i
-                          ><i class="e" style="height: 95%"></i><i style="height: 35%"></i
-                          ><i style="height: 50%"></i><i style="height: 25%"></i>
-                        </div>
-                      </td>
-                      <td class="r num strong">10:12</td>
-                      <td class="num">Chrome · macOS</td>
-                      <td class="r when">48m</td>
-                    </tr>
-                    <tr>
-                      <td>
-                        <div class="page">/support</div>
-                        <div class="rmeta">🇮🇳 Bengaluru · 41 clicks</div>
-                      </td>
-                      <td>
-                        <span class="pill err"><i></i>3 errors</span>
-                        <span class="pill rage"><i></i>2 rage</span>
-                      </td>
-                      <td>
-                        <div class="spark">
-                          <i style="height: 45%"></i><i style="height: 60%"></i
-                          ><i class="e" style="height: 85%"></i><i style="height: 70%"></i
-                          ><i class="e" style="height: 95%"></i><i style="height: 55%"></i
-                          ><i class="e" style="height: 80%"></i><i style="height: 40%"></i>
-                        </div>
-                      </td>
-                      <td class="r num strong">15:21</td>
-                      <td class="num">Chrome · Android</td>
-                      <td class="r when">2h</td>
-                    </tr>
-                    <tr>
-                      <td>
-                        <div class="page">/pricing</div>
-                        <div class="rmeta">🇩🇪 Berlin · 9 clicks</div>
-                      </td>
-                      <td>
-                        <span class="pill ok"><i></i>clean</span>
-                      </td>
-                      <td>
-                        <div class="spark">
-                          <i style="height: 40%"></i><i style="height: 28%"></i
-                          ><i style="height: 48%"></i><i style="height: 22%"></i
-                          ><i style="height: 38%"></i><i style="height: 18%"></i
-                          ><i style="height: 30%"></i><i style="height: 14%"></i>
-                        </div>
-                      </td>
-                      <td class="r num strong">3:04</td>
-                      <td class="num">Firefox · Windows</td>
-                      <td class="r when">1h</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+              <h3>Deep-link any session</h3>
+              <p>
+                <code>getSessionUrl()</code> drops a replay link straight into Sentry, Datadog, or
+                your own logs — jump from a stack trace to the exact session that threw it.
+              </p>
             </div>
           </div>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <!-- ============ 02 · REPLAY ============ -->
-    <section class="section" id="replay">
-      <div class="wrap">
-        <div class="sec-kicker reveal">
-          <span class="ts"><span class="node"></span>04:12</span>
-          <h2 class="sec-head">
-            <span class="text-strong">Replay.</span>
-            <span class="text-faint"
-              >Pixel-perfect DOM playback on a timeline that jumps straight to the moment it
-              broke.</span
-            >
-          </h2>
-        </div>
-        <p class="sec-note reveal">
-          It's the real DOM, not a video. Scrub with the keyboard; console, network, and clicks stay
-          synced to the frame.
-        </p>
-        <div class="shot reveal">
-          <span class="edge"></span>
-          <div class="app">
-            <div class="appnav1">
-              <span class="mark"></span><span class="b">Orange Replay</span>
-              <span class="sep">/</span>
-              <span class="switcher" style="font-family: var(--mono); font-size: 11px"
-                >Sessions / sess_8f2a</span
+      <!-- ============ WHO IT'S FOR ============ -->
+      <section class="section" id="audiences">
+        <div class="wrap">
+          <div class="sec-kicker reveal" style="display: block">
+            <h2 class="sec-head" style="max-width: 22ch">
+              <span class="text-strong">One session, every team.</span>
+              <span class="text-faint"
+                >Product, engineering, support, and growth all open the same replay — each from
+                their own angle.</span
               >
-              <span class="r"
-                ><span class="lnk">Share</span><span class="lnk">Copy link</span
-                ><span class="ava"></span
-              ></span>
-            </div>
-            <div class="replay">
+            </h2>
+          </div>
+          <div class="audience reveal">
+            <div class="aud amber">
               <div class="stage">
-                <div class="viewport">
-                  <div class="vp-bar">
-                    <span class="vp-dot"></span><span class="vp-dot"></span
-                    ><span class="vp-dot"></span><span class="vp-url">acme.com/checkout</span>
+                <div class="grad"></div>
+                <div class="tex tx-dots"></div>
+                <div class="float">
+                  <div class="mini-head">Friction on /checkout</div>
+                  <div class="mini-pills">
+                    <span class="mp rage">2 rage clicks</span><span class="mp err">1 error</span>
                   </div>
-                  <div class="vp-skel">
-                    <div class="l" style="width: 52%; height: 15px"></div>
-                    <div class="l" style="width: 88%"></div>
-                    <div class="l" style="width: 80%"></div>
-                    <div class="l" style="width: 66%"></div>
-                    <div class="vp-cta"></div>
+                  <div class="mini-bars">
+                    <i></i><i></i><i class="hot"></i><i></i><i class="hot"></i><i></i><i></i><i></i>
                   </div>
-                  <div class="vp-click">rage · ×4</div>
-                  <div class="vp-cursor">
-                    <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
-                      <path
-                        d="M2 2l5 12 2-5 5-2z"
-                        fill="#f5a623"
-                        stroke="#0a0a0c"
-                        stroke-width="0.8"
-                      />
-                    </svg>
-                  </div>
-                </div>
-                <div class="player">
-                  <div class="play"></div>
-                  <span class="tc">4:12</span>
-                  <div class="timeline">
-                    <div class="base"></div>
-                    <span class="tl-act" style="left: 3%; height: 8px"></span
-                    ><span class="tl-act" style="left: 8%; height: 14px"></span>
-                    <span class="tl-act" style="left: 14%; height: 10px"></span
-                    ><span class="tl-act" style="left: 21%; height: 16px"></span>
-                    <span class="tl-act" style="left: 29%; height: 7px"></span
-                    ><span class="tl-act" style="left: 37%; height: 15px"></span>
-                    <span class="tl-act" style="left: 46%; height: 18px"></span
-                    ><span class="tl-act" style="left: 56%; height: 9px"></span>
-                    <span class="tl-act" style="left: 65%; height: 13px"></span
-                    ><span class="tl-act" style="left: 74%; height: 16px"></span>
-                    <span class="tl-act" style="left: 83%; height: 8px"></span
-                    ><span class="tl-act" style="left: 91%; height: 12px"></span>
-                    <span class="tl-err" style="left: 56%"></span>
-                    <span class="tl-ph"></span>
-                  </div>
-                  <span class="tc">10:12</span>
-                  <div class="keys"><kbd>←</kbd><kbd>→</kbd><kbd>space</kbd></div>
                 </div>
               </div>
-              <div class="side">
-                <div class="st">Event stream</div>
-                <div class="ev">
-                  <span class="dot clk"></span>Click · “Apply coupon”<span class="tt">3:58</span>
-                </div>
-                <div class="ev">
-                  <span class="dot net"></span>POST /api/coupon 200<span class="tt">3:59</span>
-                </div>
-                <div class="ev cur">
-                  <span class="dot rage"></span>Rage click · ×4<span class="tt">4:09</span>
-                </div>
-                <div class="ev">
-                  <span class="dot err"></span>TypeError: total is undefined<span class="tt"
-                    >4:12</span
-                  >
-                </div>
-                <div class="ev">
-                  <span class="dot net"></span>POST /api/checkout 500<span class="tt">4:12</span>
-                </div>
-                <div class="ev">
-                  <span class="dot clk"></span>Click · “Retry”<span class="tt">4:20</span>
-                </div>
-                <div class="st">Console</div>
-                <div class="ev">
-                  <span class="dot err"></span>Uncaught (in promise)<span class="tt">4:12</span>
-                </div>
+              <div class="cap">
+                <div class="k">For Product</div>
+                <h3>Find the friction behind every drop-off</h3>
+                <p>
+                  Watch the rage clicks and dead ends a funnel chart can never show you — then go
+                  fix them.
+                </p>
               </div>
             </div>
-          </div>
-        </div>
-      </div>
-    </section>
 
-    <!-- ============ 03 · FIND FRICTION ============ -->
-    <section class="section" id="friction">
-      <div class="wrap">
-        <div class="sec-kicker reveal">
-          <span class="ts"><span class="node"></span>10:12</span>
-          <h2 class="sec-head">
-            <span class="text-strong">Diagnose.</span>
-            <span class="text-faint"
-              >Errors and rage clicks, ranked and surfaced before you ever go looking for
-              them.</span
-            >
-          </h2>
-        </div>
-        <p class="sec-note reveal">
-          Auto-detected signals, filters that cut straight to the pain, and a friction heatmap so
-          regressions jump off the page.
-        </p>
-        <div class="shot reveal">
-          <span class="edge"></span>
-          <div class="app">
-            <div class="appnav1">
-              <span class="mark"></span><span class="b">Orange Replay</span>
-              <span class="sep">/</span>
-              <span class="switcher">acme-web <span class="car">▾</span></span>
-              <span class="env2">Production</span>
-              <span class="r"
-                ><span class="lnk">Docs</span><span class="lnk">Changelog</span
-                ><span class="ava"></span
-              ></span>
-            </div>
-            <div class="appnav2">
-              <span>Overview</span><span>Sessions</span><span>Live</span
-              ><span class="on">Errors</span><span>Settings</span>
-              <span class="k">⌘K</span>
-            </div>
-            <div class="appbody">
-              <div class="apphead">
-                <span class="h"
-                  >Sessions with friction<small>24 hours · sorted by impact</small></span
-                >
-                <span class="acts"
-                  ><span class="minibtn">Export</span
-                  ><span class="minibtn pr">Create alert</span></span
-                >
+            <div class="aud blue">
+              <div class="stage">
+                <div class="grad"></div>
+                <div class="tex tx-grid"></div>
+                <div class="float">
+                  <div class="mini-head">Console</div>
+                  <div class="mini-line">
+                    <span class="d red"></span>TypeError: total is undefined
+                  </div>
+                  <div class="mini-line"><span class="d teal"></span>POST /api/checkout → 500</div>
+                  <div class="mini-sub">→ open session · sess_8f2a · 4:12</div>
+                </div>
               </div>
-              <div class="zone">
-                <div class="tablewrap">
-                  <div class="toolbar">
-                    <div class="filter">Errors <b>≥ 1</b></div>
-                    <div class="filter">Rage <b>Any</b></div>
-                    <div class="filter">Sort <b>Friction</b></div>
-                    <div class="grow"></div>
-                    <span class="count">6 flagged · 24h</span>
+              <div class="cap">
+                <div class="k">For Engineering</div>
+                <h3>From a stack trace to the exact session</h3>
+                <p>
+                  Jump from the error straight into the replay that threw it. No more "cannot
+                  reproduce."
+                </p>
+              </div>
+            </div>
+
+            <div class="aud teal">
+              <div class="stage">
+                <div class="grad"></div>
+                <div class="tex tx-zig"></div>
+                <div class="float">
+                  <div class="mini-head">Live now · 3 watching</div>
+                  <div class="mini-line">
+                    <span class="d green pulse"></span>/checkout · San Francisco
                   </div>
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Session</th>
-                        <th>Status</th>
-                        <th>Activity</th>
-                        <th class="r">Dur</th>
-                        <th class="r">When</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td>
-                          <div class="page">/support</div>
-                          <div class="rmeta">🇮🇳 Bengaluru · 41 clicks</div>
-                        </td>
-                        <td>
-                          <span class="pill err"><i></i>3 errors</span>
-                          <span class="pill rage"><i></i>2 rage</span>
-                        </td>
-                        <td>
-                          <div class="spark">
-                            <i style="height: 45%"></i><i style="height: 60%"></i
-                            ><i class="e" style="height: 85%"></i><i style="height: 70%"></i
-                            ><i class="e" style="height: 95%"></i><i style="height: 55%"></i
-                            ><i class="e" style="height: 80%"></i><i style="height: 40%"></i>
-                          </div>
-                        </td>
-                        <td class="r num strong">15:21</td>
-                        <td class="r when">2h</td>
-                      </tr>
-                      <tr>
-                        <td>
-                          <div class="page">/checkout</div>
-                          <div class="rmeta">🇺🇸 San Francisco · 23 clicks</div>
-                        </td>
-                        <td>
-                          <span class="pill err"><i></i>1 error</span>
-                        </td>
-                        <td>
-                          <div class="spark">
-                            <i style="height: 30%"></i><i style="height: 55%"></i
-                            ><i style="height: 40%"></i><i style="height: 70%"></i
-                            ><i class="e" style="height: 95%"></i><i style="height: 35%"></i
-                            ><i style="height: 50%"></i><i style="height: 25%"></i>
-                          </div>
-                        </td>
-                        <td class="r num strong">10:12</td>
-                        <td class="r when">48m</td>
-                      </tr>
-                      <tr>
-                        <td>
-                          <div class="page">/settings/billing</div>
-                          <div class="rmeta">🇬🇧 London · 17 clicks</div>
-                        </td>
-                        <td>
-                          <span class="pill rage"><i></i>1 rage</span>
-                        </td>
-                        <td>
-                          <div class="spark">
-                            <i style="height: 35%"></i><i style="height: 42%"></i
-                            ><i style="height: 30%"></i><i class="e" style="height: 78%"></i
-                            ><i style="height: 40%"></i><i style="height: 52%"></i
-                            ><i style="height: 33%"></i><i style="height: 28%"></i>
-                          </div>
-                        </td>
-                        <td class="r num strong">6:33</td>
-                        <td class="r when">3h</td>
-                      </tr>
-                      <tr>
-                        <td>
-                          <div class="page">/onboarding/step-2</div>
-                          <div class="rmeta">🇨🇦 Toronto · 12 clicks</div>
-                        </td>
-                        <td>
-                          <span class="pill err"><i></i>1 error</span>
-                        </td>
-                        <td>
-                          <div class="spark">
-                            <i style="height: 40%"></i><i style="height: 30%"></i
-                            ><i style="height: 52%"></i><i class="e" style="height: 88%"></i
-                            ><i style="height: 36%"></i><i style="height: 44%"></i
-                            ><i style="height: 26%"></i><i style="height: 30%"></i>
-                          </div>
-                        </td>
-                        <td class="r num strong">4:48</td>
-                        <td class="r when">4h</td>
-                      </tr>
-                    </tbody>
-                  </table>
+                  <div class="mini-line"><span class="d green pulse"></span>/pricing · Tokyo</div>
+                  <div class="mini-watch">▶ Watch live</div>
                 </div>
-                <div class="panel">
-                  <div class="ptitle"><b>Friction history</b><span>10 weeks</span></div>
-                  <div class="heat">
-                    <i class="t2"></i><i class="t1"></i><i class="t3"></i><i class="t2"></i
-                    ><i class="t1"></i><i></i><i></i> <i class="t3"></i><i class="t2"></i
-                    ><i class="a1"></i><i class="t1"></i><i></i><i></i><i></i> <i class="a2"></i
-                    ><i class="t3"></i><i class="t2"></i><i class="a1"></i><i class="t1"></i><i></i
-                    ><i></i> <i class="a3"></i><i class="a2"></i><i class="r1"></i><i class="t2"></i
-                    ><i></i><i></i><i></i> <i class="r2"></i><i class="a3"></i><i class="t3"></i
-                    ><i class="a2"></i><i class="t1"></i><i></i><i></i> <i class="r3"></i
-                    ><i class="r2"></i><i class="a3"></i><i class="t2"></i><i></i><i></i><i></i>
-                    <i class="a2"></i><i class="t2"></i><i class="r2"></i><i class="a1"></i
-                    ><i class="t1"></i><i></i><i></i> <i class="t3"></i><i class="a2"></i
-                    ><i class="t2"></i><i class="t3"></i><i></i><i></i><i></i>
-                  </div>
-                  <div class="legend">
-                    <span>Calmer</span>
-                    <div class="grad-bar"></div>
-                    <span>More</span>
-                  </div>
-                  <div
-                    style="margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--dash)"
-                  >
-                    <div class="ptitle" style="margin-bottom: 9px"><b>Top error</b></div>
-                    <div style="font-family: var(--mono); font-size: 11.5px; color: #ffb3b0">
-                      TypeError: total is undefined
-                    </div>
-                    <div style="font-size: 11px; color: var(--dim); margin-top: 5px">
-                      7 sessions · /checkout · first seen 2h ago
-                    </div>
-                  </div>
+              </div>
+              <div class="cap">
+                <div class="k">For Support</div>
+                <h3>Watch the ticket as it happens</h3>
+                <p>
+                  Open the conversation, follow the user's session live, and see exactly what they
+                  see.
+                </p>
+              </div>
+            </div>
+
+            <div class="aud green">
+              <div class="stage">
+                <div class="grad"></div>
+                <div class="tex tx-cross"></div>
+                <div class="float">
+                  <div class="mini-head">This week</div>
+                  <div class="mini-big">128 <span>sessions</span></div>
+                  <div class="mini-delta">▲ +12% · 4 with friction</div>
                 </div>
+              </div>
+              <div class="cap">
+                <div class="k">For Growth</div>
+                <h3>The behavior behind the numbers</h3>
+                <p>
+                  See why an experiment actually won or lost — the sessions, not just the conversion
+                  rate.
+                </p>
               </div>
             </div>
           </div>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <!-- ============ SOCIAL PROOF ============ -->
-    <div class="wrap"><div class="divider"></div></div>
-    <section class="proof">
-      <div class="wrap">
-        <div class="sec-kicker reveal" style="display: block">
-          <h2 class="sec-head" style="max-width: 20ch">
-            <span class="text-strong">Made for teams who are done guessing.</span>
-            <span class="text-faint"
-              >Product, support, and engineering — all watching the same session.</span
-            >
-          </h2>
-        </div>
-        <div class="logos reveal">
-          <span class="lg"
-            ><span class="mark" style="width: 18px; height: 18px; border-radius: 5px"></span
-            >Northwind</span
-          >
-          <span class="lg"
-            ><span class="mark" style="width: 18px; height: 18px; border-radius: 5px"></span
-            >Loftify</span
-          >
-          <span class="lg"
-            ><span class="mark" style="width: 18px; height: 18px; border-radius: 5px"></span
-            >Beacon</span
-          >
-          <span class="lg"
-            ><span class="mark" style="width: 18px; height: 18px; border-radius: 5px"></span
-            >Parcel</span
-          >
-          <span class="lg"
-            ><span class="mark" style="width: 18px; height: 18px; border-radius: 5px"></span
-            >Cadence</span
-          >
-        </div>
-        <div class="quote reveal">
-          <p>
-            “We used to spend a whole standup arguing about what the user <u>probably</u> did. Now
-            we just open the replay. The rage-click flag alone paid for itself the first week.”
-          </p>
-          <div class="by">
-            <span class="ava2"></span>
-            <div>
-              <div class="nm">Dana Reyes</div>
-              <div class="rl">Head of Product · placeholder testimonial</div>
+      <!-- ============ ROADMAP ============ -->
+      <section class="section roadmap" id="roadmap">
+        <div class="sec-tex zig" aria-hidden="true"></div>
+        <div class="wrap">
+          <div class="sec-kicker reveal" style="display: block">
+            <span class="rm-kicker">On the roadmap</span>
+            <h2 class="sec-head" style="max-width: 24ch">
+              <span class="text-strong">Shipped v1 — and just getting started.</span>
+              <span class="text-faint"
+                >None of these are live yet. They're what the same edge-native architecture makes
+                cheap to build next.</span
+              >
+            </h2>
+          </div>
+          <div class="rm-grid reveal">
+            <div class="rm-item">
+              <span class="pill">Planned</span>
+              <div>
+                <b>Replay → repro</b>
+                <p>
+                  Turn any error session into a runnable Playwright test and a failure bundle —
+                  generated in your browser, ready to hand to a coding agent.
+                </p>
+              </div>
+            </div>
+            <div class="rm-item">
+              <span class="pill">Planned</span>
+              <div>
+                <b>MCP server</b>
+                <p>Pull production replay evidence straight into Claude Code or Cursor over MCP.</p>
+              </div>
+            </div>
+            <div class="rm-item">
+              <span class="pill">Planned</span>
+              <div>
+                <b>Record-everything buffer</b>
+                <p>
+                  Capture 100% into a 48-hour buffer, then promote the sessions that matter — no
+                  sampling, no "that one wasn't recorded."
+                </p>
+              </div>
+            </div>
+            <div class="rm-item">
+              <span class="pill">Planned</span>
+              <div>
+                <b>Shareable replay links</b>
+                <p>
+                  One scoped, expiring link per session — unfurls in Slack and Linear, opens in a
+                  seatless player.
+                </p>
+              </div>
+            </div>
+            <div class="rm-item">
+              <span class="pill">Planned</span>
+              <div>
+                <b>Zero-code install</b>
+                <p>
+                  Inject the recorder at the edge for Cloudflare-proxied sites — flip it on, no
+                  deploy, no tag manager.
+                </p>
+              </div>
+            </div>
+            <div class="rm-item">
+              <span class="pill">Planned</span>
+              <div>
+                <b>Semantic session search</b>
+                <p>
+                  "Find sessions where users struggled with checkout," powered by Workers AI and
+                  Vectorize.
+                </p>
+              </div>
+            </div>
+            <div class="rm-item">
+              <span class="pill">Planned</span>
+              <div>
+                <b>Heatmaps</b>
+                <p>
+                  Click and scroll heatmaps rendered from data the sidecar already captures — no
+                  reprocessing.
+                </p>
+              </div>
+            </div>
+            <div class="rm-item">
+              <span class="pill">Planned</span>
+              <div>
+                <b>Deeper player</b>
+                <p>
+                  Dead-click markers, an activity heat strip on the scrubber, clip export, and
+                  timestamped comments.
+                </p>
+              </div>
             </div>
           </div>
         </div>
-        <p class="joinus reveal">
-          We're building the fastest way to see your own product. <u>Join us</u>.
-        </p>
-      </div>
-    </section>
+      </section>
 
-    <!-- ============ FOOTER ============ -->
-    <footer>
-      <div class="wrap">
-        <div class="footgrid">
-          <div class="bigline reveal">
-            See what happened.<br />
-            <span class="c-blue">Record</span
-            ><span class="thumb"
-              ><svg viewBox="0 0 62 32" preserveAspectRatio="none">
-                <polyline
-                  points="4,20 12,14 18,22 26,8 32,18 40,10 48,24 58,12"
-                  fill="none"
-                  stroke="#4478b8"
-                  stroke-width="1.6"
-                /></svg></span
-            >&nbsp;it,<br />
-            <span class="c-amber">replay</span
-            ><span class="thumb"
-              ><svg viewBox="0 0 62 32">
-                <path d="M26 10l12 6-12 6z" fill="#c8823b" />
-                <line
-                  x1="10"
-                  y1="16"
-                  x2="24"
-                  y2="16"
-                  stroke="#3a3a3a"
-                  stroke-width="1.4"
-                /></svg></span
-            >&nbsp;it,<br />
-            and <span class="c-green">fix</span
-            ><span class="thumb"
-              ><svg viewBox="0 0 62 32">
-                <path
-                  d="M20 17l5 5 12-12"
-                  fill="none"
-                  stroke="#4c8c57"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                /></svg></span
-            >&nbsp;it<br />
-            <span class="w">before the ticket lands.</span>
-          </div>
-          <div class="footcols reveal">
-            <div>
-              <h5>Product</h5>
-              <a href="#capture">Capture</a><a href="#replay">Replay</a
-              ><a href="#friction">Diagnose</a><a href="#">Live</a><a href="#">Pricing</a>
+      <!-- ============ CTA BAND ============ -->
+      <section class="cta-band">
+        <div class="grid-tex"></div>
+        <div class="wrap">
+          <div class="inner">
+            <div class="bigline reveal">
+              See what happened.<br />
+              <span class="c-blue">Record</span
+              ><span class="thumb"
+                ><svg viewBox="0 0 62 32" preserveAspectRatio="none">
+                  <polyline
+                    points="4,20 12,14 18,22 26,8 32,18 40,10 48,24 58,12"
+                    fill="none"
+                    stroke="#4478b8"
+                    stroke-width="1.6"
+                  /></svg></span
+              >&nbsp;it,<br />
+              <span class="c-amber">replay</span
+              ><span class="thumb"
+                ><svg viewBox="0 0 62 32">
+                  <path d="M26 10l12 6-12 6z" fill="#c8823b" />
+                  <line
+                    x1="10"
+                    y1="16"
+                    x2="24"
+                    y2="16"
+                    stroke="#3a3a3a"
+                    stroke-width="1.4"
+                  /></svg></span
+              >&nbsp;it,<br />
+              and <span class="c-green">fix</span
+              ><span class="thumb"
+                ><svg viewBox="0 0 62 32">
+                  <path
+                    d="M20 17l5 5 12-12"
+                    fill="none"
+                    stroke="#4c8c57"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg></span
+              >&nbsp;it <span class="w">before the ticket lands.</span>
             </div>
-            <div>
-              <h5>Developers</h5>
-              <a href="#">Docs</a><a href="#">Quickstart</a><a href="#">SDK</a
-              ><a href="#">MCP server</a><a href="#">Changelog</a>
-            </div>
-            <div>
-              <h5>Company</h5>
-              <a href="#">About</a><a href="#">Blog</a><a href="#">Careers</a><a href="#">Privacy</a
-              ><a href="#">Terms</a>
+            <div class="btns reveal">
+              <a class="cta-pill lg" href="#">
+                Start free
+                <span class="circ"
+                  ><svg width="13" height="13" viewBox="0 0 12 12" fill="none">
+                    <path
+                      d="M3 9L9 3M9 3H4.5M9 3v4.5"
+                      stroke="#fff"
+                      stroke-width="1.4"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    /></svg
+                ></span>
+              </a>
+              <a class="btn-ghost" href="#">
+                <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+                  <path d="M4 3l7 4-7 4z" fill="#f5a623" />
+                </svg>
+                Live demo
+              </a>
             </div>
           </div>
         </div>
-        <div class="footbot">
-          <span class="c">© 2026 Orange Replay</span>
-          <span class="edge"
-            ><span class="mark" style="width: 15px; height: 15px; border-radius: 5px"></span> Built
-            on <b>Cloudflare Workers</b> · shipped from the edge</span
-          >
+      </section>
+
+      <!-- ============ FOOTER ============ -->
+      <footer>
+        <div class="wrap">
+          <div class="footgrid">
+            <div class="fbrand reveal">
+              <a class="wordmark" href="#"><span class="mark"></span><b>orange replay</b></a>
+              <p>
+                Session replay built natively on the edge. Record it, watch it live, and fix it
+                before the ticket lands.
+              </p>
+            </div>
+            <div class="footcols reveal">
+              <div>
+                <h5>Product</h5>
+                <a href="#capture">Capture</a><a href="#replay">Replay</a
+                ><a href="#friction">Diagnose</a><a href="#audiences">Who it's for</a
+                ><a href="#">Pricing</a>
+              </div>
+              <div>
+                <h5>Developers</h5>
+                <a href="#">Docs</a><a href="#">Quickstart</a><a href="#">SDK</a
+                ><a href="#roadmap">Roadmap</a><a href="#">Changelog</a>
+              </div>
+              <div>
+                <h5>Company</h5>
+                <a href="#">About</a><a href="#">Blog</a><a href="#">Careers</a
+                ><a href="#">Contact</a>
+              </div>
+              <div>
+                <h5>Connect</h5>
+                <a href="#">X (Twitter)</a><a href="#">GitHub</a><a href="#">Privacy</a
+                ><a href="#">Terms</a>
+              </div>
+            </div>
+          </div>
+          <div class="footbot">
+            <span class="c">© 2026 Orange Replay</span>
+            <span class="edge">Built on <b>Cloudflare</b></span>
+          </div>
         </div>
-      </div>
-    </footer>
+      </footer>
+    </div>
+    <!-- /.frame -->
 
     <script>
       (function () {
@@ -2414,31 +3131,64 @@
           });
         }
 
-        // scroll playhead — the amber head + fill track your scroll position
-        var fill = document.querySelector(".scrub .fill");
-        var head = document.querySelector(".scrub .head");
-        if (fill && head) {
-          var ticking = false;
-          var update = function () {
-            var max = document.documentElement.scrollHeight - window.innerHeight;
-            var p = max > 0 ? Math.min(1, Math.max(0, window.scrollY / max)) : 0;
-            var pct = (p * 100).toFixed(2) + "%";
-            fill.style.height = pct;
-            head.style.top = pct;
-            ticking = false;
+        // nav warms to a subtle amber tint once the page is scrolled
+        var nav = document.querySelector(".nav");
+        if (nav) {
+          var navTick = false;
+          var syncNav = function () {
+            nav.classList.toggle("scrolled", window.scrollY > 24);
+            navTick = false;
           };
           window.addEventListener(
             "scroll",
             function () {
-              if (!ticking) {
-                ticking = true;
-                window.requestAnimationFrame(update);
+              if (!navTick) {
+                navTick = true;
+                window.requestAnimationFrame(syncNav);
               }
             },
             { passive: true },
           );
-          window.addEventListener("resize", update, { passive: true });
-          update();
+          syncNav();
+        }
+
+        // stacking-card depth — only the front card is full brightness; the card being
+        // covered (receding) AND the card still rising (incoming) are both dimmed
+        var cards = Array.prototype.slice.call(document.querySelectorAll(".stack-card"));
+        var stackOn = window.matchMedia("(min-width: 1001px)").matches;
+        if (cards.length > 1 && !reduce && stackOn) {
+          var sTick = false;
+          var clamp01 = function (v) {
+            return v < 0 ? 0 : v > 1 ? 1 : v;
+          };
+          var sUpdate = function () {
+            var cov = [];
+            for (var i = 0; i < cards.length - 1; i++) {
+              var top = parseFloat(getComputedStyle(cards[i]).top) || 92;
+              var range = Math.min(window.innerHeight * 0.7, cards[i].offsetHeight);
+              var nextTop = cards[i + 1].getBoundingClientRect().top;
+              cov[i] = clamp01((top + range - nextTop) / range);
+            }
+            for (var j = 0; j < cards.length; j++) {
+              var covered = j < cards.length - 1 ? cov[j] : 0;
+              var arrival = j > 0 ? cov[j - 1] : 1;
+              var dim = clamp01(Math.max(1 - arrival, covered));
+              cards[j].style.setProperty("--dim", dim.toFixed(3));
+            }
+            sTick = false;
+          };
+          window.addEventListener(
+            "scroll",
+            function () {
+              if (!sTick) {
+                sTick = true;
+                window.requestAnimationFrame(sUpdate);
+              }
+            },
+            { passive: true },
+          );
+          window.addEventListener("resize", sUpdate, { passive: true });
+          sUpdate();
         }
       })();
     </script>
