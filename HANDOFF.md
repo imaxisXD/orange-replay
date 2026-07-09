@@ -103,7 +103,7 @@ Ranked moat features (each with pain/mechanism/build sketch in the doc): 1) edge
 
 ### Deferred (needs real CF account or user decision — do NOT pick these up)
 
-Analytics Engine verification (TRENDS binding declared in Env but not provisioned in wrangler config — no-op today) · Pipelines/Iceberg lake · Vectorize/AI · heatmaps UI backend · processing lane · E2E-encryption tier · privacy-tier config field · BYOC provisioner · GitHub OAuth (incl. `members` table/org authz) · template publishing · edge rate-limiter binding per key+IP (per-session in-DO limit shipped; hot-project case needs the real binding) · orphan-reconcile cron (re-emit finalize for R2 prefixes without D1 rows) · minimal-sidecar mode · compressed-estimate flush trigger + per-append state-write collapse (cost tuning) · **OSS license (user decision pending)**.
+Analytics Engine verification (TRENDS binding declared in Env but not provisioned in wrangler config — no-op today) · Pipelines/Iceberg lake · Vectorize/AI · heatmaps UI backend · console/network lazy capture chunks · processing lane · E2E-encryption tier · privacy-tier config field · BYOC provisioner · hosted-plane auth — decided 2026-07-09: BetterAuth + GitHub/Google OAuth, no email/password (incl. `members` table/org authz; anonymous no-signup workspaces considered and rejected — see ARCHITECTURE §6) · template publishing · orphan-reconcile cron (re-emit finalize for R2 prefixes without D1 rows) · minimal-sidecar mode · compressed-estimate flush trigger + per-append state-write collapse (cost tuning) · **OSS license (user decision pending)**.
 
 ## Working protocol (how tasks get executed)
 

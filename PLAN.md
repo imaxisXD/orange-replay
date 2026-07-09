@@ -6,7 +6,7 @@ Operating document for the orchestrated build. ARCHITECTURE.md is the design aut
 
 - **Pacing**: autonomous run-through of all phases; report at the end (task list tracks progress).
 - **Cloudflare**: local-only (wrangler dev / miniflare / vitest-pool-workers). No real resources, no deploys.
-- **Dashboard auth**: dev bearer token for v1; GitHub OAuth deferred.
+- **Dashboard auth**: dev bearer token for v1. Hosted-plane auth decided 2026-07-09: **BetterAuth + GitHub/Google OAuth**, no email/password (ARCHITECTURE §6); implementation deferred to hosted launch.
 - **rrweb**: fork immediately — vendored in-repo at a pinned upstream tag, capture-side only.
 - **Toolchain**: Vite Plus (`vp` 0.2.2) — `vp install` / `vp check` / `vp test` / `vp build`. Oxlint + Oxfmt, Vitest.
 - **UI**: React + Tailwind + shadcn with the **Fluid Functionalism registry** (`npx shadcn@latest add @fluid/<component>`). Never hand-roll a component the registry provides. Hard review criterion.
@@ -15,7 +15,7 @@ Operating document for the orchestrated build. ARCHITECTURE.md is the design aut
 
 ## Deferred (out of v1 scope — most need a real CF account)
 
-Analytics Engine verification, Pipelines → Iceberg lake, Vectorize/AI features, heatmaps UI, the opt-in processing lane, E2E encryption tier, BYOC provisioner Workflow, GitHub OAuth, template-repo publishing, any deploy.
+Analytics Engine verification, Pipelines → Iceberg lake, Vectorize/AI features, heatmaps UI, the opt-in processing lane, E2E encryption tier, BYOC provisioner Workflow, hosted auth (BetterAuth + GitHub/Google OAuth), template-repo publishing, any deploy.
 
 ## Ground rules (every agent, every task)
 
