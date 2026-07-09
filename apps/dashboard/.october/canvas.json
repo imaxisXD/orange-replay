@@ -1,0 +1,76 @@
+{
+  "screens": [
+    {
+      "id": "screen-mrc15zdt-0",
+      "title": "Home",
+      "kind": "desktop",
+      "routePath": "/",
+      "position": {
+        "x": 80,
+        "y": 60
+      },
+      "size": {
+        "width": 640,
+        "height": 430
+      },
+      "screenVersion": 1
+    }
+  ],
+  "chatBoxes": [
+    {
+      "id": "chat-mrc15zdt-1",
+      "title": "Chat",
+      "position": {
+        "x": -365.0238663484487,
+        "y": 308.09069212410503
+      },
+      "size": {
+        "width": 380,
+        "height": 420
+      },
+      "messages": [],
+      "activeScreenId": "screen-mrc15zdt-0",
+      "agentName": "Apollo"
+    },
+    {
+      "id": "chat-mrc17eqq-3",
+      "title": "Chat",
+      "position": {
+        "x": 656.9152744630071,
+        "y": 523.890214797136
+      },
+      "size": {
+        "width": 380,
+        "height": 420
+      },
+      "messages": [],
+      "harness": "codex",
+      "agentName": "Atlas",
+      "activeScreenId": "screen-mrc15zdt-0"
+    }
+  ],
+  "stickies": [],
+  "analytics": [],
+  "experiments": [],
+  "terminals": [],
+  "connections": [
+    {
+      "id": "conn-mrc15zdt-2",
+      "source": "chat-mrc15zdt-1",
+      "target": "screen-mrc15zdt-0"
+    },
+    {
+      "id": "conn-mrc17hch-4",
+      "source": "chat-mrc17eqq-3",
+      "target": "screen-mrc15zdt-0",
+      "sourceHandle": "top",
+      "targetHandle": "r"
+    }
+  ],
+  "viewport": {
+    "x": 379.5698924731183,
+    "y": -13.0645161290322,
+    "zoom": 0.9010752688172043
+  },
+  "busCanvasId": "b08c3f36-48b6-4f68-85d3-54516f38e32a"
+}
