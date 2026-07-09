@@ -11,7 +11,7 @@ import { safeReturnPath } from "@/lib/login-return";
 import { projectIdFromProjectPath } from "@/lib/routes";
 import { spring } from "@/lib/springs";
 
-const rejectedTokenMessage = "That token was rejected. Check DEV_API_TOKEN and try again.";
+const rejectedTokenMessage = "That token was rejected. Check the owner API token and try again.";
 
 // Split + stagger the card's contents on first paint; MotionConfig
 // (reducedMotion="user") drops the y-shift and keeps a plain fade when the
@@ -105,14 +105,14 @@ export function LoginPage() {
                 setToken(nextToken);
                 setError("");
               }}
-              placeholder="DEV_API_TOKEN"
+              placeholder="Owner API token"
               type={showToken ? "text" : "password"}
               value={token}
             />
           </InputGroup>
 
           <p className="-mt-2 text-[12px] text-dim">
-            Local dev: the DEV_API_TOKEN value from apps/worker/.dev.vars
+            Use the owner API token for this Orange Replay project.
           </p>
 
           <Button className="w-full" loading={isChecking} type="submit">
