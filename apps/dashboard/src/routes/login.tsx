@@ -1,6 +1,6 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { motion } from "framer-motion";
+import { m } from "@/lib/motion";
 import { BrandMark } from "@/components/brand-mark";
 import { Button } from "@/components/ui/button";
 import { IconSwap } from "@/components/ui/icon-swap";
@@ -26,19 +26,13 @@ const cardChild = {
 };
 
 export function LoginPage() {
-  const [token, setToken] = useState("");
-  const [error, setError] = useState("");
-  const [showToken, setShowToken] = useState(false);
-  const [isChecking, setIsChecking] = useState(false);
   const navigate = useNavigate();
   const search = useSearch({ from: "/login" });
   const returnTo = safeReturnPath(search.returnTo);
-
-  useEffect(() => {
-    if (search.reason === "unauthorized") {
-      setError(rejectedTokenMessage);
-    }
-  }, [search.reason]);
+  const [token, setToken] = useState("");
+  const [error, setError] = useState(search.reason === "unauthorized" ? rejectedTokenMessage : "");
+  const [showToken, setShowToken] = useState(false);
+  const [isChecking, setIsChecking] = useState(false);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -52,31 +46,34 @@ export function LoginPage() {
     setIsChecking(true);
     setError("");
 
+    const targetProjectId = projectIdFromProjectPath(returnTo);
     try {
-      await checkApiToken(trimmedToken, projectIdFromProjectPath(returnTo));
-      setApiToken(trimmedToken);
-      void navigate({ href: returnTo, replace: true });
+      await checkApiToken(trimmedToken, targetProjectId);
     } catch {
       setError(rejectedTokenMessage);
-    } finally {
       setIsChecking(false);
+      return;
     }
+
+    setApiToken(trimmedToken);
+    setIsChecking(false);
+    void navigate({ href: returnTo, replace: true });
   }
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-background p-6 text-foreground">
-      <motion.section
+      <m.section
         animate="show"
         className="lit flex w-full max-w-100 flex-col gap-6 overflow-hidden rounded-lg p-6"
         initial="hidden"
         variants={cardEnter}
       >
-        <motion.div className="mt-4 flex items-center gap-2.5" variants={cardChild}>
+        <m.div className="mt-4 flex items-center gap-2.5" variants={cardChild}>
           <BrandMark className="size-7" />
           <span className="text-[14px] font-medium">Orange Replay</span>
-        </motion.div>
+        </m.div>
 
-        <motion.form className="flex flex-col gap-4" onSubmit={handleSubmit} variants={cardChild}>
+        <m.form className="flex flex-col gap-4" onSubmit={handleSubmit} variants={cardChild}>
           <InputGroup className="w-full">
             <InputField
               autoComplete="current-password"
@@ -118,8 +115,8 @@ export function LoginPage() {
           <Button className="w-full" loading={isChecking} type="submit">
             Continue
           </Button>
-        </motion.form>
-      </motion.section>
+        </m.form>
+      </m.section>
     </main>
   );
 }
