@@ -1,3 +1,8 @@
+const absoluteTimeFormatter = new Intl.DateTimeFormat(undefined, {
+  dateStyle: "medium",
+  timeStyle: "medium",
+});
+
 export function formatRelativeTime(value: number, now = Date.now()): string {
   return formatRelativeTimeValue(value, now, { nowLabel: "just now", suffix: " ago" });
 }
@@ -34,10 +39,7 @@ function formatRelativeTimeValue(
 }
 
 export function formatAbsoluteTime(value: number): string {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "medium",
-  }).format(new Date(value));
+  return absoluteTimeFormatter.format(new Date(value));
 }
 
 export function formatDuration(value: number): string {

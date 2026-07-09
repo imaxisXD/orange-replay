@@ -275,11 +275,13 @@ function firstMetaText(event: IndexEvent, keys: readonly string[]): string | und
 
 function shortSelector(value: string): string {
   const cleanValue = value.trim();
-  const lastPart = cleanValue
-    .split(">")
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .at(-1);
+  let lastPart: string | undefined;
+  for (const part of cleanValue.split(">")) {
+    const cleanPart = part.trim();
+    if (cleanPart.length > 0) {
+      lastPart = cleanPart;
+    }
+  }
 
   return truncateText(lastPart ?? cleanValue, 42);
 }
