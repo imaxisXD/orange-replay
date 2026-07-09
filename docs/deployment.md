@@ -69,8 +69,18 @@ By default, the script creates the first project id from `ORANGE_REPLAY_PROD_API
 vp run deploy:prod
 ```
 
-This builds the browser SDK, builds the dashboard, copies `orange-replay.iife.js` to `apps/dashboard/dist/or-recorder.js`, and deploys the Worker with `apps/worker/wrangler.jsonc` using `--env production`.
+This builds the browser SDK, builds the dashboard, copies the static landing page to `apps/dashboard/dist/index.html`, keeps the dashboard app shell at `apps/dashboard/dist/dashboard/index.html`, copies `orange-replay.iife.js` to `apps/dashboard/dist/or-recorder.js`, and deploys the Worker with `apps/worker/wrangler.jsonc` using `--env production`.
 After deploy, the smoke check calls the configured project config route and requires a `200` response, so run the bootstrap step before `vp run deploy:prod`.
+
+Production route split:
+
+| URL path             | Served by                           |
+| -------------------- | ----------------------------------- |
+| `/`                  | Static landing page from `landing/` |
+| `/login`             | Dashboard app shell                 |
+| `/projects/...`      | Dashboard app shell                 |
+| `/or-recorder.js`    | Browser SDK bundle                  |
+| `/api/*` and `/v1/*` | Worker API and ingest code          |
 
 For a local deploy validation without uploading:
 

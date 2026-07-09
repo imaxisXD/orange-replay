@@ -13,6 +13,7 @@ export interface RateLimitBinding {
 }
 
 export interface Env {
+  ASSETS?: Fetcher;
   SESSION: DurableObjectNamespace<SessionRecorder>;
   PRESENCE: DurableObjectNamespace<PresenceRegistry>;
   RECORDINGS: R2Bucket;
