@@ -303,25 +303,26 @@
         padding: 96px 0 118px;
         overflow: hidden;
       }
-      /* a single amber "scan line" sweeping the canvas */
-      .hero .scan {
+      /* our touch: a field of session "events" (mono glyphs) that lights up in amber
+         as the cursor — a replay playhead — sweeps across it (studied from eve.dev) */
+      .hero-fx {
         position: absolute;
-        top: -10%;
-        left: 63%;
-        width: 2px;
-        height: 150%;
+        inset: 0;
         z-index: 0;
         pointer-events: none;
-        background: linear-gradient(
-          180deg,
-          transparent,
-          rgba(245, 166, 35, 0.42) 45%,
-          rgba(245, 166, 35, 0.1) 70%,
-          transparent
+        /* soft vignette so the field fades out toward the frame edges */
+        -webkit-mask-image: radial-gradient(
+          120% 130% at 62% 34%,
+          #000 0%,
+          rgba(0, 0, 0, 0.7) 55%,
+          transparent 88%
         );
-        box-shadow: 0 0 16px rgba(245, 166, 35, 0.28);
-        transform: rotate(23deg);
-        transform-origin: top center;
+        mask-image: radial-gradient(
+          120% 130% at 62% 34%,
+          #000 0%,
+          rgba(0, 0, 0, 0.7) 55%,
+          transparent 88%
+        );
       }
       .hero .inner {
         position: relative;
@@ -1982,7 +1983,7 @@
 
       <!-- ============ HERO ============ -->
       <header class="hero">
-        <div class="scan"></div>
+        <canvas class="hero-fx" aria-hidden="true"></canvas>
         <div class="wrap">
           <div class="inner">
             <h1 class="reveal">Watch what your users actually did.</h1>
@@ -3189,6 +3190,152 @@
           );
           window.addEventListener("resize", sUpdate, { passive: true });
           sUpdate();
+        }
+      })();
+
+      // ===== hero glyph field — a grid of session "events" that lights up in amber
+      // as the cursor (a replay playhead) sweeps across it. 2D canvas, cheap.
+      // (interaction studied from eve.dev's dot-matrix hero) =====
+      (function () {
+        var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        var canvas = document.querySelector(".hero-fx");
+        var hero = document.querySelector(".hero");
+        if (!canvas || !hero) return;
+        var ctx = canvas.getContext("2d");
+        if (!ctx) return;
+
+        // stroke-y glyphs weighted toward dashes/slashes (the eve.dev texture),
+        // with a few replay-flavored marks (play/record/error)
+        var GLYPHS = "//\\\\||--··++▲▶■◆●×".split("");
+        var CELL = 24; // grid pitch, CSS px
+        var FONT = 13; // glyph size, CSS px
+        var RADIUS = 210; // cursor spotlight radius, CSS px
+        var BASE = 0.05; // resting brightness
+        var dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+
+        var cells = [];
+        var w = 0;
+        var h = 0;
+        var lx = 0;
+        var ly = 0;
+        var tx = 0;
+        var ty = 0; // light: smoothed position + target
+        var hasPointer = false;
+        var t0 = 0;
+        var raf = 0;
+
+        function build() {
+          var r = hero.getBoundingClientRect();
+          w = r.width;
+          h = r.height;
+          canvas.width = Math.round(w * dpr);
+          canvas.height = Math.round(h * dpr);
+          canvas.style.width = w + "px";
+          canvas.style.height = h + "px";
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.font = FONT + 'px ui-monospace, "SF Mono", Menlo, monospace';
+          var cols = Math.ceil(w / CELL) + 1;
+          var rows = Math.ceil(h / CELL) + 1;
+          cells = [];
+          for (var gy = 0; gy < rows; gy++) {
+            for (var gx = 0; gx < cols; gx++) {
+              cells.push({
+                x: gx * CELL + CELL / 2,
+                y: gy * CELL + CELL / 2,
+                g: GLYPHS[(Math.random() * GLYPHS.length) | 0],
+                p: Math.random() * Math.PI * 2, // per-cell shimmer phase
+              });
+            }
+          }
+          if (!hasPointer) {
+            lx = tx = w * 0.62;
+            ly = ty = h * 0.34;
+          }
+        }
+
+        function render(t) {
+          ctx.clearRect(0, 0, w, h);
+          for (var i = 0; i < cells.length; i++) {
+            var c = cells[i];
+            var dx = c.x - lx;
+            var dy = c.y - ly;
+            var dist = Math.sqrt(dx * dx + dy * dy);
+            var lit = dist < RADIUS ? 1 - dist / RADIUS : 0;
+            lit = lit * lit; // sharper core
+            var shimmer = 0.55 + 0.45 * Math.sin(t * 1.6 + c.p);
+            var a = BASE * shimmer + lit * 0.92;
+            if (a <= 0.012) continue;
+            if (lit < 0.03) {
+              ctx.fillStyle = "rgba(188,188,198," + (a * 0.9).toFixed(3) + ")";
+            } else {
+              // blend amber → white toward the hot core
+              var mix = lit;
+              ctx.fillStyle =
+                "rgba(" +
+                ((245 + (255 - 245) * mix) | 0) +
+                "," +
+                ((166 + (255 - 166) * mix) | 0) +
+                "," +
+                ((35 + (255 - 35) * mix) | 0) +
+                "," +
+                a.toFixed(3) +
+                ")";
+            }
+            ctx.fillText(c.g, c.x, c.y);
+          }
+        }
+
+        function frame(now) {
+          if (!t0) t0 = now;
+          var t = (now - t0) / 1000;
+          if (!hasPointer) {
+            // ambient "playhead" drift until the user takes over
+            tx = w * (0.5 + 0.26 * Math.cos(t * 0.5));
+            ty = h * (0.42 + 0.2 * Math.sin(t * 0.37));
+          }
+          lx += (tx - lx) * 0.08; // trailing ease
+          ly += (ty - ly) * 0.08;
+          render(t);
+          raf = requestAnimationFrame(frame);
+        }
+
+        window.addEventListener(
+          "pointermove",
+          function (e) {
+            var r = hero.getBoundingClientRect();
+            if (e.clientY < r.top - 60 || e.clientY > r.bottom + 60) return;
+            tx = e.clientX - r.left;
+            ty = e.clientY - r.top;
+            hasPointer = true;
+          },
+          { passive: true },
+        );
+        window.addEventListener("resize", build, { passive: true });
+
+        build();
+        render(0); // paint once immediately (visible even before rAF ticks)
+
+        if (reduce) return; // static field, no animation, no cursor tracking
+
+        if ("IntersectionObserver" in window) {
+          var io = new IntersectionObserver(
+            function (es) {
+              es.forEach(function (e) {
+                if (e.isIntersecting) {
+                  if (!raf) raf = requestAnimationFrame(frame);
+                } else if (raf) {
+                  cancelAnimationFrame(raf);
+                  raf = 0;
+                }
+              });
+            },
+            { threshold: 0 },
+          );
+          io.observe(hero);
+        } else {
+          raf = requestAnimationFrame(frame);
         }
       })();
     </script>
