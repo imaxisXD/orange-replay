@@ -5,6 +5,9 @@ DEV_API_TOKEN=dev-local-token-0000000000000000
 DEV_API_PROJECT_IDS=project_demo
 # Separate secret for short-lived live replay WebSocket tickets.
 LIVE_TICKET_SECRET=dev-live-ticket-secret-000000000000
+# Public demo workspace values. Demo is disabled unless both are set.
+DEMO_PROJECT_ID=project_demo
+DEMO_WRITE_KEY=or_live_demo0000000000000000000000000000
 # "1" enables /__test/* routes (seeding, debug). Never set in production.
 DEV_TEST_ROUTES=1
 # Optional: shrink DO timing thresholds for manual testing, e.g.

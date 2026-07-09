@@ -386,7 +386,9 @@ function appendD1Databases(lines, databases) {
 }
 
 function appendRateLimits(lines, ratelimits) {
-  const cleanRateLimits = Array.isArray(ratelimits) ? ratelimits : [];
+  const cleanRateLimits = Array.isArray(ratelimits)
+    ? ratelimits.filter((limit) => limit?.name !== "DEMO_API_RATE_LIMITER")
+    : [];
   if (cleanRateLimits.length === 0) {
     return;
   }

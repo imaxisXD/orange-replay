@@ -87,7 +87,15 @@
       "assets": {
         "directory": "../dashboard/dist",
         "binding": "ASSETS",
-        "run_worker_first": ["/api/*", "/v1/*", "/login", "/projects", "/projects/*"],
+        "run_worker_first": [
+          "/api/*",
+          "/v1/*",
+          "/login",
+          "/demo",
+          "/demo/*",
+          "/projects",
+          "/projects/*",
+        ],
       },
       "durable_objects": {
         "bindings": [

@@ -1,0 +1,52 @@
+// @vitest-environment happy-dom
+import { renderToStaticMarkup } from "react-dom/server";
+import { beforeEach, describe, expect, it } from "vite-plus/test";
+import { ApiError } from "../src/lib/api";
+import { dashboardNavItems } from "../src/lib/dashboard-navigation";
+import { isDemoPath } from "../src/lib/demo-mode";
+import { DemoUnavailableStateContent } from "../src/lib/demo-unavailable-state";
+import { requireProjectToken } from "../src/lib/route-guard";
+
+beforeEach(() => {
+  window.history.replaceState({}, "", "/");
+  window.localStorage.clear();
+});
+
+describe("demo routes", () => {
+  it("recognizes only the public demo route tree", () => {
+    expect(isDemoPath("/demo")).toBe(true);
+    expect(isDemoPath("/demo/sessions/session-1")).toBe(true);
+    expect(isDemoPath("/projects/demo/sessions")).toBe(false);
+    expect(isDemoPath("/demonstration")).toBe(false);
+  });
+
+  it("bypasses the project token guard", () => {
+    expect(() =>
+      requireProjectToken({ href: "/demo/sessions", pathname: "/demo/sessions" }),
+    ).not.toThrow();
+  });
+
+  it("hides settings and install navigation", () => {
+    expect(dashboardNavItems(true).map((item) => item.label)).toEqual(["Sessions", "Live"]);
+    expect(dashboardNavItems(false).map((item) => item.label)).toEqual([
+      "Sessions",
+      "Live",
+      "Settings",
+      "Install",
+    ]);
+  });
+
+  it("renders the unavailable state for a missing demo", () => {
+    const markup = renderToStaticMarkup(
+      <DemoUnavailableStateContent
+        actions={<span>Start free</span>}
+        brand={<span>Orange Replay</span>}
+        error={new ApiError("not_found", 404, "not_found")}
+      />,
+    );
+
+    expect(markup).toContain("Demo not available");
+    expect(markup).toContain("The live demo is not turned on for this deployment.");
+    expect(markup).toContain("Start free");
+  });
+});

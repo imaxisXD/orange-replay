@@ -61,7 +61,13 @@ export async function serveDashboardAppShell(
 }
 
 export function isDashboardAppRoute(pathname: string): boolean {
-  return pathname === "/login" || pathname === "/projects" || pathname.startsWith("/projects/");
+  return (
+    pathname === "/demo" ||
+    pathname.startsWith("/demo/") ||
+    pathname === "/login" ||
+    pathname === "/projects" ||
+    pathname.startsWith("/projects/")
+  );
 }
 
 function dashboardAppShellRequest(request: Request): Request {

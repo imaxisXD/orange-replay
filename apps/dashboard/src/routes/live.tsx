@@ -1,11 +1,12 @@
 import { type KeyboardEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate, useParams } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { CountryFlag } from "@/components/country-flag";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError, fetchLiveSessions, type LiveSessionItem } from "@/lib/api";
+import { useDashboardWorkspace } from "@/lib/dashboard-workspace";
 import { AlertCircle, RotateCcw } from "@/lib/icon-map";
 import {
   formatLiveSessionRow,
@@ -13,14 +14,12 @@ import {
   shouldPollLiveSessions,
   type LiveSessionRow,
 } from "@/lib/live-sessions";
-import { defaultProjectId } from "@/lib/routes";
 import { cn } from "@/lib/utils";
 
 export function LivePage() {
-  const params = useParams({ strict: false });
-  const projectId = params.projectId ?? defaultProjectId;
+  const { projectId, isDemo } = useDashboardWorkspace();
   const liveQuery = useQuery({
-    queryKey: ["live-sessions", projectId],
+    queryKey: ["live-sessions", isDemo ? "demo" : "private", projectId],
     queryFn: ({ signal }) => fetchLiveSessions(projectId, { signal }),
     refetchInterval: () =>
       shouldPollLiveSessions(document.visibilityState) ? livePollIntervalMs : false,
@@ -73,7 +72,7 @@ export function LivePage() {
         ) : rows.length > 0 ? (
           <div>
             {rows.map((row) => (
-              <LiveRow key={row.sessionId} projectId={projectId} row={row} />
+              <LiveRow isDemo={isDemo} key={row.sessionId} projectId={projectId} row={row} />
             ))}
           </div>
         ) : (
@@ -84,10 +83,26 @@ export function LivePage() {
   );
 }
 
-function LiveRow({ projectId, row }: { projectId: string; row: LiveSessionRow }) {
+function LiveRow({
+  isDemo,
+  projectId,
+  row,
+}: {
+  isDemo: boolean;
+  projectId: string;
+  row: LiveSessionRow;
+}) {
   const navigate = useNavigate();
 
   function openSession(): void {
+    if (isDemo) {
+      void navigate({
+        to: "/demo/sessions/$sessionId",
+        params: { sessionId: row.sessionId },
+      });
+      return;
+    }
+
     void navigate({
       to: "/projects/$projectId/sessions/$sessionId",
       params: { projectId, sessionId: row.sessionId },

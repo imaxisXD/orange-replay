@@ -6,9 +6,11 @@ import {
   redirect,
   type ErrorComponentProps,
 } from "@tanstack/react-router";
-import { getApiToken } from "@/lib/api";
-import { defaultProjectId, loginSearch } from "@/lib/routes";
+import { defaultProjectId } from "@/lib/routes";
+import { requireProjectToken } from "@/lib/route-guard";
+import { DashboardWorkspaceProvider } from "@/lib/dashboard-workspace";
 import { AppShell } from "@/routes/app-shell";
+import { DemoRoute } from "@/routes/demo";
 import { InstallPage } from "@/routes/install";
 import { LivePage } from "@/routes/live";
 import { LoginPage } from "@/routes/login";
@@ -54,14 +56,9 @@ const projectRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/projects/$projectId",
   beforeLoad: ({ location }) => {
-    if (getApiToken() !== null) return;
-    throw redirect({
-      to: "/login",
-      search: loginSearch(undefined, location.href),
-      replace: true,
-    });
+    requireProjectToken(location);
   },
-  component: AppShell,
+  component: ProjectAppShell,
   errorComponent: RouteErrorBoundary,
   notFoundComponent: () => <RouteError notFound />,
 });
@@ -108,9 +105,47 @@ const installRoute = createRoute({
   component: InstallPage,
 });
 
+const demoRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/demo",
+  component: DemoRoute,
+  errorComponent: RouteErrorBoundary,
+  notFoundComponent: () => <RouteError notFound />,
+});
+
+const demoIndexRoute = createRoute({
+  getParentRoute: () => demoRoute,
+  path: "/",
+  beforeLoad: () => {
+    throw redirect({
+      to: "/demo/sessions",
+      replace: true,
+    });
+  },
+});
+
+const demoSessionsRoute = createRoute({
+  getParentRoute: () => demoRoute,
+  path: "sessions",
+  component: SessionsPage,
+});
+
+const demoSessionDetailRoute = createRoute({
+  getParentRoute: () => demoRoute,
+  path: "sessions/$sessionId",
+  component: SessionDetailPage,
+});
+
+const demoLiveRoute = createRoute({
+  getParentRoute: () => demoRoute,
+  path: "live",
+  component: LivePage,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   rootIndexRoute,
+  demoRoute.addChildren([demoIndexRoute, demoSessionsRoute, demoSessionDetailRoute, demoLiveRoute]),
   projectRoute.addChildren([
     projectIndexRoute,
     sessionsRoute,
@@ -131,4 +166,13 @@ declare module "@tanstack/react-router" {
 
 function RouteErrorBoundary({ error }: ErrorComponentProps) {
   return <RouteError error={error} />;
+}
+
+function ProjectAppShell() {
+  const { projectId } = projectRoute.useParams();
+  return (
+    <DashboardWorkspaceProvider isDemo={false} projectId={projectId}>
+      <AppShell />
+    </DashboardWorkspaceProvider>
+  );
 }

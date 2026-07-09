@@ -2,6 +2,7 @@ node_modules/
 dist/
 .wrangler/
 apps/worker/wrangler.cloudflare-build.jsonc
+apps/worker/wrangler.demo.jsonc
 .dev.vars
 .dev.vars.*
 .env*

@@ -55,13 +55,13 @@
     {
       "name": "INGEST_PROJECT_RATE_LIMITER",
       "namespace_id": "1002",
-      "simple": { "limit": 1200, "period": 60 },
+      "simple": { "limit": 60000, "period": 60 },
     },
     // # created by setup docs: INGEST_SESSION_RATE_LIMITER protects public ingest before Durable Object writes.
     {
       "name": "INGEST_SESSION_RATE_LIMITER",
       "namespace_id": "1003",
-      "simple": { "limit": 300, "period": 60 },
+      "simple": { "limit": 12000, "period": 60 },
     },
   ],
   "queues": {

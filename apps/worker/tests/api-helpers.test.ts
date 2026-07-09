@@ -7,6 +7,7 @@ import {
   parseSessionListQuery,
 } from "../src/api/helpers.ts";
 import { handleApi } from "../src/api/handler.ts";
+import { isDevTestMode } from "../src/env.ts";
 import type { Env } from "../src/env.ts";
 
 afterEach(() => {
@@ -113,5 +114,135 @@ describe("api wide events", () => {
     expect(parsed["route"]).toBe("live");
     expect(JSON.stringify(parsed)).not.toContain("token=");
     expect(JSON.stringify(parsed)).not.toContain("secret-token");
+  });
+
+  it("logs demo discovery with the demo auth mode", async () => {
+    const log = vi.spyOn(globalThis["console"], "log").mockImplementation(() => undefined);
+    const rateLimitKeys: string[] = [];
+    const env = {
+      DEMO_PROJECT_ID: "demo_project",
+      DEMO_WRITE_KEY: "or_live_demo0000000000000000000000000000",
+      DEMO_API_RATE_LIMITER: {
+        async limit(input: { key: string }): Promise<{ success: boolean }> {
+          rateLimitKeys.push(input.key);
+          return { success: true };
+        },
+      },
+    } as Env;
+
+    const response = await handleApi(
+      new Request("https://replay.test/api/v1/demo", {
+        headers: { "cf-connecting-ip": "198.51.100.4" },
+      }),
+      env,
+      {} as Parameters<typeof handleApi>[2],
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("public, max-age=60");
+    expect(await response.json()).toEqual({
+      projectId: "demo_project",
+      writeKey: "or_live_demo0000000000000000000000000000",
+    });
+    expect(rateLimitKeys).toEqual(["demo:ip:198.51.100.4"]);
+    const parsed = JSON.parse(String(log.mock.calls[0]?.[0])) as Record<string, unknown>;
+    expect(parsed["route"]).toBe("demo_discovery");
+    expect(parsed["auth_mode"]).toBe("demo");
+  });
+
+  it("logs bearer auth mode for bearer-checked API routes", async () => {
+    const log = vi.spyOn(globalThis["console"], "log").mockImplementation(() => undefined);
+    const bearerToken = "test-token-0000000000000000000000";
+
+    const response = await handleApi(
+      new Request("https://replay.test/api/v1/projects/other_project/sessions", {
+        headers: { authorization: `Bearer ${bearerToken}` },
+      }),
+      { DEV_API_TOKEN: bearerToken, DEV_API_PROJECT_IDS: "demo_project" } as Env,
+      {} as Parameters<typeof handleApi>[2],
+    );
+
+    expect(response.status).toBe(403);
+    const parsed = JSON.parse(String(log.mock.calls[0]?.[0])) as Record<string, unknown>;
+    expect(parsed["auth_mode"]).toBe("bearer");
+  });
+});
+
+describe("demo api decisions", () => {
+  it("returns a generic 404 when demo env is incomplete", async () => {
+    vi.spyOn(globalThis["console"], "log").mockImplementation(() => undefined);
+
+    const response = await handleApi(
+      new Request("https://replay.test/api/v1/demo"),
+      { DEMO_PROJECT_ID: "demo_project" } as Env,
+      {} as Parameters<typeof handleApi>[2],
+    );
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "not_found" });
+  });
+
+  it("fails closed when demo rate limiting is missing outside dev test mode", async () => {
+    vi.spyOn(globalThis["console"], "log").mockImplementation(() => undefined);
+
+    const response = await handleApi(
+      new Request("https://replay.test/api/v1/demo"),
+      {
+        WORKER_ENV: "production",
+        DEMO_PROJECT_ID: "demo_project",
+        DEMO_WRITE_KEY: "or_live_demo0000000000000000000000000000",
+      } as Env,
+      {} as Parameters<typeof handleApi>[2],
+    );
+
+    expect(response.status).toBe(429);
+    expect(await response.json()).toEqual({ error: "rate_limited" });
+  });
+
+  it("rate limits demo context requests by client IP", async () => {
+    vi.spyOn(globalThis["console"], "log").mockImplementation(() => undefined);
+    const rateLimitKeys: string[] = [];
+
+    const response = await handleApi(
+      new Request("https://replay.test/api/v1/projects/demo_project/sessions", {
+        headers: { "cf-connecting-ip": "203.0.113.8" },
+      }),
+      {
+        DEMO_PROJECT_ID: "demo_project",
+        DEMO_WRITE_KEY: "or_live_demo0000000000000000000000000000",
+        DEMO_API_RATE_LIMITER: {
+          async limit(input: { key: string }): Promise<{ success: boolean }> {
+            rateLimitKeys.push(input.key);
+            return { success: false };
+          },
+        },
+      } as Env,
+      {} as Parameters<typeof handleApi>[2],
+    );
+
+    expect(response.status).toBe(429);
+    expect(await response.json()).toEqual({ error: "rate_limited" });
+    expect(rateLimitKeys).toEqual(["demo:ip:203.0.113.8"]);
+  });
+
+  it("does not expose dev test routes in production demo mode", () => {
+    // index.ts only mounts /__test/* when isDevTestMode(env) is true; demo env
+    // vars must never influence that gate.
+    expect(
+      isDevTestMode({
+        WORKER_ENV: "production",
+        DEMO_PROJECT_ID: "demo_project",
+        DEMO_WRITE_KEY: "or_live_demo0000000000000000000000000000",
+      } as Env),
+    ).toBe(false);
+    expect(
+      isDevTestMode({
+        WORKER_ENV: "production",
+        DEV_TEST_ROUTES: "1",
+        DEMO_PROJECT_ID: "demo_project",
+        DEMO_WRITE_KEY: "or_live_demo0000000000000000000000000000",
+      } as Env),
+    ).toBe(false);
+    expect(isDevTestMode({ WORKER_ENV: "development", DEV_TEST_ROUTES: "1" } as Env)).toBe(true);
   });
 });

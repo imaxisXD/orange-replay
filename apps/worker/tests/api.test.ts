@@ -27,6 +27,10 @@ const configProjectId = "api_config_project";
 const keysProjectId = "api_keys_project";
 const ticketProjectId = "api_ticket_project";
 const ticketSessionId = "api_ticket_session";
+const demoProjectId = "api_demo_project";
+const demoOtherProjectId = "api_demo_other_project";
+const demoSessionId = "api_demo_session";
+const demoWriteKey = "or_live_demo0000000000000000000000000000";
 const apiProjectIds = [
   listProjectId,
   sameTimeProjectId,
@@ -43,7 +47,9 @@ const segmentBytes = new Uint8Array([0, 1, 2, 3, 254, 255]);
 let worker: Awaited<ReturnType<typeof unstable_dev>>;
 let workerWithoutToken: Awaited<ReturnType<typeof unstable_dev>>;
 let workerWithEmptyToken: Awaited<ReturnType<typeof unstable_dev>>;
+let workerWithDemo: Awaited<ReturnType<typeof unstable_dev>>;
 let assetManifestJson = "";
+let demoManifestJson = "";
 
 beforeAll(async () => {
   worker = await unstable_dev(`${workerDir}src/index.ts`, {
@@ -85,10 +91,29 @@ beforeAll(async () => {
   });
 }, 120_000);
 
+beforeAll(async () => {
+  workerWithDemo = await unstable_dev(`${workerDir}src/index.ts`, {
+    config: `${workerDir}wrangler.jsonc`,
+    vars: {
+      DEV_TEST_ROUTES: "1",
+      DEV_API_TOKEN: token,
+      DEV_API_PROJECT_IDS: apiProjectIds,
+      LIVE_TICKET_SECRET: liveTicketSecret,
+      DEMO_PROJECT_ID: demoProjectId,
+      DEMO_WRITE_KEY: demoWriteKey,
+    },
+    persist: false,
+    experimental: { disableExperimentalWarning: true },
+  });
+
+  demoManifestJson = await seedDemoWorkspace();
+}, 120_000);
+
 afterAll(async () => {
   await worker?.stop();
   await workerWithoutToken?.stop();
   await workerWithEmptyToken?.stop();
+  await workerWithDemo?.stop();
 });
 
 describe("dashboard api", () => {
@@ -120,6 +145,128 @@ describe("dashboard api", () => {
     });
     expect(wrong.status).toBe(401);
     expect(await wrong.json()).toEqual({ error: "unauthorized" });
+  });
+
+  it("keeps demo disabled when demo env is unset", async () => {
+    const discovery = await worker.fetch("/api/v1/demo");
+    expect(discovery.status).toBe(404);
+    expect(await discovery.json()).toEqual({ error: "not_found" });
+
+    const missing = await worker.fetch(`/api/v1/projects/${demoProjectId}/sessions`);
+    expect(missing.status).toBe(401);
+    expect(await missing.json()).toEqual({ error: "unauthorized" });
+  });
+
+  it("serves demo discovery when demo env is set", async () => {
+    const res = await workerWithDemo.fetch("/api/v1/demo");
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("public, max-age=60");
+    expect(await res.json()).toEqual({
+      projectId: demoProjectId,
+      writeKey: demoWriteKey,
+    });
+  });
+
+  it("allows only demo-readable routes without bearer auth", async () => {
+    const sessions = await workerWithDemo.fetch(
+      `/api/v1/projects/${demoProjectId}/sessions?limit=1`,
+    );
+    expect(sessions.status).toBe(200);
+    expect(((await sessions.json()) as SessionsResponse).sessions).toHaveLength(1);
+
+    const live = await workerWithDemo.fetch(`/api/v1/projects/${demoProjectId}/live`);
+    expect(live.status).toBe(200);
+    expect(await live.json()).toEqual({
+      sessions: [
+        {
+          session_id: "api_demo_live",
+          started_at: expect.any(Number),
+          last_seen: expect.any(Number),
+          entry_url: "/demo-live",
+          country: "US",
+          city: "Austin",
+          browser: "Chrome",
+          os: "macOS",
+          device: "desktop",
+          duration_ms: expect.any(Number),
+        },
+      ],
+    });
+
+    const manifest = await workerWithDemo.fetch(
+      `/api/v1/projects/${demoProjectId}/sessions/${demoSessionId}/manifest`,
+    );
+    expect(manifest.status).toBe(200);
+    expect(await manifest.text()).toBe(demoManifestJson);
+
+    const segment = await workerWithDemo.fetch(
+      `/api/v1/projects/${demoProjectId}/sessions/${demoSessionId}/segments/${segmentName}`,
+    );
+    expect(segment.status).toBe(200);
+    expect(Array.from(new Uint8Array(await segment.arrayBuffer()))).toEqual(
+      Array.from(segmentBytes),
+    );
+
+    const ticket = await workerWithDemo.fetch(
+      `/api/v1/projects/${demoProjectId}/sessions/${demoSessionId}/live-ticket`,
+      { method: "POST" },
+    );
+    expect(ticket.status).toBe(200);
+    expect(await ticket.json()).toEqual({
+      ticket: expect.any(String),
+      expiresAt: expect.any(Number),
+    });
+  });
+
+  it("rejects demo context on non-demo-readable routes", async () => {
+    const denied = [
+      workerWithDemo.fetch(`/api/v1/projects/${demoProjectId}/config`),
+      workerWithDemo.fetch(`/api/v1/projects/${demoProjectId}/config`, {
+        method: "PUT",
+        body: JSON.stringify({ sampleRate: 1 }),
+      }),
+      workerWithDemo.fetch(`/api/v1/projects/${demoProjectId}/keys`),
+      workerWithDemo.fetch(`/api/v1/projects/${demoProjectId}/install-status`),
+      workerWithDemo.fetch(`/api/v1/projects/${demoProjectId}/unknown`),
+    ];
+
+    for (const response of await Promise.all(denied)) {
+      expect(response.status).toBe(401);
+      expect(await response.json()).toEqual({ error: "unauthorized" });
+    }
+  });
+
+  it("does not let headers, query params, or bodies enable demo for another project", async () => {
+    const headerAndQuery = await workerWithDemo.fetch(
+      `/api/v1/projects/${demoOtherProjectId}/sessions?demoProjectId=${demoProjectId}`,
+      { headers: { "x-demo-project-id": demoProjectId } },
+    );
+    expect(headerAndQuery.status).toBe(401);
+    expect(await headerAndQuery.json()).toEqual({ error: "unauthorized" });
+
+    const body = await workerWithDemo.fetch(`/api/v1/projects/${demoOtherProjectId}/config`, {
+      method: "PUT",
+      body: JSON.stringify({ demoProjectId }),
+    });
+    expect(body.status).toBe(401);
+    expect(await body.json()).toEqual({ error: "unauthorized" });
+  });
+
+  it("does not fall back to demo when a bearer token is invalid", async () => {
+    const res = await workerWithDemo.fetch(`/api/v1/projects/${demoProjectId}/sessions`, {
+      headers: { authorization: "Bearer wrong-token" },
+    });
+
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: "unauthorized" });
+  });
+
+  it("clamps demo session list limits to fifty", async () => {
+    const res = await workerWithDemo.fetch(`/api/v1/projects/${demoProjectId}/sessions?limit=100`);
+
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as SessionsResponse).sessions).toHaveLength(50);
   });
 
   it("rejects valid bearer tokens outside their project scope", async () => {
@@ -756,6 +903,50 @@ async function seedAssetSession(): Promise<string> {
   return JSON.stringify(manifest);
 }
 
+async function seedDemoWorkspace(): Promise<string> {
+  for (let index = 0; index < 60; index += 1) {
+    const session = makeSession({
+      session_id: `api_demo_list_${String(index).padStart(2, "0")}`,
+      project_id: demoProjectId,
+      started_at: 10_000 + index,
+      ended_at: 10_500 + index,
+      duration_ms: 500,
+    });
+    await seedSession(session, makeManifest(session, []), [], workerWithDemo);
+  }
+
+  const session = makeSession({
+    session_id: demoSessionId,
+    project_id: demoProjectId,
+    started_at: 20_000,
+    ended_at: 21_000,
+    duration_ms: 1000,
+    bytes: segmentBytes.byteLength,
+    segment_count: 1,
+  });
+  const manifest = makeManifest(session, [{ name: segmentName, bytes: segmentBytes }]);
+  await seedSession(
+    session,
+    manifest,
+    [{ name: segmentName, bytes: segmentBytes }],
+    workerWithDemo,
+  );
+
+  const lastSeen = Date.now();
+  await presencePing(
+    {
+      projectId: demoProjectId,
+      sessionId: "api_demo_live",
+      startedAt: lastSeen - 500,
+      lastSeen,
+      entryUrl: "/demo-live",
+    },
+    workerWithDemo,
+  );
+
+  return JSON.stringify(manifest);
+}
+
 async function seedIngestKey(key: string, config: ProjectConfig, kv: boolean): Promise<string> {
   const res = await worker.fetch("/__test/ingest/seed", {
     method: "POST",
@@ -827,14 +1018,17 @@ async function appendActiveSession(projectId: string, sessionId: string): Promis
   expect(res.status).toBe(200);
 }
 
-async function presencePing(input: {
-  projectId: string;
-  sessionId: string;
-  startedAt: number;
-  lastSeen: number;
-  entryUrl: string;
-}): Promise<void> {
-  const res = await worker.fetch("/__test/do/presence/ping", {
+async function presencePing(
+  input: {
+    projectId: string;
+    sessionId: string;
+    startedAt: number;
+    lastSeen: number;
+    entryUrl: string;
+  },
+  targetWorker = worker,
+): Promise<void> {
+  const res = await targetWorker.fetch("/__test/do/presence/ping", {
     method: "POST",
     body: JSON.stringify({
       projectId: input.projectId,
@@ -856,8 +1050,9 @@ async function seedSession(
   session: SessionRow,
   manifest: SessionManifest,
   segments: { name: string; bytes: Uint8Array }[],
+  targetWorker = worker,
 ): Promise<void> {
-  const res = await worker.fetch("/__test/api/seed", {
+  const res = await targetWorker.fetch("/__test/api/seed", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({

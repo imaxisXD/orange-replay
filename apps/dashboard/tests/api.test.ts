@@ -23,6 +23,7 @@ let redirects: AuthRedirectEvent[] = [];
 
 beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
+  window.history.replaceState({}, "", "/");
   window.localStorage.clear();
   queryClient.clear();
   redirects = [];
@@ -67,6 +68,16 @@ describe("api client", () => {
 
     const headers = readFetchHeaders();
     expect(headers.get("authorization")).toBe("Bearer secret-token");
+  });
+
+  it("omits the bearer token on demo routes", async () => {
+    window.history.replaceState({}, "", "/demo/sessions");
+    setApiToken("secret-token");
+    fetchMock.mockResolvedValue(jsonResponse({ sessions: [], nextBefore: null }));
+
+    await listSessions("demo-project");
+
+    expect(readFetchHeaders().get("authorization")).toBeNull();
   });
 
   it("loads live sessions with bearer auth", async () => {
@@ -140,6 +151,19 @@ describe("api client", () => {
     } satisfies Partial<ApiError>);
     expect(getApiToken()).toBeNull();
     expect(redirects).toEqual([{ status: 401, reason: "unauthorized" }]);
+  });
+
+  it("keeps demo 401 errors inline without redirecting", async () => {
+    window.history.replaceState({}, "", "/demo/live");
+    setApiToken("saved-private-token");
+    fetchMock.mockResolvedValue(jsonResponse({ error: "unauthorized" }, 401));
+
+    await expect(fetchLiveSessions("demo-project")).rejects.toMatchObject({
+      status: 401,
+      code: "unauthorized",
+    } satisfies Partial<ApiError>);
+    expect(getApiToken()).toBe("saved-private-token");
+    expect(redirects).toEqual([]);
   });
 
   it("does not redirect when a typed token is rejected", async () => {

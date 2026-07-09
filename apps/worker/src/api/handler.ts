@@ -10,7 +10,7 @@ import {
 import type { LiveTicketResponse } from "@orange-replay/shared";
 import { listProjectPresence, readProjectInstallStatus } from "../do/presence-client.ts";
 import { liveSessionsFromPresenceRows } from "../do/presence-logic.ts";
-import { setWorkerLoggerVersion, shardDb, type Env } from "../env.ts";
+import { isDevTestMode, setWorkerLoggerVersion, shardDb, type Env } from "../env.ts";
 import { readBodyCapped, readContentLength } from "../ingest/helpers.ts";
 import {
   buildSessionsQuery,
@@ -33,10 +33,32 @@ const decoder = new TextDecoder();
 const LIVE_AUTH_HEADER = "x-or-live-auth";
 const MIN_API_TOKEN_LENGTH = 32;
 const MIN_LIVE_TICKET_SECRET_LENGTH = 32;
+const DEMO_SESSIONS_LIST_MAX = 50;
+const PLACEHOLDER_PREFIX = "REPLACE_WITH_";
 const API_SECURITY_HEADERS = {
   "x-content-type-options": "nosniff",
   "referrer-policy": "no-referrer",
 } as const;
+
+type ApiAuthMode = "bearer" | "demo";
+type ApiAuthContext = { ok: true; projects: ReadonlySet<string>; mode: ApiAuthMode };
+type ApiRouteName =
+  | "sessions_list"
+  | "project_live"
+  | "project_config"
+  | "install_status"
+  | "project_keys"
+  | "manifest"
+  | "live_ticket"
+  | "segment";
+
+const DEMO_READABLE_ROUTES = new Set<ApiRouteName>([
+  "sessions_list",
+  "project_live",
+  "manifest",
+  "segment",
+  "live_ticket",
+]);
 
 export async function handleApi(
   request: Request,
@@ -79,6 +101,10 @@ async function routeRequest(
     return jsonResponse({ ok: true });
   }
 
+  if (request.method === "GET" && url.pathname === "/api/v1/demo") {
+    return getDemoDiscovery(request, env, wideEvent);
+  }
+
   const liveMatch = /^\/api\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/live$/.exec(url.pathname);
   if (request.method === "GET" && liveMatch) {
     const ids = parseProjectSessionIds(liveMatch);
@@ -87,23 +113,30 @@ async function routeRequest(
     return proxyLiveSession(request, url, env, ids.projectId, ids.sessionId, requestId);
   }
 
-  const auth = await checkAuth(request, env);
+  const auth = await checkAuth(request, env, projectIdFromApiPath(url.pathname));
   if (!auth.ok) return jsonError(auth.error, auth.status);
+  wideEvent.set({ auth_mode: auth.mode });
+  if (auth.mode === "demo" && !(await demoRateLimitAllows(env, request))) {
+    wideEvent.set({ rate_limit: "demo" });
+    return jsonError("rate_limited", 429);
+  }
 
   const sessionsMatch = /^\/api\/v1\/projects\/([^/]+)\/sessions$/.exec(url.pathname);
   if (request.method === "GET" && sessionsMatch) {
     const projectId = sessionsMatch[1];
     if (!projectId || !isValidPathId(projectId)) return jsonError("invalid_path_id", 400);
-    if (!authCanAccessProject(auth, projectId)) return jsonError("forbidden", 403);
+    const authError = projectAuthError(auth, projectId, "sessions_list");
+    if (authError !== null) return authError;
     wideEvent.set({ project_id: projectId });
-    return listSessions(url, env, projectId);
+    return listSessions(url, env, projectId, auth.mode);
   }
 
   const projectLiveMatch = /^\/api\/v1\/projects\/([^/]+)\/live$/.exec(url.pathname);
   if (request.method === "GET" && projectLiveMatch) {
     const projectId = projectLiveMatch[1];
     if (!projectId || !isValidPathId(projectId)) return jsonError("invalid_path_id", 400);
-    if (!authCanAccessProject(auth, projectId)) return jsonError("forbidden", 403);
+    const authError = projectAuthError(auth, projectId, "project_live");
+    if (authError !== null) return authError;
     wideEvent.set({ project_id: projectId });
     return listLiveSessions(env, projectId, requestId);
   }
@@ -112,7 +145,8 @@ async function routeRequest(
   if (configMatch) {
     const projectId = configMatch[1];
     if (!projectId || !isValidPathId(projectId)) return jsonError("invalid_path_id", 400);
-    if (!authCanAccessProject(auth, projectId)) return jsonError("forbidden", 403);
+    const authError = projectAuthError(auth, projectId, "project_config");
+    if (authError !== null) return authError;
     wideEvent.set({ project_id: projectId });
     if (request.method === "GET") return getProjectConfig(env, projectId);
     if (request.method === "PUT") return putProjectConfig(request, env, projectId, wideEvent);
@@ -122,7 +156,8 @@ async function routeRequest(
   if (request.method === "GET" && installStatusMatch) {
     const projectId = installStatusMatch[1];
     if (!projectId || !isValidPathId(projectId)) return jsonError("invalid_path_id", 400);
-    if (!authCanAccessProject(auth, projectId)) return jsonError("forbidden", 403);
+    const authError = projectAuthError(auth, projectId, "install_status");
+    if (authError !== null) return authError;
     wideEvent.set({ project_id: projectId });
     return getInstallStatus(env, projectId, requestId);
   }
@@ -131,7 +166,8 @@ async function routeRequest(
   if (request.method === "GET" && keysMatch) {
     const projectId = keysMatch[1];
     if (!projectId || !isValidPathId(projectId)) return jsonError("invalid_path_id", 400);
-    if (!authCanAccessProject(auth, projectId)) return jsonError("forbidden", 403);
+    const authError = projectAuthError(auth, projectId, "project_keys");
+    if (authError !== null) return authError;
     wideEvent.set({ project_id: projectId });
     return getProjectKeys(env, projectId, wideEvent);
   }
@@ -142,7 +178,8 @@ async function routeRequest(
   if (request.method === "GET" && manifestMatch) {
     const ids = parseProjectSessionIds(manifestMatch);
     if (!ids.ok) return jsonError("invalid_path_id", 400);
-    if (!authCanAccessProject(auth, ids.projectId)) return jsonError("forbidden", 403);
+    const authError = projectAuthError(auth, ids.projectId, "manifest");
+    if (authError !== null) return authError;
     wideEvent.set({ project_id: ids.projectId, session_id: ids.sessionId });
     return getManifest(env, ids.projectId, ids.sessionId);
   }
@@ -153,7 +190,8 @@ async function routeRequest(
   if (request.method === "POST" && liveTicketMatch) {
     const ids = parseProjectSessionIds(liveTicketMatch);
     if (!ids.ok) return jsonError("invalid_path_id", 400);
-    if (!authCanAccessProject(auth, ids.projectId)) return jsonError("forbidden", 403);
+    const authError = projectAuthError(auth, ids.projectId, "live_ticket");
+    if (authError !== null) return authError;
     wideEvent.set({ project_id: ids.projectId, session_id: ids.sessionId });
     return mintLiveTicket(env, ids.projectId, ids.sessionId);
   }
@@ -164,7 +202,8 @@ async function routeRequest(
   if (request.method === "GET" && segmentMatch) {
     const ids = parseProjectSessionIds(segmentMatch);
     if (!ids.ok) return jsonError("invalid_path_id", 400);
-    if (!authCanAccessProject(auth, ids.projectId)) return jsonError("forbidden", 403);
+    const authError = projectAuthError(auth, ids.projectId, "segment");
+    if (authError !== null) return authError;
 
     const name = segmentMatch[3];
     if (!name || !isValidSegmentName(name)) return jsonError("invalid_segment_name", 400);
@@ -177,7 +216,28 @@ async function routeRequest(
     return getSegment(request, env, ctx, ids.projectId, ids.sessionId, name, wideEvent);
   }
 
+  if (auth.mode === "demo") return jsonError("unauthorized", 401);
   return jsonError("not_found", 404);
+}
+
+async function getDemoDiscovery(
+  request: Request,
+  env: Env,
+  wideEvent: ReturnType<typeof startWideEvent>,
+): Promise<Response> {
+  const demo = readDemoConfig(env);
+  if (demo === null) return jsonError("not_found", 404);
+
+  wideEvent.set({ project_id: demo.projectId, auth_mode: "demo" });
+  if (!(await demoRateLimitAllows(env, request))) {
+    wideEvent.set({ rate_limit: "demo" });
+    return jsonError("rate_limited", 429);
+  }
+
+  return jsonResponse(
+    { projectId: demo.projectId, writeKey: demo.writeKey },
+    { headers: { "cache-control": "public, max-age=60" } },
+  );
 }
 
 async function listLiveSessions(env: Env, projectId: string, requestId: string): Promise<Response> {
@@ -233,11 +293,20 @@ async function getProjectKeys(
   return jsonResponse({ keys });
 }
 
-async function listSessions(url: URL, env: Env, projectId: string): Promise<Response> {
+async function listSessions(
+  url: URL,
+  env: Env,
+  projectId: string,
+  authMode: ApiAuthMode,
+): Promise<Response> {
   const parsed = parseSessionListQuery(url.searchParams);
   if (!parsed.ok) return jsonError(parsed.error, 400);
 
-  const query = buildSessionsQuery(projectId, parsed.options);
+  const options =
+    authMode === "demo" && parsed.options.limit > DEMO_SESSIONS_LIST_MAX
+      ? { ...parsed.options, limit: DEMO_SESSIONS_LIST_MAX }
+      : parsed.options;
+  const query = buildSessionsQuery(projectId, options);
   const result = await shardDb(env, 0)
     .prepare(query.sql)
     .bind(...query.bindings)
@@ -343,18 +412,38 @@ async function proxyLiveSession(
   return response.status === 101 ? response : withSecurityHeaders(response);
 }
 
+async function demoRateLimitAllows(env: Env, request: Request): Promise<boolean> {
+  if (env.DEMO_API_RATE_LIMITER === undefined) {
+    return isDevTestMode(env);
+  }
+
+  const source = request.headers.get("cf-connecting-ip")?.trim() || "unknown";
+  try {
+    const result = await env.DEMO_API_RATE_LIMITER.limit({ key: `demo:ip:${source}` });
+    return result.success;
+  } catch {
+    return false;
+  }
+}
+
 async function checkAuth(
   request: Request,
   env: Env,
-): Promise<
-  { ok: true; projects: ReadonlySet<string> } | { ok: false; status: 401 | 503; error: string }
-> {
+  routeProjectId: string | null,
+): Promise<ApiAuthContext | { ok: false; status: 401 | 503; error: string }> {
+  const header = request.headers.get("authorization");
+  if (header === null) {
+    const demo = readDemoConfig(env);
+    if (demo !== null && routeProjectId === demo.projectId) {
+      return { ok: true, projects: new Set([demo.projectId]), mode: "demo" };
+    }
+  }
+
   const apiAuth = readApiAuthConfig(env);
   if (apiAuth === null) {
     return { ok: false, status: 503, error: "auth_not_configured" };
   }
 
-  const header = request.headers.get("authorization");
   const prefix = "Bearer ";
   let actualToken: string | null = null;
 
@@ -379,11 +468,47 @@ async function checkAuth(
     return { ok: false, status: 401, error: "unauthorized" };
   }
 
-  return { ok: true, projects: apiAuth.projects };
+  return { ok: true, projects: apiAuth.projects, mode: "bearer" };
 }
 
-function authCanAccessProject(auth: { projects: ReadonlySet<string> }, projectId: string): boolean {
-  return auth.projects.has(projectId);
+function projectAuthError(
+  auth: ApiAuthContext,
+  projectId: string,
+  route: ApiRouteName,
+): Response | null {
+  if (auth.mode === "demo" && !DEMO_READABLE_ROUTES.has(route)) {
+    return jsonError("unauthorized", 401);
+  }
+
+  if (!auth.projects.has(projectId)) {
+    return jsonError("forbidden", 403);
+  }
+
+  return null;
+}
+
+function readDemoConfig(
+  env: Pick<Env, "DEMO_PROJECT_ID" | "DEMO_WRITE_KEY">,
+): { projectId: string; writeKey: string } | null {
+  const projectId = readDemoString(env.DEMO_PROJECT_ID);
+  const writeKey = readDemoString(env.DEMO_WRITE_KEY);
+  if (projectId === null || writeKey === null || !isValidPathId(projectId)) {
+    return null;
+  }
+
+  return { projectId, writeKey };
+}
+
+function readDemoString(value: string | undefined): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  if (value.length === 0 || value.trim() !== value || value.startsWith(PLACEHOLDER_PREFIX)) {
+    return null;
+  }
+
+  return value;
 }
 
 function parseProjectSessionIds(
@@ -397,7 +522,13 @@ function parseProjectSessionIds(
   return { ok: true, projectId, sessionId };
 }
 
+function projectIdFromApiPath(pathname: string): string | null {
+  const match = /^\/api\/v1\/projects\/([^/]+)/.exec(pathname);
+  return match?.[1] ?? null;
+}
+
 function routeName(pathname: string): string {
+  if (pathname === "/api/v1/demo") return "demo_discovery";
   if (pathname === "/api/v1/health") return "health";
   if (/^\/api\/v1\/projects\/[^/]+\/sessions$/.test(pathname)) return "sessions_list";
   if (/^\/api\/v1\/projects\/[^/]+\/live$/.test(pathname)) return "project_live";

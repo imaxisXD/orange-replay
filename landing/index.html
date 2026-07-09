@@ -2201,6 +2201,13 @@
         justify-content: center;
         margin-top: 38px;
       }
+      .cta-band .demo-disclosure {
+        max-width: 66ch;
+        margin: 16px auto 0;
+        color: var(--faint);
+        font-size: 12px;
+        line-height: 1.5;
+      }
       .bigline {
         font-size: clamp(1.9rem, 4.4vw, 3.45rem);
         font-weight: 500;
@@ -2597,7 +2604,7 @@
                     /></svg
                 ></span>
               </a>
-              <a class="btn-ghost" href="/login">
+              <a class="btn-ghost" href="/demo">
                 <svg class="huge-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                   <path
                     d="M18.8906 12.846C18.5371 14.189 16.8667 15.138 13.5257 17.0361C10.296 18.8709 8.6812 19.7884 7.37983 19.4196C6.8418 19.2671 6.35159 18.9776 5.95624 18.5787C5 17.6139 5 15.7426 5 12C5 8.2574 5 6.3861 5.95624 5.42132C6.35159 5.02245 6.8418 4.73288 7.37983 4.58042C8.6812 4.21165 10.296 5.12907 13.5257 6.96393C16.8667 8.86197 18.5371 9.811 18.8906 11.154C19.0365 11.7084 19.0365 12.2916 18.8906 12.846Z"
@@ -3931,7 +3938,7 @@
                     /></svg
                 ></span>
               </a>
-              <a class="btn-ghost" href="/login">
+              <a class="btn-ghost" href="/demo">
                 <svg class="huge-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                   <path
                     d="M18.8906 12.846C18.5371 14.189 16.8667 15.138 13.5257 17.0361C10.296 18.8709 8.6812 19.7884 7.37983 19.4196C6.8418 19.2671 6.35159 18.9776 5.95624 18.5787C5 17.6139 5 15.7426 5 12C5 8.2574 5 6.3861 5.95624 5.42132C6.35159 5.02245 6.8418 4.73288 7.37983 4.58042C8.6812 4.21165 10.296 5.12907 13.5257 6.96393C16.8667 8.86197 18.5371 9.811 18.8906 11.154C19.0365 11.7084 19.0365 12.2916 18.8906 12.846Z"
@@ -3943,6 +3950,10 @@
                 Live demo
               </a>
             </div>
+            <p class="demo-disclosure reveal">
+              This page records anonymized, masked sessions to power the live demo — your visit may
+              show up there.
+            </p>
           </div>
         </div>
       </section>
@@ -4599,6 +4610,19 @@
           };
           setTimeout(swap, 3200);
         }
+      })();
+    </script>
+    <script>
+      (async function () {
+        try {
+          if (window.location.protocol === "file:") return;
+          var response = await fetch("/api/v1/demo");
+          if (response.status !== 200) return;
+          var demo = await response.json();
+          if (!demo || typeof demo.writeKey !== "string" || demo.writeKey.length === 0) return;
+          // prettier-ignore
+          (function(c){var w=window,d=document;if(w.__orLoaderStarted)return;w.__orLoaderStarted=1;var q=w.__orq=w.__orq||[],r=w.__orCleanup=w.__orCleanup||[],l=c.queueLimit>0?Math.floor(c.queueLimit):100,b="[data-orange-block]"+(c.init&&c.init.blockSelector?", "+c.init.blockSelector:""),n=function(){return Date.now()},t=function(v){v=String(v);return v.length>200?v.slice(0,200):v},p=function(o){if(typeof o.t!=="number")o.t=n();if(q.length>=l)q.splice(0,q.length-l+1);q.push(o)},a=function(x,y,f){x.addEventListener(y,f,true);r.push(function(){x.removeEventListener(y,f,true)})},h=function(v){return String(v).replace(/[^a-zA-Z0-9_-]/g,"_")},g=function(e){var z=e.tagName.toLowerCase(),i=e.id?"#"+h(e.id):"",c="",j=0;if(e.classList)for(;j<e.classList.length&&j<3;j++)c+="."+h(e.classList[j]);return z+i+c},s=function(e){if(!e||!e.tagName)return"unknown";for(var p=[],x=e;x&&p.length<3;x=x.parentElement)p.unshift(g(x));return t(p.join(" > "))},m=function(e){try{return e&&e.closest&&e.closest(b)?"[blocked]":s(e)}catch(_){try{return e&&e.closest&&e.closest("[data-orange-block]")?"[blocked]":s(e)}catch(_){return s(e)}}};if(c.init){w.__orInit=c.init;p({k:"init",o:c.init})}a(w,"error",function(e){p({k:"error",m:t(e.message||String(e.error||"error"))})});a(w,"unhandledrejection",function(e){var r=e.reason;p({k:"unhandledrejection",m:t(r&&r.message?r.message:String(r))})});a(d,"click",function(e){p({k:"click",d:m(e.target),x:e.clientX||0,y:e.clientY||0,w:w.innerWidth||0,h:w.innerHeight||0})});p({k:"vital",n:"navigation",start:w.performance&&w.performance.timeOrigin||n()});var o=d.createElement("script");o.async=1;o.src=c.bundleUrl;d.head.appendChild(o)})({bundleUrl:"/or-recorder.js",init:{key:demo.writeKey,ingestUrl:window.location.origin},queueLimit:undefined});
+        } catch (_) {}
       })();
     </script>
   </body>

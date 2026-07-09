@@ -17,12 +17,23 @@ describe("dashboard app shell routing", () => {
       env,
       "/projects/p1/sessions",
     );
+    const demo = await serveDashboardAppShell(
+      new Request("https://replay.test/demo/sessions"),
+      env,
+      "/demo/sessions",
+    );
 
     expect(login.status).toBe(200);
     expect(project.status).toBe(200);
+    expect(demo.status).toBe(200);
     expect(await login.text()).toContain("Orange Replay Dashboard");
     expect(await project.text()).toContain("Orange Replay Dashboard");
-    expect(assetPaths).toEqual(["/dashboard/index.html", "/dashboard/index.html"]);
+    expect(await demo.text()).toContain("Orange Replay Dashboard");
+    expect(assetPaths).toEqual([
+      "/dashboard/index.html",
+      "/dashboard/index.html",
+      "/dashboard/index.html",
+    ]);
   });
 
   it("does not turn the root route into the dashboard shell", async () => {

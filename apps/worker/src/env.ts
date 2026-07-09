@@ -23,6 +23,7 @@ export interface Env {
   INGEST_LOOKUP_RATE_LIMITER?: RateLimitBinding;
   INGEST_PROJECT_RATE_LIMITER?: RateLimitBinding;
   INGEST_SESSION_RATE_LIMITER?: RateLimitBinding;
+  DEMO_API_RATE_LIMITER?: RateLimitBinding;
   TRENDS?: AnalyticsEngineDataset;
   CF_VERSION_METADATA?: WorkerVersionMetadata;
   /** Deployment environment name. Production disables all dev-only test gates. */
@@ -33,6 +34,10 @@ export interface Env {
   DEV_API_PROJECT_IDS?: string;
   /** Server-only HMAC secret for live WebSocket tickets. */
   LIVE_TICKET_SECRET?: string;
+  /** Public read-only demo project id. Demo is disabled unless this and DEMO_WRITE_KEY are set. */
+  DEMO_PROJECT_ID?: string;
+  /** Public SDK write key for the demo landing page recorder. */
+  DEMO_WRITE_KEY?: string;
   /** "1" enables /__test/* routes. Never set in production config. */
   DEV_TEST_ROUTES?: string;
   /**

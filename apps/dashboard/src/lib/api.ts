@@ -4,6 +4,7 @@ import type {
   SessionManifest,
   StoredProjectConfig,
 } from "@orange-replay/shared/types";
+import { isDemoPath, type DemoWorkspaceResponse } from "./demo-mode";
 import { queryClient } from "./query";
 import { defaultProjectId } from "./routes";
 
@@ -125,6 +126,16 @@ export async function health(): Promise<HealthResponse> {
   return requestJson<HealthResponse>("/api/v1/health", { auth: false });
 }
 
+export async function fetchDemoWorkspace(
+  options: { signal?: AbortSignal } = {},
+): Promise<DemoWorkspaceResponse> {
+  return requestJson<DemoWorkspaceResponse>("/api/v1/demo", {
+    auth: false,
+    redirectOnAuthError: false,
+    signal: options.signal,
+  });
+}
+
 export async function checkApiToken(token: string, projectId = defaultProjectId): Promise<void> {
   await requestJson<unknown>(buildSessionListUrl(projectId, { limit: 1 }), {
     auth: true,
@@ -227,9 +238,10 @@ interface RequestOptions {
 
 async function requestJson<T>(path: string, options: RequestOptions): Promise<T> {
   const headers = new Headers({ accept: "application/json" });
-  const token = options.token ?? getApiToken();
+  const demoMode = isDemoPath();
+  const token = demoMode ? null : (options.token ?? getApiToken());
 
-  if (options.auth && token !== null && token.length > 0) {
+  if (!demoMode && options.auth && token !== null && token.length > 0) {
     headers.set("authorization", `Bearer ${token}`);
   }
 
@@ -250,7 +262,11 @@ async function requestJson<T>(path: string, options: RequestOptions): Promise<T>
 
   if (!response.ok) {
     const code = await readErrorCode(response);
-    if (options.redirectOnAuthError !== false && shouldRedirectForAuth(response.status, code)) {
+    if (
+      !demoMode &&
+      options.redirectOnAuthError !== false &&
+      shouldRedirectForAuth(response.status, code)
+    ) {
       handleAuthRedirect(response.status, code);
     }
     throw new ApiError(
