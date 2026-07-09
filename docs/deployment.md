@@ -21,7 +21,7 @@ vp exec --filter @orange-replay/worker -- wrangler queues create or-session-fina
 vp exec --filter @orange-replay/worker -- wrangler queues create or-dlq-prod
 ```
 
-Put the printed D1 `database_id` and KV `id` into `apps/worker/wrangler.jsonc` under `env.production` for your own deployment. Keep the committed `INGEST_LOOKUP_RATE_LIMITER`, `INGEST_PROJECT_RATE_LIMITER`, and `INGEST_SESSION_RATE_LIMITER` bindings enabled; they protect public ingest before D1 lookups and Durable Object writes.
+Put the printed D1 `database_id` and KV `id` into a private deployment copy, or provide them as Cloudflare Workers Builds variables when deploying from GitHub. Keep the committed `INGEST_LOOKUP_RATE_LIMITER`, `INGEST_PROJECT_RATE_LIMITER`, and `INGEST_SESSION_RATE_LIMITER` bindings enabled; they protect public ingest before D1 lookups and Durable Object writes.
 
 The committed file uses placeholder IDs. Keep real production IDs, tokens, and generated keys out of public commits. Use a private branch, local patch, or deployment-specific copy when wiring a public repo to your own Cloudflare account.
 
@@ -84,15 +84,23 @@ In Cloudflare Workers Builds, connect the GitHub repo to the `orange-replay` Wor
 
 Use these settings:
 
-| Setting                      | Value                                                                                                       |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| Root directory               | `apps/worker`                                                                                               |
-| Build command                | `cd ../.. && pnpm install --frozen-lockfile && pnpm exec vp run build:deploy`                               |
-| Deploy command               | `cd ../.. && pnpm exec vp exec --filter @orange-replay/worker -- wrangler deploy --env production --minify` |
-| Production branch            | `main`                                                                                                      |
-| Non-production branch builds | Disabled                                                                                                    |
+| Setting                      | Value                                                                                                                                                                                                                |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Root directory               | `apps/worker`                                                                                                                                                                                                        |
+| Build command                | `cd ../.. && pnpm install --frozen-lockfile && pnpm exec vp run build:deploy`                                                                                                                                        |
+| Deploy command               | `cd ../.. && node scripts/prepare-cloudflare-build-config.mjs && pnpm exec vp exec --filter @orange-replay/worker -- wrangler deploy --config wrangler.cloudflare-build.jsonc --env production --minify --keep-vars` |
+| Production branch            | `main`                                                                                                                                                                                                               |
+| Non-production branch builds | Disabled                                                                                                                                                                                                             |
 
-Cloudflare runs the deploy command from `apps/worker`; `--env production` selects the production environment from `apps/worker/wrangler.jsonc`.
+Add these Workers Builds variables before the first GitHub build:
+
+| Variable                             | Value                                                 |
+| ------------------------------------ | ----------------------------------------------------- |
+| `ORANGE_REPLAY_PROD_KV_ID`           | Production `CONFIG` KV namespace id                   |
+| `ORANGE_REPLAY_PROD_D1_ID`           | Production `orange-replay-idx-00-prod` D1 database id |
+| `ORANGE_REPLAY_PROD_API_PROJECT_IDS` | Comma-separated project ids, for example `p1`         |
+
+The deploy command generates an ignored `apps/worker/wrangler.cloudflare-build.jsonc` file inside the build machine. The generated file contains deployment resource IDs, not tokens. Runtime secrets must be set in Worker Settings > Variables and Secrets: `DEV_API_TOKEN`, `DEV_API_PROJECT_IDS`, and `LIVE_TICKET_SECRET`.
 
 ## 7. SDK Snippet Values
 
