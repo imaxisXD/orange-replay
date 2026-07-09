@@ -1,7 +1,6 @@
 import { useMemo, useState, type KeyboardEvent } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { AlertCircle, ChevronRight, Inbox, RotateCcw, Search } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,7 +32,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tooltip } from "@/components/ui/tooltip";
+import { CountryFlag } from "@/components/country-flag";
 import { ApiError, listSessions, type SessionListItem } from "@/lib/api";
+import { cleanCountryCode, formatLocationName } from "@/lib/country";
 import {
   formatAbsoluteTime,
   formatBytes,
@@ -43,6 +44,7 @@ import {
 } from "@/lib/format";
 import { appendUniqueSessions, canLoadMore } from "@/lib/session-list";
 import { defaultProjectId } from "@/lib/routes";
+import { AlertCircle, ChevronRight, Inbox, RotateCcw, Search } from "@/lib/icon-map";
 import { useShape } from "@/lib/shape-context";
 
 const pageSize = 25;
@@ -251,7 +253,8 @@ function SessionRow({
 }) {
   const navigate = useNavigate();
   const shape = useShape();
-  const location = formatLocation(session.country, session.city);
+  const countryCode = cleanCountryCode(session.country);
+  const location = formatLocationName(session.country, session.city);
   const metaParts = [location];
   if (session.clicks > 0) metaParts.push(`${session.clicks} clicks`);
 
@@ -281,7 +284,10 @@ function SessionRow({
         <div className="max-w-75 truncate text-[13px] font-medium text-foreground">
           {entryPath(session.entry_url)}
         </div>
-        <div className="mt-0.5 text-[11.5px] text-dim">{metaParts.join(" · ")}</div>
+        <div className="mt-0.5 flex max-w-75 items-center gap-1.5 text-[11.5px] text-dim">
+          <CountryFlag country={countryCode} />
+          <span className="truncate">{metaParts.join(" · ")}</span>
+        </div>
       </TableCell>
       <TableCell>
         <div className="flex flex-wrap gap-1.5">
@@ -378,24 +384,6 @@ function entryPath(value: string | null): string {
   } catch {
     return value.startsWith("/") ? value : `/${value}`;
   }
-}
-
-function formatLocation(country: string | null, city: string | null): string {
-  const cleanCity = city?.trim() ?? "";
-  if (country === null || country.trim().length === 0) {
-    return cleanCity.length > 0 ? cleanCity : "Unknown";
-  }
-
-  const code = country.trim().toUpperCase();
-  const label = cleanCity.length > 0 ? cleanCity : code;
-  return `${flagForCountry(code)} ${label}`;
-}
-
-function flagForCountry(code: string): string {
-  if (!/^[A-Z]{2}$/.test(code)) return code;
-  const first = 0x1f1e6 + code.charCodeAt(0) - 65;
-  const second = 0x1f1e6 + code.charCodeAt(1) - 65;
-  return String.fromCodePoint(first, second);
 }
 
 function readErrorMessage(error: unknown): string {

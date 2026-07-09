@@ -21,7 +21,7 @@ createRoot(root).render(
     <MotionConfig reducedMotion="user">
       <QueryClientProvider client={queryClient}>
         <ShapeProvider defaultShape="rounded">
-          <IconProvider defaultLibrary="lucide">
+          <IconProvider defaultLibrary="hugeicons">
             <TooltipProvider>
               <RouterProvider router={router} />
             </TooltipProvider>

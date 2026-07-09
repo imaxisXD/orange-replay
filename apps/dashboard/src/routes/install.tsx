@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
-import { AlertCircle, Check, Code2, Copy, RotateCcw } from "lucide-react";
 import { buildLoaderScriptTag } from "@orange-replay/sdk/loader";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +10,7 @@ import { InputField, InputGroup } from "@/components/ui/input-group";
 import { Tooltip } from "@/components/ui/tooltip";
 import { ApiError, fetchInstallStatus, fetchProjectKeys } from "@/lib/api";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/format";
+import { AlertCircle, Check, Code2, Copy, RotateCcw } from "@/lib/icon-map";
 import { installStatusPollIntervalMs, shouldPollInstallStatus } from "@/lib/project-settings";
 import { defaultProjectId } from "@/lib/routes";
 

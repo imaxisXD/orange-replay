@@ -1,11 +1,12 @@
 import { type KeyboardEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { AlertCircle, RotateCcw } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { CountryFlag } from "@/components/country-flag";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError, fetchLiveSessions, type LiveSessionItem } from "@/lib/api";
+import { AlertCircle, RotateCcw } from "@/lib/icon-map";
 import {
   formatLiveSessionRow,
   livePollIntervalMs,
@@ -113,7 +114,10 @@ function LiveRow({ projectId, row }: { projectId: string; row: LiveSessionRow })
       <span aria-hidden className="live-pulse size-1.75 flex-none rounded-full bg-success" />
       <div className="min-w-0 max-w-85">
         <div className="truncate text-[12.5px] font-medium">{row.entryPath}</div>
-        <div className="mt-0.25 truncate text-[11.5px] text-dim">{row.placeText}</div>
+        <div className="mt-0.25 flex items-center gap-1.5 text-[11.5px] text-dim">
+          <CountryFlag country={row.countryCode} />
+          <span className="truncate">{row.placeText}</span>
+        </div>
       </div>
       <span className="ml-auto flex-none font-mono text-[11.5px] tabular-nums text-muted-foreground">
         {row.elapsedTime}

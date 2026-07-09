@@ -1,12 +1,12 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { motion } from "framer-motion";
-import { Eye, EyeOff, KeyRound } from "lucide-react";
 import { BrandMark } from "@/components/brand-mark";
 import { Button } from "@/components/ui/button";
 import { IconSwap } from "@/components/ui/icon-swap";
 import { InputField, InputGroup } from "@/components/ui/input-group";
 import { checkApiToken, setApiToken } from "@/lib/api";
+import { Eye, EyeOff, KeyRound } from "@/lib/icon-map";
 import { safeReturnPath } from "@/lib/login-return";
 import { projectIdFromProjectPath } from "@/lib/routes";
 import { spring } from "@/lib/springs";

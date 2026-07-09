@@ -28,7 +28,7 @@ Codified from `design-final.html` (the UI visual authority — a static mock at 
 | `--radius`                          | 8px                                                                                       | cards/panels                                                                         |
 | body                                | dotted grid: `radial-gradient(circle,#1b1b21 1px,transparent 1px)` 26px, `font-size:13px` |                                                                                      |
 
-Mono stack: `ui-monospace, "SF Mono", "Geist Mono", Menlo, monospace`.
+Mono stack: `"Uncut Plan8", ui-monospace, "SF Mono", Menlo, monospace`.
 
 ## The `.lit` card (signature surface — defined once in `index.css`)
 

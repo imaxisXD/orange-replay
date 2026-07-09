@@ -8,12 +8,12 @@ import {
 } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
-import { AlertCircle, ArrowLeft, Check, Copy, RotateCcw } from "lucide-react";
 import { OrangePlayer, type PlayerApi, type PlayerErrorEvent } from "@orange-replay/player";
 import type { SegmentRef, SessionManifest } from "@orange-replay/shared/types";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { CountryFlag } from "@/components/country-flag";
 import { IconSwap } from "@/components/ui/icon-swap";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
@@ -33,6 +33,7 @@ import {
   getManifest,
   type LiveSessionItem,
 } from "@/lib/api";
+import { formatCountryCode } from "@/lib/country";
 import { formatBytes, formatDuration, formatErrorCount } from "@/lib/format";
 import {
   buildTimelineTickBuckets,
@@ -44,6 +45,7 @@ import {
   type TimelineSidebarRow,
 } from "@/lib/replay-timeline";
 import { defaultProjectId } from "@/lib/routes";
+import { AlertCircle, ArrowLeft, Check, Copy, RotateCcw } from "@/lib/icon-map";
 
 type ReplayMode = "recorded" | "live";
 
@@ -734,7 +736,10 @@ function ManifestHeader({ manifest }: { manifest: SessionManifest }) {
           </Badge>
         )}
         <Badge color="gray" size="sm">
-          {formatCountry(attrs.country)}
+          <span className="inline-flex items-center gap-1.5">
+            <CountryFlag country={attrs.country} />
+            {formatCountryCode(attrs.country)}
+          </span>
         </Badge>
         <Badge color="gray" size="sm">
           {attrs.browser ?? "Unknown"}
@@ -964,19 +969,6 @@ function clampTime(value: number, durationMs: number): number {
   }
 
   return Math.min(Math.max(0, value), Math.max(0, durationMs));
-}
-
-function formatCountry(country: string | undefined): string {
-  if (country === undefined || country.trim().length === 0) return "Unknown";
-  const code = country.trim().toUpperCase();
-  return `${flagForCountry(code)} ${code}`;
-}
-
-function flagForCountry(code: string): string {
-  if (!/^[A-Z]{2}$/.test(code)) return code;
-  const first = 0x1f1e6 + code.charCodeAt(0) - 65;
-  const second = 0x1f1e6 + code.charCodeAt(1) - 65;
-  return String.fromCodePoint(first, second);
 }
 
 function readReplayOverlayColors() {

@@ -41,28 +41,28 @@ function useIconLibrary() {
 
 /**
  * Returns a single icon component for the given name.
- * Falls back to Lucide if no provider is present.
+ * Falls back to Hugeicons if no provider is present.
  */
 function useIcon(name: IconName): IconComponent {
   const ctx = useContext(IconContext);
-  if (!ctx) return iconMap.lucide[name];
+  if (!ctx) return iconMap.hugeicons[name];
   return iconMap[ctx.iconLibrary][name];
 }
 
 /**
  * Returns the full icon map for the current library.
- * Falls back to Lucide if no provider is present.
+ * Falls back to Hugeicons if no provider is present.
  */
 function useIcons(): Record<IconName, IconComponent> {
   const ctx = useContext(IconContext);
-  const lib = ctx?.iconLibrary ?? "lucide";
+  const lib = ctx?.iconLibrary ?? "hugeicons";
   // iconMap is a module-level constant, so iconMap[lib] is already stable.
   return iconMap[lib];
 }
 
 function IconProvider({
   children,
-  defaultLibrary = "lucide",
+  defaultLibrary = "hugeicons",
 }: {
   children: ReactNode;
   defaultLibrary?: IconLibrary;
@@ -84,7 +84,7 @@ function IconProvider({
       e.preventDefault();
       setIconLibraryState((prev) => {
         const idx = iconLibraryOrder.indexOf(prev);
-        return iconLibraryOrder[(idx + 1) % iconLibraryOrder.length] ?? "lucide";
+        return iconLibraryOrder[(idx + 1) % iconLibraryOrder.length] ?? "hugeicons";
       });
     };
     document.addEventListener("keydown", onKeyDown);

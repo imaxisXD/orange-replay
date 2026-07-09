@@ -17,7 +17,8 @@ describe("live session rows", () => {
     ).toEqual({
       sessionId: "session_1",
       entryPath: "/checkout?plan=pro",
-      placeText: "🇺🇸 San Francisco · Chrome",
+      countryCode: "US",
+      placeText: "San Francisco · Chrome",
       elapsedTime: "4:12",
     });
   });
@@ -32,7 +33,7 @@ describe("live session rows", () => {
           duration_ms: 47_000,
         }),
       ).placeText,
-    ).toBe("🇯🇵 JP · Safari");
+    ).toBe("JP · Safari");
   });
 
   it("omits browser text when browser is missing", () => {
@@ -44,7 +45,7 @@ describe("live session rows", () => {
           browser: null,
         }),
       ).placeText,
-    ).toBe("🇧🇷 Sao Paulo");
+    ).toBe("Sao Paulo");
   });
 
   it("omits browser text when browser says unknown", () => {
@@ -56,7 +57,22 @@ describe("live session rows", () => {
           browser: "Unknown",
         }),
       ).placeText,
-    ).toBe("🇧🇷 Sao Paulo");
+    ).toBe("Sao Paulo");
+  });
+
+  it("keeps invalid countries out of the flag slot", () => {
+    expect(
+      formatLiveSessionRow(
+        makeLiveSession({
+          country: "not-a-country",
+          city: "",
+          browser: null,
+        }),
+      ),
+    ).toMatchObject({
+      countryCode: null,
+      placeText: "NOT-A-COUNTRY",
+    });
   });
 });
 

@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
-import { AlertCircle, KeyRound, Plus, RotateCcw, Server, Trash2, X } from "lucide-react";
 import type {
   CaptureToggles,
   MaskRule,
@@ -55,6 +54,7 @@ import {
   type ProjectSettingsDraft,
 } from "@/lib/project-settings";
 import { defaultProjectId } from "@/lib/routes";
+import { AlertCircle, KeyRound, Plus, RotateCcw, Server, Trash2, X } from "@/lib/icon-map";
 import { cn } from "@/lib/utils";
 import { Elevated } from "@/lib/elevated";
 import { useShape } from "@/lib/shape-context";
