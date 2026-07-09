@@ -1,8 +1,8 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
-import { motion } from "framer-motion";
+import { AnimatePresence, m } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { spring } from "@/lib/springs";
 import { fontWeights } from "@/lib/font-weight";
@@ -125,18 +125,9 @@ function Tooltip({
 }: TooltipProps) {
   const [internalOpen, setInternalOpen] = useState(false);
   const open = forceOpen !== undefined ? forceOpen : internalOpen;
-  const [mounted, setMounted] = useState(false);
   const shape = useShape();
   const portalContainer = useContext(TooltipPortalContainerContext);
   const hasAmbientProvider = useContext(TooltipGroupContext);
-
-  useEffect(() => {
-    if (open) setMounted(true);
-  }, [open]);
-
-  const handleExitComplete = () => {
-    if (!open) setMounted(false);
-  };
 
   const slideOffset = getSlideOffset(side);
 
@@ -152,34 +143,37 @@ function Tooltip({
       }}
     >
       <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
-      {mounted && (
-        <TooltipPrimitive.Portal forceMount container={portalContainer ?? undefined}>
-          <TooltipPrimitive.Content side={side} sideOffset={sideOffset} forceMount className="z-50">
-            <motion.div
-              className={cn(
-                // Trim recenters the label; the padding bump only applies
-                // where text-box is supported, keeping the same overall
-                // height (~26px) as untrimmed browsers.
-                "border border-border bg-popover px-2 py-1 text-[11.5px] text-foreground",
-                "[text-box:trim-both_cap_alphabetic] supports-[text-box:trim-both]:py-2",
-                shape.bg,
-                className,
-              )}
-              style={{ fontVariationSettings: fontWeights.medium }}
-              initial={{ opacity: 0, ...slideOffset }}
-              animate={{
-                opacity: open ? 1 : 0,
-                x: 0,
-                y: 0,
-              }}
-              transition={open ? spring.fast : spring.fast.exit}
-              onAnimationComplete={handleExitComplete}
+      <TooltipPrimitive.Portal forceMount container={portalContainer ?? undefined}>
+        <AnimatePresence>
+          {open && (
+            <TooltipPrimitive.Content
+              side={side}
+              sideOffset={sideOffset}
+              forceMount
+              className="z-50"
             >
-              {content}
-            </motion.div>
-          </TooltipPrimitive.Content>
-        </TooltipPrimitive.Portal>
-      )}
+              <m.div
+                className={cn(
+                  // Trim recenters the label; the padding bump only applies
+                  // where text-box is supported, keeping the same overall
+                  // height (~26px) as untrimmed browsers.
+                  "border border-border bg-popover px-2 py-1 text-[11.5px] text-foreground",
+                  "[text-box:trim-both_cap_alphabetic] supports-[text-box:trim-both]:py-2",
+                  shape.bg,
+                  className,
+                )}
+                style={{ fontVariationSettings: fontWeights.medium }}
+                initial={{ opacity: 0, ...slideOffset }}
+                animate={{ opacity: 1, x: 0, y: 0 }}
+                exit={{ opacity: 0, ...slideOffset }}
+                transition={open ? spring.fast : spring.fast.exit}
+              >
+                {content}
+              </m.div>
+            </TooltipPrimitive.Content>
+          )}
+        </AnimatePresence>
+      </TooltipPrimitive.Portal>
     </TooltipPrimitive.Root>
   );
 

@@ -16,7 +16,6 @@ catalog:
   "@types/babel__core": ^7.20.5
   "@types/node": ^24
   babel-plugin-react-compiler: ^1.0.0
-  country-flag-icons: ^1.6.20
   typescript: ^5
   vite: npm:@voidzero-dev/vite-plus-core@0.2.2
   vite-plus: 0.2.2

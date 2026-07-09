@@ -5,17 +5,15 @@ import {
   useRef,
   useEffect,
   useState,
-  useCallback,
-  useMemo,
   createContext,
   useContext,
   type ReactNode,
   type HTMLAttributes,
 } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence, m } from "@/lib/motion";
 import { cva, type VariantProps } from "class-variance-authority";
 import * as SelectPrimitive from "@radix-ui/react-select";
-import type { IconComponent } from "@/lib/icon-context";
+import type { IconComponent } from "@/lib/icon-map";
 import { cn } from "@/lib/utils";
 import { spring, exitFallbackMs } from "@/lib/springs";
 import { useProximityHover } from "@/hooks/use-proximity-hover";
@@ -113,27 +111,23 @@ function Select({
   const [radixOpen, setRadixOpen] = useState(false);
   const currentValue = value !== undefined ? value : internalValue;
 
-  const handleValueChange = useCallback(
-    (next: string) => {
-      if (value === undefined) setInternalValue(next);
-      onValueChange?.(next);
-    },
-    [value, onValueChange],
-  );
+  function handleValueChange(next: string): void {
+    if (value === undefined) setInternalValue(next);
+    onValueChange?.(next);
+  }
 
-  const handleOpenChange = useCallback((nextOpen: boolean) => {
+  function handleOpenChange(nextOpen: boolean): void {
     setOpen(nextOpen);
     if (nextOpen) setRadixOpen(true);
     // Closing: radixOpen is released by SelectContent once the exit
     // animation completes (onAnimationComplete or the timeout fallback).
-  }, []);
+  }
 
-  const unmount = useCallback(() => setRadixOpen(false), []);
+  function unmount(): void {
+    setRadixOpen(false);
+  }
 
-  const ctx = useMemo(
-    () => ({ value: currentValue, open, unmount }),
-    [currentValue, open, unmount],
-  );
+  const ctx = { value: currentValue, open, unmount };
 
   return (
     <SelectContext.Provider value={ctx}>
@@ -269,7 +263,7 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
       activeIndex,
       setActiveIndex,
       itemRects,
-      sessionRef,
+      sessionKey,
       handlers,
       registerItem,
       measureItems,
@@ -318,10 +312,7 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
     const focusRect = focusedIndex !== null ? itemRects[focusedIndex] : null;
     const isHoveringOther = activeIndex !== null && activeIndex !== checkedIndex;
 
-    const contentCtx = useMemo(
-      () => ({ registerItem, activeIndex, checkedIndex }),
-      [registerItem, activeIndex, checkedIndex],
-    );
+    const contentCtx = { registerItem, activeIndex, checkedIndex };
 
     // Rendered unconditionally: while closed, Radix parks these children in a
     // detached DocumentFragment so the items stay registered (typeahead on
@@ -336,7 +327,7 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
           sideOffset={6}
           className="z-50"
         >
-          <motion.div
+          <m.div
             initial={{ opacity: 0, y: -4, scaleY: 0.96 }}
             animate={open ? { opacity: 1, y: 0, scaleY: 1 } : { opacity: 0, y: -4, scaleY: 0.96 }}
             transition={open ? spring.fast : spring.fast.exit}
@@ -396,14 +387,18 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
                   {/* Selected background */}
                   <AnimatePresence>
                     {checkedRect && (
-                      <motion.div
+                      <m.div
                         className={`absolute ${shape.bg} bg-active pointer-events-none`}
+                        style={{
+                          height: checkedRect.height,
+                          left: 0,
+                          top: 0,
+                          width: checkedRect.width,
+                        }}
                         initial={false}
                         animate={{
-                          top: checkedRect.top,
-                          left: checkedRect.left,
-                          width: checkedRect.width,
-                          height: checkedRect.height,
+                          x: checkedRect.left,
+                          y: checkedRect.top,
                           opacity: isHoveringOther ? 0.8 : 1,
                         }}
                         exit={{ opacity: 0, transition: spring.moderate.exit }}
@@ -418,22 +413,24 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
                   {/* Hover background */}
                   <AnimatePresence>
                     {activeRect && (
-                      <motion.div
-                        key={sessionRef.current}
+                      <m.div
+                        key={sessionKey}
                         className={`absolute ${shape.bg} bg-hover pointer-events-none`}
+                        style={{
+                          height: activeRect.height,
+                          left: 0,
+                          top: 0,
+                          width: activeRect.width,
+                        }}
                         initial={{
                           opacity: 0,
-                          top: checkedRect?.top ?? activeRect.top,
-                          left: checkedRect?.left ?? activeRect.left,
-                          width: checkedRect?.width ?? activeRect.width,
-                          height: checkedRect?.height ?? activeRect.height,
+                          x: checkedRect?.left ?? activeRect.left,
+                          y: checkedRect?.top ?? activeRect.top,
                         }}
                         animate={{
                           opacity: 1,
-                          top: activeRect.top,
-                          left: activeRect.left,
-                          width: activeRect.width,
-                          height: activeRect.height,
+                          x: activeRect.left,
+                          y: activeRect.top,
                         }}
                         exit={{ opacity: 0, transition: spring.fast.exit }}
                         transition={{
@@ -447,14 +444,18 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
                   {/* Focus ring */}
                   <AnimatePresence>
                     {focusRect && (
-                      <motion.div
+                      <m.div
                         className={`absolute ${shape.focusRing} pointer-events-none z-20 border border-[color:var(--focus-ring)]`}
+                        style={{
+                          height: focusRect.height + 4,
+                          left: 0,
+                          top: 0,
+                          width: focusRect.width + 4,
+                        }}
                         initial={false}
                         animate={{
-                          left: focusRect.left - 2,
-                          top: focusRect.top - 2,
-                          width: focusRect.width + 4,
-                          height: focusRect.height + 4,
+                          x: focusRect.left - 2,
+                          y: focusRect.top - 2,
                         }}
                         exit={{ opacity: 0, transition: spring.fast.exit }}
                         transition={{
@@ -469,7 +470,7 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
                 </Elevated>
               </SelectPrimitive.Viewport>
             </SelectContentContext.Provider>
-          </motion.div>
+          </m.div>
         </SelectPrimitive.Content>
       </SelectPrimitive.Portal>
     );
@@ -495,11 +496,6 @@ const SelectItem = forwardRef<HTMLDivElement, SelectItemProps>(
     const contentCtx = useContext(SelectContentContext);
     const internalRef = useRef<HTMLDivElement>(null);
     const shape = useShape();
-    const hasMounted = useRef(false);
-
-    useEffect(() => {
-      hasMounted.current = true;
-    }, []);
 
     // Register with proximity hover
     useEffect(() => {
@@ -509,7 +505,6 @@ const SelectItem = forwardRef<HTMLDivElement, SelectItemProps>(
 
     const isActive = contentCtx?.activeIndex === index;
     const isChecked = selectCtx.value === value;
-    const skipAnimation = !hasMounted.current;
 
     return (
       <SelectPrimitive.Item
@@ -554,7 +549,7 @@ const SelectItem = forwardRef<HTMLDivElement, SelectItemProps>(
 
         <AnimatePresence>
           {isChecked && (
-            <motion.svg
+            <m.svg
               key="check"
               width={16}
               height={16}
@@ -569,9 +564,9 @@ const SelectItem = forwardRef<HTMLDivElement, SelectItemProps>(
               animate={{ opacity: 1 }}
               exit={{ opacity: 1 }}
             >
-              <motion.path
+              <m.path
                 d="M4 12L9 17L20 6"
-                initial={{ pathLength: skipAnimation ? 1 : 0 }}
+                initial={false}
                 animate={{
                   pathLength: 1,
                   transition: { duration: 0.08, ease: "easeOut" },
@@ -581,7 +576,7 @@ const SelectItem = forwardRef<HTMLDivElement, SelectItemProps>(
                   transition: { duration: 0.04, ease: "easeIn" },
                 }}
               />
-            </motion.svg>
+            </m.svg>
           )}
         </AnimatePresence>
       </SelectPrimitive.Item>
@@ -621,14 +616,9 @@ const SelectLabel = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
 
 SelectLabel.displayName = "SelectLabel";
 
-const SelectSeparator = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
+const SelectSeparator = forwardRef<HTMLHRElement, HTMLAttributes<HTMLHRElement>>(
   ({ className, ...props }, ref) => (
-    <div
-      ref={ref}
-      role="separator"
-      className={cn("my-1 -mx-1 h-px bg-border/60", className)}
-      {...props}
-    />
+    <hr ref={ref} className={cn("my-1 -mx-1 h-px bg-border/60", className)} {...props} />
   ),
 );
 
@@ -646,7 +636,6 @@ export {
   SelectGroup,
   SelectLabel,
   SelectSeparator,
-  triggerVariants,
 };
 
 export type { SelectProps, SelectTriggerProps, SelectContentProps, SelectItemProps };

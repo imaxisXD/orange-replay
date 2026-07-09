@@ -1,15 +1,7 @@
 "use client";
 
-import {
-  forwardRef,
-  useRef,
-  useState,
-  useEffect,
-  useCallback,
-  useId,
-  type HTMLAttributes,
-} from "react";
-import { motion, useMotionValue, animate, type Transition } from "framer-motion";
+import { forwardRef, useRef, useState, useEffect, useId, type HTMLAttributes } from "react";
+import { animate, m, useMotionValue, type Transition } from "@/lib/motion";
 import * as SwitchPrimitive from "@radix-ui/react-switch";
 import { cn } from "@/lib/utils";
 import { spring } from "@/lib/springs";
@@ -77,42 +69,36 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
 
     // --- Pointer handlers ---
 
-    const handlePointerDown = useCallback(
-      (e: React.PointerEvent<HTMLDivElement>) => {
-        if (disabled) return;
-        if (e.pointerType === "mouse" && e.button !== 0) return;
-        setPressed(true);
-        dragging.current = false;
-        didDrag.current = false;
-        pointerStart.current = {
-          clientX: e.clientX,
-          originX: motionX.get(),
-        };
-        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-      },
-      [disabled, motionX],
-    );
+    function handlePointerDown(e: React.PointerEvent<HTMLDivElement>): void {
+      if (disabled) return;
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      setPressed(true);
+      dragging.current = false;
+      didDrag.current = false;
+      pointerStart.current = {
+        clientX: e.clientX,
+        originX: motionX.get(),
+      };
+      e.currentTarget.setPointerCapture(e.pointerId);
+    }
 
-    const handlePointerMove = useCallback(
-      (e: React.PointerEvent<HTMLDivElement>) => {
-        if (!pointerStart.current) return;
-        const delta = e.clientX - pointerStart.current.clientX;
+    function handlePointerMove(e: React.PointerEvent<HTMLDivElement>): void {
+      if (!pointerStart.current) return;
+      const delta = e.clientX - pointerStart.current.clientX;
 
-        if (!dragging.current) {
-          if (Math.abs(delta) < DRAG_DEAD_ZONE) return;
-          dragging.current = true;
-        }
+      if (!dragging.current) {
+        if (Math.abs(delta) < DRAG_DEAD_ZONE) return;
+        dragging.current = true;
+      }
 
-        const dragMin = THUMB_OFFSET;
-        const pressedThumbWidth = THUMB_SIZE + PRESS_EXTEND;
-        const dragMax = TRACK_WIDTH - THUMB_OFFSET - pressedThumbWidth;
-        const rawX = pointerStart.current.originX + delta;
-        motionX.set(Math.max(dragMin, Math.min(dragMax, rawX)));
-      },
-      [motionX],
-    );
+      const dragMin = THUMB_OFFSET;
+      const pressedThumbWidth = THUMB_SIZE + PRESS_EXTEND;
+      const dragMax = TRACK_WIDTH - THUMB_OFFSET - pressedThumbWidth;
+      const rawX = pointerStart.current.originX + delta;
+      motionX.set(Math.max(dragMin, Math.min(dragMax, rawX)));
+    }
 
-    const handlePointerUp = useCallback(() => {
+    function handlePointerUp(): void {
       if (!pointerStart.current) return;
       setPressed(false);
 
@@ -142,9 +128,9 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
       }
 
       pointerStart.current = null;
-    }, [checked, onToggle, motionX, thumbTransition]);
+    }
 
-    const handlePointerCancel = useCallback(() => {
+    function handlePointerCancel(): void {
       if (!pointerStart.current) return;
       setPressed(false);
 
@@ -156,11 +142,12 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
       }
 
       pointerStart.current = null;
-    }, [checked, motionX, thumbTransition]);
+    }
 
     return (
       <div
         ref={ref}
+        role="presentation"
         className={cn(
           "relative z-10 flex items-center gap-2.5 px-3 py-2 cursor-pointer select-none touch-none",
           disabled && "opacity-50 pointer-events-none",
@@ -210,14 +197,12 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
           onClick={(e) => e.stopPropagation()}
         >
           <SwitchPrimitive.Thumb asChild>
-            <motion.span
+            <m.span
               className="absolute top-0 left-0 block rounded-full bg-white shadow-sm"
               initial={false}
-              style={{ x: motionX }}
+              style={{ height: thumbHeight, width: thumbWidth, x: motionX }}
               animate={{
                 y: thumbY,
-                width: thumbWidth,
-                height: thumbHeight,
               }}
               transition={
                 hasMounted.current ? (thumbTransition ?? spring.moderate) : { duration: 0 }

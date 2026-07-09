@@ -3,7 +3,6 @@
 import {
   useRef,
   useEffect,
-  useMemo,
   createContext,
   useContext,
   forwardRef,
@@ -12,7 +11,7 @@ import {
   type TdHTMLAttributes,
   type ThHTMLAttributes,
 } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence, m } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { spring } from "@/lib/springs";
 import { fontWeights } from "@/lib/font-weight";
@@ -36,7 +35,7 @@ interface TableProps extends HTMLAttributes<HTMLTableElement> {
 const Table = forwardRef<HTMLTableElement, TableProps>(({ children, className, ...props }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const { activeIndex, itemRects, sessionRef, handlers, registerItem, measureItems } =
+  const { activeIndex, itemRects, sessionKey, handlers, registerItem, measureItems } =
     useProximityHover(containerRef);
 
   useEffect(() => {
@@ -46,7 +45,7 @@ const Table = forwardRef<HTMLTableElement, TableProps>(({ children, className, .
   const activeRect = activeIndex !== null ? itemRects[activeIndex] : null;
   const hoverInset = activeRect ? Math.min(1, activeRect.width / 2) : 0;
 
-  const contextValue = useMemo(() => ({ registerItem, activeIndex }), [registerItem, activeIndex]);
+  const contextValue = { registerItem, activeIndex };
 
   return (
     <TableContext.Provider value={contextValue}>
@@ -61,22 +60,24 @@ const Table = forwardRef<HTMLTableElement, TableProps>(({ children, className, .
         <div className="pointer-events-none absolute inset-0 overflow-hidden">
           <AnimatePresence>
             {activeRect && (
-              <motion.div
-                key={sessionRef.current}
+              <m.div
+                key={sessionKey}
                 className="absolute bg-hover"
+                style={{
+                  height: activeRect.height,
+                  left: 0,
+                  top: 0,
+                  width: Math.max(activeRect.width - hoverInset * 2, 0),
+                }}
                 initial={{
                   opacity: 0,
-                  top: activeRect.top,
-                  left: activeRect.left + hoverInset,
-                  width: Math.max(activeRect.width - hoverInset * 2, 0),
-                  height: activeRect.height,
+                  x: activeRect.left + hoverInset,
+                  y: activeRect.top,
                 }}
                 animate={{
                   opacity: 1,
-                  top: activeRect.top,
-                  left: activeRect.left + hoverInset,
-                  width: Math.max(activeRect.width - hoverInset * 2, 0),
-                  height: activeRect.height,
+                  x: activeRect.left + hoverInset,
+                  y: activeRect.top,
                 }}
                 exit={{ opacity: 0, transition: spring.fast.exit }}
                 transition={{

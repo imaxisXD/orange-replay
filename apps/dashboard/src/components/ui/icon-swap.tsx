@@ -1,7 +1,7 @@
 "use client";
 
 import { type ReactNode } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { AnimatePresence, m, useReducedMotion } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 interface IconSwapProps {
@@ -25,7 +25,7 @@ export function IconSwap({ swapKey, children, className }: IconSwapProps) {
   return (
     <span className={cn("relative inline-grid place-items-center", className)}>
       <AnimatePresence initial={false}>
-        <motion.span
+        <m.span
           key={swapKey}
           className="col-start-1 row-start-1 inline-grid place-items-center"
           initial={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.25, filter: "blur(4px)" }}
@@ -34,7 +34,7 @@ export function IconSwap({ swapKey, children, className }: IconSwapProps) {
           transition={reduce ? { duration: 0 } : { type: "spring", duration: 0.3, bounce: 0 }}
         >
           {children}
-        </motion.span>
+        </m.span>
       </AnimatePresence>
     </span>
   );

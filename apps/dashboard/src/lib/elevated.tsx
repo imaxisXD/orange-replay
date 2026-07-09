@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, type ComponentPropsWithoutRef, type ReactNode } from "react";
+import { type ComponentPropsWithoutRef, type ReactNode, type Ref } from "react";
 import { cn } from "@/lib/utils";
 import { useSurface, SurfaceProvider } from "@/lib/surface-context";
 import { surfaceClasses } from "@/lib/surface-classes";
@@ -28,25 +28,23 @@ interface ElevatedProps extends ComponentPropsWithoutRef<"div"> {
    */
   shadowLevel?: number;
   children?: ReactNode;
+  ref?: Ref<HTMLDivElement>;
 }
 
-const Elevated = forwardRef<HTMLDivElement, ElevatedProps>(
-  ({ offset, shadowLevel, className, children, ...props }, ref) => {
-    const substrate = useSurface();
-    const level = Math.min(substrate + offset, 8);
-    return (
-      <SurfaceProvider value={level}>
-        <div
-          ref={ref}
-          className={cn(surfaceClasses(level, shadowLevel ?? level), className)}
-          {...props}
-        >
-          {children}
-        </div>
-      </SurfaceProvider>
-    );
-  },
-);
-Elevated.displayName = "Elevated";
+function Elevated({ offset, shadowLevel, className, children, ref, ...props }: ElevatedProps) {
+  const substrate = useSurface();
+  const level = Math.min(substrate + offset, 8);
+  return (
+    <SurfaceProvider value={level}>
+      <div
+        ref={ref}
+        className={cn(surfaceClasses(level, shadowLevel ?? level), className)}
+        {...props}
+      >
+        {children}
+      </div>
+    </SurfaceProvider>
+  );
+}
 
 export { Elevated };

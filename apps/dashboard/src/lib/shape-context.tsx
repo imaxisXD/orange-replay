@@ -1,15 +1,6 @@
 "use client";
 
-import {
-  createContext,
-  useContext,
-  useState,
-  useEffect,
-  useRef,
-  useCallback,
-  useMemo,
-  type ReactNode,
-} from "react";
+import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from "react";
 
 type ShapeVariant = "pill" | "rounded";
 
@@ -91,21 +82,20 @@ function ShapeProvider({
   // Run a state change under the `.transitioning` guard (added + reflow-flushed
   // first so the 180ms border-radius cross-fade applies). Clearing the previous
   // timeout first keeps a double-press from removing the class mid-fade.
-  const transitionShape = useCallback((callback: () => void) => {
-    const root = document.documentElement;
-    root.classList.add("transitioning");
-    void root.offsetHeight;
-    callback();
-    if (transitionTimeoutRef.current) clearTimeout(transitionTimeoutRef.current);
-    transitionTimeoutRef.current = setTimeout(() => root.classList.remove("transitioning"), 200);
-  }, []);
-
-  const setShape = useCallback(
-    (next: ShapeVariant) => {
-      transitionShape(() => setShapeState(next));
+  const [transitionShape] = useState<(callback: () => void) => void>(
+    () => (callback: () => void) => {
+      const root = document.documentElement;
+      root.classList.add("transitioning");
+      void root.offsetHeight;
+      callback();
+      if (transitionTimeoutRef.current) clearTimeout(transitionTimeoutRef.current);
+      transitionTimeoutRef.current = setTimeout(() => root.classList.remove("transitioning"), 200);
     },
-    [transitionShape],
   );
+
+  function setShape(next: ShapeVariant): void {
+    transitionShape(() => setShapeState(next));
+  }
 
   // Global keyboard shortcut: R to cycle radius
   useEffect(() => {
@@ -127,10 +117,10 @@ function ShapeProvider({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [transitionShape]);
 
-  const value = useMemo(() => ({ shape, setShape, classes: shapeMap[shape] }), [shape, setShape]);
+  const value = { shape, setShape, classes: shapeMap[shape] };
 
   return <ShapeContext.Provider value={value}>{children}</ShapeContext.Provider>;
 }
 
-export { ShapeProvider, useShape, useShapeContext, shapeMap };
+export { ShapeProvider, useShape, useShapeContext };
 export type { ShapeVariant, ShapeClasses };

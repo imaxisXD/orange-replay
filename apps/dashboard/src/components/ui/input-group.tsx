@@ -4,7 +4,6 @@ import {
   useRef,
   useState,
   useEffect,
-  useMemo,
   createContext,
   useContext,
   forwardRef,
@@ -13,7 +12,7 @@ import {
   type InputHTMLAttributes,
 } from "react";
 import { Field } from "@base-ui/react/field";
-import type { IconComponent } from "@/lib/icon-context";
+import type { IconComponent } from "@/lib/icon-map";
 import { cn } from "@/lib/utils";
 import { fontWeights } from "@/lib/font-weight";
 import { useProximityHover } from "@/hooks/use-proximity-hover";
@@ -45,10 +44,7 @@ const InputGroup = forwardRef<HTMLDivElement, InputGroupProps>(
       measureItems();
     }, [measureItems, children]);
 
-    const contextValue = useMemo(
-      () => ({ registerItem, activeIndex }),
-      [registerItem, activeIndex],
-    );
+    const contextValue = { registerItem, activeIndex };
 
     return (
       <InputGroupContext.Provider value={contextValue}>
@@ -182,6 +178,7 @@ const InputField = forwardRef<HTMLDivElement, InputFieldProps>(
 
         {/* Input container */}
         <div
+          role="presentation"
           onMouseDown={(e) => {
             // The old wrapper was one big <label>, so a click anywhere (icon,
             // padding) focused the input. Keep that, without disturbing the

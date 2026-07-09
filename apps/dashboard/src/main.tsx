@@ -1,9 +1,8 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { MotionConfig } from "framer-motion";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
-import { IconProvider } from "@/lib/icon-context";
+import { MotionProvider } from "@/lib/motion-provider";
 import { queryClient } from "@/lib/query";
 import { ShapeProvider } from "@/lib/shape-context";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -18,16 +17,14 @@ if (root === null) {
 
 createRoot(root).render(
   <StrictMode>
-    <MotionConfig reducedMotion="user">
+    <MotionProvider>
       <QueryClientProvider client={queryClient}>
         <ShapeProvider defaultShape="rounded">
-          <IconProvider defaultLibrary="hugeicons">
-            <TooltipProvider>
-              <RouterProvider router={router} />
-            </TooltipProvider>
-          </IconProvider>
+          <TooltipProvider>
+            <RouterProvider router={router} />
+          </TooltipProvider>
         </ShapeProvider>
       </QueryClientProvider>
-    </MotionConfig>
+    </MotionProvider>
   </StrictMode>,
 );

@@ -3,7 +3,6 @@
 import {
   useRef,
   useState,
-  useCallback,
   useEffect,
   type Dispatch,
   type RefObject,
@@ -25,7 +24,7 @@ interface UseProximityHoverReturn {
   activeIndex: number | null;
   setActiveIndex: Dispatch<SetStateAction<number | null>>;
   itemRects: ItemRect[];
-  sessionRef: RefObject<number>;
+  sessionKey: number;
   handlers: {
     onMouseMove: (e: React.MouseEvent) => void;
     onMouseEnter: () => void;
@@ -43,12 +42,12 @@ export function useProximityHover<T extends HTMLElement>(
   const itemsRef = useRef(new Map<number, HTMLElement>());
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [itemRects, setItemRects] = useState<ItemRect[]>([]);
+  const [sessionKey, setSessionKey] = useState(0);
   const itemRectsRef = useRef<ItemRect[]>([]);
-  const sessionRef = useRef(0);
   const rafIdRef = useRef<number | null>(null);
   const remeasureRafIdRef = useRef<number | null>(null);
 
-  const measureItems = useCallback(() => {
+  const [measureItems] = useState<() => void>(() => () => {
     const container = containerRef.current;
     if (!container) return;
     const rects: ItemRect[] = [];
@@ -84,10 +83,10 @@ export function useProximityHover<T extends HTMLElement>(
     if (!changed) return;
     itemRectsRef.current = rects;
     setItemRects(rects);
-  }, [containerRef]);
+  });
 
-  const registerItem = useCallback(
-    (index: number, element: HTMLElement | null) => {
+  const [registerItem] = useState<(index: number, element: HTMLElement | null) => void>(
+    () => (index: number, element: HTMLElement | null) => {
       if (element) {
         itemsRef.current.set(index, element);
       } else {
@@ -105,82 +104,78 @@ export function useProximityHover<T extends HTMLElement>(
         measureItems();
       });
     },
-    [measureItems],
   );
 
-  const handleMouseMove = useCallback(
-    (e: React.MouseEvent) => {
-      const mouseX = e.clientX;
-      const mouseY = e.clientY;
+  const [handleMouseMove] = useState<(e: React.MouseEvent) => void>(() => (e: React.MouseEvent) => {
+    const mouseX = e.clientX;
+    const mouseY = e.clientY;
 
-      if (rafIdRef.current !== null) {
-        cancelAnimationFrame(rafIdRef.current);
-      }
+    if (rafIdRef.current !== null) {
+      cancelAnimationFrame(rafIdRef.current);
+    }
 
-      rafIdRef.current = requestAnimationFrame(() => {
-        rafIdRef.current = null;
-        const container = containerRef.current;
-        if (!container) return;
+    rafIdRef.current = requestAnimationFrame(() => {
+      rafIdRef.current = null;
+      const container = containerRef.current;
+      if (!container) return;
 
-        const containerRect = container.getBoundingClientRect();
-        const mousePos = axis === "x" ? mouseX : mouseY;
+      const containerRect = container.getBoundingClientRect();
+      const mousePos = axis === "x" ? mouseX : mouseY;
 
-        let closestIndex: number | null = null;
-        let closestDistance = Infinity;
-        let containingIndex: number | null = null;
+      let closestIndex: number | null = null;
+      let closestDistance = Infinity;
+      let containingIndex: number | null = null;
 
-        const rects = itemRectsRef.current;
-        // Convert content-relative rects to viewport coords using live scroll
-        const scrollOffset = axis === "x" ? container.scrollLeft : container.scrollTop;
-        const borderOffset = axis === "x" ? container.clientLeft : container.clientTop;
-        const containerEdge = axis === "x" ? containerRect.left : containerRect.top;
-        // Item rects are layout values (offset*); the container's bounding rect
-        // reflects any cumulative ancestor transform: scale. Compute the scale
-        // factor so we can map layout coords into the same visual viewport
-        // space the mouse cursor lives in.
-        const layoutSize = axis === "x" ? container.offsetWidth : container.offsetHeight;
-        const visualSize = axis === "x" ? containerRect.width : containerRect.height;
-        const scale = layoutSize > 0 ? visualSize / layoutSize : 1;
+      const rects = itemRectsRef.current;
+      // Convert content-relative rects to viewport coords using live scroll
+      const scrollOffset = axis === "x" ? container.scrollLeft : container.scrollTop;
+      const borderOffset = axis === "x" ? container.clientLeft : container.clientTop;
+      const containerEdge = axis === "x" ? containerRect.left : containerRect.top;
+      // Item rects are layout values (offset*); the container's bounding rect
+      // reflects any cumulative ancestor transform: scale. Compute the scale
+      // factor so we can map layout coords into the same visual viewport
+      // space the mouse cursor lives in.
+      const layoutSize = axis === "x" ? container.offsetWidth : container.offsetHeight;
+      const visualSize = axis === "x" ? containerRect.width : containerRect.height;
+      const scale = layoutSize > 0 ? visualSize / layoutSize : 1;
 
-        for (let index = 0; index < rects.length; index++) {
-          const r = rects[index];
-          if (!r) continue;
+      for (let index = 0; index < rects.length; index++) {
+        const r = rects[index];
+        if (!r) continue;
 
-          const contentPos = axis === "x" ? r.left : r.top;
-          const itemStart = containerEdge + (borderOffset + contentPos - scrollOffset) * scale;
-          const itemSize = (axis === "x" ? r.width : r.height) * scale;
-          const itemEnd = itemStart + itemSize;
+        const contentPos = axis === "x" ? r.left : r.top;
+        const itemStart = containerEdge + (borderOffset + contentPos - scrollOffset) * scale;
+        const itemSize = (axis === "x" ? r.width : r.height) * scale;
+        const itemEnd = itemStart + itemSize;
 
-          if (mousePos >= itemStart && mousePos <= itemEnd) {
-            containingIndex = index;
-          }
-
-          const itemCenter = itemStart + itemSize / 2;
-          const distance = Math.abs(mousePos - itemCenter);
-
-          if (distance < closestDistance) {
-            closestDistance = distance;
-            closestIndex = index;
-          }
+        if (mousePos >= itemStart && mousePos <= itemEnd) {
+          containingIndex = index;
         }
 
-        setActiveIndex(containingIndex ?? closestIndex);
-      });
-    },
-    [axis, containerRef],
-  );
+        const itemCenter = itemStart + itemSize / 2;
+        const distance = Math.abs(mousePos - itemCenter);
 
-  const handleMouseEnter = useCallback(() => {
-    sessionRef.current += 1;
-  }, []);
+        if (distance < closestDistance) {
+          closestDistance = distance;
+          closestIndex = index;
+        }
+      }
 
-  const handleMouseLeave = useCallback(() => {
+      setActiveIndex(containingIndex ?? closestIndex);
+    });
+  });
+
+  const [handleMouseEnter] = useState<() => void>(() => () => {
+    setSessionKey((currentKey) => currentKey + 1);
+  });
+
+  const [handleMouseLeave] = useState<() => void>(() => () => {
     if (rafIdRef.current !== null) {
       cancelAnimationFrame(rafIdRef.current);
       rafIdRef.current = null;
     }
     setActiveIndex(null);
-  }, []);
+  });
 
   // Remeasure when the container resizes — a reflow moves items even though
   // the registered set is unchanged, which would otherwise leave itemRects
@@ -217,7 +212,7 @@ export function useProximityHover<T extends HTMLElement>(
     activeIndex,
     setActiveIndex,
     itemRects,
-    sessionRef,
+    sessionKey,
     handlers: {
       onMouseMove: handleMouseMove,
       onMouseEnter: handleMouseEnter,
@@ -232,13 +227,3 @@ export function useProximityHover<T extends HTMLElement>(
  * Hook for child items to register themselves with the proximity hover system.
  * Call in useEffect with the item's ref and index.
  */
-export function useRegisterProximityItem(
-  registerItem: (index: number, element: HTMLElement | null) => void,
-  index: number,
-  ref: RefObject<HTMLElement | null>,
-) {
-  useEffect(() => {
-    registerItem(index, ref.current);
-    return () => registerItem(index, null);
-  }, [index, registerItem, ref]);
-}

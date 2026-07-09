@@ -10,7 +10,7 @@ import {
 } from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
-import type { IconComponent } from "@/lib/icon-context";
+import type { IconComponent } from "@/lib/icon-map";
 import { cn } from "@/lib/utils";
 import { useShape } from "@/lib/shape-context";
 
@@ -221,5 +221,5 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
 
 Button.displayName = "Button";
 
-export { Button, buttonVariants };
+export { Button };
 export type { ButtonProps };

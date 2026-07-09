@@ -99,5 +99,5 @@ const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
 
 Badge.displayName = "Badge";
 
-export { Badge, badgeVariants, badgeColors };
+export { Badge };
 export type { BadgeProps, BadgeColor };
