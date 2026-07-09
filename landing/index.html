@@ -9,7 +9,31 @@
     <title>Orange Replay — watch what your users actually did</title>
     <meta
       name="description"
-      content="Session replay for the modern web. Record every session, surface errors and rage clicks automatically, and replay them pixel-for-pixel. Built on the edge."
+      content="Record real sessions, see errors and rage clicks, and replay the moments that block your customers. Stop guessing and fix the right issue faster."
+    />
+    <meta name="theme-color" content="#0a0a0c" />
+    <meta name="application-name" content="Orange Replay" />
+    <meta name="apple-mobile-web-app-title" content="Orange Replay" />
+    <meta name="msapplication-TileColor" content="#0a0a0c" />
+    <meta name="msapplication-TileImage" content="/mstile-150x150.png" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <link
+      rel="preload"
+      href="fonts/UncutSans-Variable.812463c2.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="fonts/UncutPlan8-Variable.737af1b2.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
     />
     <style>
       /* ===========================================================
@@ -18,13 +42,20 @@
        (design language studied from polylane.com + quiver.ai frame)
      Product screenshots: the real Orange Replay design system
        (dotted grid, amber accent, .lit cards) — scoped to .app
-     Type: Uncut Sans (SIL OFL 1.1) · labels/numerals in a mono stack
+     Type: Uncut Sans + Uncut Plan8 (SIL OFL 1.1) · labels/numerals in Plan8
      =========================================================== */
 
       @font-face {
         font-family: "Uncut Sans";
-        src: url("fonts/UncutSans-Variable.woff2") format("woff2-variations");
+        src: url("fonts/UncutSans-Variable.812463c2.woff2") format("woff2-variations");
         font-weight: 300 800;
+        font-style: normal;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: "Uncut Plan8";
+        src: url("fonts/UncutPlan8-Variable.737af1b2.woff2") format("woff2");
+        font-weight: 100 900;
         font-style: normal;
         font-display: swap;
       }
@@ -58,7 +89,7 @@
         --rule: #1e1e22;
 
         --sans: "Uncut Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
-        --mono: ui-monospace, "SF Mono", "Geist Mono", Menlo, monospace;
+        --mono: "Uncut Plan8", ui-monospace, "SF Mono", Menlo, monospace;
         --wrap: 1200px;
       }
 
@@ -134,7 +165,7 @@
         z-index: 60;
         display: flex;
         align-items: center;
-        padding: 20px max(24px, 4vw);
+        padding: 12px max(24px, 4vw);
         background: transparent;
         /* pull 1px each side so ::after's vertical rules land exactly on the frame's rule line */
         margin: 0 -1px;
@@ -174,23 +205,11 @@
         gap: 10px;
       }
       .mark {
-        width: 22px;
-        height: 22px;
-        border-radius: 6px;
-        background: #101013;
-        border: 1px solid var(--line);
-        position: relative;
+        display: block;
+        width: 34px;
+        height: 24px;
+        object-fit: contain;
         flex: none;
-      }
-      .mark::after {
-        content: "";
-        position: absolute;
-        left: 4px;
-        right: 4px;
-        top: 9px;
-        height: 2.5px;
-        border-radius: 2px;
-        background: linear-gradient(90deg, #2dd4bf, #f5a623, #f4534e);
       }
       .wordmark b {
         font-family: var(--mono);
@@ -259,6 +278,13 @@
         align-items: center;
         justify-content: center;
       }
+      .nav .cta-pill {
+        padding: 5px 6px 5px 13px;
+      }
+      .nav .cta-pill .circ {
+        width: 22px;
+        height: 22px;
+      }
       /* larger version for hero + CTA (button consistency) */
       .cta-pill.lg {
         font-size: 15px;
@@ -296,6 +322,26 @@
         border-color: #3f3f3f;
         background: #0c0c0c;
       }
+      .huge-icon {
+        display: block;
+        width: 1em;
+        height: 1em;
+        color: currentColor;
+      }
+      .cta-pill .circ .huge-icon {
+        color: #fff;
+        font-size: 13px;
+      }
+      .btn-ghost .huge-icon,
+      .tile .ic .huge-icon {
+        color: var(--accent);
+      }
+      .btn-ghost .huge-icon {
+        font-size: 14px;
+      }
+      .tile .ic .huge-icon {
+        font-size: 20px;
+      }
 
       /* ===== hero ===== */
       .hero {
@@ -303,26 +349,26 @@
         padding: 96px 0 118px;
         overflow: hidden;
       }
-      /* our touch: a field of session "events" (mono glyphs) that lights up in amber
-         as the cursor — a replay playhead — sweeps across it (studied from eve.dev) */
+      /* Delphi-style halftone bloom: bottom-anchored dots that gently move away from the pointer. */
       .hero-fx {
         position: absolute;
-        inset: 0;
+        inset: auto 0 0;
+        width: 100%;
+        height: min(68vh, 560px);
         z-index: 0;
         pointer-events: none;
-        /* soft vignette so the field fades out toward the frame edges */
-        -webkit-mask-image: radial-gradient(
-          120% 130% at 62% 34%,
+        color: rgba(245, 166, 35, 0.72);
+        opacity: 0.78;
+        mix-blend-mode: screen;
+        filter: none;
+        transform: none;
+        -webkit-mask-image: linear-gradient(
+          to top,
           #000 0%,
-          rgba(0, 0, 0, 0.7) 55%,
-          transparent 88%
+          rgba(0, 0, 0, 0.88) 58%,
+          transparent 100%
         );
-        mask-image: radial-gradient(
-          120% 130% at 62% 34%,
-          #000 0%,
-          rgba(0, 0, 0, 0.7) 55%,
-          transparent 88%
-        );
+        mask-image: linear-gradient(to top, #000 0%, rgba(0, 0, 0, 0.88) 58%, transparent 100%);
       }
       .hero .inner {
         position: relative;
@@ -365,6 +411,97 @@
       }
       .hero .btns {
         margin-top: 40px;
+      }
+      @property --hero-demo-border-angle {
+        syntax: "<angle>";
+        inherits: false;
+        initial-value: -80deg;
+      }
+      .hero .btn-ghost {
+        --hero-demo-border-angle: -80deg;
+        --hero-demo-border-peak: 0.91;
+        --hero-demo-border-mid: 0.66;
+        --hero-demo-border-tail: 0.24;
+        position: relative;
+        overflow: hidden;
+        border-color: transparent;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.084), rgba(255, 255, 255, 0.014)),
+          rgba(255, 255, 255, 0.022);
+        color: #fff9ec;
+        font-weight: 560;
+        box-shadow:
+          0 0 25px rgba(245, 166, 35, 0.096),
+          inset 0 1px 0 rgba(255, 255, 255, 0.216),
+          inset 0 -1px 0 rgba(255, 255, 255, 0.048);
+        text-shadow:
+          0 1px 9px rgba(0, 0, 0, 0.88),
+          0 0 18px rgba(245, 166, 35, 0.288);
+        -webkit-backdrop-filter: blur(1.6px) saturate(1.14);
+        backdrop-filter: blur(1.6px) saturate(1.14);
+      }
+      .hero .btn-ghost::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        padding: 1px;
+        border-radius: inherit;
+        pointer-events: none;
+        background: conic-gradient(
+          from var(--hero-demo-border-angle) at 50% 50%,
+          transparent 0deg,
+          rgba(245, 166, 35, 0.08) 12deg,
+          rgba(245, 166, 35, var(--hero-demo-border-tail)) 24deg,
+          rgba(255, 247, 222, var(--hero-demo-border-peak)) 40deg,
+          rgba(245, 166, 35, var(--hero-demo-border-mid)) 60deg,
+          rgba(245, 166, 35, var(--hero-demo-border-tail)) 88deg,
+          transparent 128deg,
+          transparent 360deg
+        );
+        animation: hero-demo-border-travel 9.5s linear infinite;
+        -webkit-mask:
+          linear-gradient(#000 0 0) content-box,
+          linear-gradient(#000 0 0);
+        -webkit-mask-composite: xor;
+        mask:
+          linear-gradient(#000 0 0) content-box,
+          linear-gradient(#000 0 0);
+        mask-composite: exclude;
+      }
+      .hero .btn-ghost::before {
+        content: "";
+        position: absolute;
+        inset: 1px;
+        border-radius: 8px;
+        pointer-events: none;
+        background: linear-gradient(
+          135deg,
+          rgba(255, 255, 255, 0.156) 0%,
+          rgba(255, 255, 255, 0.048) 34%,
+          transparent 62%
+        );
+      }
+      .hero .btn-ghost:hover {
+        --hero-demo-border-peak: 0.96;
+        --hero-demo-border-mid: 0.79;
+        --hero-demo-border-tail: 0.29;
+        border-color: transparent;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.108), rgba(255, 255, 255, 0.019)),
+          rgba(255, 255, 255, 0.029);
+        box-shadow:
+          0 0 31px rgba(245, 166, 35, 0.144),
+          inset 0 1px 0 rgba(255, 255, 255, 0.264),
+          inset 0 -1px 0 rgba(255, 255, 255, 0.06);
+      }
+      .hero .btn-ghost .huge-icon {
+        color: #ffe2a4;
+        filter: drop-shadow(0 0 8px rgba(245, 166, 35, 0.48));
+      }
+      @keyframes hero-demo-border-travel {
+        to {
+          --hero-demo-border-angle: 280deg;
+        }
       }
 
       /* ===== section shell ===== */
@@ -441,7 +578,7 @@
         will-change: transform, filter;
       }
       .stack-card .shot {
-        max-height: 46vh;
+        max-height: 50vh;
       }
       .stack-card .sec-note {
         display: none;
@@ -449,13 +586,97 @@
 
       /* ===== product frame — the .lit dashed-bloom card ===== */
       .shot {
+        --shot-top-bar: 38px;
+        --shot-inset: 10px;
+        --shot-content-gap: 8px;
         margin-top: 34px;
-        border-radius: 10px;
+        border-radius: 12px;
         overflow: hidden;
         position: relative;
         border: none;
-        background: var(--panel);
+        padding: calc(var(--shot-top-bar) + var(--shot-content-gap)) var(--shot-inset)
+          var(--shot-inset);
+        background:
+          radial-gradient(70% 55% at 8% 0%, rgba(245, 166, 35, 0.1), transparent 52%),
+          linear-gradient(180deg, #101014 0%, #0a0a0c 58%, #09090b 100%);
         box-shadow: 0 40px 100px -30px rgba(0, 0, 0, 0.9);
+      }
+      .shot-top-bar {
+        position: absolute;
+        inset: 0 0 auto 0;
+        z-index: 1;
+        height: var(--shot-top-bar);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 58%),
+          repeating-linear-gradient(
+            135deg,
+            rgba(255, 255, 255, 0.065) 0,
+            rgba(255, 255, 255, 0.065) 1px,
+            transparent 1px,
+            transparent 5px
+          ),
+          #111116;
+      }
+      .shot-buttons {
+        position: absolute;
+        left: 16px;
+        top: 50%;
+        display: flex;
+        gap: 6px;
+        transform: translateY(-50%);
+      }
+      .shot-buttons i {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        border: 1px solid rgba(236, 236, 241, 0.42);
+        background: #09090b;
+        box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.45);
+      }
+      .shot-buttons i:nth-child(1) {
+        border-color: rgba(244, 83, 78, 0.55);
+        background: rgba(244, 83, 78, 0.12);
+      }
+      .shot-buttons i:nth-child(2) {
+        border-color: rgba(245, 166, 35, 0.58);
+        background: rgba(245, 166, 35, 0.12);
+      }
+      .shot-buttons i:nth-child(3) {
+        border-color: rgba(45, 212, 191, 0.58);
+        background: rgba(45, 212, 191, 0.1);
+      }
+      .shot-url {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: min(30vw, 300px);
+        min-width: 200px;
+        height: 22px;
+        transform: translate(-50%, -50%);
+        border: 1px solid rgba(236, 236, 241, 0.17);
+        border-radius: 7px;
+        background: rgba(10, 10, 12, 0.82);
+        color: rgba(236, 236, 241, 0.54);
+        font-family: var(--mono);
+        font-size: 10px;
+        letter-spacing: 0.02em;
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.04),
+          0 8px 24px rgba(0, 0, 0, 0.2);
+      }
+      .shot > .app {
+        position: relative;
+        z-index: 2;
+        overflow: hidden;
+        border: 1px solid rgba(236, 236, 241, 0.09);
+        border-radius: 9px;
+        box-shadow:
+          0 18px 48px rgba(0, 0, 0, 0.5),
+          0 0 0 1px rgba(0, 0, 0, 0.34);
       }
       .shot::after {
         content: "";
@@ -463,8 +684,8 @@
         inset: 0;
         border-radius: inherit;
         pointer-events: none;
-        z-index: 4;
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Crect x='0.5' y='0.5' width='100%25' height='100%25' fill='none' rx='9.5' ry='9.5' stroke='white' stroke-opacity='0.32' stroke-width='1' stroke-dasharray='12 4'/%3E%3C/svg%3E");
+        z-index: 7;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Crect x='0.5' y='0.5' width='100%25' height='100%25' fill='none' rx='11.5' ry='11.5' stroke='white' stroke-opacity='0.26' stroke-width='1' stroke-dasharray='12 4'/%3E%3C/svg%3E");
         -webkit-mask-image: radial-gradient(
           170% 130% at 0% 0%,
           #000 0%,
@@ -486,12 +707,14 @@
         inset: 0;
         border-radius: inherit;
         pointer-events: none;
-        z-index: 3;
+        z-index: 6;
         background: radial-gradient(60% 45% at 4% 0%, rgba(255, 255, 255, 0.06), transparent 60%);
       }
       .shot .edge {
         position: absolute;
-        inset: 0 0 auto 0;
+        top: var(--shot-top-bar);
+        right: var(--shot-inset);
+        left: var(--shot-inset);
         height: 1px;
         z-index: 5;
         background: var(--grad-friction);
@@ -506,7 +729,7 @@
         right: 0;
         bottom: 0;
         height: 112px;
-        z-index: 2;
+        z-index: 4;
         pointer-events: none;
         background: linear-gradient(to top, var(--bg), transparent);
       }
@@ -809,14 +1032,6 @@
       .live-rail .lrow:last-of-type {
         border-bottom: none;
       }
-      .pulse {
-        width: 7px;
-        height: 7px;
-        border-radius: 50%;
-        background: var(--green);
-        animation: pulse 1.8s infinite;
-        flex: none;
-      }
       .live-rail .who {
         font-size: 12px;
         font-weight: 520;
@@ -838,6 +1053,48 @@
         border: 1px dashed rgba(45, 212, 191, 0.4);
         border-radius: 6px;
         padding: 3px 9px;
+      }
+      .flag-icon {
+        display: inline-flex;
+        width: 15px;
+        height: 10px;
+        margin-right: 5px;
+        overflow: hidden;
+        vertical-align: -1px;
+        border: 1px solid var(--line);
+        border-radius: 2px;
+        background: var(--panel2);
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.34);
+      }
+      .flag-icon img {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+      .session-meta {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+      }
+      .session-place,
+      .browser-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        white-space: nowrap;
+      }
+      .session-place .flag-icon {
+        margin-right: 0;
+      }
+      .browser-chip {
+        color: var(--sub);
+      }
+      .browser-chip .huge-icon {
+        flex: none;
+        font-size: 13px;
+        color: var(--accent);
       }
       .tablewrap {
         background: var(--panel);
@@ -1190,17 +1447,40 @@
         gap: 14px;
       }
       .tile {
+        --tile-surface: #08080a;
+        --tile-surface-fade: rgba(8, 8, 10, 0.74);
         position: relative;
         border: none;
         border-radius: 10px;
-        background: #08080a;
+        background: var(--tile-surface);
         padding: 26px 26px 28px;
         overflow: hidden;
         box-shadow: 0 14px 34px rgba(0, 0, 0, 0.42);
         transition: background 160ms ease;
       }
       .tile:hover {
-        background: #0c0c0e;
+        --tile-surface: #0c0c0e;
+        --tile-surface-fade: rgba(12, 12, 14, 0.74);
+        background: var(--tile-surface);
+      }
+      .tile > :not(.tile-fade) {
+        position: relative;
+        z-index: 3;
+      }
+      .tile-fade {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 62px;
+        z-index: 4;
+        pointer-events: none;
+        background: linear-gradient(
+          to top,
+          var(--tile-surface) 0%,
+          var(--tile-surface-fade) 34%,
+          transparent 100%
+        );
       }
       .tile.wide {
         grid-column: span 2;
@@ -1253,53 +1533,259 @@
         color: #34d399;
         margin-bottom: 14px;
       }
-      .live-badge span {
-        width: 7px;
-        height: 7px;
-        border-radius: 50%;
-        background: #34d399;
-        box-shadow: 0 0 8px rgba(52, 211, 153, 0.7);
-        animation: pulse 1.8s infinite;
-      }
+      /* live badge / row dots use the shared .live-dot component (see below) */
       .lv-rail {
+        position: relative;
         flex: none;
         width: 320px;
         border-left: 1px solid var(--line);
         padding-left: 30px;
       }
+      /* two-line session card — [dot | route | time] over [flag | country | browser], */
+      /* a 3-col grid so routes/countries align in one column and times/browsers in another */
       .lv-row {
-        display: flex;
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        grid-template-rows: auto auto;
         align-items: center;
-        gap: 11px;
+        column-gap: 9px;
+        row-gap: 3px;
         padding: 9px 0;
         border-bottom: 1px solid var(--line2);
       }
       .lv-row:last-child {
         border-bottom: none;
       }
-      .lv-dot {
-        width: 7px;
-        height: 7px;
+      /* dissolve the old nesting so every field becomes a direct grid item */
+      .lv-row > div,
+      .lv-row .lv-meta {
+        display: contents;
+      }
+      .lv-row .live-dot,
+      .lv-row .flag-icon {
+        grid-column: 1;
+        justify-self: center;
+      }
+      .lv-row .live-dot {
+        grid-row: 1;
+      }
+      .lv-row .flag-icon {
+        grid-row: 2;
+        margin: 0;
+      }
+      .lv-row .lv-page {
+        grid-column: 2;
+        grid-row: 1;
+      }
+      .lv-row .lv-city {
+        grid-column: 2;
+        grid-row: 2;
+      }
+      .lv-row .lv-t {
+        grid-column: 3;
+        grid-row: 1;
+        justify-self: end;
+      }
+      .lv-row .browser-chip {
+        grid-column: 3;
+        grid-row: 2;
+        justify-self: end;
+      }
+      /* ===== Live dot — shared "live now" indicator ===== */
+      /* One component for every live-now spot. Sized via --live-size so the same */
+      /* dot scales from the 16px feature tile down to the 6–7px mocks. */
+      /* Flat (no glass): dark face, dark-green rim, green pixel-light + breathing bloom. */
+      .live-dot {
+        --live-size: 12px;
+        --live-rgb: 52, 211, 153; /* #34d399 */
+        --live-border: #00321e; /* dark green rim */
+        /* pixel grid scales with the dot so it always sits inside the circle */
+        --live-px: calc(var(--live-size) * 0.09375);
+        --live-gap: calc(var(--live-size) * 0.03125);
+        position: relative;
+        display: inline-block;
+        width: var(--live-size);
+        height: var(--live-size);
+        border-radius: 50%;
+        flex: none;
+        vertical-align: middle;
+        background: #002417;
+        box-shadow: inset 0 0 0 1px var(--live-border);
+      }
+      /* breathing green bloom — sits behind the pixel light */
+      .live-dot::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(var(--live-rgb), 0.5), transparent 62%);
+        pointer-events: none;
+        z-index: 1;
+        animation: live-bloom 5.5s ease-in-out infinite;
+      }
+      @keyframes live-bloom {
+        0%,
+        100% {
+          opacity: 0.45;
+        }
+        50% {
+          opacity: 0.85;
+        }
+      }
+      /* pixel-light texture — feature-tile size only; a fine grid clipped hard to a circle */
+      .live-dot__light {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 2;
+        display: grid;
+        grid-template-columns: repeat(7, var(--live-px));
+        gap: var(--live-gap);
+        -webkit-mask-image: radial-gradient(
+          circle at center,
+          #000 54%,
+          rgba(0, 0, 0, 0.5) 66%,
+          transparent 76%
+        );
+        mask-image: radial-gradient(
+          circle at center,
+          #000 54%,
+          rgba(0, 0, 0, 0.5) 66%,
+          transparent 76%
+        );
+      }
+      .live-dot__light .px {
+        width: var(--live-px);
+        height: var(--live-px);
         border-radius: 50%;
         background: #34d399;
-        box-shadow: 0 0 8px rgba(52, 211, 153, 0.7);
-        flex: none;
-        animation: pulse 1.8s infinite;
+        opacity: var(--base);
+        box-shadow: 0 0 1.5px rgba(var(--live-rgb), 0.55);
+        animation: live-twinkle var(--dur, 4s) ease-in-out infinite;
+        animation-delay: var(--delay, 0s);
+      }
+      /* dots ease between dim and bright; a soft green halo swells in as each one lights up */
+      @keyframes live-twinkle {
+        0%,
+        100% {
+          opacity: var(--base);
+          box-shadow: 0 0 3px 0.6px rgba(var(--live-rgb), 0.85);
+        }
+        50% {
+          opacity: calc(var(--base) * 0.55);
+          box-shadow: 0 0 1px 0 rgba(var(--live-rgb), 0.12);
+        }
+      }
+      /* small variants — inside the shrunken dashboard mocks. The pixel grid can't render */
+      /* this small, so the dot is a solid green pinlight with the same dark-green rim. */
+      .live-dot--sm {
+        --live-size: 7px;
+      }
+      .live-dot--xs {
+        --live-size: 6px;
+      }
+      .live-dot--sm,
+      .live-dot--xs {
+        background: #34d399;
+        box-shadow:
+          inset 0 0 0 1px var(--live-border),
+          0 0 5px rgba(var(--live-rgb), 0.5);
+      }
+      .live-dot--sm .live-dot__light,
+      .live-dot--xs .live-dot__light {
+        display: none;
       }
       .lv-page {
-        font-size: 13px;
-        font-weight: 520;
-        color: #e8e8e8;
+        font-family: var(--mono);
+        font-size: 12.5px;
+        font-weight: 500;
+        letter-spacing: -0.01em;
+        color: #f2f2f2;
+      }
+      /* the leading slash reads like a dim label; the route name stays white */
+      .lv-page::before {
+        content: "/";
+        color: var(--faint);
+        margin-right: 0.5px;
+      }
+      /* page-swap roll (a session navigating) */
+      @keyframes lv-rollout {
+        to {
+          transform: translateY(-9px);
+          opacity: 0;
+          filter: blur(1px);
+        }
+      }
+      @keyframes lv-rollin {
+        from {
+          transform: translateY(9px);
+          opacity: 0;
+          filter: blur(1px);
+        }
+        to {
+          transform: none;
+          opacity: 1;
+          filter: none;
+        }
+      }
+      .lv-page.roll-out {
+        animation: lv-rollout 200ms ease-in forwards;
+      }
+      .lv-page.roll-in {
+        animation: lv-rollin 260ms cubic-bezier(0.22, 1, 0.36, 1);
       }
       .lv-meta {
         font-size: 11.5px;
         color: var(--dimmer);
+      }
+      .lv-city {
+        font-size: 11.5px;
+        color: var(--dimmer);
+        white-space: nowrap;
       }
       .lv-t {
         margin-left: auto;
         font-family: var(--mono);
         font-size: 12px;
         color: var(--faint);
+      }
+      /* amber odometer: digit reels that roll upward each second */
+      .lv-t.lv-odo {
+        color: var(--accent);
+        display: inline-flex;
+        align-items: center;
+        font-variant-numeric: tabular-nums;
+      }
+      .lv-odo .reel {
+        display: inline-block;
+        height: 1em;
+        overflow: hidden;
+      }
+      .lv-odo .reel.min-tens {
+        max-width: 0;
+        transition: max-width 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      .lv-odo .reel.min-tens.show {
+        max-width: 0.62em;
+      }
+      .lv-odo .strip {
+        display: block;
+        transition: transform 0.5s cubic-bezier(0.32, 1.14, 0.42, 1);
+        will-change: transform;
+      }
+      .lv-odo .strip.blur {
+        filter: blur(0.4px);
+      }
+      .lv-odo .cell {
+        display: block;
+        height: 1em;
+        line-height: 1em;
+        text-align: center;
+      }
+      .lv-odo .colon {
+        opacity: 0.85;
+        margin: 0 0.5px;
       }
 
       /* ===== "who it's for" — screenshot floating over a gradient tile ===== */
@@ -1427,18 +1913,51 @@
         opacity: 1;
       }
       .aud .float {
+        --aud-float-surface: #111114;
         position: absolute;
         left: 34px;
         right: 34px;
         top: 44px;
         bottom: -1px;
-        background: #111114;
-        border: 1px solid #26262d;
+        background:
+          linear-gradient(var(--aud-float-surface), var(--aud-float-surface)) padding-box,
+          radial-gradient(
+              130% 105% at 0% 0%,
+              rgba(236, 236, 241, 0.44) 0%,
+              rgba(236, 236, 241, 0.26) 18%,
+              rgba(245, 166, 35, 0.16) 36%,
+              rgba(236, 236, 241, 0.06) 50%,
+              transparent 66%
+            )
+            border-box;
+        border: 2px solid transparent;
         border-radius: 9px 9px 0 0;
-        box-shadow: 0 -12px 44px rgba(0, 0, 0, 0.55);
+        box-shadow:
+          0 -12px 44px rgba(0, 0, 0, 0.55),
+          inset 0 1px 0 rgba(255, 255, 255, 0.045);
         padding: 16px 18px;
         overflow: hidden;
         z-index: 1;
+      }
+      .aud .float::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 82px;
+        z-index: 4;
+        pointer-events: none;
+        background: linear-gradient(
+          to top,
+          var(--aud-float-surface) 0%,
+          rgba(17, 17, 20, 0.86) 34%,
+          transparent 100%
+        );
+      }
+      .aud .float > * {
+        position: relative;
+        z-index: 3;
       }
       .aud .cap {
         padding: 22px 24px 26px;
@@ -1530,13 +2049,6 @@
       }
       .d.teal {
         background: #2dd4bf;
-      }
-      .d.green {
-        background: #34d399;
-      }
-      .d.pulse {
-        box-shadow: 0 0 8px rgba(52, 211, 153, 0.7);
-        animation: pulse 1.8s infinite;
       }
       .mini-sub {
         font-family: var(--mono);
@@ -1796,11 +2308,6 @@
       }
 
       /* ===== animations ===== */
-      @keyframes pulse {
-        50% {
-          opacity: 0.25;
-        }
-      }
       .reveal {
         opacity: 0;
         transform: translateY(20px);
@@ -1820,11 +2327,13 @@
         html {
           scroll-behavior: auto;
         }
-        .pulse,
-        .lv-dot,
-        .live-badge span,
-        .d.pulse {
+        .hero .btn-ghost::after,
+        .live-dot::before,
+        .live-dot__light .px {
           animation: none;
+        }
+        .lv-odo .strip {
+          transition: none;
         }
         .reveal {
           opacity: 1;
@@ -1868,6 +2377,26 @@
         }
         .stack-card .shot {
           max-height: none;
+        }
+        .shot {
+          --shot-top-bar: 30px;
+          --shot-inset: 7px;
+          --shot-content-gap: 7px;
+          border-radius: 10px;
+        }
+        .shot-buttons {
+          left: 12px;
+          gap: 5px;
+        }
+        .shot-buttons i {
+          width: 7px;
+          height: 7px;
+        }
+        .shot-url {
+          width: 40%;
+          min-width: 0;
+          height: 18px;
+          color: transparent;
         }
         .shot-fade {
           display: none;
@@ -1920,6 +2449,9 @@
         .hero {
           padding: 60px 0 76px;
         }
+        .hero-fx {
+          display: none;
+        }
         .sec-note {
           margin-left: 0;
         }
@@ -1956,7 +2488,16 @@
     <div class="frame">
       <!-- ============ NAV ============ -->
       <nav class="nav">
-        <a class="wordmark" href="#"><span class="mark"></span><b>orange replay</b></a>
+        <a class="wordmark" href="#"
+          ><img
+            class="mark"
+            src="brand/orange-replay-logo-mark-white.webp"
+            alt=""
+            width="40"
+            height="28"
+            decoding="async"
+          /><b>orange replay</b></a
+        >
         <div class="links">
           <a href="#capture">Product</a>
           <a href="#features">Features</a>
@@ -1968,11 +2509,11 @@
           <a class="cta-pill" href="#"
             >Start free
             <span class="circ"
-              ><svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              ><svg class="huge-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path
-                  d="M3 9L9 3M9 3H4.5M9 3v4.5"
-                  stroke="#fff"
-                  stroke-width="1.4"
+                  d="M9 6.65032C9 6.65032 15.9383 6.10759 16.9154 7.08463C17.8924 8.06167 17.3496 15 17.3496 15M16.5 7.5L6.5 17.5"
+                  stroke="currentColor"
+                  stroke-width="1.5"
                   stroke-linecap="round"
                   stroke-linejoin="round"
                 /></svg
@@ -1986,13 +2527,13 @@
         <canvas class="hero-fx" aria-hidden="true"></canvas>
         <div class="wrap">
           <div class="inner">
-            <h1 class="reveal">Watch what your users actually did.</h1>
-            <p class="sub reveal">
-              Orange Replay records every session, surfaces the errors and rage clicks on its own,
-              and replays them pixel-for-pixel. Stop guessing — press play.
+            <h1>Watch what your users actually did.</h1>
+            <p class="sub">
+              Orange Replay records every session, shows you the errors and rage clicks that matter,
+              and replays the moment your customer got stuck. Stop guessing. Press play.
             </p>
 
-            <div class="works reveal">
+            <div class="works">
               <div class="label">Works with</div>
               <div class="logos">
                 <span class="lg"
@@ -2042,15 +2583,15 @@
               </div>
             </div>
 
-            <div class="btns reveal">
+            <div class="btns">
               <a class="cta-pill lg" href="#">
                 Start free
                 <span class="circ"
-                  ><svg width="13" height="13" viewBox="0 0 12 12" fill="none">
+                  ><svg class="huge-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                     <path
-                      d="M3 9L9 3M9 3H4.5M9 3v4.5"
-                      stroke="#fff"
-                      stroke-width="1.4"
+                      d="M9 6.65032C9 6.65032 15.9383 6.10759 16.9154 7.08463C17.8924 8.06167 17.3496 15 17.3496 15M16.5 7.5L6.5 17.5"
+                      stroke="currentColor"
+                      stroke-width="1.5"
                       stroke-linecap="round"
                       stroke-linejoin="round"
                     /></svg
@@ -2058,8 +2599,13 @@
               </a>
               <!-- links to the live product demo / dashboard (page not built yet) -->
               <a class="btn-ghost" href="#">
-                <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
-                  <path d="M4 3l7 4-7 4z" fill="#f5a623" />
+                <svg class="huge-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path
+                    d="M18.8906 12.846C18.5371 14.189 16.8667 15.138 13.5257 17.0361C10.296 18.8709 8.6812 19.7884 7.37983 19.4196C6.8418 19.2671 6.35159 18.9776 5.95624 18.5787C5 17.6139 5 15.7426 5 12C5 8.2574 5 6.3861 5.95624 5.42132C6.35159 5.02245 6.8418 4.73288 7.37983 4.58042C8.6812 4.21165 10.296 5.12907 13.5257 6.96393C16.8667 8.86197 18.5371 9.811 18.8906 11.154C19.0365 11.7084 19.0365 12.2916 18.8906 12.846Z"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linejoin="round"
+                  />
                 </svg>
                 Live demo
               </a>
@@ -2079,21 +2625,32 @@
                 <h2 class="sec-head">
                   <span class="text-strong">Capture.</span>
                   <span class="text-faint"
-                    >One snippet records every session — full DOM, clicks, and network — straight to
-                    the edge.</span
+                    >Add one small script to record pages, clicks, errors, and failed requests
+                    without slowing your site.</span
                   >
                 </h2>
               </div>
               <p class="sec-note">
-                Under 20&nbsp;KB, async, and scrubbing PII before anything leaves the browser. No
-                sampling, no replay gaps.
+                Private details are hidden before recordings are saved. Record every session so you
+                do not miss the one that matters.
               </p>
               <div class="shot">
+                <span class="shot-top-bar" aria-hidden="true">
+                  <span class="shot-buttons"><i></i><i></i><i></i></span>
+                  <span class="shot-url">orange-replay.app/overview</span>
+                </span>
                 <span class="edge"></span>
                 <span class="shot-fade" aria-hidden="true"></span>
                 <div class="app">
                   <div class="appnav1">
-                    <span class="mark"></span><span class="b">Orange Replay</span>
+                    <img
+                      class="mark"
+                      src="brand/orange-replay-logo-mark-white.webp"
+                      alt=""
+                      width="40"
+                      height="28"
+                      decoding="async"
+                    /><span class="b">Orange Replay</span>
                     <span class="sep">/</span>
                     <span class="switcher">acme-web <span class="car">▾</span></span>
                     <span class="env2">Production</span>
@@ -2178,26 +2735,164 @@
                           <b>Live now</b><span class="watch">3 watching</span>
                         </div>
                         <div class="lrow">
-                          <span class="pulse"></span>
+                          <span class="live-dot live-dot--sm"></span>
                           <div>
                             <div class="who">/checkout</div>
-                            <div class="where">🇺🇸 San Francisco · Chrome</div>
+                            <div class="where session-meta">
+                              <span class="session-place"
+                                ><span class="flag-icon"><img src="flags/US.svg" alt="" /></span>San
+                                Francisco</span
+                              >
+                              <span aria-hidden="true">·</span>
+                              <span class="browser-chip">
+                                <svg
+                                  class="huge-icon"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  aria-hidden="true"
+                                >
+                                  <circle
+                                    cx="12"
+                                    cy="12"
+                                    r="10"
+                                    stroke="currentColor"
+                                    stroke-width="1.5"
+                                  />
+                                  <circle
+                                    cx="12"
+                                    cy="12"
+                                    r="4"
+                                    stroke="currentColor"
+                                    stroke-width="1.5"
+                                  />
+                                  <path
+                                    d="M8.53448 14L4.0332 6"
+                                    stroke="currentColor"
+                                    stroke-width="1.5"
+                                    stroke-linecap="round"
+                                  />
+                                  <path
+                                    d="M11.5 21.5L15.5 14"
+                                    stroke="currentColor"
+                                    stroke-width="1.5"
+                                    stroke-linecap="round"
+                                  />
+                                  <path
+                                    d="M12 8H21"
+                                    stroke="currentColor"
+                                    stroke-width="1.5"
+                                    stroke-linecap="round"
+                                  />
+                                </svg>
+                                Chrome
+                              </span>
+                            </div>
                           </div>
                           <span class="t">4:12</span>
                         </div>
                         <div class="lrow">
-                          <span class="pulse"></span>
+                          <span class="live-dot live-dot--sm"></span>
                           <div>
                             <div class="who">/pricing</div>
-                            <div class="where">🇯🇵 Tokyo · Safari</div>
+                            <div class="where session-meta">
+                              <span class="session-place"
+                                ><span class="flag-icon"><img src="flags/JP.svg" alt="" /></span
+                                >Tokyo</span
+                              >
+                              <span aria-hidden="true">·</span>
+                              <span class="browser-chip">
+                                <svg
+                                  class="huge-icon"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  aria-hidden="true"
+                                >
+                                  <path
+                                    d="M13.7214 13.7214C14.1043 13.3385 14.3231 12.828 14.7607 11.807L16.3172 8.17504C16.4736 7.81011 16.5518 7.62764 16.4621 7.53789C16.3724 7.44815 16.1899 7.52635 15.825 7.68275L12.193 9.23929C11.172 9.67688 10.6615 9.89567 10.2786 10.2786M13.7214 13.7214C13.3385 14.1043 12.828 14.3231 11.807 14.7607L8.17504 16.3172C7.81011 16.4736 7.62764 16.5518 7.53789 16.4621C7.44815 16.3724 7.52635 16.1899 7.68275 15.825L9.23929 12.193C9.67688 11.172 9.89567 10.6615 10.2786 10.2786M13.7214 13.7214L10.2786 10.2786"
+                                    stroke="currentColor"
+                                    stroke-width="1.5"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                  />
+                                  <path
+                                    d="M22 12C22 17.5228 17.5228 22 12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12Z"
+                                    stroke="currentColor"
+                                    stroke-width="1.5"
+                                  />
+                                  <path
+                                    d="M12 2L12 3.5M12 22L12 20.5"
+                                    stroke="currentColor"
+                                    stroke-width="1.5"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                  />
+                                  <path
+                                    d="M22 12L20.5 12M2 12L3.5 12"
+                                    stroke="currentColor"
+                                    stroke-width="1.5"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                  />
+                                </svg>
+                                Safari
+                              </span>
+                            </div>
                           </div>
                           <span class="t">0:47</span>
                         </div>
                         <div class="lrow">
-                          <span class="pulse"></span>
+                          <span class="live-dot live-dot--sm"></span>
                           <div>
                             <div class="who">/onboarding</div>
-                            <div class="where">🇧🇷 São Paulo · Chrome</div>
+                            <div class="where session-meta">
+                              <span class="session-place"
+                                ><span class="flag-icon"><img src="flags/BR.svg" alt="" /></span>São
+                                Paulo</span
+                              >
+                              <span aria-hidden="true">·</span>
+                              <span class="browser-chip">
+                                <svg
+                                  class="huge-icon"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  aria-hidden="true"
+                                >
+                                  <circle
+                                    cx="12"
+                                    cy="12"
+                                    r="10"
+                                    stroke="currentColor"
+                                    stroke-width="1.5"
+                                  />
+                                  <circle
+                                    cx="12"
+                                    cy="12"
+                                    r="4"
+                                    stroke="currentColor"
+                                    stroke-width="1.5"
+                                  />
+                                  <path
+                                    d="M8.53448 14L4.0332 6"
+                                    stroke="currentColor"
+                                    stroke-width="1.5"
+                                    stroke-linecap="round"
+                                  />
+                                  <path
+                                    d="M11.5 21.5L15.5 14"
+                                    stroke="currentColor"
+                                    stroke-width="1.5"
+                                    stroke-linecap="round"
+                                  />
+                                  <path
+                                    d="M12 8H21"
+                                    stroke="currentColor"
+                                    stroke-width="1.5"
+                                    stroke-linecap="round"
+                                  />
+                                </svg>
+                                Chrome
+                              </span>
+                            </div>
                           </div>
                           <span class="t">2:03</span>
                         </div>
@@ -2226,7 +2921,10 @@
                           <tr>
                             <td>
                               <div class="page">/checkout</div>
-                              <div class="rmeta">🇺🇸 San Francisco · 23 clicks</div>
+                              <div class="rmeta">
+                                <span class="flag-icon"><img src="flags/US.svg" alt="" /></span>San
+                                Francisco · 23 clicks
+                              </div>
                             </td>
                             <td>
                               <span class="pill err"><i></i>1 error</span>
@@ -2246,7 +2944,10 @@
                           <tr>
                             <td>
                               <div class="page">/support</div>
-                              <div class="rmeta">🇮🇳 Bengaluru · 41 clicks</div>
+                              <div class="rmeta">
+                                <span class="flag-icon"><img src="flags/IN.svg" alt="" /></span
+                                >Bengaluru · 41 clicks
+                              </div>
                             </td>
                             <td>
                               <span class="pill err"><i></i>3 errors</span>
@@ -2267,7 +2968,10 @@
                           <tr>
                             <td>
                               <div class="page">/pricing</div>
-                              <div class="rmeta">🇩🇪 Berlin · 9 clicks</div>
+                              <div class="rmeta">
+                                <span class="flag-icon"><img src="flags/DE.svg" alt="" /></span
+                                >Berlin · 9 clicks
+                              </div>
                             </td>
                             <td>
                               <span class="pill ok"><i></i>clean</span>
@@ -2303,21 +3007,32 @@
                 <h2 class="sec-head">
                   <span class="text-strong">Replay.</span>
                   <span class="text-faint"
-                    >Pixel-perfect DOM playback on a timeline that jumps straight to the moment it
-                    broke.</span
+                    >Replay the page as your customer saw it, then jump straight to the click,
+                    error, or failed request that broke the flow.</span
                   >
                 </h2>
               </div>
               <p class="sec-note">
-                It's the real DOM, not a video. Scrub with the keyboard; console, network, and
-                clicks stay synced to the frame.
+                Use the keyboard to scrub the replay. Clicks, errors, and requests stay lined up
+                with the screen.
               </p>
               <div class="shot">
+                <span class="shot-top-bar" aria-hidden="true">
+                  <span class="shot-buttons"><i></i><i></i><i></i></span>
+                  <span class="shot-url">orange-replay.app/sessions/sess_8f2a</span>
+                </span>
                 <span class="edge"></span>
                 <span class="shot-fade" aria-hidden="true"></span>
                 <div class="app">
                   <div class="appnav1">
-                    <span class="mark"></span><span class="b">Orange Replay</span>
+                    <img
+                      class="mark"
+                      src="brand/orange-replay-logo-mark-white.webp"
+                      alt=""
+                      width="40"
+                      height="28"
+                      decoding="async"
+                    /><span class="b">Orange Replay</span>
                     <span class="sep">/</span>
                     <span class="switcher" style="font-family: var(--mono); font-size: 11px"
                       >Sessions / sess_8f2a</span
@@ -2417,21 +3132,32 @@
                 <h2 class="sec-head">
                   <span class="text-strong">Diagnose.</span>
                   <span class="text-faint"
-                    >Errors and rage clicks, ranked and surfaced before you ever go looking for
-                    them.</span
+                    >Orange Replay finds sessions with errors, rage clicks, and drop-offs so you
+                    know what to fix first.</span
                   >
                 </h2>
               </div>
               <p class="sec-note">
-                Auto-detected signals, filters that cut straight to the pain, and a friction heatmap
-                so regressions jump off the page.
+                Filter to the painful sessions, see the biggest problem areas, and spot new issues
+                before they spread.
               </p>
               <div class="shot">
+                <span class="shot-top-bar" aria-hidden="true">
+                  <span class="shot-buttons"><i></i><i></i><i></i></span>
+                  <span class="shot-url">orange-replay.app/errors</span>
+                </span>
                 <span class="edge"></span>
                 <span class="shot-fade" aria-hidden="true"></span>
                 <div class="app">
                   <div class="appnav1">
-                    <span class="mark"></span><span class="b">Orange Replay</span>
+                    <img
+                      class="mark"
+                      src="brand/orange-replay-logo-mark-white.webp"
+                      alt=""
+                      width="40"
+                      height="28"
+                      decoding="async"
+                    /><span class="b">Orange Replay</span>
                     <span class="sep">/</span>
                     <span class="switcher">acme-web <span class="car">▾</span></span>
                     <span class="env2">Production</span>
@@ -2478,7 +3204,10 @@
                             <tr>
                               <td>
                                 <div class="page">/support</div>
-                                <div class="rmeta">🇮🇳 Bengaluru · 41 clicks</div>
+                                <div class="rmeta">
+                                  <span class="flag-icon"><img src="flags/IN.svg" alt="" /></span
+                                  >Bengaluru · 41 clicks
+                                </div>
                               </td>
                               <td>
                                 <span class="pill err"><i></i>3 errors</span>
@@ -2498,7 +3227,10 @@
                             <tr>
                               <td>
                                 <div class="page">/checkout</div>
-                                <div class="rmeta">🇺🇸 San Francisco · 23 clicks</div>
+                                <div class="rmeta">
+                                  <span class="flag-icon"><img src="flags/US.svg" alt="" /></span
+                                  >San Francisco · 23 clicks
+                                </div>
                               </td>
                               <td>
                                 <span class="pill err"><i></i>1 error</span>
@@ -2517,7 +3249,10 @@
                             <tr>
                               <td>
                                 <div class="page">/settings/billing</div>
-                                <div class="rmeta">🇬🇧 London · 17 clicks</div>
+                                <div class="rmeta">
+                                  <span class="flag-icon"><img src="flags/GB.svg" alt="" /></span
+                                  >London · 17 clicks
+                                </div>
                               </td>
                               <td>
                                 <span class="pill rage"><i></i>1 rage</span>
@@ -2536,7 +3271,10 @@
                             <tr>
                               <td>
                                 <div class="page">/onboarding/step-2</div>
-                                <div class="rmeta">🇨🇦 Toronto · 12 clicks</div>
+                                <div class="rmeta">
+                                  <span class="flag-icon"><img src="flags/CA.svg" alt="" /></span
+                                  >Toronto · 12 clicks
+                                </div>
                               </td>
                               <td>
                                 <span class="pill err"><i></i>1 error</span>
@@ -2610,182 +3348,324 @@
             <h2 class="sec-head" style="max-width: 22ch">
               <span class="text-strong">More than a replay button.</span>
               <span class="text-faint"
-                >Live watch, an instant timeline, privacy by default, and one-command self-host —
-                all in the same edge-native box.</span
+                >Watch users live, jump to the exact problem, keep customer details hidden, and run
+                it in your own account when you need control.</span
               >
             </h2>
           </div>
           <div class="bento reveal">
             <div class="tile live wide">
               <div class="body">
-                <div class="live-badge"><span></span>Live now</div>
+                <div class="live-badge">
+                  <span class="live-dot"><span class="live-dot__light"></span></span>Live now
+                </div>
                 <h3>Watch sessions as they happen.</h3>
                 <p>
-                  Live isn't a delayed batch job bolted on the side — the session's Durable Object
-                  is already a WebSocket hub, so following a user in real time (and jumping in when
-                  a checkout stalls) costs almost nothing. Join mid-session and a checkpoint
-                  keyframe catches you up in seconds.
+                  See what someone is doing right now, not minutes later. When checkout stalls, you
+                  can open the live session, follow the same screen, and catch up in seconds.
                 </p>
               </div>
-              <div class="lv-rail">
+              <div class="lv-rail" data-live>
                 <div class="lv-row">
-                  <span class="lv-dot"></span>
+                  <span class="live-dot"><span class="live-dot__light"></span></span>
                   <div>
-                    <div class="lv-page">/checkout</div>
-                    <div class="lv-meta">🇺🇸 San Francisco · Chrome</div>
+                    <div class="lv-page">checkout</div>
+                    <div class="lv-meta session-meta">
+                      <span class="flag-icon"><img src="flags/US.svg" alt="" /></span>
+                      <span class="lv-city">San Francisco</span>
+                      <span class="browser-chip">
+                        <svg class="huge-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                          <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5" />
+                          <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.5" />
+                          <path
+                            d="M8.53448 14L4.0332 6"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            stroke-linecap="round"
+                          />
+                          <path
+                            d="M11.5 21.5L15.5 14"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            stroke-linecap="round"
+                          />
+                          <path
+                            d="M12 8H21"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            stroke-linecap="round"
+                          />
+                        </svg>
+                        Chrome
+                      </span>
+                    </div>
                   </div>
-                  <span class="lv-t">4:12</span>
+                  <span class="lv-t lv-odo" data-secs="252"></span>
                 </div>
                 <div class="lv-row">
-                  <span class="lv-dot"></span>
+                  <span class="live-dot"><span class="live-dot__light"></span></span>
                   <div>
-                    <div class="lv-page">/pricing</div>
-                    <div class="lv-meta">🇯🇵 Tokyo · Safari</div>
+                    <div class="lv-page" data-swap-page>pricing</div>
+                    <div class="lv-meta session-meta">
+                      <span class="flag-icon"><img src="flags/JP.svg" alt="" /></span>
+                      <span class="lv-city">Tokyo</span>
+                      <span class="browser-chip">
+                        <svg class="huge-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                          <path
+                            d="M13.7214 13.7214C14.1043 13.3385 14.3231 12.828 14.7607 11.807L16.3172 8.17504C16.4736 7.81011 16.5518 7.62764 16.4621 7.53789C16.3724 7.44815 16.1899 7.52635 15.825 7.68275L12.193 9.23929C11.172 9.67688 10.6615 9.89567 10.2786 10.2786M13.7214 13.7214C13.3385 14.1043 12.828 14.3231 11.807 14.7607L8.17504 16.3172C7.81011 16.4736 7.62764 16.5518 7.53789 16.4621C7.44815 16.3724 7.52635 16.1899 7.68275 15.825L9.23929 12.193C9.67688 11.172 9.89567 10.6615 10.2786 10.2786M13.7214 13.7214L10.2786 10.2786"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                          />
+                          <path
+                            d="M22 12C22 17.5228 17.5228 22 12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12Z"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                          />
+                          <path
+                            d="M12 2L12 3.5M12 22L12 20.5"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                          />
+                          <path
+                            d="M22 12L20.5 12M2 12L3.5 12"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                          />
+                        </svg>
+                        Safari
+                      </span>
+                    </div>
                   </div>
-                  <span class="lv-t">0:47</span>
+                  <span class="lv-t lv-odo" data-secs="47"></span>
                 </div>
                 <div class="lv-row">
-                  <span class="lv-dot"></span>
+                  <span class="live-dot"><span class="live-dot__light"></span></span>
                   <div>
-                    <div class="lv-page">/onboarding</div>
-                    <div class="lv-meta">🇧🇷 São Paulo · Chrome</div>
+                    <div class="lv-page">onboarding</div>
+                    <div class="lv-meta session-meta">
+                      <span class="flag-icon"><img src="flags/BR.svg" alt="" /></span>
+                      <span class="lv-city">São Paulo</span>
+                      <span class="browser-chip">
+                        <svg class="huge-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                          <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5" />
+                          <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.5" />
+                          <path
+                            d="M8.53448 14L4.0332 6"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            stroke-linecap="round"
+                          />
+                          <path
+                            d="M11.5 21.5L15.5 14"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            stroke-linecap="round"
+                          />
+                          <path
+                            d="M12 8H21"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            stroke-linecap="round"
+                          />
+                        </svg>
+                        Chrome
+                      </span>
+                    </div>
                   </div>
-                  <span class="lv-t">2:03</span>
+                  <span class="lv-t lv-odo" data-secs="123"></span>
                 </div>
               </div>
+              <span class="tile-fade" aria-hidden="true"></span>
             </div>
 
             <div class="tile">
               <div class="ic">
-                <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
-                  <path d="M2 10h16" stroke="#8b8b95" stroke-width="1.4" stroke-linecap="round" />
+                <svg class="huge-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                   <path
-                    d="M6 6.5v7M13 6.5v7"
-                    stroke="#8b8b95"
-                    stroke-width="1.4"
+                    d="M4.31802 19.682C3 18.364 3 16.2426 3 12C3 7.75736 3 5.63604 4.31802 4.31802C5.63604 3 7.75736 3 12 3C16.2426 3 18.364 3 19.682 4.31802C21 5.63604 21 7.75736 21 12C21 16.2426 21 18.364 19.682 19.682C18.364 21 16.2426 21 12 21C7.75736 21 5.63604 21 4.31802 19.682Z"
+                    stroke="currentColor"
+                    stroke-width="1.5"
                     stroke-linecap="round"
-                  />
-                  <path d="M9.5 4v12" stroke="#f5a623" stroke-width="1.6" stroke-linecap="round" />
-                  <circle cx="9.5" cy="10" r="2" fill="#f5a623" />
-                </svg>
-              </div>
-              <h3>Instant timeline</h3>
-              <p>
-                The scrubber paints from the manifest before a single byte of video-DOM downloads —
-                errors and rage clicks are already plotted. Jump to the moment it broke, then start
-                loading.
-              </p>
-            </div>
-
-            <div class="tile">
-              <div class="ic">
-                <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
-                  <path
-                    d="M5.5 13a3 3 0 0 1-.4-6 4.2 4.2 0 0 1 8.1-1.2A3.2 3.2 0 0 1 15 13z"
-                    stroke="#f5a623"
-                    stroke-width="1.3"
-                    stroke-linejoin="round"
-                  />
-                </svg>
-              </div>
-              <h3>Self-host in minutes</h3>
-              <p>
-                One <code>wrangler deploy</code> to your own Cloudflare account. No ClickHouse, no
-                Kafka, no Kubernetes — recordings never leave your infrastructure.
-              </p>
-            </div>
-
-            <div class="tile">
-              <div class="ic">
-                <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
-                  <path
-                    d="M10 2.5l6 2.5v4.2c0 3.7-2.6 6-6 7.3-3.4-1.3-6-3.6-6-7.3V5z"
-                    stroke="#8b8b95"
-                    stroke-width="1.3"
                     stroke-linejoin="round"
                   />
                   <path
-                    d="M7.2 10l1.9 1.9L13 8"
-                    stroke="#f5a623"
+                    d="M6 12H8.5L10.5 8L13.5 16L15.5 12H18"
+                    stroke="currentColor"
                     stroke-width="1.5"
                     stroke-linecap="round"
                     stroke-linejoin="round"
                   />
                 </svg>
               </div>
-              <h3>Privacy on by default</h3>
+              <h3>Jump straight to the problem</h3>
               <p>
-                Inputs, text, and PII are masked in the browser
-                <em style="font-style: normal; color: var(--sub)">before</em> capture —
-                default-deny, not an opt-in checkbox. The server never even receives the raw bytes.
+                Errors and rage clicks are marked before you press play. Open a session, skip to the
+                broken moment, and watch the steps that led there.
               </p>
+              <span class="tile-fade" aria-hidden="true"></span>
             </div>
 
             <div class="tile">
               <div class="ic">
-                <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
-                  <circle cx="10" cy="10" r="7.3" stroke="#8b8b95" stroke-width="1.3" />
+                <svg class="huge-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                   <path
-                    d="M2.7 10h14.6M10 2.7c2 2 3 4.6 3 7.3s-1 5.3-3 7.3c-2-2-3-4.6-3-7.3s1-5.3 3-7.3z"
-                    stroke="#8b8b95"
-                    stroke-width="1.1"
-                  />
-                  <circle cx="10" cy="10" r="2" fill="#f5a623" />
-                </svg>
-              </div>
-              <h3>Residency as a checkbox</h3>
-              <p>
-                Pin a project's recordings to a region — Durable Object and R2 jurisdictions, a real
-                guarantee, not a placement hint. Metadata elsewhere is scrubbed.
-              </p>
-            </div>
-
-            <div class="tile wide">
-              <div class="ic">
-                <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
-                  <rect
-                    x="2.2"
-                    y="5"
-                    width="15.6"
-                    height="10"
-                    rx="2"
-                    stroke="#8b8b95"
-                    stroke-width="1.3"
-                  />
-                  <path
-                    d="M5 8h.01M7.5 8h.01M10 8h.01M12.5 8h.01M6 11h5"
-                    stroke="#8b8b95"
-                    stroke-width="1.3"
+                    d="M17.4776 8.00005C17.485 8.00002 17.4925 8 17.5 8C19.9853 8 22 10.0147 22 12.5C22 14.9853 19.9853 17 17.5 17H7C4.23858 17 2 14.7614 2 12C2 9.40034 3.98398 7.26407 6.52042 7.0227M17.4776 8.00005C17.4924 7.83536 17.5 7.66856 17.5 7.5C17.5 4.46243 15.0376 2 12 2C9.12324 2 6.76233 4.20862 6.52042 7.0227M17.4776 8.00005C17.3753 9.1345 16.9286 10.1696 16.2428 11M6.52042 7.0227C6.67826 7.00768 6.83823 7 7 7C8.12582 7 9.16474 7.37209 10.0005 8"
+                    stroke="currentColor"
+                    stroke-width="1.5"
                     stroke-linecap="round"
+                    stroke-linejoin="round"
                   />
-                  <path d="M13.4 10.2l2.2 1.3-2.2 1.3z" fill="#f5a623" />
-                </svg>
-              </div>
-              <h3>A player built for people who live in the replay</h3>
-              <p>
-                Step frames and skip to errors from the keyboard, change speed, skip idle time, and
-                scale any recording to fit your viewport. Cursor trails, click ripples, and rage
-                bursts are drawn right on the replay.
-              </p>
-            </div>
-
-            <div class="tile">
-              <div class="ic">
-                <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
                   <path
-                    d="M8.5 11.5a3 3 0 0 0 4.2 0l2-2a3 3 0 0 0-4.2-4.2l-1 1M11.5 8.5a3 3 0 0 0-4.2 0l-2 2a3 3 0 0 0 4.2 4.2l1-1"
-                    stroke="#f5a623"
-                    stroke-width="1.4"
+                    d="M14 20.75V20.5C14 19.9477 13.5523 19.5 13 19.5H12M14 20.75V21C14 21.5523 13.5523 22 13 22H11C10.4477 22 10 21.5523 10 21V20.75M14 20.75H19M10 20.75V20.5C10 19.9477 10.4477 19.5 11 19.5H12M10 20.75H5M12 19.5V17"
+                    stroke="currentColor"
+                    stroke-width="1.5"
                     stroke-linecap="round"
                     stroke-linejoin="round"
                   />
                 </svg>
               </div>
-              <h3>Deep-link any session</h3>
+              <h3>Run it where you need it</h3>
               <p>
-                <code>getSessionUrl()</code> drops a replay link straight into Sentry, Datadog, or
-                your own logs — jump from a stack trace to the exact session that threw it.
+                Deploy it in your own account when your team needs ownership. Your recordings stay
+                under your control without turning setup into a long platform project.
               </p>
+              <span class="tile-fade" aria-hidden="true"></span>
+            </div>
+
+            <div class="tile">
+              <div class="ic">
+                <svg class="huge-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path
+                    d="M18.7088 3.49534C16.8165 2.55382 14.5009 2 12 2C9.4991 2 7.1835 2.55382 5.29116 3.49534C4.36318 3.95706 3.89919 4.18792 3.4496 4.91378C3 5.63965 3 6.34248 3 7.74814V11.2371C3 16.9205 7.54236 20.0804 10.173 21.4338C10.9067 21.8113 11.2735 22 12 22C12.7265 22 13.0933 21.8113 13.8269 21.4338C16.4576 20.0804 21 16.9205 21 11.2371L21 7.74814C21 6.34249 21 5.63966 20.5504 4.91378C20.1008 4.18791 19.6368 3.95706 18.7088 3.49534Z"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                  <path
+                    d="M9 11.5C9 11.5 10.4079 11.7519 11 13.5C11 13.5 12.5 10.5 15 9.5"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </div>
+              <h3>Keep customer details hidden</h3>
+              <p>
+                Sensitive form fields and page text are hidden before a recording is saved. You get
+                the replay you need without exposing private customer details.
+              </p>
+              <span class="tile-fade" aria-hidden="true"></span>
+            </div>
+
+            <div class="tile">
+              <div class="ic">
+                <svg class="huge-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path
+                    d="M12.5 19L12.5 22"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                  <path
+                    d="M10.5 22H14.5"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                  <circle
+                    cx="7"
+                    cy="7"
+                    r="7"
+                    transform="matrix(-1 0 0 1 20.5 2)"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                  />
+                  <path
+                    d="M8.5 4C9.15431 4.0385 9.49236 4.35899 10.0735 4.97301C11.1231 6.08206 12.1727 6.1746 12.8724 5.80492C13.922 5.2504 13.04 4.35221 14.2719 3.86409C15.0748 3.54595 15.1868 2.68026 14.7399 2"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linejoin="round"
+                  />
+                  <path
+                    d="M20 10C18.5 10 18.2338 11.2468 17 11C14.5 10.5 13.7916 11.0589 13.7916 12.2511C13.7916 13.4432 13.7916 13.4432 13.2717 14.3373C12.9335 14.9189 12.8153 15.5004 13.4894 16"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linejoin="round"
+                  />
+                  <path
+                    d="M6.5 2C4.64864 3.79995 3.5 6.3082 3.5 9.08251C3.5 14.5598 7.97715 19 13.5 19C16.2255 19 18.6962 17.9187 20.5 16.165"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                  />
+                </svg>
+              </div>
+              <h3>Choose where recordings stay</h3>
+              <p>
+                Pick where a project stores recordings when customers, contracts, or policy require
+                it. Private details stay hidden before they are stored.
+              </p>
+              <span class="tile-fade" aria-hidden="true"></span>
+            </div>
+
+            <div class="tile wide">
+              <div class="ic">
+                <svg class="huge-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path
+                    d="M14.9531 12.3948C14.8016 13.0215 14.0857 13.4644 12.6539 14.3502C11.2697 15.2064 10.5777 15.6346 10.0199 15.4625C9.78934 15.3913 9.57925 15.2562 9.40982 15.07C9 14.6198 9 13.7465 9 12C9 10.2535 9 9.38018 9.40982 8.92995C9.57925 8.74381 9.78934 8.60868 10.0199 8.53753C10.5777 8.36544 11.2697 8.79357 12.6539 9.64983C14.0857 10.5356 14.8016 10.9785 14.9531 11.6052C15.0156 11.8639 15.0156 12.1361 14.9531 12.3948Z"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linejoin="round"
+                  />
+                  <path
+                    d="M2.5 12C2.5 7.52166 2.5 5.28249 3.89124 3.89124C5.28249 2.5 7.52166 2.5 12 2.5C16.4783 2.5 18.7175 2.5 20.1088 3.89124C21.5 5.28249 21.5 7.52166 21.5 12C21.5 16.4783 21.5 18.7175 20.1088 20.1088C18.7175 21.5 16.4783 21.5 12 21.5C7.52166 21.5 5.28249 21.5 3.89124 20.1088C2.5 18.7175 2.5 16.4783 2.5 12Z"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                  />
+                </svg>
+              </div>
+              <h3>Review replays faster</h3>
+              <p>
+                Use keyboard shortcuts, speed controls, idle skips, and clear click trails so you
+                can move through a session quickly without losing context.
+              </p>
+              <span class="tile-fade" aria-hidden="true"></span>
+            </div>
+
+            <div class="tile">
+              <div class="ic">
+                <svg class="huge-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path
+                    d="M9.14339 10.691L9.35031 10.4841C11.329 8.50532 14.5372 8.50532 16.5159 10.4841C18.4947 12.4628 18.4947 15.671 16.5159 17.6497L13.6497 20.5159C11.671 22.4947 8.46279 22.4947 6.48405 20.5159C4.50532 18.5372 4.50532 15.329 6.48405 13.3503L6.9484 12.886"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                  />
+                  <path
+                    d="M17.0516 11.114L17.5159 10.6497C19.4947 8.67095 19.4947 5.46279 17.5159 3.48405C15.5372 1.50532 12.329 1.50532 10.3503 3.48405L7.48405 6.35031C5.50532 8.32904 5.50532 11.5372 7.48405 13.5159C9.46279 15.4947 12.671 15.4947 14.6497 13.5159L14.8566 13.309"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                  />
+                </svg>
+              </div>
+              <h3>Share the exact replay</h3>
+              <p>
+                Copy one link into a bug report, support ticket, or alert. Anyone on your team can
+                open the same session and see the exact moment you mean.
+              </p>
+              <span class="tile-fade" aria-hidden="true"></span>
             </div>
           </div>
         </div>
@@ -2798,8 +3678,8 @@
             <h2 class="sec-head" style="max-width: 22ch">
               <span class="text-strong">One session, every team.</span>
               <span class="text-faint"
-                >Product, engineering, support, and growth all open the same replay — each from
-                their own angle.</span
+                >Give product, engineering, support, and growth one shared replay, with the exact
+                context each team needs.</span
               >
             </h2>
           </div>
@@ -2822,8 +3702,8 @@
                 <div class="k">For Product</div>
                 <h3>Find the friction behind every drop-off</h3>
                 <p>
-                  Watch the rage clicks and dead ends a funnel chart can never show you — then go
-                  fix them.
+                  Watch the rage clicks and dead ends a funnel chart can never show you. Then fix
+                  the step that blocks conversion.
                 </p>
               </div>
             </div>
@@ -2845,7 +3725,7 @@
                 <div class="k">For Engineering</div>
                 <h3>From a stack trace to the exact session</h3>
                 <p>
-                  Jump from the error straight into the replay that threw it. No more "cannot
+                  Jump from the error straight into the replay where it happened. No more "cannot
                   reproduce."
                 </p>
               </div>
@@ -2858,9 +3738,11 @@
                 <div class="float">
                   <div class="mini-head">Live now · 3 watching</div>
                   <div class="mini-line">
-                    <span class="d green pulse"></span>/checkout · San Francisco
+                    <span class="live-dot live-dot--xs"></span>/checkout · San Francisco
                   </div>
-                  <div class="mini-line"><span class="d green pulse"></span>/pricing · Tokyo</div>
+                  <div class="mini-line">
+                    <span class="live-dot live-dot--xs"></span>/pricing · Tokyo
+                  </div>
                   <div class="mini-watch">▶ Watch live</div>
                 </div>
               </div>
@@ -2868,8 +3750,8 @@
                 <div class="k">For Support</div>
                 <h3>Watch the ticket as it happens</h3>
                 <p>
-                  Open the conversation, follow the user's session live, and see exactly what they
-                  see.
+                  Open the conversation, follow your customer's session live, and see exactly what
+                  they see.
                 </p>
               </div>
             </div>
@@ -2904,10 +3786,10 @@
           <div class="sec-kicker reveal" style="display: block">
             <span class="rm-kicker">On the roadmap</span>
             <h2 class="sec-head" style="max-width: 24ch">
-              <span class="text-strong">Shipped v1 — and just getting started.</span>
+              <span class="text-strong">Already useful, with more ways to act coming.</span>
               <span class="text-faint"
-                >None of these are live yet. They're what the same edge-native architecture makes
-                cheap to build next.</span
+                >These features are planned. Each one helps your team turn a replay into a faster
+                fix.</span
               >
             </h2>
           </div>
@@ -2915,57 +3797,60 @@
             <div class="rm-item">
               <span class="pill">Planned</span>
               <div>
-                <b>Replay → repro</b>
+                <b>Replay to test case</b>
                 <p>
-                  Turn any error session into a runnable Playwright test and a failure bundle —
-                  generated in your browser, ready to hand to a coding agent.
+                  Turn an error session into a test case with the steps, screen state, and failure
+                  details included.
                 </p>
               </div>
             </div>
             <div class="rm-item">
               <span class="pill">Planned</span>
               <div>
-                <b>MCP server</b>
-                <p>Pull production replay evidence straight into Claude Code or Cursor over MCP.</p>
-              </div>
-            </div>
-            <div class="rm-item">
-              <span class="pill">Planned</span>
-              <div>
-                <b>Record-everything buffer</b>
+                <b>Bring replays into your tools</b>
                 <p>
-                  Capture 100% into a 48-hour buffer, then promote the sessions that matter — no
-                  sampling, no "that one wasn't recorded."
+                  Let your coding tools pull session context, failure details, and replay links
+                  without switching tabs.
                 </p>
               </div>
             </div>
             <div class="rm-item">
               <span class="pill">Planned</span>
               <div>
-                <b>Shareable replay links</b>
+                <b>Record first, keep what matters</b>
                 <p>
-                  One scoped, expiring link per session — unfurls in Slack and Linear, opens in a
-                  seatless player.
+                  Keep a short buffer of every session, then save the ones with errors, rage clicks,
+                  or support tickets.
                 </p>
               </div>
             </div>
             <div class="rm-item">
               <span class="pill">Planned</span>
               <div>
-                <b>Zero-code install</b>
+                <b>Share replay links</b>
                 <p>
-                  Inject the recorder at the edge for Cloudflare-proxied sites — flip it on, no
-                  deploy, no tag manager.
+                  Send a secure link for one session so teammates can open the replay without
+                  joining the whole workspace.
                 </p>
               </div>
             </div>
             <div class="rm-item">
               <span class="pill">Planned</span>
               <div>
-                <b>Semantic session search</b>
+                <b>Turn on recording without a deploy</b>
                 <p>
-                  "Find sessions where users struggled with checkout," powered by Workers AI and
-                  Vectorize.
+                  For supported sites, turn on recording from Orange Replay without editing app code
+                  or adding a tag manager.
+                </p>
+              </div>
+            </div>
+            <div class="rm-item">
+              <span class="pill">Planned</span>
+              <div>
+                <b>Search sessions by problem</b>
+                <p>
+                  Ask for sessions where customers struggled with checkout, pricing, onboarding, or
+                  any flow you care about.
                 </p>
               </div>
             </div>
@@ -2973,19 +3858,16 @@
               <span class="pill">Planned</span>
               <div>
                 <b>Heatmaps</b>
-                <p>
-                  Click and scroll heatmaps rendered from data the sidecar already captures — no
-                  reprocessing.
-                </p>
+                <p>See where people click and scroll so you can spot confusing parts of a page.</p>
               </div>
             </div>
             <div class="rm-item">
               <span class="pill">Planned</span>
               <div>
-                <b>Deeper player</b>
+                <b>More review tools</b>
                 <p>
-                  Dead-click markers, an activity heat strip on the scrubber, clip export, and
-                  timestamped comments.
+                  Add dead-click markers, activity highlights, clips, and comments so teams can
+                  review a session together.
                 </p>
               </div>
             </div>
@@ -3034,25 +3916,30 @@
                     stroke-linecap="round"
                     stroke-linejoin="round"
                   /></svg></span
-              >&nbsp;it <span class="w">before the ticket lands.</span>
+              >&nbsp;it <span class="w">before it becomes a support ticket.</span>
             </div>
             <div class="btns reveal">
               <a class="cta-pill lg" href="#">
                 Start free
                 <span class="circ"
-                  ><svg width="13" height="13" viewBox="0 0 12 12" fill="none">
+                  ><svg class="huge-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                     <path
-                      d="M3 9L9 3M9 3H4.5M9 3v4.5"
-                      stroke="#fff"
-                      stroke-width="1.4"
+                      d="M9 6.65032C9 6.65032 15.9383 6.10759 16.9154 7.08463C17.8924 8.06167 17.3496 15 17.3496 15M16.5 7.5L6.5 17.5"
+                      stroke="currentColor"
+                      stroke-width="1.5"
                       stroke-linecap="round"
                       stroke-linejoin="round"
                     /></svg
                 ></span>
               </a>
               <a class="btn-ghost" href="#">
-                <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
-                  <path d="M4 3l7 4-7 4z" fill="#f5a623" />
+                <svg class="huge-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path
+                    d="M18.8906 12.846C18.5371 14.189 16.8667 15.138 13.5257 17.0361C10.296 18.8709 8.6812 19.7884 7.37983 19.4196C6.8418 19.2671 6.35159 18.9776 5.95624 18.5787C5 17.6139 5 15.7426 5 12C5 8.2574 5 6.3861 5.95624 5.42132C6.35159 5.02245 6.8418 4.73288 7.37983 4.58042C8.6812 4.21165 10.296 5.12907 13.5257 6.96393C16.8667 8.86197 18.5371 9.811 18.8906 11.154C19.0365 11.7084 19.0365 12.2916 18.8906 12.846Z"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linejoin="round"
+                  />
                 </svg>
                 Live demo
               </a>
@@ -3066,10 +3953,19 @@
         <div class="wrap">
           <div class="footgrid">
             <div class="fbrand reveal">
-              <a class="wordmark" href="#"><span class="mark"></span><b>orange replay</b></a>
+              <a class="wordmark" href="#"
+                ><img
+                  class="mark"
+                  src="brand/orange-replay-logo-mark-white.webp"
+                  alt=""
+                  width="40"
+                  height="28"
+                  decoding="async"
+                /><b>orange replay</b></a
+              >
               <p>
-                Session replay built natively on the edge. Record it, watch it live, and fix it
-                before the ticket lands.
+                Session replay for teams that need to see what happened. Record it, watch it live,
+                and fix it before it becomes a support ticket.
               </p>
             </div>
             <div class="footcols reveal">
@@ -3098,7 +3994,7 @@
           </div>
           <div class="footbot">
             <span class="c">© 2026 Orange Replay</span>
-            <span class="edge">Built on <b>Cloudflare</b></span>
+            <span class="edge">Private by <b>default</b></span>
           </div>
         </div>
       </footer>
@@ -3193,39 +4089,234 @@
         }
       })();
 
-      // ===== hero glyph field — a grid of session "events" that lights up in amber
-      // as the cursor (a replay playhead) sweeps across it. 2D canvas, cheap.
-      // (interaction studied from eve.dev's dot-matrix hero) =====
+      // ===== hero halftone bloom =====
+      // Inspired by build.delphi.ai: bottom dots subtly push away from the pointer.
       (function () {
+        /* ---------------------------------------------------------
+         * HERO BLOOM STORYBOARD
+         *
+         * Read top-to-bottom. The field stays inside the dashed frame.
+         *
+         *    0ms   bottom row appears first while the center warms up
+         *  420ms   center glow reaches full strength as rows keep growing
+         * 1080ms   rows finish appearing and the center glow starts fading
+         * 1360ms   glow is gone and pointer movement can gently affect the field
+         * --------------------------------------------------------- */
+        var INTRO_TIMING = {
+          reveals: 0, // bottom row starts immediately
+          rowsGrow: 420, // center glow reaches full strength
+          rowsComplete: 1080, // all rows finish appearing
+          glowSettles: 1360, // glow fades after the rows are complete
+        };
+        var INTRO_REVEAL = {
+          rowShare: 0.68, // bottom-to-top order controls most of the reveal
+          widthShare: 0.28, // center-to-edge growth makes each row lengthen
+          fadeWindow: 0.18, // how softly each dot fades into view
+          startAlpha: 0.12, // first visible dots are dim
+          peakAlphaBoost: 0.2, // small lift while the center glow is active
+          startRadiusScale: 0.78, // new dots start slightly smaller
+        };
+        var INTRO_GLOW = {
+          dotColor: "rgba(255, 205, 92, 1)", // brighter entry color before settling
+          haloColor: "rgba(255, 166, 35, 1)", // warm glow matching the brand amber
+          haloAlpha: 0.28, // strongest halo opacity at the center
+          haloRadius: 6.4, // px added around center glowing dots
+          dotAlphaBoost: 0.26, // brighter core while the center glow passes
+          dotRadiusBoost: 0.12, // tiny core lift, then back to rest
+          sideReach: 1.08, // lets the glow reach the visible left/right ends
+          sidePower: 1, // lower values keep more light toward the ends
+          endGlow: 0.22, // faint glow kept at the far ends
+          heightReach: 0.82, // vertical reach against the field radius
+          heightPower: 1.35, // keeps the glow strongest near the lower center
+        };
+        var DOT_FIELD = {
+          spacing: 12, // px between dot centers
+          maxRadius: 4.4, // largest resting dot radius
+          verticalRadiusRatio: 0.54, // field height against viewport height
+          heightRadiusScale: 1.15, // field height against canvas height
+          horizontalRadiusScale: 1.82, // oval width against field height
+          centerXRatio: 0.5, // center point across the hero width
+          minRadius: 0.25, // smallest visible dot
+          maxAlpha: 0.78, // brightest resting alpha
+          baseAlpha: 0.08, // dimmest resting alpha
+          alphaRange: 0.62, // alpha added by oval falloff
+        };
+        var POINTER_PUSH = {
+          radius: 118, // px around the pointer that pushes dots
+          strength: 8, // max px a nearby dot moves
+          returnEase: 0.14, // how quickly dots return to rest
+          stillDistance: 0.06, // px threshold before we stop animating
+        };
+
         var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        var mobileHero = window.matchMedia("(max-width: 680px)");
         var canvas = document.querySelector(".hero-fx");
         var hero = document.querySelector(".hero");
         if (!canvas || !hero) return;
+        if (mobileHero.matches) return;
         var ctx = canvas.getContext("2d");
         if (!ctx) return;
 
-        // stroke-y glyphs weighted toward dashes/slashes (the eve.dev texture),
-        // with a few replay-flavored marks (play/record/error)
-        var GLYPHS = "//\\\\||--··++▲▶■◆●×".split("");
-        var CELL = 24; // grid pitch, CSS px
-        var FONT = 13; // glyph size, CSS px
-        var RADIUS = 210; // cursor spotlight radius, CSS px
-        var BASE = 0.05; // resting brightness
-        var dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
-
-        var cells = [];
         var w = 0;
         var h = 0;
-        var lx = 0;
-        var ly = 0;
-        var tx = 0;
-        var ty = 0; // light: smoothed position + target
-        var hasPointer = false;
-        var t0 = 0;
+        var dpr = Math.max(1, Math.min(1.5, window.devicePixelRatio || 1));
         var raf = 0;
+        var stopped = false;
+        var visible = true;
+        var dots = [];
+        var pointer = { x: -9999, y: -9999, active: false };
+        var introStartedAt = reduce ? null : performance.now();
+        var introComplete = reduce;
 
-        function build() {
-          var r = hero.getBoundingClientRect();
+        function clamp01(v) {
+          return v < 0 ? 0 : v > 1 ? 1 : v;
+        }
+
+        function easeOutCubic(v) {
+          return 1 - Math.pow(1 - v, 3);
+        }
+
+        function getIntroState(now) {
+          if (reduce || introComplete || introStartedAt === null) {
+            return { revealProgress: 1, glowStrength: 0 };
+          }
+          var elapsed = now - introStartedAt;
+          if (elapsed >= INTRO_TIMING.glowSettles) {
+            introComplete = true;
+            return { revealProgress: 1, glowStrength: 0 };
+          }
+          var revealProgress = clamp01(
+            (elapsed - INTRO_TIMING.reveals) / INTRO_TIMING.rowsComplete,
+          );
+          var glowRise = easeOutCubic(
+            clamp01((elapsed - INTRO_TIMING.reveals) / INTRO_TIMING.rowsGrow),
+          );
+          var glowFade =
+            1 -
+            easeOutCubic(
+              clamp01(
+                (elapsed - INTRO_TIMING.rowsComplete) /
+                  (INTRO_TIMING.glowSettles - INTRO_TIMING.rowsComplete),
+              ),
+            );
+          return {
+            revealProgress: revealProgress,
+            glowStrength: glowRise * glowFade,
+          };
+        }
+
+        function stop() {
+          if (raf) {
+            cancelAnimationFrame(raf);
+            raf = 0;
+          }
+        }
+
+        function draw(now) {
+          var introState = getIntroState(now || performance.now());
+          var introRunning = !reduce && !introComplete;
+          var allowPointerPush = !introRunning;
+          ctx.clearRect(0, 0, w, h);
+          ctx.fillStyle = getComputedStyle(canvas).color;
+          var glowDots = [];
+          var moving = false;
+
+          dots.forEach(function (dot) {
+            var targetX = 0;
+            var targetY = 0;
+
+            if (allowPointerPush && pointer.active) {
+              var dx = dot.x - pointer.x;
+              var dy = dot.y - pointer.y;
+              var distance = Math.hypot(dx, dy);
+              if (distance < POINTER_PUSH.radius && distance > 0.001) {
+                var force = 1 - distance / POINTER_PUSH.radius;
+                var eased = force * force;
+                targetX = (dx / distance) * eased * POINTER_PUSH.strength;
+                targetY = (dy / distance) * eased * POINTER_PUSH.strength;
+              }
+            }
+
+            dot.ox += (targetX - dot.ox) * POINTER_PUSH.returnEase;
+            dot.oy += (targetY - dot.oy) * POINTER_PUSH.returnEase;
+            if (
+              Math.abs(dot.ox) > POINTER_PUSH.stillDistance ||
+              Math.abs(dot.oy) > POINTER_PUSH.stillDistance
+            ) {
+              moving = true;
+            }
+
+            var radius = dot.radius;
+            var alpha = dot.alpha;
+            var glow = 0;
+
+            if (introRunning) {
+              var localReveal = clamp01(
+                (introState.revealProgress - dot.revealStart) / INTRO_REVEAL.fadeWindow,
+              );
+              var reveal = easeOutCubic(localReveal);
+              if (reveal <= 0.01) return;
+              glow = dot.centerGlow * reveal * introState.glowStrength;
+
+              alpha *=
+                INTRO_REVEAL.startAlpha +
+                (1 - INTRO_REVEAL.startAlpha) * reveal +
+                glow * INTRO_REVEAL.peakAlphaBoost;
+              radius *=
+                INTRO_REVEAL.startRadiusScale +
+                (1 - INTRO_REVEAL.startRadiusScale) * reveal +
+                INTRO_GLOW.dotRadiusBoost * glow;
+            }
+
+            ctx.globalAlpha = Math.min(1, alpha);
+            ctx.beginPath();
+            ctx.arc(dot.x + dot.ox, dot.y + dot.oy, radius, 0, Math.PI * 2);
+            ctx.fill();
+
+            if (glow > 0.02) {
+              glowDots.push({
+                x: dot.x + dot.ox,
+                y: dot.y + dot.oy,
+                radius: radius,
+                alpha: dot.alpha,
+                glow: glow,
+              });
+            }
+          });
+
+          if (glowDots.length) {
+            ctx.globalCompositeOperation = "lighter";
+            ctx.fillStyle = INTRO_GLOW.haloColor;
+            glowDots.forEach(function (dot) {
+              ctx.globalAlpha = Math.min(1, dot.alpha * INTRO_GLOW.haloAlpha * dot.glow);
+              ctx.beginPath();
+              ctx.arc(dot.x, dot.y, dot.radius + INTRO_GLOW.haloRadius * dot.glow, 0, Math.PI * 2);
+              ctx.fill();
+            });
+
+            ctx.fillStyle = INTRO_GLOW.dotColor;
+            glowDots.forEach(function (dot) {
+              ctx.globalAlpha = Math.min(
+                1,
+                dot.alpha + dot.alpha * INTRO_GLOW.dotAlphaBoost * dot.glow,
+              );
+              ctx.beginPath();
+              ctx.arc(dot.x, dot.y, dot.radius, 0, Math.PI * 2);
+              ctx.fill();
+            });
+            ctx.globalCompositeOperation = "source-over";
+          }
+
+          ctx.globalAlpha = 1;
+          return moving || introRunning;
+        }
+
+        function resize() {
+          if (mobileHero.matches) {
+            stop();
+            return;
+          }
+          var r = canvas.getBoundingClientRect();
           w = r.width;
           h = r.height;
           canvas.width = Math.round(w * dpr);
@@ -3233,101 +4324,124 @@
           canvas.style.width = w + "px";
           canvas.style.height = h + "px";
           ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          ctx.font = FONT + 'px ui-monospace, "SF Mono", Menlo, monospace';
-          var cols = Math.ceil(w / CELL) + 1;
-          var rows = Math.ceil(h / CELL) + 1;
-          cells = [];
-          for (var gy = 0; gy < rows; gy++) {
-            for (var gx = 0; gx < cols; gx++) {
-              cells.push({
-                x: gx * CELL + CELL / 2,
-                y: gy * CELL + CELL / 2,
-                g: GLYPHS[(Math.random() * GLYPHS.length) | 0],
-                p: Math.random() * Math.PI * 2, // per-cell shimmer phase
+
+          dots = [];
+          var verticalRadius = Math.min(
+            window.innerHeight * DOT_FIELD.verticalRadiusRatio,
+            h * DOT_FIELD.heightRadiusScale,
+          );
+          var horizontalRadius = verticalRadius * DOT_FIELD.horizontalRadiusScale;
+          var centerX = Math.floor(w * DOT_FIELD.centerXRatio) + 0.5;
+          var centerY = h;
+          var xColumns = [centerX];
+          for (
+            var xOffset = DOT_FIELD.spacing;
+            centerX - xOffset > 0 || centerX + xOffset < w;
+            xOffset += DOT_FIELD.spacing
+          ) {
+            if (centerX - xOffset > 0) xColumns.push(centerX - xOffset);
+            if (centerX + xOffset < w) xColumns.push(centerX + xOffset);
+          }
+          xColumns.sort(function (a, b) {
+            return a - b;
+          });
+
+          for (var y = DOT_FIELD.spacing / 2; y < h; y += DOT_FIELD.spacing) {
+            xColumns.forEach(function (x) {
+              var falloff =
+                1 - Math.hypot((x - centerX) / horizontalRadius, (y - centerY) / verticalRadius);
+              if (falloff <= 0) return;
+              var radius = falloff * DOT_FIELD.maxRadius;
+              if (radius < DOT_FIELD.minRadius) return;
+              var rowOrder = clamp01((h - y) / verticalRadius);
+              var rowHalfWidth = horizontalRadius * Math.sqrt(Math.max(0, 1 - rowOrder * rowOrder));
+              var widthOrder = rowHalfWidth > 0 ? clamp01(Math.abs(x - centerX) / rowHalfWidth) : 1;
+              var sideDistance = clamp01(
+                Math.abs(x - centerX) / (horizontalRadius * INTRO_GLOW.sideReach),
+              );
+              var heightDistance = clamp01(
+                Math.abs(y - centerY) / (verticalRadius * INTRO_GLOW.heightReach),
+              );
+              var sideGlow =
+                INTRO_GLOW.endGlow +
+                (1 - INTRO_GLOW.endGlow) * Math.pow(1 - sideDistance, INTRO_GLOW.sidePower);
+              var heightGlow = Math.pow(1 - heightDistance, INTRO_GLOW.heightPower);
+              dots.push({
+                x: x,
+                y: y,
+                radius: radius,
+                alpha: Math.min(
+                  DOT_FIELD.maxAlpha,
+                  DOT_FIELD.baseAlpha + DOT_FIELD.alphaRange * falloff,
+                ),
+                revealStart: Math.min(
+                  1 - INTRO_REVEAL.fadeWindow,
+                  rowOrder * INTRO_REVEAL.rowShare + widthOrder * INTRO_REVEAL.widthShare,
+                ),
+                centerGlow: sideGlow * heightGlow,
+                ox: 0,
+                oy: 0,
               });
-            }
+            });
           }
-          if (!hasPointer) {
-            lx = tx = w * 0.62;
-            ly = ty = h * 0.34;
+
+          draw(performance.now());
+        }
+
+        function frame() {
+          if (!visible || stopped) {
+            raf = 0;
+            return;
+          }
+          var moving = draw(performance.now());
+          if (pointer.active || moving) {
+            raf = requestAnimationFrame(frame);
+          } else {
+            raf = 0;
           }
         }
 
-        function render(t) {
-          ctx.clearRect(0, 0, w, h);
-          for (var i = 0; i < cells.length; i++) {
-            var c = cells[i];
-            var dx = c.x - lx;
-            var dy = c.y - ly;
-            var dist = Math.sqrt(dx * dx + dy * dy);
-            var lit = dist < RADIUS ? 1 - dist / RADIUS : 0;
-            lit = lit * lit; // sharper core
-            var shimmer = 0.55 + 0.45 * Math.sin(t * 1.6 + c.p);
-            var a = BASE * shimmer + lit * 0.92;
-            if (a <= 0.012) continue;
-            if (lit < 0.03) {
-              ctx.fillStyle = "rgba(188,188,198," + (a * 0.9).toFixed(3) + ")";
-            } else {
-              // blend amber → white toward the hot core
-              var mix = lit;
-              ctx.fillStyle =
-                "rgba(" +
-                ((245 + (255 - 245) * mix) | 0) +
-                "," +
-                ((166 + (255 - 166) * mix) | 0) +
-                "," +
-                ((35 + (255 - 35) * mix) | 0) +
-                "," +
-                a.toFixed(3) +
-                ")";
-            }
-            ctx.fillText(c.g, c.x, c.y);
+        function start() {
+          if (!reduce && visible && !mobileHero.matches && !raf && !stopped) {
+            raf = requestAnimationFrame(frame);
           }
         }
 
-        function frame(now) {
-          if (!t0) t0 = now;
-          var t = (now - t0) / 1000;
-          if (!hasPointer) {
-            // ambient "playhead" drift until the user takes over
-            tx = w * (0.5 + 0.26 * Math.cos(t * 0.5));
-            ty = h * (0.42 + 0.2 * Math.sin(t * 0.37));
-          }
-          lx += (tx - lx) * 0.08; // trailing ease
-          ly += (ty - ly) * 0.08;
-          render(t);
-          raf = requestAnimationFrame(frame);
+        function movePointer(e) {
+          var r = canvas.getBoundingClientRect();
+          pointer.x = e.clientX - r.left;
+          pointer.y = e.clientY - r.top;
+          pointer.active =
+            pointer.x >= -POINTER_PUSH.radius &&
+            pointer.x <= w + POINTER_PUSH.radius &&
+            pointer.y >= -POINTER_PUSH.radius &&
+            pointer.y <= h + POINTER_PUSH.radius;
+          start();
         }
 
-        window.addEventListener(
-          "pointermove",
-          function (e) {
-            var r = hero.getBoundingClientRect();
-            if (e.clientY < r.top - 60 || e.clientY > r.bottom + 60) return;
-            tx = e.clientX - r.left;
-            ty = e.clientY - r.top;
-            hasPointer = true;
-          },
-          { passive: true },
-        );
-        window.addEventListener("resize", build, { passive: true });
+        function releasePointer() {
+          pointer.active = false;
+          start();
+        }
 
-        build();
-        render(0); // paint once immediately (visible even before rAF ticks)
+        window.addEventListener("resize", resize, { passive: true });
+        resize();
 
-        if (reduce) return; // static field, no animation, no cursor tracking
+        if (reduce) return;
+
+        window.addEventListener("pointermove", movePointer, { passive: true });
+        window.addEventListener("blur", releasePointer);
+        start();
 
         if ("IntersectionObserver" in window) {
           var io = new IntersectionObserver(
             function (es) {
               es.forEach(function (e) {
+                visible = e.isIntersecting;
                 if (e.isIntersecting) {
-                  if (!raf) raf = requestAnimationFrame(frame);
+                  start();
                 } else if (raf) {
-                  cancelAnimationFrame(raf);
-                  raf = 0;
+                  stop();
                 }
               });
             },
@@ -3335,7 +4449,156 @@
           );
           io.observe(hero);
         } else {
-          raf = requestAnimationFrame(frame);
+          start();
+        }
+
+        window.addEventListener("beforeunload", function () {
+          stopped = true;
+          stop();
+        });
+      })();
+    </script>
+
+    <!-- Live tile: LED pixel-lights + amber odometer timers + event pings + page swap -->
+    <script>
+      (function () {
+        var rail = document.querySelector(".lv-rail[data-live]");
+        if (!rail) return;
+        var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+        /* ---- LED dot-pixel lights: 7x7 grid, brighter core, uneven twinkle ---- */
+        var N = 7;
+        document.querySelectorAll(".tile.live .live-dot__light").forEach(function (led) {
+          for (var r = 0; r < N; r++) {
+            for (var c = 0; c < N; c++) {
+              var px = document.createElement("span");
+              px.className = "px";
+              var dx = c - (N - 1) / 2,
+                dy = r - (N - 1) / 2;
+              var dist = Math.sqrt(dx * dx + dy * dy) / ((Math.SQRT2 * (N - 1)) / 2);
+              var jitter = (Math.random() - 0.5) * 0.22;
+              var base = Math.max(0.32, 1 - dist * 0.62 + jitter).toFixed(2);
+              px.style.setProperty("--base", base);
+              px.style.setProperty("--delay", (-Math.random() * 6).toFixed(2) + "s");
+              px.style.setProperty("--dur", (3.2 + Math.random() * 2.8).toFixed(2) + "s");
+              led.appendChild(px);
+            }
+          }
+        });
+
+        /* ---- amber odometer: digit reels that always roll UP ---- */
+        function makeReel(extraClass) {
+          var reelEl = document.createElement("span");
+          reelEl.className = "reel" + (extraClass ? " " + extraClass : "");
+          var strip = document.createElement("span");
+          strip.className = "strip";
+          for (var i = 0; i < 20; i++) {
+            var cell = document.createElement("span");
+            cell.className = "cell";
+            cell.textContent = i % 10;
+            strip.appendChild(cell);
+          }
+          reelEl.appendChild(strip);
+          var cur = 0;
+          function place(d) {
+            strip.style.transition = "none";
+            strip.style.transform = "translateY(" + -d + "em)";
+            strip.getBoundingClientRect();
+            strip.style.transition = "";
+          }
+          place(0);
+          return {
+            el: reelEl,
+            set: function (d, animate) {
+              if (!animate) {
+                place(d);
+                cur = d;
+                return;
+              }
+              if (d === cur) return;
+              var target = d > cur ? d : d + 10; // upward; wrap lands in the 2nd copy
+              strip.classList.add("blur");
+              strip.style.transform = "translateY(" + -target + "em)";
+              var onEnd = function () {
+                strip.removeEventListener("transitionend", onEnd);
+                strip.classList.remove("blur");
+                if (target >= 10) place(d); // snap 2nd copy back to 1st
+                cur = d;
+              };
+              strip.addEventListener("transitionend", onEnd);
+            },
+          };
+        }
+
+        function buildTimer(el, base) {
+          var minTens = makeReel("min-tens");
+          var minOnes = makeReel();
+          var colon = document.createElement("span");
+          colon.className = "colon";
+          colon.textContent = ":";
+          var secTens = makeReel();
+          var secOnes = makeReel();
+          el.append(minTens.el, minOnes.el, colon, secTens.el, secOnes.el);
+          var total = base;
+          function render(animate) {
+            var m = Math.floor(total / 60),
+              s = total % 60;
+            if (m >= 10) {
+              minTens.el.classList.add("show");
+              minTens.set(Math.floor(m / 10), animate);
+            } else {
+              minTens.el.classList.remove("show");
+            }
+            minOnes.set(m % 10, animate);
+            secTens.set(Math.floor(s / 10), animate);
+            secOnes.set(s % 10, animate);
+          }
+          render(false);
+          return {
+            tick: function () {
+              total++;
+              render(true);
+            },
+          };
+        }
+
+        var timers = [].slice
+          .call(document.querySelectorAll(".lv-rail[data-live] .lv-odo"))
+          .map(function (el) {
+            return buildTimer(el, parseInt(el.getAttribute("data-secs"), 10));
+          });
+        // stagger so digit-flips never happen in unison
+        timers.forEach(function (t, i) {
+          setTimeout(
+            function () {
+              setInterval(function () {
+                t.tick();
+              }, 1000);
+            },
+            i * 340 + 200,
+          );
+        });
+
+        if (reduce) return; // no swaps under reduced motion
+
+        /* ---- page swap (a session navigating) ---- */
+        var target = rail.querySelector("[data-swap-page]");
+        if (target) {
+          var seq = ["cart", "pricing", "checkout", "pricing"];
+          var idx = 0;
+          var swap = function () {
+            target.classList.add("roll-out");
+            setTimeout(function () {
+              target.textContent = seq[idx++ % seq.length];
+              target.classList.remove("roll-out");
+              target.classList.add("roll-in");
+              setTimeout(function () {
+                target.classList.remove("roll-in");
+              }, 300);
+            }, 200);
+            setTimeout(swap, 4200 + Math.random() * 2200);
+          };
+          setTimeout(swap, 3200);
         }
       })();
     </script>

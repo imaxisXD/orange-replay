@@ -1,0 +1,1363 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Orange Replay - live LED exploration</title>
+    <meta
+      name="description"
+      content="Design exploration for the Orange Replay live LED eye component."
+    />
+    <link
+      rel="preload"
+      href="fonts/UncutSans-Variable.812463c2.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="fonts/UncutPlan8-Variable.737af1b2.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <style>
+      @font-face {
+        font-family: "Uncut Sans";
+        src: url("fonts/UncutSans-Variable.812463c2.woff2") format("woff2-variations");
+        font-weight: 300 800;
+        font-style: normal;
+        font-display: swap;
+      }
+
+      @font-face {
+        font-family: "Uncut Plan8";
+        src: url("fonts/UncutPlan8-Variable.737af1b2.woff2") format("woff2");
+        font-weight: 100 900;
+        font-style: normal;
+        font-display: swap;
+      }
+
+      :root {
+        color-scheme: dark;
+        --bg: #0a0a0c;
+        --panel: #111114;
+        --panel-2: #151518;
+        --panel-3: #0d0d10;
+        --line: #232329;
+        --dash: #2e2e36;
+        --text: #ececf1;
+        --muted: #8b8b95;
+        --dim: #62626c;
+        --teal: #2dd4bf;
+        --green: #34d399;
+        --amber: #f5a623;
+        --red: #f4534e;
+        --chip: rgba(45, 212, 191, 0.09);
+        --sans: "Uncut Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+        --mono: "Uncut Plan8", ui-monospace, "SF Mono", Menlo, monospace;
+        --wrap: 1180px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        background: var(--bg);
+      }
+
+      body {
+        min-height: 100vh;
+        margin: 0;
+        color: var(--text);
+        font-family: var(--sans);
+        font-size: 13px;
+        line-height: 1.5;
+        background:
+          radial-gradient(circle at 50% 0%, rgba(45, 212, 191, 0.08), transparent 34rem),
+          radial-gradient(circle, #1b1b21 1px, transparent 1px), var(--bg);
+        background-size:
+          auto,
+          26px 26px,
+          auto;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+
+      button,
+      input,
+      textarea,
+      select {
+        font: inherit;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      ::selection {
+        background: rgba(245, 166, 35, 0.24);
+        color: #fff;
+      }
+
+      .page {
+        min-height: 100vh;
+      }
+
+      .shell {
+        width: min(var(--wrap), calc(100vw - 32px));
+        margin: 0 auto;
+      }
+
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        border-bottom: 1px solid var(--line);
+        background: rgba(10, 10, 12, 0.86);
+        backdrop-filter: blur(18px);
+      }
+
+      .topbar-inner {
+        display: flex;
+        min-height: 56px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        font-family: var(--mono);
+        font-size: 13px;
+        color: var(--text);
+      }
+
+      .mark {
+        position: relative;
+        width: 24px;
+        height: 24px;
+        flex: none;
+        border: 1px dashed var(--dash);
+        border-radius: 7px;
+        background: #101013;
+      }
+
+      .mark::after {
+        content: "";
+        position: absolute;
+        left: 5px;
+        right: 5px;
+        top: 10px;
+        height: 3px;
+        border-radius: 99px;
+        background: linear-gradient(90deg, var(--teal), var(--amber), var(--red));
+      }
+
+      .nav-note {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(0, 0.86fr) minmax(480px, 1.14fr);
+        gap: 34px;
+        align-items: stretch;
+        padding: 52px 0 30px;
+      }
+
+      .intro {
+        display: flex;
+        min-height: 100%;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: 36px;
+        border-left: 1px dashed var(--dash);
+        padding-left: 22px;
+      }
+
+      .kicker,
+      .micro-label {
+        font-family: var(--mono);
+        font-size: 11px;
+        font-weight: 520;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .kicker {
+        color: var(--amber);
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        margin-top: 18px;
+        max-width: 11ch;
+        font-size: clamp(44px, 8vw, 88px);
+        line-height: 0.92;
+        letter-spacing: 0;
+      }
+
+      .lead {
+        margin-top: 24px;
+        max-width: 45ch;
+        color: var(--muted);
+        font-size: 16px;
+        line-height: 1.55;
+      }
+
+      .rules {
+        display: grid;
+        gap: 10px;
+      }
+
+      .rule {
+        display: grid;
+        grid-template-columns: 18px minmax(0, 1fr);
+        gap: 10px;
+        color: var(--muted);
+      }
+
+      .rule::before {
+        content: "";
+        width: 9px;
+        height: 9px;
+        margin-top: 5px;
+        border: 1px solid rgba(245, 166, 35, 0.52);
+        border-radius: 50%;
+        background: rgba(245, 166, 35, 0.12);
+        box-shadow: 0 0 12px rgba(245, 166, 35, 0.16);
+      }
+
+      .lit {
+        position: relative;
+        overflow: hidden;
+        border-radius: 8px;
+        background:
+          url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.045 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E"),
+          var(--panel);
+        box-shadow: 0 18px 42px rgba(0, 0, 0, 0.46);
+      }
+
+      .lit::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        pointer-events: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Crect x='0.5' y='0.5' width='100%25' height='100%25' fill='none' rx='7.5' ry='7.5' stroke='white' stroke-opacity='0.42' stroke-width='1' stroke-dasharray='12 4'/%3E%3C/svg%3E");
+        mask-image: radial-gradient(
+          170% 130% at 0% 0%,
+          #000 0%,
+          rgba(0, 0, 0, 0.46) 28%,
+          rgba(0, 0, 0, 0.18) 62%,
+          rgba(0, 0, 0, 0.08) 100%
+        );
+      }
+
+      .picked {
+        min-height: 550px;
+        padding: 18px;
+      }
+
+      .picked::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background:
+          linear-gradient(90deg, rgba(45, 212, 191, 0.1), transparent 18%),
+          radial-gradient(circle at 70% 12%, rgba(245, 166, 35, 0.12), transparent 22rem);
+      }
+
+      .picked-inner {
+        position: relative;
+        z-index: 1;
+        display: grid;
+        min-height: 514px;
+        grid-template-rows: auto minmax(0, 1fr) auto;
+        gap: 18px;
+      }
+
+      .picked-top,
+      .picked-actions,
+      .status-line {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .picked-top {
+        justify-content: space-between;
+        border-bottom: 1px dashed var(--dash);
+        padding-bottom: 14px;
+      }
+
+      .status-pill,
+      .watch-pill,
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        white-space: nowrap;
+        border-radius: 999px;
+        font-family: var(--mono);
+        font-size: 11px;
+        line-height: 1;
+      }
+
+      .status-pill {
+        gap: 8px;
+        color: #d7fff2;
+      }
+
+      .watch-pill {
+        padding: 7px 9px;
+        border: 1px dashed rgba(45, 212, 191, 0.42);
+        background: var(--chip);
+        color: #91fff0;
+      }
+
+      .chip {
+        padding: 7px 9px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.025);
+        color: var(--muted);
+      }
+
+      .ghost-button,
+      .light-button {
+        min-height: 31px;
+        border-radius: 8px;
+        padding: 7px 11px;
+        font-size: 12px;
+        font-weight: 560;
+        cursor: pointer;
+      }
+
+      .ghost-button {
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.02);
+        color: var(--text);
+      }
+
+      .light-button {
+        border: 1px solid #f4f4f8;
+        background: var(--text);
+        color: var(--bg);
+      }
+
+      .ghost-button:hover,
+      .light-button:hover {
+        transform: translateY(-1px);
+      }
+
+      .ghost-button:focus-visible,
+      .light-button:focus-visible {
+        outline: 2px solid var(--amber);
+        outline-offset: 2px;
+      }
+
+      .shared-card {
+        display: grid;
+        grid-template-columns: minmax(220px, 0.9fr) minmax(280px, 1.1fr);
+        gap: 22px;
+        align-items: center;
+        border-radius: 10px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01)), #0c0c0f;
+        box-shadow:
+          inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+          inset 0 -1px 0 rgba(0, 0, 0, 0.6);
+        padding: 26px;
+      }
+
+      .face-stage {
+        display: grid;
+        min-height: 280px;
+        place-items: center;
+        border-radius: 8px;
+        background:
+          linear-gradient(rgba(255, 255, 255, 0.026) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.026) 1px, transparent 1px), #09090b;
+        background-size: 18px 18px;
+      }
+
+      .signal-face {
+        position: relative;
+        display: grid;
+        width: min(260px, 100%);
+        aspect-ratio: 1;
+        place-items: center;
+        border-radius: 50%;
+        background:
+          radial-gradient(circle at center, rgba(45, 212, 191, 0.08), transparent 52%),
+          repeating-linear-gradient(
+            0deg,
+            rgba(255, 255, 255, 0.028) 0,
+            rgba(255, 255, 255, 0.028) 1px,
+            transparent 1px,
+            transparent 8px
+          ),
+          #07100d;
+        box-shadow:
+          0 0 0 1px rgba(45, 212, 191, 0.16),
+          0 0 0 8px #101615,
+          0 0 0 9px rgba(255, 255, 255, 0.06),
+          0 24px 44px rgba(0, 0, 0, 0.58),
+          0 0 44px rgba(52, 211, 153, 0.14),
+          inset 0 0 26px rgba(0, 0, 0, 0.92);
+        isolation: isolate;
+      }
+
+      .signal-face::before {
+        content: "";
+        position: absolute;
+        inset: 11.5%;
+        z-index: -1;
+        border-radius: inherit;
+        border: 1px dashed rgba(45, 212, 191, 0.28);
+        opacity: 0.76;
+      }
+
+      .signal-face::after {
+        content: "";
+        position: absolute;
+        inset: 20%;
+        z-index: -1;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(52, 211, 153, 0.18), transparent 64%);
+        filter: blur(14px);
+        animation: calm-breathe 4s ease-in-out infinite;
+      }
+
+      .pixel-eye {
+        --dot: 7px;
+        --gap: 5px;
+        display: grid;
+        grid-auto-rows: var(--dot);
+        gap: var(--gap);
+        align-items: center;
+        justify-content: center;
+      }
+
+      .pixel-eye.small {
+        --dot: 4px;
+        --gap: 3px;
+      }
+
+      .pixel-eye.tiny {
+        --dot: 1.65px;
+        --gap: 0.95px;
+      }
+
+      .pixel {
+        width: var(--dot);
+        height: var(--dot);
+        border-radius: 50%;
+        background: rgba(45, 212, 191, 0.09);
+        opacity: 0.45;
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+      }
+
+      .pixel.active {
+        opacity: var(--base, 0.82);
+        background: #24c795;
+        box-shadow:
+          0 0 calc(var(--dot) * 0.9) rgba(52, 211, 153, 0.72),
+          inset 0 0 0 1px rgba(226, 255, 244, 0.28);
+        animation: pixel-flicker var(--dur, 2.8s) ease-in-out infinite;
+        animation-delay: var(--delay, 0s);
+      }
+
+      .pixel.iris {
+        background: #2dd4bf;
+        box-shadow:
+          0 0 calc(var(--dot) * 1.3) rgba(45, 212, 191, 0.92),
+          inset 0 0 0 1px rgba(225, 255, 251, 0.34);
+      }
+
+      .pixel.pupil {
+        background: var(--amber);
+        opacity: 1;
+        box-shadow:
+          0 0 calc(var(--dot) * 1.8) rgba(245, 166, 35, 0.95),
+          0 0 calc(var(--dot) * 3.2) rgba(245, 166, 35, 0.28),
+          inset 0 0 0 1px rgba(255, 245, 220, 0.38);
+      }
+
+      .pixel.edge {
+        opacity: 0.5;
+      }
+
+      .live-copy {
+        min-width: 0;
+      }
+
+      .share-label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--amber);
+        font-family: var(--mono);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+      }
+
+      .scan-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--amber);
+        box-shadow: 0 0 14px rgba(245, 166, 35, 0.72);
+      }
+
+      .live-copy h2 {
+        margin-top: 14px;
+        max-width: 13ch;
+        font-size: clamp(30px, 4vw, 54px);
+        line-height: 0.98;
+        letter-spacing: 0;
+      }
+
+      .live-copy p {
+        margin-top: 15px;
+        max-width: 38ch;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .session-list {
+        margin-top: 22px;
+        border-top: 1px dashed var(--dash);
+      }
+
+      .session-row {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        gap: 11px;
+        align-items: center;
+        min-height: 58px;
+        border-bottom: 1px dashed rgba(46, 46, 54, 0.9);
+      }
+
+      .session-row:last-child {
+        border-bottom: 0;
+      }
+
+      .mini-face {
+        display: grid;
+        width: 28px;
+        aspect-ratio: 1;
+        place-items: center;
+        border-radius: 50%;
+        background: #07100d;
+        box-shadow:
+          0 0 0 1px rgba(45, 212, 191, 0.18),
+          0 0 0 3px #101615,
+          inset 0 0 10px rgba(0, 0, 0, 0.9);
+      }
+
+      .row-main {
+        min-width: 0;
+      }
+
+      .path {
+        overflow: hidden;
+        color: var(--text);
+        font-weight: 560;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .meta {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        gap: 7px;
+        color: var(--dim);
+        font-size: 11.5px;
+      }
+
+      .meta img {
+        width: 15px;
+        height: 15px;
+        border-radius: 50%;
+      }
+
+      .time {
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 12px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .picked-bottom {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        border-top: 1px dashed var(--dash);
+        padding-top: 14px;
+        color: var(--dim);
+      }
+
+      .metric-strip {
+        display: flex;
+        gap: 16px;
+      }
+
+      .metric {
+        display: grid;
+        gap: 2px;
+      }
+
+      .metric b {
+        color: var(--text);
+        font-family: var(--mono);
+        font-size: 16px;
+        font-weight: 680;
+      }
+
+      .metric span {
+        color: var(--dim);
+        font-size: 11px;
+      }
+
+      .section {
+        padding: 28px 0 54px;
+      }
+
+      .section-head {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 24px;
+        margin-bottom: 16px;
+      }
+
+      .section-head h2 {
+        max-width: 14ch;
+        font-size: clamp(26px, 4vw, 44px);
+        line-height: 1;
+        letter-spacing: 0;
+      }
+
+      .section-head p {
+        max-width: 42ch;
+        color: var(--muted);
+      }
+
+      .variant-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .variant {
+        min-height: 330px;
+        padding: 18px;
+      }
+
+      .variant h3 {
+        margin-top: 14px;
+        font-size: 17px;
+      }
+
+      .variant p {
+        margin-top: 8px;
+        color: var(--muted);
+      }
+
+      .variant-preview {
+        display: grid;
+        min-height: 176px;
+        place-items: center;
+        border-radius: 8px;
+        background:
+          linear-gradient(rgba(255, 255, 255, 0.028) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.028) 1px, transparent 1px), #0b0b0e;
+        background-size: 16px 16px;
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+      }
+
+      .compact-share {
+        display: grid;
+        width: min(100%, 270px);
+        gap: 12px;
+        border-radius: 8px;
+        background: #101013;
+        padding: 14px;
+        box-shadow:
+          0 14px 28px rgba(0, 0, 0, 0.36),
+          inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+      }
+
+      .compact-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .compact-title {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        min-width: 0;
+      }
+
+      .compact-title b {
+        display: block;
+        font-size: 13px;
+      }
+
+      .compact-title span {
+        display: block;
+        color: var(--dim);
+        font-size: 11px;
+      }
+
+      .tiny-link {
+        border-radius: 999px;
+        border: 1px solid rgba(245, 166, 35, 0.34);
+        background: rgba(245, 166, 35, 0.08);
+        color: #ffd89b;
+        padding: 6px 8px;
+        font-family: var(--mono);
+        font-size: 10px;
+      }
+
+      .badge-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .led-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border-radius: 999px;
+        border: 1px dashed rgba(45, 212, 191, 0.36);
+        background: rgba(45, 212, 191, 0.06);
+        padding: 7px 9px;
+        color: #d7fff6;
+        font-family: var(--mono);
+        font-size: 11px;
+      }
+
+      .bezel {
+        display: grid;
+        width: 132px;
+        aspect-ratio: 1;
+        place-items: center;
+        border-radius: 50%;
+        background:
+          repeating-linear-gradient(
+            90deg,
+            rgba(255, 255, 255, 0.028) 0,
+            rgba(255, 255, 255, 0.028) 1px,
+            transparent 1px,
+            transparent 7px
+          ),
+          #07100d;
+        box-shadow:
+          0 0 0 1px rgba(45, 212, 191, 0.14),
+          0 0 0 7px #111615,
+          0 0 0 8px rgba(255, 255, 255, 0.06),
+          0 20px 34px rgba(0, 0, 0, 0.5),
+          inset 0 0 22px rgba(0, 0, 0, 0.94);
+      }
+
+      .rail-card {
+        width: min(100%, 275px);
+        border-left: 1px solid rgba(245, 166, 35, 0.32);
+        padding-left: 18px;
+      }
+
+      .rail-card .session-row {
+        min-height: 48px;
+      }
+
+      .matrix-board {
+        width: min(100%, 280px);
+        border-radius: 8px;
+        background:
+          repeating-linear-gradient(
+            0deg,
+            rgba(255, 255, 255, 0.026) 0,
+            rgba(255, 255, 255, 0.026) 1px,
+            transparent 1px,
+            transparent 11px
+          ),
+          #08090a;
+        padding: 18px;
+        box-shadow:
+          inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+          0 18px 34px rgba(0, 0, 0, 0.42);
+      }
+
+      .matrix-board .board-line {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        border-bottom: 1px dashed var(--dash);
+        padding: 10px 0;
+      }
+
+      .matrix-board .board-line:first-child {
+        padding-top: 0;
+      }
+
+      .matrix-board .board-line:last-child {
+        border-bottom: 0;
+        padding-bottom: 0;
+      }
+
+      .board-text b {
+        display: block;
+        color: var(--text);
+      }
+
+      .board-text span {
+        color: var(--dim);
+        font-size: 11px;
+      }
+
+      .takeaway {
+        display: grid;
+        grid-template-columns: 0.8fr 1.2fr;
+        gap: 14px;
+        padding-bottom: 70px;
+      }
+
+      .note-panel {
+        padding: 18px;
+      }
+
+      .note-panel h2 {
+        font-size: 20px;
+      }
+
+      .note-panel p,
+      .note-panel li {
+        color: var(--muted);
+      }
+
+      .note-panel ul {
+        display: grid;
+        gap: 10px;
+        margin: 14px 0 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .note-panel li {
+        display: grid;
+        grid-template-columns: 18px minmax(0, 1fr);
+        gap: 10px;
+      }
+
+      .note-panel li::before {
+        content: "";
+        width: 8px;
+        height: 8px;
+        margin-top: 6px;
+        border-radius: 50%;
+        background: var(--amber);
+        box-shadow: 0 0 10px rgba(245, 166, 35, 0.52);
+      }
+
+      .spec-table {
+        display: grid;
+        border-top: 1px dashed var(--dash);
+      }
+
+      .spec-row {
+        display: grid;
+        grid-template-columns: 150px minmax(0, 1fr);
+        gap: 18px;
+        border-bottom: 1px dashed var(--dash);
+        padding: 12px 0;
+      }
+
+      .spec-row b {
+        color: var(--text);
+        font-family: var(--mono);
+        font-size: 11px;
+        font-weight: 560;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .spec-row span {
+        color: var(--muted);
+      }
+
+      @keyframes pixel-flicker {
+        0%,
+        100% {
+          filter: brightness(1);
+        }
+        50% {
+          filter: brightness(1.28);
+        }
+      }
+
+      @keyframes calm-breathe {
+        0%,
+        100% {
+          opacity: 0.42;
+          transform: scale(0.94);
+        }
+        50% {
+          opacity: 0.82;
+          transform: scale(1.04);
+        }
+      }
+
+      @media (max-width: 980px) {
+        .hero,
+        .takeaway {
+          grid-template-columns: 1fr;
+        }
+
+        .intro {
+          min-height: auto;
+        }
+
+        .variant-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 680px) {
+        .shell {
+          width: min(100% - 24px, var(--wrap));
+        }
+
+        .topbar-inner,
+        .picked-top,
+        .picked-bottom,
+        .section-head {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .hero {
+          padding-top: 34px;
+        }
+
+        .shared-card {
+          grid-template-columns: 1fr;
+          padding: 18px;
+        }
+
+        .face-stage {
+          min-height: 240px;
+        }
+
+        .signal-face {
+          width: min(220px, 86vw);
+        }
+
+        .pixel-eye {
+          --dot: 5px;
+          --gap: 4px;
+        }
+
+        .picked {
+          padding: 12px;
+        }
+
+        .metric-strip,
+        .picked-actions {
+          flex-wrap: wrap;
+        }
+
+        h1 {
+          font-size: 52px;
+        }
+
+        .nav-note {
+          display: none;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          animation-duration: 0.001ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.001ms !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <header class="topbar">
+        <div class="shell topbar-inner">
+          <div class="brand">
+            <span class="mark" aria-hidden="true"></span>
+            <span>Orange Replay / live LED exploration</span>
+          </div>
+          <span class="nav-note">Static design page. Current landing page is unchanged.</span>
+        </div>
+      </header>
+
+      <main class="shell">
+        <section class="hero" aria-labelledby="page-title">
+          <div class="intro">
+            <div>
+              <div class="kicker">Direction 02</div>
+              <h1 id="page-title">Old LED eye.</h1>
+              <p class="lead">
+                A flatter, more physical live signal. The eye is made from separate LED bulbs, not a
+                glossy ball. The card gives it a clear product job: share the live view.
+              </p>
+            </div>
+
+            <div class="rules" aria-label="Design rules">
+              <div class="rule">Keep the outer mark perfectly circular with aspect-ratio.</div>
+              <div class="rule">Let the visible pixel bulbs form the eye image.</div>
+              <div class="rule">Use glow only around lit pixels, not over the whole object.</div>
+              <div class="rule">Wrap the signal in a card people can understand and share.</div>
+            </div>
+          </div>
+
+          <article class="picked lit" aria-label="Picked live card direction">
+            <div class="picked-inner">
+              <div class="picked-top">
+                <div class="status-line">
+                  <span class="status-pill">
+                    <span class="mini-face" aria-hidden="true">
+                      <span class="pixel-eye tiny" data-led-eye data-cols="11" data-rows="7"></span>
+                    </span>
+                    Live now
+                  </span>
+                  <span class="watch-pill">3 watching</span>
+                </div>
+                <div class="picked-actions">
+                  <button class="ghost-button" type="button" data-copy-link>Copy live link</button>
+                  <button class="light-button" type="button">Watch live</button>
+                </div>
+              </div>
+
+              <div class="shared-card">
+                <div class="face-stage" aria-hidden="true">
+                  <div class="signal-face">
+                    <div class="pixel-eye" data-led-eye data-cols="19" data-rows="11"></div>
+                  </div>
+                </div>
+
+                <div class="live-copy">
+                  <div class="share-label"><span class="scan-dot"></span>Shareable live card</div>
+                  <h2>See the user while it is happening.</h2>
+                  <p>
+                    The signal is the hero, then the rows explain what is live. It should feel like
+                    a small hardware display embedded in the product.
+                  </p>
+
+                  <div class="session-list" aria-label="Live sessions">
+                    <div class="session-row">
+                      <span class="mini-face" aria-hidden="true">
+                        <span
+                          class="pixel-eye tiny"
+                          data-led-eye
+                          data-cols="11"
+                          data-rows="7"
+                        ></span>
+                      </span>
+                      <div class="row-main">
+                        <div class="path">/checkout</div>
+                        <div class="meta">
+                          <img src="flags/US.svg" alt="" />
+                          <span>San Francisco</span>
+                          <span>Chrome</span>
+                        </div>
+                      </div>
+                      <span class="time">4:12</span>
+                    </div>
+                    <div class="session-row">
+                      <span class="mini-face" aria-hidden="true">
+                        <span
+                          class="pixel-eye tiny"
+                          data-led-eye
+                          data-cols="11"
+                          data-rows="7"
+                        ></span>
+                      </span>
+                      <div class="row-main">
+                        <div class="path">/pricing</div>
+                        <div class="meta">
+                          <img src="flags/JP.svg" alt="" />
+                          <span>Tokyo</span>
+                          <span>Safari</span>
+                        </div>
+                      </div>
+                      <span class="time">0:47</span>
+                    </div>
+                    <div class="session-row">
+                      <span class="mini-face" aria-hidden="true">
+                        <span
+                          class="pixel-eye tiny"
+                          data-led-eye
+                          data-cols="11"
+                          data-rows="7"
+                        ></span>
+                      </span>
+                      <div class="row-main">
+                        <div class="path">/onboarding</div>
+                        <div class="meta">
+                          <img src="flags/BR.svg" alt="" />
+                          <span>Sao Paulo</span>
+                          <span>Chrome</span>
+                        </div>
+                      </div>
+                      <span class="time">2:03</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="picked-bottom">
+                <div class="metric-strip">
+                  <span class="metric"><b>1.00</b><span>roundness lock</span></span>
+                  <span class="metric"><b>19x11</b><span>LED matrix</span></span>
+                  <span class="metric"><b>0 gloss</b><span>flat housing</span></span>
+                </div>
+                <span class="chip">Best candidate for the landing page live section</span>
+              </div>
+            </div>
+          </article>
+        </section>
+
+        <section class="section" aria-labelledby="variants-title">
+          <div class="section-head">
+            <div>
+              <div class="micro-label" style="color: var(--dim)">Exploration set</div>
+              <h2 id="variants-title">Same idea, different sizes.</h2>
+            </div>
+            <p>
+              These are smaller uses of the same mark, so the landing page can reuse one language
+              instead of inventing a new green object for every row.
+            </p>
+          </div>
+
+          <div class="variant-grid">
+            <article class="variant lit">
+              <div class="variant-preview">
+                <div class="compact-share">
+                  <div class="compact-top">
+                    <div class="compact-title">
+                      <span class="mini-face" aria-hidden="true">
+                        <span
+                          class="pixel-eye tiny"
+                          data-led-eye
+                          data-cols="11"
+                          data-rows="7"
+                        ></span>
+                      </span>
+                      <span>
+                        <b>Live checkout</b>
+                        <span>3 people watching</span>
+                      </span>
+                    </div>
+                    <span class="tiny-link">copy</span>
+                  </div>
+                  <div class="badge-row">
+                    <span class="led-badge">4:12 active</span>
+                    <span class="led-badge">Chrome</span>
+                  </div>
+                </div>
+              </div>
+              <h3>Compact share tile</h3>
+              <p>A small product-card version. Stronger than a lone dot, still easy to place.</p>
+            </article>
+
+            <article class="variant lit">
+              <div class="variant-preview">
+                <div class="bezel" aria-hidden="true">
+                  <div class="pixel-eye small" data-led-eye data-cols="15" data-rows="9"></div>
+                </div>
+              </div>
+              <h3>Pure signal mark</h3>
+              <p>
+                The cleanest LED object. Good for the hero or a scroll moment where it can breathe.
+              </p>
+            </article>
+
+            <article class="variant lit">
+              <div class="variant-preview">
+                <div class="rail-card">
+                  <div class="session-row">
+                    <span class="mini-face" aria-hidden="true">
+                      <span class="pixel-eye tiny" data-led-eye data-cols="11" data-rows="7"></span>
+                    </span>
+                    <div class="row-main">
+                      <div class="path">/checkout</div>
+                      <div class="meta"><span>San Francisco</span></div>
+                    </div>
+                    <span class="time">4:12</span>
+                  </div>
+                  <div class="session-row">
+                    <span class="mini-face" aria-hidden="true">
+                      <span class="pixel-eye tiny" data-led-eye data-cols="11" data-rows="7"></span>
+                    </span>
+                    <div class="row-main">
+                      <div class="path">/pricing</div>
+                      <div class="meta"><span>Tokyo</span></div>
+                    </div>
+                    <span class="time">0:47</span>
+                  </div>
+                  <div class="session-row">
+                    <span class="mini-face" aria-hidden="true">
+                      <span class="pixel-eye tiny" data-led-eye data-cols="11" data-rows="7"></span>
+                    </span>
+                    <div class="row-main">
+                      <div class="path">/onboarding</div>
+                      <div class="meta"><span>Sao Paulo</span></div>
+                    </div>
+                    <span class="time">2:03</span>
+                  </div>
+                </div>
+              </div>
+              <h3>Live rail replacement</h3>
+              <p>
+                Closest to the current section, but the mark is now a real symbol instead of a dot.
+              </p>
+            </article>
+          </div>
+        </section>
+
+        <section class="takeaway" aria-label="Notes and specs">
+          <article class="note-panel lit">
+            <h2>What changed</h2>
+            <ul>
+              <li>The object is flat and hardware-like, so it avoids the glossy marble look.</li>
+              <li>The outer face is locked to a real circle, so it cannot become an oval.</li>
+              <li>The eye shape comes from LED bulbs, so the concept is visible at every size.</li>
+              <li>
+                The card has clear actions, so it reads like a shareable live-session component.
+              </li>
+            </ul>
+          </article>
+
+          <article class="note-panel lit">
+            <h2>Build notes for the real landing page</h2>
+            <div class="spec-table">
+              <div class="spec-row">
+                <b>Outer mark</b>
+                <span>Use aspect-ratio: 1, border-radius: 50%, and avoid transform scaling.</span>
+              </div>
+              <div class="spec-row">
+                <b>Pixel grid</b>
+                <span
+                  >Generate dots from one helper so large, small, and tiny marks stay related.</span
+                >
+              </div>
+              <div class="spec-row">
+                <b>Glow</b>
+                <span>Only lit pixels glow. The housing stays dark and matte.</span>
+              </div>
+              <div class="spec-row">
+                <b>Motion</b>
+                <span>Slow flicker and breathing only. Respect reduced motion.</span>
+              </div>
+            </div>
+          </article>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      (function () {
+        function numberFrom(value, fallback) {
+          var parsed = Number.parseInt(value || "", 10);
+          return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+        }
+
+        function seed(row, col, salt) {
+          var raw = Math.sin(row * 42.17 + col * 91.31 + salt * 17.73) * 10000;
+          return raw - Math.floor(raw);
+        }
+
+        function buildEye(element) {
+          var cols = numberFrom(element.getAttribute("data-cols"), 19);
+          var rows = numberFrom(element.getAttribute("data-rows"), 11);
+          element.style.gridTemplateColumns = "repeat(" + cols + ", var(--dot))";
+          element.textContent = "";
+
+          for (var row = 0; row < rows; row += 1) {
+            for (var col = 0; col < cols; col += 1) {
+              var dot = document.createElement("span");
+              dot.className = "pixel";
+
+              var x = (col - (cols - 1) / 2) / ((cols - 1) / 2);
+              var y = (row - (rows - 1) / 2) / ((rows - 1) / 2);
+              var eyeHeight = 0.16 + 0.54 * (1 - Math.pow(Math.abs(x), 1.7));
+              var insideEye = Math.abs(y) <= eyeHeight && x * x + Math.pow(y * 1.16, 2) <= 1.03;
+              var distance = Math.sqrt(x * x + Math.pow(y * 1.42, 2));
+
+              if (insideEye) {
+                dot.classList.add("active");
+                dot.style.setProperty("--base", String(0.62 + seed(row, col, 3) * 0.28));
+                dot.style.setProperty("--dur", String(2.4 + seed(row, col, 7) * 2.4) + "s");
+                dot.style.setProperty("--delay", String(-seed(row, col, 11) * 3.6) + "s");
+              }
+
+              if (insideEye && distance < 0.42) {
+                dot.classList.add("iris");
+              }
+
+              if (insideEye && distance < 0.2) {
+                dot.classList.add("pupil");
+              }
+
+              if (insideEye && (Math.abs(y) > eyeHeight * 0.72 || Math.abs(x) > 0.78)) {
+                dot.classList.add("edge");
+              }
+
+              element.appendChild(dot);
+            }
+          }
+        }
+
+        document.querySelectorAll("[data-led-eye]").forEach(buildEye);
+
+        var copyButton = document.querySelector("[data-copy-link]");
+        if (copyButton) {
+          copyButton.addEventListener("click", function () {
+            var label = copyButton.textContent;
+            copyButton.textContent = "Copied";
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard
+                .writeText("https://orange-replay.local/live/checkout")
+                .catch(function () {});
+            }
+            window.setTimeout(function () {
+              copyButton.textContent = label;
+            }, 1400);
+          });
+        }
+      })();
+    </script>
+  </body>
+</html>
