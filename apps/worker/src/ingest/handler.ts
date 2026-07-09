@@ -12,7 +12,14 @@ import {
   WireError,
 } from "@orange-replay/shared";
 import { shouldSampleSession } from "@orange-replay/shared/sampling";
-import type { EdgeAttrs, IngestAck, ProjectConfig, WideEventOutcome } from "@orange-replay/shared";
+import type {
+  EdgeAttrs,
+  IngestAck,
+  ProjectConfig,
+  RecorderProjectConfig,
+  WideEventOutcome,
+} from "@orange-replay/shared";
+import { ensureProjectConfigStorage } from "../api/project-config.ts";
 import type { AppendArgs } from "../do/contract.ts";
 import { isDevTestMode, setWorkerLoggerVersion, shardDb } from "../env.ts";
 import type { Env } from "../env.ts";
@@ -27,11 +34,12 @@ import {
   sanitizeBatchIndexEvents,
   sha256Hex,
   validateIngestHeaders,
+  validateWriteKeyHeader,
 } from "./helpers.ts";
 import type { ProjectConfigRow } from "./helpers.ts";
 
 const CONFIG_READ_QUERY =
-  "SELECT k.project_id AS projectId, k.active AS active, p.org_id AS orgId, p.retention_days AS retentionDays, p.jurisdiction AS jurisdiction, p.sample_rate AS sampleRate, p.allowed_origins AS allowedOrigins, p.mask_policy_version AS maskPolicyVersion, p.quota_state AS quotaState, o.shard AS shard FROM keys k JOIN projects p ON p.id = k.project_id JOIN orgs o ON o.id = p.org_id WHERE k.key_hash = ?";
+  "SELECT k.project_id AS projectId, k.active AS active, p.org_id AS orgId, p.retention_days AS retentionDays, p.jurisdiction AS jurisdiction, p.sample_rate AS sampleRate, p.allowed_origins AS allowedOrigins, p.mask_policy_version AS maskPolicyVersion, p.mask_rules AS maskRules, p.capture_toggles AS capture, p.quota_state AS quotaState, p.config_version AS version, o.shard AS shard FROM keys k JOIN projects p ON p.id = k.project_id JOIN orgs o ON o.id = p.org_id WHERE k.key_hash = ?";
 
 export function handleIngest(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   setWorkerLoggerVersion(env);
@@ -62,6 +70,93 @@ export function handleIngest(request: Request, env: Env, ctx: ExecutionContext):
   return handleIngestPost(request, env, ctx);
 }
 
+export async function handleRecorderConfig(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<Response> {
+  setWorkerLoggerVersion(env);
+  const requestId = uuidv7();
+  const event = startWideEvent("worker", "recorder.config", requestId);
+  let statusCode = 500;
+  let outcome: WideEventOutcome = "server_error";
+  let responseHeaders = ingestPostHeaders(request);
+  responseHeaders.set(HDR_REQUEST_ID, requestId);
+  responseHeaders.set("cache-control", "no-store");
+
+  const finish = (body: unknown, status: number, nextOutcome: WideEventOutcome): Response => {
+    statusCode = status;
+    outcome = nextOutcome;
+    if (status === 429) responseHeaders.set("retry-after", "2");
+    return jsonResponse(body, status, responseHeaders);
+  };
+
+  try {
+    if (request.method === "OPTIONS") {
+      responseHeaders = ingestPreflightHeaders(request);
+      responseHeaders.set("access-control-allow-methods", "GET,OPTIONS");
+      responseHeaders.set(HDR_REQUEST_ID, requestId);
+      statusCode = 204;
+      outcome = "success";
+      return new Response(null, { status: 204, headers: responseHeaders });
+    }
+    if (request.method !== "GET") {
+      return finish({ error: "method not allowed" }, 405, "client_error");
+    }
+
+    const writeKey = validateWriteKeyHeader(request.headers);
+    if (!writeKey.ok) return finish({ error: writeKey.error }, 400, "client_error");
+
+    const keyHash = await sha256Hex(writeKey.value);
+    // Unlike the ingest hot path, this public endpoint applies the lookup
+    // limiter before the KV read too — the write key is public (demo) and a
+    // recorder only fetches config once per page load.
+    if (!(await ingestIpRateLimitAllows(env, env.INGEST_LOOKUP_RATE_LIMITER, request, "lookup"))) {
+      event.set({ rate_limit: "lookup" });
+      return finish({ error: "rate_limited" }, 429, "rate_limited");
+    }
+    const configResult = await loadProjectConfig(env, ctx, keyHash, request, true);
+    event.set({ kv_hit: configResult.kvHit });
+    if (configResult.lookupRateLimited) {
+      event.set({ rate_limit: "lookup" });
+      return finish({ error: "rate_limited" }, 429, "rate_limited");
+    }
+
+    const config = configResult.config;
+    if (config === null || !config.active) {
+      return finish({ error: "unknown or inactive ingest key" }, 401, "client_error");
+    }
+
+    responseHeaders = ingestPostHeaders(request, config.allowedOrigins);
+    responseHeaders.set(HDR_REQUEST_ID, requestId);
+    responseHeaders.set("cache-control", "no-store");
+    event.set({ project_id: config.projectId, org_id: config.orgId });
+    if (!browserOriginIsAllowed(request, config.allowedOrigins)) {
+      return finish({ error: "origin is not allowed" }, 403, "client_error");
+    }
+
+    const recorderConfig: RecorderProjectConfig = {
+      sampleRate: config.quotaState === "exceeded" ? 0 : config.sampleRate,
+      maskPolicyVersion: config.maskPolicyVersion,
+      maskRules: config.maskRules ?? [],
+      capture: config.capture ?? {
+        heatmaps: false,
+        console: false,
+        network: false,
+        canvas: false,
+      },
+      version: config.version ?? 0,
+    };
+    return finish(recorderConfig, 200, "success");
+  } catch (error) {
+    event.fail(error);
+    return finish({ error: "recorder config failed" }, 500, "server_error");
+  } finally {
+    event.set({ route: "/v1/config", method: request.method, status_code: statusCode });
+    event.emit(outcome);
+  }
+}
+
 async function handleIngestPost(
   request: Request,
   env: Env,
@@ -78,6 +173,7 @@ async function handleIngestPost(
     statusCode = status;
     outcome = nextOutcome;
     responseHeaders.set(HDR_REQUEST_ID, requestId);
+    if (status === 429) responseHeaders.set("retry-after", "2");
     return jsonResponse(body, status, responseHeaders);
   };
 
@@ -105,13 +201,12 @@ async function handleIngestPost(
     }
 
     const keyHash = await sha256Hex(key);
-    if (!(await ingestIpRateLimitAllows(env, env.INGEST_LOOKUP_RATE_LIMITER, request, "lookup"))) {
+    const configResult = await loadProjectConfig(env, ctx, keyHash, request);
+    event.set({ kv_hit: configResult.kvHit });
+    if (configResult.lookupRateLimited) {
       event.set({ rate_limit: "lookup" });
       return finish({ error: "rate_limited" }, 429, "rate_limited");
     }
-
-    const configResult = await loadProjectConfig(env, ctx, keyHash);
-    event.set({ kv_hit: configResult.kvHit });
 
     const config = configResult.config;
     if (config !== null) {
@@ -353,26 +448,35 @@ async function loadProjectConfig(
   env: Env,
   ctx: ExecutionContext,
   keyHash: string,
-): Promise<{ config: ProjectConfig | null; kvHit: boolean }> {
+  request: Request,
+  requireRecorderFields = false,
+): Promise<{ config: ProjectConfig | null; kvHit: boolean; lookupRateLimited: boolean }> {
   const kvConfig = parseProjectConfig(await getCachedProjectConfig(env, keyHash));
-  if (kvConfig !== null) {
-    return { config: kvConfig, kvHit: true };
+  if (kvConfig !== null && (!requireRecorderFields || hasRecorderFields(kvConfig))) {
+    return { config: kvConfig, kvHit: true, lookupRateLimited: false };
   }
 
+  if (!(await ingestIpRateLimitAllows(env, env.INGEST_LOOKUP_RATE_LIMITER, request, "lookup"))) {
+    return { config: null, kvHit: false, lookupRateLimited: true };
+  }
+
+  await ensureProjectConfigStorage(env);
   const row = await shardDb(env, 0)
     .prepare(CONFIG_READ_QUERY)
     .bind(keyHash)
     .first<ProjectConfigRow>();
   const d1Config = mapConfigRowToProjectConfig(row ?? null);
   if (d1Config !== null) {
-    ctx.waitUntil(
-      env.CONFIG.put(configKvKey(keyHash), JSON.stringify(d1Config), {
-        expirationTtl: PROJECT_CONFIG_CACHE_TTL_SECONDS,
-      }),
-    );
+    ctx.waitUntil(env.CONFIG.put(configKvKey(keyHash), JSON.stringify(d1Config)));
   }
 
-  return { config: d1Config, kvHit: false };
+  return { config: d1Config, kvHit: false, lookupRateLimited: false };
+}
+
+function hasRecorderFields(config: ProjectConfig): boolean {
+  return (
+    config.maskRules !== undefined && config.capture !== undefined && config.version !== undefined
+  );
 }
 
 async function getCachedProjectConfig(env: Env, keyHash: string): Promise<unknown> {

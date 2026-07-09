@@ -83,8 +83,11 @@ export interface ProjectConfigRow {
   sampleRate: unknown;
   allowedOrigins: unknown;
   maskPolicyVersion: unknown;
+  maskRules?: unknown;
+  capture?: unknown;
   quotaState: unknown;
   shard: unknown;
+  version?: unknown;
 }
 
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
@@ -114,16 +117,9 @@ const INDEX_EVENT_KINDS = new Set<IndexEventKind>([
 const encoder = new TextEncoder();
 
 export function validateIngestHeaders(headers: Headers): HeaderValidationResult {
-  const key = headers.get(HDR_KEY);
-  if (key === null || key.length === 0) {
-    return { ok: false, error: `${HDR_KEY} is required` };
-  }
-  if (!WRITE_KEY_PATTERN.test(key)) {
-    return {
-      ok: false,
-      error: `${HDR_KEY} must be a generated key like or_live_ plus 32 base64url characters`,
-    };
-  }
+  const writeKey = validateWriteKeyHeader(headers);
+  if (!writeKey.ok) return writeKey;
+  const key = writeKey.value;
 
   const sessionId = headers.get(HDR_SESSION);
   if (sessionId === null || !SESSION_ID_PATTERN.test(sessionId)) {
@@ -154,6 +150,22 @@ export function validateIngestHeaders(headers: Headers): HeaderValidationResult 
   }
 
   return { ok: true, value: { key, sessionId, tab, seq, flags } };
+}
+
+export function validateWriteKeyHeader(
+  headers: Headers,
+): { ok: true; value: string } | { ok: false; error: string } {
+  const key = headers.get(HDR_KEY);
+  if (key === null || key.length === 0) {
+    return { ok: false, error: `${HDR_KEY} is required` };
+  }
+  if (!WRITE_KEY_PATTERN.test(key)) {
+    return {
+      ok: false,
+      error: `${HDR_KEY} must be a generated key like or_live_ plus 32 base64url characters`,
+    };
+  }
+  return { ok: true, value: key };
 }
 
 export function readContentLength(
@@ -244,12 +256,24 @@ export function mapConfigRowToProjectConfig(row: ProjectConfigRow | null): Proje
     sampleRate: row.sampleRate,
     allowedOrigins,
     maskPolicyVersion: row.maskPolicyVersion,
+    maskRules: parseJsonValue(row.maskRules),
+    capture: parseJsonValue(row.capture),
     quotaState: row.quotaState,
     retentionDays: row.retentionDays,
+    version: row.version,
     ...(jurisdiction === undefined ? {} : { jurisdiction }),
   };
 
   return parseProjectConfig(candidate);
+}
+
+function parseJsonValue(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return undefined;
+  }
 }
 
 export function sanitizeBatchIndexEvents(index: BatchIndex): {

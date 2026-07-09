@@ -8,7 +8,7 @@ import {
   uuidv7,
 } from "@orange-replay/shared";
 import type { LiveTicketResponse } from "@orange-replay/shared";
-import type { PresenceSession } from "../do/presence-logic.ts";
+import { listProjectPresence, readProjectInstallStatus } from "../do/presence-client.ts";
 import { liveSessionsFromPresenceRows } from "../do/presence-logic.ts";
 import { setWorkerLoggerVersion, shardDb, type Env } from "../env.ts";
 import { readBodyCapped, readContentLength } from "../ingest/helpers.ts";
@@ -182,11 +182,10 @@ async function routeRequest(
 
 async function listLiveSessions(env: Env, projectId: string, requestId: string): Promise<Response> {
   const now = Date.now();
-  const response = await fetchPresence(env, projectId, "/list", requestId, { projectId, now });
-  if (!response.ok) return jsonError("presence_unavailable", 503);
-  const body = (await response.json()) as { sessions?: PresenceSession[] };
+  const body = await listProjectPresence(env, projectId, requestId, now);
+  if (body === null) return jsonError("presence_unavailable", 503);
   return jsonResponse({
-    sessions: liveSessionsFromPresenceRows(body.sessions ?? [], now),
+    sessions: liveSessionsFromPresenceRows(body.sessions, now),
   });
 }
 
@@ -219,11 +218,9 @@ async function putProjectConfig(
 }
 
 async function getInstallStatus(env: Env, projectId: string, requestId: string): Promise<Response> {
-  const response = await fetchPresence(env, projectId, "/install-status", requestId, {
-    projectId,
-  });
-  if (!response.ok) return jsonError("presence_unavailable", 503);
-  return jsonResponse(await response.json());
+  const status = await readProjectInstallStatus(env, projectId, requestId);
+  if (status === null) return jsonError("presence_unavailable", 503);
+  return jsonResponse(status);
 }
 
 async function getProjectKeys(
@@ -344,24 +341,6 @@ async function proxyLiveSession(
   headers.set(LIVE_AUTH_HEADER, "ticket");
   const response = await stub.fetch(new Request(request, { headers }));
   return response.status === 101 ? response : withSecurityHeaders(response);
-}
-
-async function fetchPresence(
-  env: Env,
-  projectId: string,
-  path: "/list" | "/install-status",
-  requestId: string,
-  body: unknown,
-): Promise<Response> {
-  const stub = env.PRESENCE.get(env.PRESENCE.idFromName(projectId));
-  return await stub.fetch(`https://presence.internal${path}`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      [HDR_REQUEST_ID]: requestId,
-    },
-    body: JSON.stringify(body),
-  });
 }
 
 async function checkAuth(

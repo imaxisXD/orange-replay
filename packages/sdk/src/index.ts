@@ -2,11 +2,12 @@ import type { IndexEvent } from "@orange-replay/shared/types";
 import type { eventWithTime } from "@orange-replay/rrweb-fork";
 import { CheckpointSnapshotLimiter } from "./checkpoint.ts";
 import { markSdkInternalError } from "./internal-error.ts";
+import { loadRecorderProjectConfig } from "./project-config.ts";
 import { Recorder } from "./recorder.ts";
 import { shouldSampleSession } from "./sampling.ts";
 import { SessionManager } from "./session.ts";
 import { InlineSink, WorkerSink } from "./sink.ts";
-import { Sidecar } from "./sidecar.ts";
+import { discardLoaderPreBuffer, Sidecar } from "./sidecar.ts";
 import type { InitOptions, OrangeReplayHandle } from "./types.ts";
 import { resolveInitOptions } from "./types.ts";
 
@@ -14,6 +15,14 @@ export type { InitOptions, OrangeReplayHandle, RecorderConfig } from "./types.ts
 export type { LoaderSnippetConfig } from "./loader.ts";
 
 let activeHandle: OrangeReplayHandle | undefined;
+const MAX_PENDING_CUSTOM_EVENTS = 20;
+
+interface RecorderRuntime {
+  sink: InlineSink | WorkerSink;
+  sidecar: Sidecar;
+  recorder: Recorder;
+  stopTouchListeners: () => void;
+}
 
 export function init(options: InitOptions): OrangeReplayHandle {
   try {
@@ -25,91 +34,107 @@ export function init(options: InitOptions): OrangeReplayHandle {
       return noopHandle();
     }
 
-    const config = resolveInitOptions(options);
+    const localConfig = resolveInitOptions(options);
     const session = new SessionManager({
-      projectRef: config.projectRef,
+      projectRef: localConfig.projectRef,
       now: () => Date.now(),
     });
-
-    if (!shouldSampleSession(session.sessionId, config.sampleRate)) {
-      void session.ready.then(() => session.stop());
-      return noopHandle((base) => session.getSessionUrl(base ?? config.ingestUrl));
-    }
-
-    let rotationPromise: Promise<void> | undefined;
-    let started = false;
     let stopRequested = false;
-    let stopTouchListeners: (() => void) | undefined;
-    let checkpointSnapshots: CheckpointSnapshotLimiter | undefined;
-    const requestCheckpointSnapshot = () => {
-      checkpointSnapshots?.requestSnapshot();
-    };
-    const rotateSession = () => {
-      if (rotationPromise !== undefined) {
-        return rotationPromise;
-      }
+    let runtime: RecorderRuntime | undefined;
+    const pendingCustomEvents: Array<{ name: string; meta?: Record<string, unknown> }> = [];
+    const startPromise = session.ready
+      .then(async () => {
+        const config = await loadRecorderProjectConfig(
+          localConfig,
+          window.fetch.bind(window) as typeof fetch,
+          document,
+        );
+        if (!shouldSampleSession(session.sessionId, config.sampleRate)) {
+          discardLoaderPreBuffer(window);
+          session.stop();
+          return;
+        }
 
-      rotationPromise = (async () => {
-        await sink.prepareForSessionRotation();
-        session.rotate();
-        sink.resetAfterSessionRotation();
-        recorder.takeFullSnapshot();
-      })().finally(() => {
-        rotationPromise = undefined;
-      });
+        let rotationPromise: Promise<void> | undefined;
+        let checkpointSnapshots: CheckpointSnapshotLimiter | undefined;
+        let sink: InlineSink | WorkerSink;
+        let recorder: Recorder;
+        const requestCheckpointSnapshot = () => checkpointSnapshots?.requestSnapshot();
+        const rotateSession = () => {
+          if (rotationPromise !== undefined) return rotationPromise;
 
-      return rotationPromise;
-    };
-
-    const sink =
-      config.transport === "inline"
-        ? new InlineSink({
-            config,
-            session,
-            window,
-            onSessionClosed() {
-              void rotateSession();
-            },
-            onCheckpointRequested: requestCheckpointSnapshot,
-          })
-        : new WorkerSink({
-            config,
-            session,
-            window,
-            onSessionClosed() {
-              void rotateSession();
-            },
-            onCheckpointRequested: requestCheckpointSnapshot,
+          rotationPromise = (async () => {
+            await sink.prepareForSessionRotation();
+            session.rotate();
+            sink.resetAfterSessionRotation();
+            recorder.takeFullSnapshot();
+          })().finally(() => {
+            rotationPromise = undefined;
           });
-    const sidecar = new Sidecar({ config, sink, now: () => Date.now(), window });
-    const recorder = new Recorder({ config, sink });
-    checkpointSnapshots = new CheckpointSnapshotLimiter({ recorder });
-    const startPromise = session.ready.then(() => {
-      if (stopRequested) {
-        return;
-      }
+          return rotationPromise;
+        };
 
-      stopTouchListeners = startSessionTouchListeners(window, session, () => {
-        void rotateSession();
+        sink =
+          config.transport === "inline"
+            ? new InlineSink({
+                config,
+                session,
+                window,
+                onSessionClosed: () => void rotateSession(),
+                onCheckpointRequested: requestCheckpointSnapshot,
+              })
+            : new WorkerSink({
+                config,
+                session,
+                window,
+                onSessionClosed: () => void rotateSession(),
+                onCheckpointRequested: requestCheckpointSnapshot,
+              });
+        const sidecar = new Sidecar({ config, sink, now: () => Date.now(), window });
+        recorder = new Recorder({ config, sink });
+        checkpointSnapshots = new CheckpointSnapshotLimiter({ recorder });
+        if (stopRequested) {
+          runtime = { sink, sidecar, recorder, stopTouchListeners: () => undefined };
+          sidecar.drainPreBuffer();
+          for (const event of pendingCustomEvents.splice(0)) {
+            sidecar.addCustomEvent(event.name, event.meta);
+          }
+          return;
+        }
+
+        const stopTouchListeners = startSessionTouchListeners(window, session, () => {
+          void rotateSession();
+        });
+        runtime = { sink, sidecar, recorder, stopTouchListeners };
+
+        sink.start();
+        sidecar.start();
+        recorder.start();
+        for (const event of pendingCustomEvents.splice(0)) {
+          sidecar.addCustomEvent(event.name, event.meta);
+          recorder.addCustomEvent(event.name, event.meta ?? {});
+        }
+      })
+      .catch(async (error) => {
+        console.warn("Orange Replay start failed.", error);
+        discardLoaderPreBuffer(window);
+        runtime?.sidecar.stop();
+        runtime?.recorder.stop();
+        runtime?.stopTouchListeners();
+        await runtime?.sink.stop();
+        session.stop();
+        runtime = undefined;
       });
-      sink.start();
-      sidecar.start();
-      recorder.start();
-      started = true;
-    });
 
     activeHandle = {
       async stop() {
         try {
           stopRequested = true;
           await startPromise;
-          if (!started) {
-            sidecar.drainPreBuffer();
-          }
-          sidecar.stop();
-          recorder.stop();
-          stopTouchListeners?.();
-          await sink.stop();
+          runtime?.sidecar.stop();
+          runtime?.recorder.stop();
+          runtime?.stopTouchListeners();
+          await runtime?.sink.stop();
           session.stop();
         } catch (error) {
           console.warn("Orange Replay stop failed.", error);
@@ -119,15 +144,21 @@ export function init(options: InitOptions): OrangeReplayHandle {
       },
       addCustomEvent(name: string, meta?: Record<string, unknown>) {
         try {
-          sidecar.addCustomEvent(name, meta);
-          recorder.addCustomEvent(name, meta ?? {});
+          if (runtime === undefined) {
+            if (!stopRequested && pendingCustomEvents.length < MAX_PENDING_CUSTOM_EVENTS) {
+              pendingCustomEvents.push({ name, meta });
+            }
+            return;
+          }
+          runtime.sidecar.addCustomEvent(name, meta);
+          runtime.recorder.addCustomEvent(name, meta ?? {});
         } catch (error) {
           console.warn("Orange Replay custom event failed.", error);
         }
       },
       getSessionUrl(base?: string) {
         try {
-          return session.getSessionUrl(base ?? config.ingestUrl);
+          return session.getSessionUrl(base ?? localConfig.ingestUrl);
         } catch {
           return "";
         }

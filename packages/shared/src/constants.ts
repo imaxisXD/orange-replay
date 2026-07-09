@@ -27,9 +27,13 @@ export const FLUSH_TAIL_AFTER_IDLE_MS = 120_000;
 export const CLOSE_SESSION_AFTER_IDLE_MS = 1_800_000;
 export const PRESENCE_TTL_MS = 60_000;
 export const PRESENCE_HEARTBEAT_MS = 20_000;
+export const PRESENCE_SHARD_COUNT = 16;
 export const SESSION_APPEND_RATE_LIMIT_COUNT = 30;
 export const SESSION_APPEND_RATE_LIMIT_WINDOW_MS = 10_000;
 export const LIVE_TICKET_TTL_MS = 60_000;
+// Bounds per-viewer broadcast fan-out on a session DO; live tickets are reusable
+// within their TTL, so this cap is what prevents unbounded socket replay.
+export const MAX_LIVE_VIEWERS_PER_SESSION = 32;
 export const PROJECT_CONFIG_CACHE_TTL_SECONDS = 60;
 
 export function sessionPrefix(projectId: string, sessionId: string): string {

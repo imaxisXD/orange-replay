@@ -1,4 +1,12 @@
 import { SDK_FLUSH_DEFAULT_MS } from "@orange-replay/shared/constants";
+import type { CaptureToggles } from "@orange-replay/shared/types";
+
+const DEFAULT_CAPTURE: CaptureToggles = {
+  heatmaps: false,
+  console: false,
+  network: false,
+  canvas: false,
+};
 
 export interface InitOptions {
   key: string;
@@ -18,6 +26,8 @@ export interface RecorderConfig {
   projectRef: string;
   transport?: "worker" | "inline";
   sampleRate: number;
+  maskPolicyVersion: number;
+  capture: CaptureToggles;
   maskTextSelector?: string;
   blockSelector?: string;
   ignoreSelector?: string;
@@ -38,6 +48,8 @@ export function resolveInitOptions(options: InitOptions): RecorderConfig {
     projectRef: options.key,
     transport: options.transport === "inline" ? "inline" : "worker",
     sampleRate: clampSampleRate(options.sampleRate ?? 1),
+    maskPolicyVersion: 0,
+    capture: { ...DEFAULT_CAPTURE },
     maskTextSelector: cleanOptionalString(options.maskTextSelector),
     blockSelector: cleanOptionalString(options.blockSelector),
     ignoreSelector: cleanOptionalString(options.ignoreSelector),

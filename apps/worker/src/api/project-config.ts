@@ -2,7 +2,6 @@ import {
   captureTogglesSchema,
   configKvKey,
   maskRulesSchema,
-  PROJECT_CONFIG_CACHE_TTL_SECONDS,
   projectConfigUpdateSchema,
   storedProjectConfigSchema,
 } from "@orange-replay/shared";
@@ -102,6 +101,10 @@ export async function readStoredProjectConfig(
 
   const row = await db.prepare(projectConfigSelect).bind(projectId).first<ProjectConfigRow>();
   return row === null ? null : mapProjectConfigRow(row);
+}
+
+export async function ensureProjectConfigStorage(env: Env): Promise<void> {
+  await ensureProjectConfigColumns(shardDb(env, 0));
 }
 
 export async function writeStoredProjectConfig(
@@ -214,9 +217,7 @@ async function writeConfigCacheForProject(env: Env, config: StoredProjectConfig)
       ...config,
       active: row.active === 1,
     };
-    await env.CONFIG.put(configKvKey(row.key_hash), JSON.stringify(cachedConfig), {
-      expirationTtl: PROJECT_CONFIG_CACHE_TTL_SECONDS,
-    });
+    await env.CONFIG.put(configKvKey(row.key_hash), JSON.stringify(cachedConfig));
   }
 }
 

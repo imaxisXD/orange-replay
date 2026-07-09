@@ -45,21 +45,21 @@ Inverting the packaging (combined first, split later) means the self-host artifa
 ### Loading
 
 - **Loader snippet < 2 KB** inline: starts a pre-buffer (captures `error`, `unhandledrejection`, early clicks, nav timing), then async-loads the recorder bundle. No blocking script.
-- **Recorder core: 32 KB gzip target, 35 KB hard CI ceiling** (measured ~33 KB with the full rrweb 2.1.0 record path — lighter than rrweb-based competitors' 40–60 KB; the original 20 KB target resumes as a roadmap item via fork-side stripping of iframe/shadow-DOM/legacy paths), zero runtime dependencies. Console/network/canvas capture are lazy-loaded plugin chunks, opt-in.
+- **Recorder core: 32 KB gzip target, 35 KB hard CI ceiling** (measured ~33 KB with the full rrweb 2.1.0 record path — lighter than rrweb-based competitors' 40–60 KB; the original 20 KB target resumes as a roadmap item via fork-side stripping of iframe/shadow-DOM/legacy paths), zero runtime dependencies. Canvas capture is opt-in through project config. Console/network capture remain planned lazy plugin chunks and are not collected yet.
 
 ### Recording
 
 - rrweb-based capture (fork, pinned): full DOM snapshot + incremental mutations, input masking **on by default** (`mask-all-inputs`, text masking by selector, `data-orange-block` to fully block subtrees). Canvas and cross-origin iframe capture opt-in only.
 - **Why a fork** (pinned, tracking upstream — the same play as PostHog's and Sentry's rrweb forks): (1) supply-chain and release control over code that executes on _customers'_ pages — nothing lands unreviewed; (2) a capture-only build — strip the player, packers, and pako paths to hit the ≤20 KB budget; (3) the emit path is rewired to `postMessage` transferables for the worker-thread pipeline, which upstream's in-thread callback design doesn't accommodate; (4) default-deny masking baked into the build rather than configured around it. Generally useful fixes flow back upstream.
 - **Privacy is default-deny**: nothing leaves the page unmasked unless the integrator explicitly allows it. This is a selling point, not a config burden. Masking happens **at capture, in the browser** — same as FullStory/PostHog/Hotjar (`data-orange-block` ≈ their suppress/exclude classes) — so the "server never sees it" property costs nothing here; we're strictly stricter because masking is the default, not opt-in.
-- **Config-driven capture (dashboard-controlled)**: feature toggles — heatmap signals, console/network/canvas capture, detectors, masking rules — live in project config, edited from the dashboard, fetched with the recorder bundle (cached), and applied on next page load with no customer deploy. Optional capture modules are lazy plugin chunks that never download unless enabled, so toggles cost nothing when off. Masking rule sets are versioned (`maskPolicyVersion`) for auditability.
+- **Config-driven capture (dashboard-controlled)**: before rrweb starts, the SDK fetches `GET /v1/config` with the public write key. The Worker serves the D1-backed project config through persistent KV with a 60 s edge cache. Sampling, masking/block rules, policy version, and canvas capture apply on that page load with no customer deploy. The SDK keeps local sampling as a ceiling and ignores invalid remote CSS selectors. A timeout, server error, or malformed config fails closed to no recording; only an explicit 404 from an older Worker falls back to local settings for upgrade compatibility. Console/network toggles are stored for the planned lazy capture chunks but do not claim to collect data today. Masking rule sets are versioned (`maskPolicyVersion`) for auditability.
 
 ### Off-main-thread pipeline (the perf differentiator)
 
 1. rrweb emits events on the main thread (unavoidable) → immediately `postMessage` to a **Web Worker** (transferable where possible).
 2. Worker serializes, delta/strips redundant fields, and compresses with **native `CompressionStream('gzip')`** — no JS zlib on the main thread, no pako in the bundle.
 3. Batches flush on: **adaptive timer**, ~128 KB raw-estimate (the timer dominates typical sessions; switching the byte trigger to the compressed estimate is a known tuning opportunity), visibility change, or `pagehide`. Default cadence 15 s; the ingest response carries a `live` flag when viewers are watching this session and the SDK tightens to 3–5 s. Flush count is the main per-session cost driver (DO requests + SQLite rows written scale with it), so we only pay for real-time cadence when someone is actually watching — competitors flush every ~5 s for everyone.
-4. Transport: `fetch(..., { keepalive: true })` for unload-time batches (< 64 KB keepalive limit — final batches are kept small), regular `fetch` otherwise. (`sendBeacon` is deliberately NOT used: it cannot carry the `x-or-*` auth/session headers ingest requires.) Retries with backoff; on sustained failure, cap memory and drop lowest-value events first (mousemove → scroll → mutations never).
+4. Transport: `fetch(..., { keepalive: true })` for unload-time batches (< 64 KB keepalive limit — final batches are kept small), regular `fetch` otherwise. (`sendBeacon` is deliberately NOT used: it cannot carry the `x-or-*` auth/session headers ingest requires.) Network errors, 5xx, and 429 responses retry up to five times with exponential backoff; `Retry-After` is honored. On sustained failure, cap memory and drop lowest-value events first (mousemove → scroll → mutations never).
 5. Fallback for browsers without `CompressionStream`: send uncompressed with a header flag; the ingest Worker compresses before storage so the stored format is uniform.
 
 ### Wire protocol (`POST /v1/ingest`)
@@ -73,7 +73,7 @@ Inverting the packaging (combined first, split later) means the self-host artifa
 ### Session semantics
 
 - `sessionId` = UUIDv7 stored in `sessionStorage` + first-party cookie; survives SPA navigation and multi-tab (tab id in batch metadata). Idle timeout 30 min → new session.
-- Deterministic **sampling decided client-side from config** (rate + rules fetched with the recorder bundle, cached), so unsampled sessions cost zero network. Server re-checks to prevent abuse.
+- Deterministic **sampling decided client-side after the config request and before capture starts**, so unsampled sessions send no replay batches. Server re-checks to prevent abuse.
 - `orangeReplay.getSessionUrl()` — returns the replay deep-link for attaching to Sentry/Datadog/console logs.
 
 ---
@@ -82,8 +82,8 @@ Inverting the packaging (combined first, split later) means the self-host artifa
 
 ### Ingest Worker (stateless, hot)
 
-1. **Auth**: write key → project config via **KV** (cached at edge with `cacheTtl: 60`, ~ms). Config carries origin allowlist, sampling rate, quota state, masking policy version. **On KV miss, read-through to the control plane (D1) before rejecting** — KV caches negative lookups for up to 60 s, so a freshly created write key would otherwise 401 on first use; the read-through also backfills KV.
-2. **Abuse/rate control**: per-session in-DO append rate limit (shipped) + server-side sampling re-check (shipped); the Workers Rate Limiting binding per key+IP for the hot-project case is DEFERRED to real-account deployment; hard reject oversized bodies (> 1 MB compressed); Turnstile-free (SDK traffic), rely on key+origin+quota.
+1. **Auth**: write key → project config via **persistent KV** (cached at edge with `cacheTtl: 60`, ~ms). Config carries origin allowlist, sampling rate, quota state, masking rules/policy version, and capture toggles. **On KV miss, read-through to the control plane (D1) before rejecting**; the read-through backfills KV. Dashboard writes replace the KV value instead of expiring it every minute, so steady valid traffic does not churn through D1.
+2. **Abuse/rate control**: valid KV hits skip the IP-based unknown-key lookup limiter, so a large office/NAT cannot throttle its normal batches. KV misses and unknown keys use the lookup limiter (300/min/location/IP). Known traffic uses a 60,000 batches/min/location project-key limit plus a 12,000 new-sessions/min/location project limit, sized above the 10K-concurrent-session target at the normal 15 s cadence. The per-session in-DO append limiter, server sampling re-check, quota checks, origin checks, and hard compressed-body cap remain the final boundaries. Cloudflare's rate-limit counters are intentionally approximate and location-local, so billing/quota correctness never depends on them.
 3. **Enrichment**: attach `request.cf` (country, city, ASN, bot score if available, TLS) — geo/device data for free, no client lookup, no IP stored by default (GDPR posture).
 4. **Route**: `env.SESSION.idFromName(`${projectId}:${sessionId}`)` → RPC `appendBatch(...)`. Per-session DO = natural sharding; a session produces ~0.2 req/s, nowhere near the ~1K req/s per-DO limit. No hot keys.
 
@@ -98,6 +98,10 @@ SQLite-backed DO. Responsibilities:
 - **Finalization**: one alarm, queue-pattern for both deadlines (idle 2 min for flush-tail, 30 min for session close). **Don't reset the alarm on every append** — each `setAlarm()` is a billed SQLite row write; keep the next-fire time in memory and only re-arm when it drifts past the deadline or after a cold start (`getAlarm()` on construct). On close: flush remainder, write `manifest.json` to R2, emit `session.finalized` to the Queue, `storage.deleteAll()`, let the DO evict. DO storage cost is transient by design.
 - **Async interleaving**: SQLite ops are synchronous (`ctx.storage.sql`) so append is race-free without `blockConcurrencyWhile` on the hot path.
 - **Hibernation eligibility is a billing invariant**: DO duration is billed only while actively running or while pinned in memory _unable_ to hibernate — hibernation-eligible idle time is free. So: hibernation WebSockets only, no `setTimeout`/`setInterval` outliving a request (alarms instead), no long-polling. Break this and a 10-minute session bills ~75 GB-s of duration instead of ~1–2 s of active CPU time — a ~50× cost difference on the single biggest line item.
+
+### `PresenceRegistry` Durable Objects (16 per active project)
+
+Live presence is split deterministically by session id across 16 DO names (`project:presence:0..15`). A heartbeat or remove touches exactly one shard; live-list and install-status reads fan out in parallel and merge the results. At the 10K-session target this changes the worst case from one project-wide DO receiving roughly 500 heartbeat writes/s to about 31 writes/s per shard, without adding a global coordinator. A shard outage degrades the live list instead of blocking recording; the session DO remains the source of recording truth.
 
 ### Segment format (zero-server-decompression, reliable playback)
 

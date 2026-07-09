@@ -7,7 +7,7 @@ import { isDashboardAppRoute, serveDashboardAppShell } from "./app-shell.ts";
 import { handleFinalizeBatch } from "./consumer/queue.ts";
 import { sweepExpiredSessions } from "./consumer/sweeper.ts";
 import { isDevTestMode, setWorkerLoggerVersion, type Env, type FinalizeMessage } from "./env.ts";
-import { handleIngest } from "./ingest/handler.ts";
+import { handleIngest, handleRecorderConfig } from "./ingest/handler.ts";
 import { handleTestRoutes } from "./test/harness-routes.ts";
 
 export { SessionRecorder } from "./do/session-recorder.ts";
@@ -23,6 +23,7 @@ export default {
     setWorkerLoggerVersion(env);
     const url = new URL(request.url);
     if (url.pathname === "/v1/ingest") return handleIngest(request, env, ctx);
+    if (url.pathname === "/v1/config") return handleRecorderConfig(request, env, ctx);
     if (url.pathname.startsWith("/api/")) return handleApi(request, env, ctx);
     if (url.pathname.startsWith("/__test/") && isDevTestMode(env)) {
       return handleTestRoutes(request, env, ctx);

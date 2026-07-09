@@ -68,6 +68,45 @@ describe("ingest route", () => {
     expect(res.headers.get("access-control-max-age")).toBe("86400");
   });
 
+  it("returns dashboard recorder settings before capture starts", async () => {
+    const key = testWriteKey("recorder_config");
+    await seedKey(
+      key,
+      makeConfig({
+        sampleRate: 0.25,
+        maskPolicyVersion: 4,
+        maskRules: [{ selector: ".private", action: "block" }],
+        capture: { heatmaps: true, console: false, network: false, canvas: true },
+        version: 8,
+      }),
+      false,
+    );
+
+    const res = await worker.fetch("/v1/config", {
+      headers: { [HDR_KEY]: key, origin: "https://site.example" },
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(await res.json()).toEqual({
+      sampleRate: 0.25,
+      maskPolicyVersion: 4,
+      maskRules: [{ selector: ".private", action: "block" }],
+      capture: { heatmaps: true, console: false, network: false, canvas: true },
+      version: 8,
+    });
+  });
+
+  it("turns remote sampling off when the project quota is exceeded", async () => {
+    const key = testWriteKey("config_quota");
+    await seedKey(key, makeConfig({ quotaState: "exceeded", sampleRate: 1, version: 2 }), false);
+
+    const res = await worker.fetch("/v1/config", { headers: { [HDR_KEY]: key } });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ sampleRate: 0, version: 2 });
+  });
+
   it("rejects an unknown key", async () => {
     const sessionId = nextSessionId("unknown");
     const res = await postIngest({

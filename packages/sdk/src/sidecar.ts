@@ -136,7 +136,7 @@ export class Sidecar {
       this.addQueuedEvent(item);
     }
 
-    this.detachLoaderPreBuffer(win);
+    detachLoaderPreBuffer(win);
   }
 
   private readonly onClick = (event: Event): void => {
@@ -320,24 +320,30 @@ export class Sidecar {
     target.addEventListener(type, listener, capture);
     this.removers.push(() => target.removeEventListener(type, listener, capture));
   }
+}
 
-  private detachLoaderPreBuffer(win: LoaderWindow): void {
-    const cleanup = Array.isArray(win.__orCleanup) ? win.__orCleanup.splice(0) : [];
+export function discardLoaderPreBuffer(window: Window): void {
+  const loaderWindow = window as LoaderWindow;
+  if (Array.isArray(loaderWindow.__orq)) loaderWindow.__orq.splice(0);
+  detachLoaderPreBuffer(loaderWindow);
+}
 
-    for (const remove of cleanup) {
-      try {
-        remove();
-      } catch {
-        /* loader cleanup must never affect the host page */
-      }
+function detachLoaderPreBuffer(win: LoaderWindow): void {
+  const cleanup = Array.isArray(win.__orCleanup) ? win.__orCleanup.splice(0) : [];
+
+  for (const remove of cleanup) {
+    try {
+      remove();
+    } catch {
+      /* loader cleanup must never affect the host page */
     }
-
-    win.__orq = {
-      push() {
-        return 0;
-      },
-    };
   }
+
+  win.__orq = {
+    push() {
+      return 0;
+    },
+  };
 }
 
 function cleanCustomMeta(meta: Record<string, unknown> | undefined): CleanMeta {

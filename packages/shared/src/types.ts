@@ -108,6 +108,15 @@ export interface StoredProjectConfig extends ProjectConfig {
   version: number;
 }
 
+/** Public capture settings returned to the browser recorder before capture starts. */
+export interface RecorderProjectConfig {
+  sampleRate: number;
+  maskPolicyVersion: number;
+  maskRules: MaskRule[];
+  capture: CaptureToggles;
+  version: number;
+}
+
 export interface ProjectConfigUpdate {
   expectedVersion: number;
   sampleRate: number;

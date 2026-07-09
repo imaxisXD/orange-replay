@@ -10,6 +10,7 @@ import {
   SESSION_APPEND_RATE_LIMIT_COUNT,
   SESSION_APPEND_RATE_LIMIT_WINDOW_MS,
   PRESENCE_HEARTBEAT_MS,
+  PRESENCE_SHARD_COUNT,
   PRESENCE_TTL_MS,
 } from "@orange-replay/shared";
 import type { FinalizeMessage } from "@orange-replay/shared";
@@ -34,6 +35,8 @@ import {
 import type { SegmentForManifest, SessionState } from "../src/do/session-logic.ts";
 import {
   liveSessionsFromPresenceRows,
+  presenceShardIndex,
+  presenceShardNames,
   resolvePresenceTiming,
   shouldSendPresencePing,
 } from "../src/do/presence-logic.ts";
@@ -480,6 +483,15 @@ describe("SessionRecorder pure logic", () => {
 });
 
 describe("PresenceRegistry pure logic", () => {
+  it("routes every session to one stable project shard", () => {
+    const first = presenceShardIndex("session-stable");
+    expect(presenceShardIndex("session-stable")).toBe(first);
+    expect(first).toBeGreaterThanOrEqual(0);
+    expect(first).toBeLessThan(PRESENCE_SHARD_COUNT);
+    expect(presenceShardNames("project_1")).toHaveLength(PRESENCE_SHARD_COUNT);
+    expect(new Set(presenceShardNames("project_1")).size).toBe(PRESENCE_SHARD_COUNT);
+  });
+
   it("uses default timings unless dev test routes are enabled", () => {
     expect(resolvePresenceTiming(undefined, JSON.stringify({ presenceTtlMs: 1 }))).toEqual({
       ttlMs: PRESENCE_TTL_MS,

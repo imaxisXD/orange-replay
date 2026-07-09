@@ -3,6 +3,7 @@ import {
   encodeIngestBody,
   finalizeMessageSchema,
   HDR_REQUEST_ID,
+  MAX_LIVE_VIEWERS_PER_SESSION,
   MAX_MANIFEST_SEGMENTS,
   manifestKey,
   segmentKey,
@@ -21,6 +22,7 @@ import { DurableObject } from "cloudflare:workers";
 import type { Env } from "../env.ts";
 import { devTestRoutesFlag, setWorkerLoggerVersion, shardDb } from "../env.ts";
 import type { AppendArgs, AppendResult } from "./contract.ts";
+import { sendPresenceSessionRequest } from "./presence-client.ts";
 import { resolvePresenceTiming, shouldSendPresencePing } from "./presence-logic.ts";
 import {
   buildSessionManifest,
@@ -564,6 +566,12 @@ export class SessionRecorder extends DurableObject<Env> {
 
       projectId = this.sessionState.projectId;
       sessionId = this.sessionState.sessionId;
+      if (viewerCount >= MAX_LIVE_VIEWERS_PER_SESSION) {
+        const response = Response.json({ error: "viewer_limit" }, { status: 429 });
+        statusCode = response.status;
+        outcome = "rate_limited";
+        return response;
+      }
       const pair = new WebSocketPair();
       const client = pair[0];
       const server = pair[1];
@@ -1199,7 +1207,7 @@ export class SessionRecorder extends DurableObject<Env> {
   ): string | undefined {
     try {
       this.throwIfPresenceFailsForTest();
-      const task = this.fetchPresence("/ping", requestId, {
+      const task = sendPresenceSessionRequest(this.env, "/ping", requestId, {
         projectId: state.projectId,
         sessionId: state.sessionId,
         startedAt: state.startedAt,
@@ -1225,7 +1233,7 @@ export class SessionRecorder extends DurableObject<Env> {
   ): string | undefined {
     try {
       this.throwIfPresenceFailsForTest();
-      const task = this.fetchPresence("/remove", requestId, {
+      const task = sendPresenceSessionRequest(this.env, "/remove", requestId, {
         projectId,
         sessionId,
       }).catch(() => undefined);
@@ -1233,26 +1241,6 @@ export class SessionRecorder extends DurableObject<Env> {
       return undefined;
     } catch (error) {
       return errorMessage(error);
-    }
-  }
-
-  private async fetchPresence(path: "/ping" | "/remove", requestId: string, body: unknown) {
-    const projectId = (body as { projectId?: string }).projectId;
-    if (projectId === undefined) {
-      throw new Error("projectId is required");
-    }
-
-    const stub = this.env.PRESENCE.get(this.env.PRESENCE.idFromName(projectId));
-    const response = await stub.fetch(`https://presence.internal${path}`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        [HDR_REQUEST_ID]: requestId,
-      },
-      body: JSON.stringify(body),
-    });
-    if (!response.ok) {
-      throw new Error(`presence registry returned ${response.status}`);
     }
   }
 

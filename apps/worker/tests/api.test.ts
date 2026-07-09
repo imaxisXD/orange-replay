@@ -1,8 +1,10 @@
 import { createHmac } from "node:crypto";
 import { request as httpRequest, type IncomingMessage } from "node:http";
+import type { Socket } from "node:net";
 import { fileURLToPath } from "node:url";
 import {
   manifestKey,
+  MAX_LIVE_VIEWERS_PER_SESSION,
   sessionPrefix,
   type ProjectConfig,
   type SessionManifest,
@@ -526,6 +528,31 @@ describe("dashboard api", () => {
     expect(JSON.parse(tokenFallback.body)).toEqual({ error: "unauthorized" });
   });
 
+  it("caps concurrent live viewers per session even when one ticket is replayed", async () => {
+    const capProjectId = ticketProjectId;
+    const capSessionId = "api_cap_session";
+    await appendActiveSession(capProjectId, capSessionId);
+
+    // One ticket, replayed: connections succeed only up to the viewer cap.
+    const ticket = await mintTicket(capProjectId, capSessionId);
+    const path = `/api/v1/projects/${capProjectId}/sessions/${capSessionId}/live?ticket=${encodeURIComponent(
+      ticket,
+    )}`;
+    const held: Socket[] = [];
+    try {
+      for (let i = 0; i < MAX_LIVE_VIEWERS_PER_SESSION; i++) {
+        const res = await requestLiveUpgrade(path, worker, held);
+        expect(res.status).toBe(101);
+      }
+
+      const rejected = await requestLiveUpgrade(path, worker, held);
+      expect(rejected.status).toBe(429);
+      expect(JSON.parse(rejected.body)).toEqual({ error: "viewer_limit" });
+    } finally {
+      for (const socket of held) socket.destroy();
+    }
+  });
+
   it("rejects garbage, expired, and cross-session live tickets", async () => {
     const validForOtherSession = await mintTicket(assetProjectId, "other_session");
     const expired = signLiveTicket(assetProjectId, assetSessionId, Date.now() - 1);
@@ -591,7 +618,13 @@ interface HttpResponse {
   body: string;
 }
 
-function requestLiveUpgrade(path: string, targetWorker = worker): Promise<HttpResponse> {
+function requestLiveUpgrade(
+  path: string,
+  targetWorker = worker,
+  // When provided, upgraded sockets are kept open (and collected here) so a
+  // test can hold concurrent viewers; the caller destroys them.
+  holdSockets?: Socket[],
+): Promise<HttpResponse> {
   return new Promise((resolve, reject) => {
     const request = httpRequest(
       {
@@ -613,7 +646,11 @@ function requestLiveUpgrade(path: string, targetWorker = worker): Promise<HttpRe
     );
 
     request.on("upgrade", (response, socket) => {
-      socket.destroy();
+      if (holdSockets === undefined) {
+        socket.destroy();
+      } else {
+        holdSockets.push(socket);
+      }
       resolve({
         status: response.statusCode ?? 0,
         body: "",

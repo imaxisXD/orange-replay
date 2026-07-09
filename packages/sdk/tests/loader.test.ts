@@ -130,7 +130,19 @@ describe("loader", () => {
 
   it("drains pre-buffered events into the first SDK batch", async () => {
     const bodies: Uint8Array[] = [];
-    const fetchMock = vi.fn<typeof fetch>(async (_input, init) => {
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.endsWith("/v1/config")) {
+        return new Response(
+          JSON.stringify({
+            sampleRate: 1,
+            maskPolicyVersion: 1,
+            maskRules: [],
+            capture: { heatmaps: false, console: false, network: false, canvas: false },
+            version: 1,
+          }),
+        );
+      }
       bodies.push(init?.body as Uint8Array);
       return new Response(JSON.stringify({ ok: true, live: false, flushMs: 15_000 }));
     });

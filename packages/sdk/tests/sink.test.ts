@@ -29,6 +29,8 @@ const config: RecorderConfig = {
   ingestUrl: "https://ingest.test",
   projectRef: "write-key",
   sampleRate: 1,
+  maskPolicyVersion: 0,
+  capture: { heatmaps: false, console: false, network: false, canvas: false },
   allowUrlParams: ["keep"],
   flushMs: 15_000,
 };

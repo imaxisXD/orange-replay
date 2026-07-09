@@ -17,6 +17,8 @@ const baseConfig: RecorderConfig = {
   ingestUrl: "https://ingest.test",
   projectRef: "key",
   sampleRate: 1,
+  maskPolicyVersion: 0,
+  capture: { heatmaps: false, console: false, network: false, canvas: false },
   blockSelector: ".user-block",
   ignoreSelector: ".user-ignore",
   maskTextSelector: ".mask-text",
@@ -71,6 +73,7 @@ describe("Recorder", () => {
     expect(options.blockSelector).toBe("[data-orange-block], .user-block");
     expect(options.ignoreSelector).toBe("[data-orange-ignore], .user-ignore");
     expect(options.maskTextSelector).toBe(".mask-text");
+    expect(options.recordCanvas).toBe(false);
     expect(options.checkoutEveryNms).toBe(240_000);
   });
 

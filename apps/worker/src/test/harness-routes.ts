@@ -6,6 +6,7 @@
 //   /__test/consumer/* -> T1.4 (consumer-routes.ts)
 //   /__test/api/*      -> T1.5 (api-routes.ts)
 import { manifestKey } from "@orange-replay/shared";
+import { presenceShardName } from "../do/presence-logic.ts";
 import type { Env } from "../env.ts";
 import { handleApiTestRoutes } from "./api-routes.ts";
 import { handleConsumerTestRoutes } from "./consumer-routes.ts";
@@ -33,7 +34,7 @@ async function harnessCheck(env: Env): Promise<Response> {
   const stub = env.SESSION.get(env.SESSION.idFromName("harness:smoke"));
   const pong = await stub.ping();
 
-  const presence = env.PRESENCE.get(env.PRESENCE.idFromName("harness"));
+  const presence = env.PRESENCE.getByName(presenceShardName("harness", 0));
   const presenceStatus = await presence.fetch("https://presence.internal/install-status", {
     method: "POST",
     headers: { "content-type": "application/json" },

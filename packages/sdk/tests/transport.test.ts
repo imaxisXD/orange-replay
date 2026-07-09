@@ -9,6 +9,8 @@ const config: RecorderConfig = {
   projectRef: "write-key",
   transport: "worker",
   sampleRate: 1,
+  maskPolicyVersion: 0,
+  capture: { heatmaps: false, console: false, network: false, canvas: false },
   allowUrlParams: [],
   flushMs: 15_000,
 };
@@ -57,6 +59,33 @@ describe("Transport", () => {
     expect(result.sent).toBe(true);
     expect(result.attempts).toBe(3);
     expect(waits).toEqual([2_000, 4_000]);
+  });
+
+  it("retries 429 responses and honors Retry-After", async () => {
+    const waits: number[] = [];
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response("busy", { status: 429, headers: { "retry-after": "3" } }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true, live: false, flushMs: 7_000 })),
+      );
+    const transport = new Transport({
+      config,
+      fetch: fetchMock,
+      wait: async (ms) => {
+        waits.push(ms);
+      },
+    });
+
+    const result = await transport.sendBatch({
+      body: new Uint8Array([1]),
+      index,
+      flags: 0,
+      keepalive: false,
+    });
+
+    expect(result).toMatchObject({ sent: true, dropped: false, attempts: 2 });
+    expect(waits).toEqual([3_000]);
   });
 
   it("drops 4xx responses without retrying", async () => {

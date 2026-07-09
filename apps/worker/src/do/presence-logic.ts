@@ -1,4 +1,9 @@
-import { PRESENCE_HEARTBEAT_MS, PRESENCE_TTL_MS } from "@orange-replay/shared";
+import {
+  PRESENCE_HEARTBEAT_MS,
+  PRESENCE_SHARD_COUNT,
+  PRESENCE_TTL_MS,
+  hashToUnit,
+} from "@orange-replay/shared";
 
 export interface PresenceTiming {
   ttlMs: number;
@@ -27,6 +32,23 @@ export const defaultPresenceTiming: PresenceTiming = {
   heartbeatMs: PRESENCE_HEARTBEAT_MS,
   forceFailure: false,
 };
+
+export function presenceShardIndex(sessionId: string): number {
+  return Math.min(
+    PRESENCE_SHARD_COUNT - 1,
+    Math.floor(hashToUnit(sessionId) * PRESENCE_SHARD_COUNT),
+  );
+}
+
+export function presenceShardName(projectId: string, shard: number): string {
+  return `${projectId}:presence:${shard}`;
+}
+
+export function presenceShardNames(projectId: string): string[] {
+  return Array.from({ length: PRESENCE_SHARD_COUNT }, (_, shard) =>
+    presenceShardName(projectId, shard),
+  );
+}
 
 export function resolvePresenceTiming(
   devTestRoutes: string | undefined,

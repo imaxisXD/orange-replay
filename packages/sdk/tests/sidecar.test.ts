@@ -12,6 +12,8 @@ const config: RecorderConfig = {
   projectRef: "write-key",
   transport: "worker",
   sampleRate: 1,
+  maskPolicyVersion: 0,
+  capture: { heatmaps: false, console: false, network: false, canvas: false },
   allowUrlParams: [],
   flushMs: 15_000,
 };

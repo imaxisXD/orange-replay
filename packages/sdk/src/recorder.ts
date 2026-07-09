@@ -172,6 +172,7 @@ export function buildRecordOptions(
     blockSelector: mergeSelectors(DEFAULT_BLOCK_SELECTOR, config.blockSelector),
     ignoreSelector: mergeSelectors(DEFAULT_IGNORE_SELECTOR, config.ignoreSelector),
     maskTextSelector: config.maskTextSelector,
+    recordCanvas: config.capture.canvas,
     checkoutEveryNms: CHECKOUT_EVERY_MS,
     errorHandler(error: unknown) {
       onError?.(error);

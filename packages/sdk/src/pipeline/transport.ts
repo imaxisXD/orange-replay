@@ -68,11 +68,11 @@ export class Transport {
           keepalive: batch.keepalive,
         });
 
-        if (response.status >= 500) {
+        if (response.status === 429 || response.status >= 500) {
           if (attempts >= MAX_ATTEMPTS) {
             return { sent: false, dropped: true, attempts };
           }
-          await this.wait(retryDelayMs(attempts));
+          await this.wait(retryDelayMs(attempts, response.headers.get("retry-after")));
           continue;
         }
 
@@ -156,8 +156,22 @@ export async function readAck(response: Response): Promise<IngestAck> {
   }
 }
 
-function retryDelayMs(attemptsAlreadyUsed: number): number {
-  return Math.min(MAX_RETRY_MS, BASE_RETRY_MS * 2 ** (attemptsAlreadyUsed - 1));
+function retryDelayMs(attemptsAlreadyUsed: number, retryAfter: string | null = null): number {
+  const backoff = Math.min(MAX_RETRY_MS, BASE_RETRY_MS * 2 ** (attemptsAlreadyUsed - 1));
+  const requestedDelay = parseRetryAfterMs(retryAfter);
+  return requestedDelay === null
+    ? backoff
+    : Math.min(MAX_RETRY_MS, Math.max(backoff, requestedDelay));
+}
+
+function parseRetryAfterMs(value: string | null): number | null {
+  if (value === null || value.trim() === "") return null;
+
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.round(seconds * 1000);
+
+  const date = Date.parse(value);
+  return Number.isFinite(date) ? Math.max(0, date - Date.now()) : null;
 }
 
 function defaultWait(ms: number): Promise<void> {

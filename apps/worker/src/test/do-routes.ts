@@ -1,7 +1,12 @@
-import { HDR_REQUEST_ID } from "@orange-replay/shared";
 import { isValidPathId, parseRecordingObjectKey } from "../api/helpers.ts";
 import type { Env } from "../env.ts";
 import type { AppendArgs, AppendResult } from "../do/contract.ts";
+import {
+  listProjectPresence,
+  readProjectInstallStatus,
+  readProjectPresenceDebug,
+  sendPresenceSessionRequest,
+} from "../do/presence-client.ts";
 import type { TestSeedBatchesArgs } from "../do/session-recorder.ts";
 
 interface TestAppendBody extends Omit<AppendArgs, "payload" | "receivedAt"> {
@@ -120,7 +125,7 @@ async function callPresenceTestRoute(
   env: Env,
   pathname: string,
 ): Promise<Response> {
-  const body = (await request.json()) as { projectId?: unknown };
+  const body = (await request.json()) as Record<string, unknown>;
   if (typeof body.projectId !== "string" || !isValidPathId(body.projectId)) {
     return Response.json({ error: "projectId is required" }, { status: 400 });
   }
@@ -130,15 +135,38 @@ async function callPresenceTestRoute(
     return Response.json({ error: "not_found" }, { status: 404 });
   }
 
-  const stub = env.PRESENCE.get(env.PRESENCE.idFromName(body.projectId));
-  return stub.fetch(`https://presence.internal${route}`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      [HDR_REQUEST_ID]: "test-presence-request",
-    },
-    body: JSON.stringify(body),
-  });
+  const requestId = "test-presence-request";
+  if (route === "/ping" || route === "/remove") {
+    if (typeof body.sessionId !== "string" || !isValidPathId(body.sessionId)) {
+      return Response.json({ error: "sessionId is required" }, { status: 400 });
+    }
+    await sendPresenceSessionRequest(env, route, requestId, {
+      ...body,
+      projectId: body.projectId,
+      sessionId: body.sessionId,
+    });
+    return Response.json({ ok: true });
+  }
+
+  if (route === "/list") {
+    const now = typeof body.now === "number" ? body.now : Date.now();
+    const result = await listProjectPresence(env, body.projectId, requestId, now);
+    return result === null
+      ? Response.json({ error: "presence unavailable" }, { status: 503 })
+      : Response.json(result);
+  }
+
+  if (route === "/install-status") {
+    const result = await readProjectInstallStatus(env, body.projectId, requestId);
+    return result === null
+      ? Response.json({ error: "presence unavailable" }, { status: 503 })
+      : Response.json(result);
+  }
+
+  const result = await readProjectPresenceDebug(env, body.projectId, requestId);
+  return result === null
+    ? Response.json({ error: "presence unavailable" }, { status: 503 })
+    : Response.json(result);
 }
 
 function decodeBase64(value: string): Uint8Array {
