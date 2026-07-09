@@ -10,7 +10,9 @@ export const MAX_DECODED_BATCH_EVENTS = 25_000;
 export const MAX_REPLAY_JSON_TRAILING_WHITESPACE_CHARS = 4096;
 const MIN_DECODED_BATCH_BYTES = 1024 * 1024;
 const MAX_DECODED_EXPANSION_RATIO = 32;
-const MAX_REPLAY_EVENT_DEPTH = 40;
+// rrweb serializes ~2 JSON levels per DOM level, so this must comfortably exceed
+// twice the DOM depth of real pages (30-60 deep); 40 rejected our own landing page.
+const MAX_REPLAY_EVENT_DEPTH = 128;
 const MAX_REPLAY_EVENT_KEYS = 200;
 const MAX_REPLAY_EVENT_ARRAY_ITEMS = 10_000;
 const MAX_DECODED_BATCH_SHAPE_NODES = 250_000;

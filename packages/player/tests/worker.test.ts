@@ -218,17 +218,26 @@ describe("decode worker protocol", () => {
     );
   });
 
-  it("rejects replay events with too much nesting", async () => {
-    const event = makeEvent(1, "deep") as ReplayEvent & { data: unknown };
-    let data: unknown = {};
-    for (let index = 0; index < 45; index += 1) {
-      data = { child: data };
-    }
-    event.data = data;
+  it("accepts realistic DOM nesting but rejects pathological depth", async () => {
+    // rrweb serializes ~2 JSON levels per DOM level; real pages reach DOM depth
+    // 30-60, so depths around 100 must decode (the 40 cap rejected our own
+    // landing page's full snapshot at depth 42).
+    const deepEvent = (levels: number): ReplayEvent => {
+      const event = makeEvent(1, "deep") as ReplayEvent & { data: unknown };
+      let data: unknown = {};
+      for (let index = 0; index < levels; index += 1) {
+        data = { child: data };
+      }
+      event.data = data;
+      return event;
+    };
 
-    await expect(decodeBatchBytes(encoder.encode(JSON.stringify([event])))).rejects.toThrow(
-      "Replay event is too deeply nested.",
-    );
+    const accepted = await decodeBatchBytes(encoder.encode(JSON.stringify([deepEvent(100)])));
+    expect(accepted).toHaveLength(1);
+
+    await expect(
+      decodeBatchBytes(encoder.encode(JSON.stringify([deepEvent(135)]))),
+    ).rejects.toThrow("Replay event is too deeply nested.");
   });
 
   it("rejects pending decodes on timeout and uses a restarted worker next", async () => {
