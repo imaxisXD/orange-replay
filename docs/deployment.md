@@ -104,7 +104,7 @@ The deploy command generates an ignored `apps/worker/wrangler.cloudflare-build.j
 
 ## 7. SDK Snippet Values
 
-Use one SDK package for both dev and prod. Only the values change:
+Use one SDK package for both dev and prod. Only the values change. Production keeps `workers.dev` enabled until a custom domain is attached.
 
 - Dev `ingestUrl`: `http://localhost:8787`
 - Prod `ingestUrl`: your Worker URL or custom domain
