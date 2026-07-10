@@ -1,11 +1,16 @@
 node_modules/
 dist/
 .wrangler/
+.impeccable/
 apps/worker/wrangler.cloudflare-build.jsonc
 apps/worker/wrangler.demo.jsonc
+apps/worker/wrangler.*.env
 .dev.vars
 .dev.vars.*
 .env*
+*.env
+*.env.*
+!apps/worker/.env.example
 .prod.vars
 *.log
 .DS_Store

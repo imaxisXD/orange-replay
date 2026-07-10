@@ -28,7 +28,7 @@ export interface Env {
   CF_VERSION_METADATA?: WorkerVersionMetadata;
   /** Deployment environment name. Production disables all dev-only test gates. */
   WORKER_ENV?: string;
-  /** Bearer token for dashboard API auth (v1). Set via .dev.vars / secret. */
+  /** Bearer token for dashboard API auth (v1). Set via local .env / Worker secret. */
   DEV_API_TOKEN?: string;
   /** Comma-separated project ids that DEV_API_TOKEN may access. */
   DEV_API_PROJECT_IDS?: string;

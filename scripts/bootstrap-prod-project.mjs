@@ -349,7 +349,16 @@ function runWrangler(args) {
   return new Promise((resolve, reject) => {
     const child = spawn(
       "vp",
-      ["exec", "--filter", "@orange-replay/worker", "--", "wrangler", ...args],
+      [
+        "exec",
+        "--filter",
+        "@orange-replay/worker",
+        "--",
+        "wrangler",
+        ...args,
+        "--env-file",
+        "wrangler.production.env",
+      ],
       {
         cwd: repoRoot,
         stdio: "inherit",

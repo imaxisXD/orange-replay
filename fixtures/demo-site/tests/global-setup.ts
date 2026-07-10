@@ -45,6 +45,8 @@ const timings = {
 
 export default async function globalSetup(): Promise<() => Promise<void>> {
   process.env.WRANGLER_WRITE_LOGS = "false";
+  // The e2e Worker receives explicit test vars below. Never merge a developer's local .env.
+  process.env.CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV = "false";
   const wrangler = await loadWrangler();
   const worker = await wrangler.unstable_dev(resolve(workerDir, "src/index.ts"), {
     config: resolve(workerDir, "wrangler.jsonc"),

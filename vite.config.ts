@@ -19,5 +19,9 @@ export default defineConfig({
   },
   test: {
     exclude: ["**/node_modules/**", "**/dist/**", "**/.wrangler/**", "**/.claude/**"],
+    env: {
+      // Worker tests provide their own vars. Never load a developer's local secrets.
+      CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false",
+    },
   },
 });

@@ -32,6 +32,8 @@ try {
     "list",
     "--env",
     "production",
+    "--env-file",
+    "wrangler.production.env",
   ]);
 
   for (const name of [tokenSecret, projectIdsSecret, liveTicketSecret]) {
@@ -92,6 +94,8 @@ async function putSecret(name, value) {
       name,
       "--env",
       "production",
+      "--env-file",
+      "wrangler.production.env",
     ],
     `${value}\n`,
   );

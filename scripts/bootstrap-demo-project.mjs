@@ -293,7 +293,16 @@ function runWrangler(args) {
   return new Promise((resolve, reject) => {
     const child = spawn(
       "vp",
-      ["exec", "--filter", "@orange-replay/worker", "--", "wrangler", ...args],
+      [
+        "exec",
+        "--filter",
+        "@orange-replay/worker",
+        "--",
+        "wrangler",
+        ...args,
+        "--env-file",
+        "wrangler.production.env",
+      ],
       {
         cwd: repoRoot,
         stdio: "inherit",
@@ -366,20 +375,20 @@ function printSecretCommands({ saved }) {
   if (saved) {
     console.log(`set -a && . ${options.envFile} && set +a`);
     console.log(
-      `printf '%s\\n' "$${demoProjectIdEnv}" | vp exec --filter @orange-replay/worker -- wrangler secret put DEMO_PROJECT_ID --env production`,
+      `printf '%s\\n' "$${demoProjectIdEnv}" | vp exec --filter @orange-replay/worker -- wrangler secret put DEMO_PROJECT_ID --env production --env-file wrangler.production.env`,
     );
     console.log(
-      `printf '%s\\n' "$${demoWriteKeyEnv}" | vp exec --filter @orange-replay/worker -- wrangler secret put DEMO_WRITE_KEY --env production`,
+      `printf '%s\\n' "$${demoWriteKeyEnv}" | vp exec --filter @orange-replay/worker -- wrangler secret put DEMO_WRITE_KEY --env production --env-file wrangler.production.env`,
     );
     return;
   }
 
   console.log(`DEMO_PROJECT_ID=${options.projectId}`);
   console.log(
-    `printf '%s\\n' "$DEMO_PROJECT_ID" | vp exec --filter @orange-replay/worker -- wrangler secret put DEMO_PROJECT_ID --env production`,
+    `printf '%s\\n' "$DEMO_PROJECT_ID" | vp exec --filter @orange-replay/worker -- wrangler secret put DEMO_PROJECT_ID --env production --env-file wrangler.production.env`,
   );
   console.log(
-    `printf '%s\\n' "$DEMO_WRITE_KEY" | vp exec --filter @orange-replay/worker -- wrangler secret put DEMO_WRITE_KEY --env production`,
+    `printf '%s\\n' "$DEMO_WRITE_KEY" | vp exec --filter @orange-replay/worker -- wrangler secret put DEMO_WRITE_KEY --env production --env-file wrangler.production.env`,
   );
 }
 
