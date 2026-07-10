@@ -18,6 +18,19 @@ const canClearCustomPorts = process.env["CLEAR_CUSTOM_DEV_PORTS"] === "1";
 const runningServers = new Map();
 let stopping = false;
 
+console.log("Applying pending local D1 migrations.");
+const migrationResult = await runQuietly(process.execPath, [
+  path.join(repoRoot, "scripts", "apply-d1-migrations.mjs"),
+  "orange-replay-idx-00",
+  "--local",
+]);
+if (!migrationResult.ok) {
+  console.error("Local D1 migrations could not be applied.");
+  if (migrationResult.stderr.trim().length > 0) console.error(migrationResult.stderr.trim());
+  process.exit(1);
+}
+if (migrationResult.stdout.trim().length > 0) console.log(migrationResult.stdout.trim());
+
 if (shouldClearPorts) {
   if (
     !canClearCustomPorts &&
@@ -42,11 +55,11 @@ const workerArgs = [
   String(workerPort),
 ];
 
-const localWorkerVars = path.join(workerDir, ".dev.vars");
-const exampleWorkerVars = path.join(workerDir, ".dev.vars.example");
-if (!existsSync(localWorkerVars) && existsSync(exampleWorkerVars)) {
-  workerArgs.push("--env-file", ".dev.vars.example");
-  console.log("Using apps/worker/.dev.vars.example for local Worker secrets.");
+const localWorkerEnv = path.join(workerDir, ".env");
+const exampleWorkerEnv = path.join(workerDir, ".env.example");
+if (!existsSync(localWorkerEnv) && existsSync(exampleWorkerEnv)) {
+  workerArgs.push("--env-file", ".env.example");
+  console.log("Using apps/worker/.env.example for local Worker secrets.");
 }
 
 startServer("worker", "vp", workerArgs, repoRoot, process.env);

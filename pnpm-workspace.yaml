@@ -14,8 +14,12 @@ catalog:
   "@tanstack/react-query": ^5.101.2
   "@tanstack/react-router": ^1.170.17
   "@types/babel__core": ^7.20.5
+  "@types/css-tree": 2.3.11
   "@types/node": ^24
   babel-plugin-react-compiler: ^1.0.0
+  css-tree: 3.2.1
+  drizzle-kit: 1.0.0-rc.4
+  drizzle-orm: 1.0.0-rc.4
   typescript: ^5
   vite: npm:@voidzero-dev/vite-plus-core@0.2.2
   vite-plus: 0.2.2

@@ -6,15 +6,17 @@ Design: `../../ARCHITECTURE.md`. Execution contract: `../../PLAN.md`.
 
 ## Local development
 
+From the repo root:
+
 ```sh
-cp .dev.vars.example .dev.vars
-vp install # once, from the repo root
-vp exec --filter @orange-replay/worker -- wrangler d1 migrations apply orange-replay-idx-00 --local
+cp apps/worker/.env.example apps/worker/.env
+vp install # once
+vp run db:migrate:local
 vp exec --filter @orange-replay/worker -- wrangler dev --port 8787
 ```
 
 From the repo root, `vp run dev` starts both this Worker and the dashboard.
-`DEV_API_PROJECT_IDS` in `.dev.vars` must include every project id you want to
+`DEV_API_PROJECT_IDS` in `.env` must include every project id you want to
 open through the dashboard API.
 
 Seed a project + write key through the guarded test surface (requires
@@ -32,4 +34,6 @@ curl -X POST http://localhost:8787/__test/ingest/seed \
 wrangler `unstable_dev` against `/__test/*` routes (see `tests/harness.test.ts`
 for the canonical pattern); DO lifecycle tests compress the idle windows with
 the `TEST_TIMINGS` var. `src/` is workers-typed, `tests/` is node-typed — keep
-the two type worlds separate.
+the two type worlds separate. Test config sets
+`CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false`, so a developer's local `.env`
+does not change test behavior.

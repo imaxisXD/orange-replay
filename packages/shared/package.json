@@ -10,6 +10,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./constants": "./src/constants.ts",
+    "./insights": "./src/insights.ts",
+    "./rage": "./src/rage.ts",
     "./types": "./src/types.ts",
     "./wire": "./src/wire.ts",
     "./uuid": "./src/uuid.ts",
