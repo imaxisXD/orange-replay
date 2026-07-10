@@ -43,6 +43,11 @@ describe("consumer queue and sweeper", () => {
     expect(body.session?.["expires_at"]).toBe(message.endedAt + 30 * 86_400_000);
     expect(body.session?.["clicks"]).toBe(4);
     expect(body.session?.["errors"]).toBe(1);
+    expect(body.session?.["page_count"]).toBe(3);
+    expect(body.session?.["analytics_version"]).toBe(2);
+    expect(body.session?.["max_scroll_depth"]).toBe(84);
+    expect(body.session?.["quick_backs"]).toBe(2);
+    expect(body.session?.["interaction_time_ms"]).toBe(8_500);
     expect(body.session?.["segment_count"]).toBe(2);
     expect(body.session?.["flags"]).toBe(message.flags);
     expect(body.session?.["manifest_key"]).toBe(message.manifestKey);
@@ -58,6 +63,22 @@ describe("consumer queue and sweeper", () => {
         bytes: message.bytes,
       },
     ]);
+  }, 30_000);
+
+  it("keeps page count unknown for legacy finalize messages", async () => {
+    const message = makeFinalizeMessage("legacy-analytics");
+    delete message.analyticsVersion;
+    delete message.insights;
+    delete message.attrs.pageCount;
+
+    await sendFinalizeMessage(message);
+    const body = await waitForSession(message.sessionId);
+
+    expect(body.session?.["page_count"]).toBeNull();
+    expect(body.session?.["analytics_version"]).toBe(0);
+    expect(body.session?.["max_scroll_depth"]).toBeNull();
+    expect(body.session?.["quick_backs"]).toBeNull();
+    expect(body.session?.["interaction_time_ms"]).toBeNull();
   }, 30_000);
 
   it("does not double count a redelivered finalize message", async () => {
@@ -204,6 +225,12 @@ function makeFinalizeMessage(
     bytes: 12_345,
     segments: 2,
     flags: 6,
+    analyticsVersion: 2,
+    insights: {
+      maxScrollDepth: 84,
+      quickBacks: 2,
+      interactionTimeMs: 8_500,
+    },
     counts: {
       batches: 3,
       events: 10,
@@ -221,6 +248,7 @@ function makeFinalizeMessage(
       os: "macOS",
       entryUrl: "https://app.example/checkout",
       urlCount: 3,
+      pageCount: 3,
     },
     retentionDays: 30,
     events: [
@@ -250,6 +278,11 @@ function makeSessionRow(name: string, expiresAt: number): Record<string, unknown
     os: "macOS",
     entry_url: "/",
     url_count: 1,
+    page_count: null,
+    analytics_version: 0,
+    max_scroll_depth: null,
+    quick_backs: null,
+    interaction_time_ms: null,
     clicks: 1,
     errors: 0,
     rages: 0,

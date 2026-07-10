@@ -33,6 +33,7 @@ const projectId = "pe2e";
 const orgId = "oe2e";
 const sessionId = "sess-e2e-000000000001";
 const liveSessionId = "sess-e2e-live-00000001";
+const rageSessionId = "sess-e2e-rage-00000001";
 const hostileSessionId = "sess-e2e-hostile-0001";
 // Inside the A5 server clamp window so exact timeline assertions hold.
 const hostileBase = Date.now();
@@ -214,6 +215,52 @@ describe("a session lives and is replayed", () => {
     expect(seenPayloads).toEqual(expectedPayloads);
   }, 30_000);
 
+  it("derives a scripted rage burst through the DO, D1, stats, and sessions filter", async () => {
+    const batch = makeRageBatch();
+    const ingest = await postIngest(batch);
+    expect(ingest.status).toBe(200);
+
+    await delay(timings.closeMs + 600);
+    await poll(async () => {
+      const body = await readDebug(rageSessionId);
+      return body.hasState === false ? body : null;
+    }, 15_000);
+
+    const manifest = await readR2Json<SessionManifest>(manifestKey(projectId, rageSessionId));
+    expect(manifest.counts.rages).toBe(1);
+    expect(manifest.timeline.some((event) => event.k === "rage")).toBe(true);
+
+    const indexed = await poll(async () => {
+      const body = await readConsumerSession(rageSessionId);
+      return body.session === null ? null : body;
+    }, 20_000);
+    expect(indexed.session?.["rages"]).toBe(1);
+    expect(indexed.session?.["max_scroll_depth"]).toBe(87);
+    expect(indexed.session?.["analytics_version"]).toBe(2);
+
+    const statsResponse = await worker.fetch(`/api/v1/projects/${projectId}/stats`, {
+      headers: authHeaders(),
+    });
+    expect(statsResponse.status).toBe(200);
+    const stats = (await statsResponse.json()) as {
+      insights: { ragePercent: { value: number | null; filter: { has_rage?: boolean } } };
+    };
+    expect(stats.insights.ragePercent.value).toBeGreaterThan(0);
+    expect(stats.insights.ragePercent.filter).toMatchObject({ has_rage: true });
+
+    const sessionsResponse = await worker.fetch(
+      `/api/v1/projects/${projectId}/sessions?has_rage=1`,
+      { headers: authHeaders() },
+    );
+    expect(sessionsResponse.status).toBe(200);
+    const sessions = (await sessionsResponse.json()) as {
+      sessions: Array<{ session_id: string; rages: number }>;
+    };
+    expect(sessions.sessions).toEqual(
+      expect.arrayContaining([expect.objectContaining({ session_id: rageSessionId, rages: 1 })]),
+    );
+  }, 45_000);
+
   it("accepts a hostile sidecar after sanitizing events", async () => {
     const batch = makeHostileBatch();
     const res = await postIngest(batch);
@@ -388,6 +435,24 @@ function makeLiveBatch(seq: number): SentBatch {
     size: 512,
     url: `/live/${seq}`,
     events: [{ t: 5_010 + seq * 100, k: "custom", d: `live-${seq}` }],
+  });
+}
+
+function makeRageBatch(): SentBatch {
+  const now = Date.now();
+  return makeBatch({
+    sessionId: rageSessionId,
+    tab: "rageTab",
+    seq: 0,
+    t0: now,
+    size: 512,
+    url: "/rage-test",
+    events: [
+      { t: now + 10, k: "click", m: { x: 0.5, y: 0.5, w: 1000, h: 800 } },
+      { t: now + 250, k: "click", m: { x: 0.508, y: 0.499, w: 1000, h: 800 } },
+      { t: now + 580, k: "click", m: { x: 0.496, y: 0.504, w: 1000, h: 800 } },
+      { t: now + 700, k: "scroll", m: { depth: 87.4 } },
+    ],
   });
 }
 

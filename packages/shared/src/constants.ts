@@ -16,8 +16,11 @@ export const MAX_PRESENCE_BODY_BYTES = 8 * 1024;
 export const MAX_PRESENCE_ID_CHARS = 64;
 export const MAX_PRESENCE_TEXT_CHARS = 2048;
 export const MAX_BATCHES_PER_SEGMENT = 4096;
+export const MAX_ENCODED_SEGMENT_BYTES = 16 * 1024 * 1024;
 export const MAX_MANIFEST_SEGMENTS = 10_000;
 export const MAX_SEQ = 10_000_000;
+export const MAX_CHECKPOINTS_PER_BATCH = 8;
+export const MAX_CHECKPOINTS_PER_SEGMENT = 128;
 
 export const SDK_FLUSH_DEFAULT_MS = 15_000;
 export const SDK_FLUSH_LIVE_MS = 4_000;

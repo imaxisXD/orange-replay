@@ -23,6 +23,7 @@ export interface AppendResult {
   live: boolean;
   closed: boolean;
   flushMs: number;
+  drop?: boolean;
   checkpoint?: boolean;
   rateLimited?: boolean;
 }

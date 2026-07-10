@@ -17,6 +17,7 @@ import {
   validateIngestHeaders,
 } from "../src/ingest/helpers.ts";
 import { handleIngest } from "../src/ingest/handler.ts";
+import { ingestAckForAppendResult } from "../src/ingest/response.ts";
 import type { Env } from "../src/env.ts";
 
 const validWriteKey = testWriteKey("unit");
@@ -292,6 +293,36 @@ describe("ingest config row mapping", () => {
 });
 
 describe("ingest sidecar event sanitizing", () => {
+  it("keeps valid replay checkpoints through production ingest sanitizing", () => {
+    const index = {
+      v: 1,
+      s: "session_12345678",
+      tab: "tab_1",
+      seq: 0,
+      t0: 100,
+      t1: 200,
+      e: [],
+      checkpointTimestamps: [120, 180],
+    } satisfies BatchIndex;
+
+    expect(sanitizeBatchIndexEvents(index).index.checkpointTimestamps).toEqual([120, 180]);
+  });
+
+  it("removes replay checkpoints outside the batch time range", () => {
+    const index = {
+      v: 1,
+      s: "session_12345678",
+      tab: "tab_1",
+      seq: 0,
+      t0: 100,
+      t1: 200,
+      e: [],
+      checkpointTimestamps: [250],
+    } as BatchIndex;
+
+    expect(sanitizeBatchIndexEvents(index).index.checkpointTimestamps).toBeUndefined();
+  });
+
   it("keeps only sane events and counts dropped entries", () => {
     const hostileIndex = {
       v: 1,
@@ -361,6 +392,26 @@ describe("ingest sidecar event sanitizing", () => {
     const [firstKey, firstValue] = Object.entries(firstMeta ?? {})[0] ?? ["", ""];
     expect(firstKey.length).toBeLessThanOrEqual(200);
     expect(String(firstValue).length).toBeLessThanOrEqual(200);
+  });
+});
+
+describe("ingest append acknowledgments", () => {
+  it("relays a permanent session-cap drop to the SDK", () => {
+    expect(
+      ingestAckForAppendResult({
+        live: false,
+        closed: false,
+        flushMs: 15_000,
+        drop: true,
+      }),
+    ).toEqual({
+      ok: true,
+      live: false,
+      closed: undefined,
+      flushMs: 15_000,
+      checkpoint: undefined,
+      drop: true,
+    });
   });
 });
 

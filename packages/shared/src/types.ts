@@ -23,6 +23,7 @@ export interface BatchIndex {
   t0: number;
   t1: number;
   e: IndexEvent[];
+  checkpointTimestamps?: number[];
   u?: string;
   enc?: { k: string };
 }
@@ -37,12 +38,19 @@ export interface EdgeAttrs {
   asn?: number;
 }
 
+export interface SegmentCheckpoint {
+  timestamp: number;
+  tab: string;
+  batch: number;
+}
+
 export interface SegmentRef {
   key: string;
   bytes: number;
   t0: number;
   t1: number;
   batches: number;
+  checkpoints?: SegmentCheckpoint[];
 }
 
 export interface SessionCounts {
@@ -52,6 +60,14 @@ export interface SessionCounts {
   errors: number;
   rages: number;
   navs: number;
+}
+
+export interface SessionInsights {
+  maxScrollDepth: number;
+  quickBacks: number;
+  interactionTimeMs: number;
+  /** 8-bucket activity histogram ("3a5f9c42-14"); null when the session had no events. */
+  activityHist?: string | null;
 }
 
 export interface SessionManifest {
@@ -68,7 +84,7 @@ export interface SessionManifest {
   bytes: number;
   flags: number;
   enc?: { k: string };
-  attrs: EdgeAttrs & { entryUrl?: string; urlCount?: number };
+  attrs: EdgeAttrs & { entryUrl?: string; urlCount?: number; pageCount?: number };
 }
 
 export type ProjectJurisdiction = "eu" | "fedramp";
@@ -155,6 +171,8 @@ export interface FinalizeMessage {
   bytes: number;
   segments: number;
   flags: number;
+  analyticsVersion?: number;
+  insights?: SessionInsights;
   counts: SessionCounts;
   attrs: SessionManifest["attrs"];
   retentionDays: number;

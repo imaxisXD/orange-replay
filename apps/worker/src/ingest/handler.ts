@@ -1,45 +1,35 @@
 import {
   FLAG_UNCOMPRESSED,
   HDR_REQUEST_ID,
-  MAX_COMPRESSED_BATCH_BYTES,
-  PROJECT_CONFIG_CACHE_TTL_SECONDS,
   PERSISTED_REPLAY_FLAG_MASK,
   SDK_FLUSH_DEFAULT_MS,
-  configKvKey,
   decodeIngestBody,
   startWideEvent,
   uuidv7,
   WireError,
 } from "@orange-replay/shared";
 import { shouldSampleSession } from "@orange-replay/shared/sampling";
-import type {
-  EdgeAttrs,
-  IngestAck,
-  ProjectConfig,
-  RecorderProjectConfig,
-  WideEventOutcome,
-} from "@orange-replay/shared";
-import { ensureProjectConfigStorage } from "../api/project-config.ts";
+import type { IngestAck, WideEventOutcome } from "@orange-replay/shared";
 import type { AppendArgs } from "../do/contract.ts";
-import { isDevTestMode, setWorkerLoggerVersion, shardDb } from "../env.ts";
+import { setWorkerLoggerVersion } from "../env.ts";
 import type { Env } from "../env.ts";
+import { attrsFromRequest, browserOriginIsAllowed, writeTrend } from "./edge-attrs.ts";
 import {
   MAX_INGEST_BODY_BYTES,
   ingestPostHeaders,
   ingestPreflightHeaders,
-  mapConfigRowToProjectConfig,
-  parseProjectConfig,
   readBodyCapped,
   readContentLength,
   sanitizeBatchIndexEvents,
   sha256Hex,
   validateIngestHeaders,
-  validateWriteKeyHeader,
 } from "./helpers.ts";
-import type { ProjectConfigRow } from "./helpers.ts";
+import { gzipPayload, indexMismatchError, validatePayloadSize } from "./payload.ts";
+import { loadProjectConfig } from "./project-config-loader.ts";
+import { ingestRateLimitAllows } from "./rate-limit.ts";
+import { ingestAckForAppendResult, jsonResponse } from "./response.ts";
 
-const CONFIG_READ_QUERY =
-  "SELECT k.project_id AS projectId, k.active AS active, p.org_id AS orgId, p.retention_days AS retentionDays, p.jurisdiction AS jurisdiction, p.sample_rate AS sampleRate, p.allowed_origins AS allowedOrigins, p.mask_policy_version AS maskPolicyVersion, p.mask_rules AS maskRules, p.capture_toggles AS capture, p.quota_state AS quotaState, p.config_version AS version, o.shard AS shard FROM keys k JOIN projects p ON p.id = k.project_id JOIN orgs o ON o.id = p.org_id WHERE k.key_hash = ?";
+export { handleRecorderConfig } from "./recorder-config.ts";
 
 export function handleIngest(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   setWorkerLoggerVersion(env);
@@ -68,93 +58,6 @@ export function handleIngest(request: Request, env: Env, ctx: ExecutionContext):
   }
 
   return handleIngestPost(request, env, ctx);
-}
-
-export async function handleRecorderConfig(
-  request: Request,
-  env: Env,
-  ctx: ExecutionContext,
-): Promise<Response> {
-  setWorkerLoggerVersion(env);
-  const requestId = uuidv7();
-  const event = startWideEvent("worker", "recorder.config", requestId);
-  let statusCode = 500;
-  let outcome: WideEventOutcome = "server_error";
-  let responseHeaders = ingestPostHeaders(request);
-  responseHeaders.set(HDR_REQUEST_ID, requestId);
-  responseHeaders.set("cache-control", "no-store");
-
-  const finish = (body: unknown, status: number, nextOutcome: WideEventOutcome): Response => {
-    statusCode = status;
-    outcome = nextOutcome;
-    if (status === 429) responseHeaders.set("retry-after", "2");
-    return jsonResponse(body, status, responseHeaders);
-  };
-
-  try {
-    if (request.method === "OPTIONS") {
-      responseHeaders = ingestPreflightHeaders(request);
-      responseHeaders.set("access-control-allow-methods", "GET,OPTIONS");
-      responseHeaders.set(HDR_REQUEST_ID, requestId);
-      statusCode = 204;
-      outcome = "success";
-      return new Response(null, { status: 204, headers: responseHeaders });
-    }
-    if (request.method !== "GET") {
-      return finish({ error: "method not allowed" }, 405, "client_error");
-    }
-
-    const writeKey = validateWriteKeyHeader(request.headers);
-    if (!writeKey.ok) return finish({ error: writeKey.error }, 400, "client_error");
-
-    const keyHash = await sha256Hex(writeKey.value);
-    // Unlike the ingest hot path, this public endpoint applies the lookup
-    // limiter before the KV read too — the write key is public (demo) and a
-    // recorder only fetches config once per page load.
-    if (!(await ingestIpRateLimitAllows(env, env.INGEST_LOOKUP_RATE_LIMITER, request, "lookup"))) {
-      event.set({ rate_limit: "lookup" });
-      return finish({ error: "rate_limited" }, 429, "rate_limited");
-    }
-    const configResult = await loadProjectConfig(env, ctx, keyHash, request, true);
-    event.set({ kv_hit: configResult.kvHit });
-    if (configResult.lookupRateLimited) {
-      event.set({ rate_limit: "lookup" });
-      return finish({ error: "rate_limited" }, 429, "rate_limited");
-    }
-
-    const config = configResult.config;
-    if (config === null || !config.active) {
-      return finish({ error: "unknown or inactive ingest key" }, 401, "client_error");
-    }
-
-    responseHeaders = ingestPostHeaders(request, config.allowedOrigins);
-    responseHeaders.set(HDR_REQUEST_ID, requestId);
-    responseHeaders.set("cache-control", "no-store");
-    event.set({ project_id: config.projectId, org_id: config.orgId });
-    if (!browserOriginIsAllowed(request, config.allowedOrigins)) {
-      return finish({ error: "origin is not allowed" }, 403, "client_error");
-    }
-
-    const recorderConfig: RecorderProjectConfig = {
-      sampleRate: config.quotaState === "exceeded" ? 0 : config.sampleRate,
-      maskPolicyVersion: config.maskPolicyVersion,
-      maskRules: config.maskRules ?? [],
-      capture: config.capture ?? {
-        heatmaps: false,
-        console: false,
-        network: false,
-        canvas: false,
-      },
-      version: config.version ?? 0,
-    };
-    return finish(recorderConfig, 200, "success");
-  } catch (error) {
-    event.fail(error);
-    return finish({ error: "recorder config failed" }, 500, "server_error");
-  } finally {
-    event.set({ route: "/v1/config", method: request.method, status_code: statusCode });
-    event.emit(outcome);
-  }
 }
 
 async function handleIngestPost(
@@ -349,20 +252,16 @@ async function handleIngestPost(
       return finish({ error: "rate_limited" }, 429, "rate_limited");
     }
 
+    const ack = ingestAckForAppendResult(result);
+    if (result.drop === true) {
+      event.set({ flags: cleanedFlags, live: result.live, drop_reason: "session_cap" });
+      return finish(ack, 202, "dropped");
+    }
+
     writeTrend(env, config.projectId, attrs.country, payload.byteLength);
     event.set({ flags: cleanedFlags, live: result.live });
 
-    return finish(
-      {
-        ok: true,
-        live: result.live,
-        closed: result.closed || undefined,
-        flushMs: result.flushMs,
-        checkpoint: result.checkpoint || undefined,
-      } satisfies IngestAck,
-      200,
-      "success",
-    );
+    return finish(ack, 200, "success");
   } catch (error) {
     event.fail(error);
     return finish({ error: "ingest failed" }, 500, "server_error");
@@ -370,34 +269,6 @@ async function handleIngestPost(
     event.set({ status_code: statusCode });
     event.emit(outcome);
   }
-}
-
-async function ingestRateLimitAllows(
-  env: Env,
-  limiter: Env["INGEST_LOOKUP_RATE_LIMITER"],
-  scope: string,
-): Promise<boolean> {
-  if (limiter === undefined) {
-    return isDevTestMode(env);
-  }
-
-  const key = await sha256Hex(scope);
-  try {
-    const result = await limiter.limit({ key });
-    return result.success;
-  } catch {
-    return false;
-  }
-}
-
-async function ingestIpRateLimitAllows(
-  env: Env,
-  limiter: Env["INGEST_LOOKUP_RATE_LIMITER"],
-  request: Request,
-  scope: string,
-): Promise<boolean> {
-  const source = request.headers.get("cf-connecting-ip")?.trim() || "unknown";
-  return ingestRateLimitAllows(env, limiter, `${scope}:ip:${source}`);
 }
 
 function loggedIngestEdgeResponse(
@@ -427,195 +298,4 @@ function loggedIngestEdgeResponse(
     });
     event.emit(outcome === "server_error" ? outcome : expectedOutcome);
   }
-}
-
-function validatePayloadSize(payload: Uint8Array): {
-  body: { error: string };
-  status: number;
-} | null {
-  if (payload.byteLength === 0) {
-    return { body: { error: "ingest payload is empty" }, status: 400 };
-  }
-
-  if (payload.byteLength > MAX_COMPRESSED_BATCH_BYTES) {
-    return { body: { error: "ingest payload is too large" }, status: 413 };
-  }
-
-  return null;
-}
-
-async function loadProjectConfig(
-  env: Env,
-  ctx: ExecutionContext,
-  keyHash: string,
-  request: Request,
-  requireRecorderFields = false,
-): Promise<{ config: ProjectConfig | null; kvHit: boolean; lookupRateLimited: boolean }> {
-  const kvConfig = parseProjectConfig(await getCachedProjectConfig(env, keyHash));
-  if (kvConfig !== null && (!requireRecorderFields || hasRecorderFields(kvConfig))) {
-    return { config: kvConfig, kvHit: true, lookupRateLimited: false };
-  }
-
-  if (!(await ingestIpRateLimitAllows(env, env.INGEST_LOOKUP_RATE_LIMITER, request, "lookup"))) {
-    return { config: null, kvHit: false, lookupRateLimited: true };
-  }
-
-  await ensureProjectConfigStorage(env);
-  const row = await shardDb(env, 0)
-    .prepare(CONFIG_READ_QUERY)
-    .bind(keyHash)
-    .first<ProjectConfigRow>();
-  const d1Config = mapConfigRowToProjectConfig(row ?? null);
-  if (d1Config !== null) {
-    ctx.waitUntil(env.CONFIG.put(configKvKey(keyHash), JSON.stringify(d1Config)));
-  }
-
-  return { config: d1Config, kvHit: false, lookupRateLimited: false };
-}
-
-function hasRecorderFields(config: ProjectConfig): boolean {
-  return (
-    config.maskRules !== undefined && config.capture !== undefined && config.version !== undefined
-  );
-}
-
-async function getCachedProjectConfig(env: Env, keyHash: string): Promise<unknown> {
-  try {
-    return await env.CONFIG.get(configKvKey(keyHash), {
-      type: "json",
-      cacheTtl: PROJECT_CONFIG_CACHE_TTL_SECONDS,
-    });
-  } catch {
-    return null;
-  }
-}
-
-function browserOriginIsAllowed(request: Request, allowedOrigins: readonly string[]): boolean {
-  if (allowedOrigins.includes("*")) {
-    return true;
-  }
-
-  const origin = request.headers.get("origin");
-  return origin !== null && allowedOrigins.includes(origin);
-}
-
-function indexMismatchError(
-  index: { s: string; tab: string; seq: number },
-  sessionId: string,
-  tab: string,
-  seq: number,
-): string | null {
-  if (index.s !== sessionId) {
-    return "ingest index session does not match the session header";
-  }
-
-  if (index.tab !== tab) {
-    return "ingest index tab does not match the tab header";
-  }
-
-  if (index.seq !== seq) {
-    return "ingest index seq does not match the seq header";
-  }
-
-  return null;
-}
-
-async function gzipPayload(payload: Uint8Array): Promise<Uint8Array> {
-  const body = new Response(payload).body;
-  if (body === null) {
-    throw new Error("payload gzip failed");
-  }
-
-  const compressed = await new Response(
-    body.pipeThrough(new CompressionStream("gzip")),
-  ).arrayBuffer();
-  return new Uint8Array(compressed);
-}
-
-function attrsFromRequest(request: Request): EdgeAttrs {
-  const cf = request.cf as Record<string, unknown> | undefined;
-  const userAgent = request.headers.get("user-agent") ?? "";
-  const deviceInfo = attrsFromUserAgent(userAgent);
-
-  return {
-    ...(cf === undefined
-      ? {}
-      : {
-          country: readString(cf["country"]),
-          region: readString(cf["regionCode"]),
-          city: readString(cf["city"]),
-          asn: readNumber(cf["asn"]),
-        }),
-    ...deviceInfo,
-  };
-}
-
-function attrsFromUserAgent(userAgent: string): Pick<EdgeAttrs, "browser" | "os" | "device"> {
-  if (userAgent.length === 0) {
-    return {};
-  }
-
-  return {
-    browser: browserFromUserAgent(userAgent),
-    os: osFromUserAgent(userAgent),
-    device: deviceFromUserAgent(userAgent),
-  };
-}
-
-function browserFromUserAgent(userAgent: string): string | undefined {
-  if (userAgent.includes("Edg/")) return "Edge";
-  if (userAgent.includes("Chrome/") || userAgent.includes("CriOS/")) return "Chrome";
-  if (userAgent.includes("Firefox/") || userAgent.includes("FxiOS/")) return "Firefox";
-  if (userAgent.includes("Safari/")) return "Safari";
-  return undefined;
-}
-
-function osFromUserAgent(userAgent: string): string | undefined {
-  if (userAgent.includes("Windows NT")) return "Windows";
-  if (userAgent.includes("Mac OS X")) return "macOS";
-  if (userAgent.includes("Android")) return "Android";
-  if (userAgent.includes("iPhone") || userAgent.includes("iPad")) return "iOS";
-  if (userAgent.includes("Linux")) return "Linux";
-  return undefined;
-}
-
-function deviceFromUserAgent(userAgent: string): string | undefined {
-  if (userAgent.includes("iPad") || userAgent.includes("Tablet")) return "tablet";
-  if (
-    userAgent.includes("Mobile") ||
-    userAgent.includes("Android") ||
-    userAgent.includes("iPhone")
-  ) {
-    return "mobile";
-  }
-  return "desktop";
-}
-
-function readString(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
-function readNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function writeTrend(
-  env: Env,
-  projectId: string,
-  country: string | undefined,
-  payloadBytes: number,
-): void {
-  try {
-    env.TRENDS?.writeDataPoint({
-      indexes: [projectId],
-      blobs: [country ?? ""],
-      doubles: [1, payloadBytes],
-    });
-  } catch {
-    // Analytics Engine must never make ingest fail.
-  }
-}
-
-function jsonResponse(body: unknown, status: number, headers: Headers): Response {
-  return Response.json(body, { status, headers });
 }

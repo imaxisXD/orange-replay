@@ -142,6 +142,12 @@ export async function indexSession(
           os,
           entry_url,
           url_count,
+          page_count,
+          analytics_version,
+          max_scroll_depth,
+          quick_backs,
+          interaction_time_ms,
+          activity_hist,
           clicks,
           errors,
           rages,
@@ -151,7 +157,7 @@ export async function indexSession(
           flags,
           manifest_key,
           expires_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(project_id, session_id) DO NOTHING`,
       )
       .bind(
@@ -169,6 +175,12 @@ export async function indexSession(
         finalizeMessage.attrs.os ?? null,
         finalizeMessage.attrs.entryUrl ?? null,
         finalizeMessage.attrs.urlCount ?? 0,
+        finalizeMessage.attrs.pageCount ?? null,
+        finalizeMessage.analyticsVersion ?? 0,
+        finalizeMessage.insights?.maxScrollDepth ?? null,
+        finalizeMessage.insights?.quickBacks ?? null,
+        finalizeMessage.insights?.interactionTimeMs ?? null,
+        finalizeMessage.insights?.activityHist ?? null,
         finalizeMessage.counts.clicks,
         finalizeMessage.counts.errors,
         finalizeMessage.counts.rages,

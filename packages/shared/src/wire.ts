@@ -1,4 +1,9 @@
-import { MAX_BATCHES_PER_SEGMENT, MAX_INDEX_JSON_BYTES, MAX_SEQ } from "./constants.ts";
+import {
+  MAX_BATCHES_PER_SEGMENT,
+  MAX_CHECKPOINTS_PER_BATCH,
+  MAX_INDEX_JSON_BYTES,
+  MAX_SEQ,
+} from "./constants.ts";
 import type { BatchIndex } from "./types.ts";
 
 const INGEST_SEPARATOR = 0x00;
@@ -26,6 +31,13 @@ export function encodeIngestBody(index: BatchIndex, payload: Uint8Array): Uint8A
   output.set(payload, indexBytes.byteLength + 1);
 
   return output;
+}
+
+export function encodedIngestBodyByteLength(index: BatchIndex, payloadBytes: number): number {
+  if (!Number.isSafeInteger(payloadBytes) || payloadBytes < 0) {
+    throw new WireError("ingest payload byte length must be a non-negative integer");
+  }
+  return utf8Encoder.encode(JSON.stringify(index)).byteLength + 1 + payloadBytes;
 }
 
 export function decodeIngestBody(bytes: Uint8Array): {
@@ -198,6 +210,23 @@ function assertBatchIndex(value: unknown): asserts value is BatchIndex {
 
   if (!Array.isArray(value.e)) {
     throw new WireError("ingest index events must be an array");
+  }
+
+  const checkpointTimestamps = value.checkpointTimestamps;
+  if (checkpointTimestamps !== undefined) {
+    if (
+      !Array.isArray(checkpointTimestamps) ||
+      checkpointTimestamps.length > MAX_CHECKPOINTS_PER_BATCH ||
+      checkpointTimestamps.some(
+        (timestamp) =>
+          typeof timestamp !== "number" ||
+          !Number.isFinite(timestamp) ||
+          timestamp < t0 ||
+          timestamp > t1,
+      )
+    ) {
+      throw new WireError("ingest index checkpoints must be inside the batch time range");
+    }
   }
 }
 

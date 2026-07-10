@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { MAX_BATCHES_PER_SEGMENT, MAX_MANIFEST_SEGMENTS, MAX_SEQ } from "./constants.ts";
+import {
+  MAX_BATCHES_PER_SEGMENT,
+  MAX_CHECKPOINTS_PER_BATCH,
+  MAX_CHECKPOINTS_PER_SEGMENT,
+  MAX_MANIFEST_SEGMENTS,
+  MAX_SEQ,
+} from "./constants.ts";
 import type {
   BatchIndex,
   FinalizeMessage,
@@ -9,7 +15,9 @@ import type {
   ProjectConfig,
   StoredProjectConfig,
   SegmentRef,
+  SegmentCheckpoint,
   SessionCounts,
+  SessionInsights,
   SessionManifest,
 } from "./types.ts";
 
@@ -82,6 +90,19 @@ const sessionAttrsSchema: z.ZodType<SessionManifest["attrs"]> = edgeAttrsSchema
   .extend({
     entryUrl: replayUrlSchema.optional(),
     urlCount: z.number().int().nonnegative().optional(),
+    pageCount: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+
+const segmentCheckpointSchema: z.ZodType<SegmentCheckpoint> = z
+  .object({
+    timestamp: z.number(),
+    tab: pathIdSchema,
+    batch: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(MAX_BATCHES_PER_SEGMENT - 1),
   })
   .strict();
 
@@ -92,8 +113,27 @@ const segmentRefSchema: z.ZodType<SegmentRef> = z
     t0: z.number(),
     t1: z.number(),
     batches: z.number().int().nonnegative().max(MAX_BATCHES_PER_SEGMENT),
+    checkpoints: z.array(segmentCheckpointSchema).max(MAX_CHECKPOINTS_PER_SEGMENT).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((segment, context) => {
+    for (const [index, checkpoint] of (segment.checkpoints ?? []).entries()) {
+      if (checkpoint.timestamp < segment.t0 || checkpoint.timestamp > segment.t1) {
+        context.addIssue({
+          code: "custom",
+          message: "checkpoint timestamp must be inside the segment time range",
+          path: ["checkpoints", index, "timestamp"],
+        });
+      }
+      if (checkpoint.batch >= segment.batches) {
+        context.addIssue({
+          code: "custom",
+          message: "checkpoint batch must exist in the segment",
+          path: ["checkpoints", index, "batch"],
+        });
+      }
+    }
+  });
 
 const sessionCountsSchema: z.ZodType<SessionCounts> = z
   .object({
@@ -103,6 +143,19 @@ const sessionCountsSchema: z.ZodType<SessionCounts> = z
     errors: z.number().int().nonnegative(),
     rages: z.number().int().nonnegative(),
     navs: z.number().int().nonnegative(),
+  })
+  .strict();
+
+const sessionInsightsSchema: z.ZodType<SessionInsights> = z
+  .object({
+    maxScrollDepth: z.number().int().min(0).max(100),
+    quickBacks: z.number().int().nonnegative(),
+    interactionTimeMs: z.number().int().nonnegative(),
+    activityHist: z
+      .string()
+      .regex(/^[0-9a-f]{8}-[0-9a-f]{2}$/)
+      .nullable()
+      .optional(),
   })
   .strict();
 
@@ -151,13 +204,28 @@ export const batchIndexSchema: z.ZodType<BatchIndex> = z
     t0: z.number(),
     t1: z.number(),
     e: z.array(indexEventSchema).max(MAX_INDEX_EVENTS_PER_BATCH),
+    checkpointTimestamps: z.array(z.number()).max(MAX_CHECKPOINTS_PER_BATCH).optional(),
     u: replayUrlSchema.optional(),
     enc: encSchema.optional(),
   })
   .strict()
-  .refine((value) => value.t0 <= value.t1, {
-    message: "t0 must be less than or equal to t1",
-    path: ["t1"],
+  .superRefine((value, context) => {
+    if (value.t0 > value.t1) {
+      context.addIssue({
+        code: "custom",
+        message: "t0 must be less than or equal to t1",
+        path: ["t1"],
+      });
+    }
+    for (const [index, timestamp] of (value.checkpointTimestamps ?? []).entries()) {
+      if (timestamp < value.t0 || timestamp > value.t1) {
+        context.addIssue({
+          code: "custom",
+          message: "checkpoint timestamp must be inside the batch time range",
+          path: ["checkpointTimestamps", index],
+        });
+      }
+    }
   });
 
 export const projectConfigSchema: z.ZodType<ProjectConfig> = projectConfigObject;
@@ -244,6 +312,8 @@ export const finalizeMessageSchema: z.ZodType<FinalizeMessage> = z
     bytes: z.number().int().nonnegative(),
     segments: z.number().int().nonnegative(),
     flags: z.number().int().nonnegative(),
+    analyticsVersion: z.number().int().nonnegative().optional(),
+    insights: sessionInsightsSchema.optional(),
     counts: sessionCountsSchema,
     attrs: sessionAttrsSchema,
     retentionDays: z.number().int().nonnegative(),
@@ -251,4 +321,24 @@ export const finalizeMessageSchema: z.ZodType<FinalizeMessage> = z
       .array(indexEventSchema.refine((event) => event.k === "error" || event.k === "custom"))
       .max(200),
   })
-  .strict();
+  .strict()
+  .superRefine((message, context) => {
+    if (message.analyticsVersion !== undefined && message.analyticsVersion >= 1) {
+      if (message.attrs.pageCount === undefined) {
+        context.addIssue({
+          code: "custom",
+          message: "pageCount is required for covered analytics",
+          path: ["attrs", "pageCount"],
+        });
+      }
+    }
+    if (message.analyticsVersion !== undefined && message.analyticsVersion >= 2) {
+      if (message.insights === undefined) {
+        context.addIssue({
+          code: "custom",
+          message: "insights are required for covered derived analytics",
+          path: ["insights"],
+        });
+      }
+    }
+  });
