@@ -42,6 +42,13 @@ describe("decode worker protocol", () => {
     expect(await host.decodeBatch(await gzipJson(events))).toEqual(events);
   });
 
+  it("does not accept new decode work after the player stops it", async () => {
+    const host = new DecodeWorkerHost({ allowSynchronousFallback: true });
+    host.stop();
+
+    await expect(host.decodeBatch(encoder.encode("[]"))).rejects.toThrow("Replay worker stopped.");
+  });
+
   it("returns the real decoded byte count", async () => {
     const events = [makeEvent(2_100, "stats")];
     const payload = encoder.encode(JSON.stringify(events));

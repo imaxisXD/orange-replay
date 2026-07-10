@@ -12,6 +12,7 @@ import type { RecorderConfig } from "./types.ts";
 const DEFAULT_BLOCK_SELECTOR = "[data-orange-block]";
 const DEFAULT_IGNORE_SELECTOR = "[data-orange-ignore]";
 const CHECKOUT_EVERY_MS = 4 * 60 * 1000;
+const CHECKOUT_EVERY_NTH = 5_000;
 
 export interface RecorderOptions {
   config: RecorderConfig;
@@ -172,7 +173,18 @@ export function buildRecordOptions(
     blockSelector: mergeSelectors(DEFAULT_BLOCK_SELECTOR, config.blockSelector),
     ignoreSelector: mergeSelectors(DEFAULT_IGNORE_SELECTOR, config.ignoreSelector),
     maskTextSelector: config.maskTextSelector,
+    // Images are sealed into the recording so the replay frame never needs to
+    // contact the recorded site or a third party.
+    inlineImages: true,
+    // Canvas pixels cannot be text-masked, so this remains an explicit project
+    // setting. Frames are capped, deduplicated WebP images rather than canvas
+    // API calls.
     recordCanvas: config.capture.canvas,
+    sampling: { canvas: 2 },
+    dataURLOptions: { type: "image/webp", quality: 0.62 },
+    // Time bounds normal pages; event count bounds mutation-heavy pages so a
+    // seek checkpoint cannot grow without limit between periodic snapshots.
+    checkoutEveryNth: CHECKOUT_EVERY_NTH,
     checkoutEveryNms: CHECKOUT_EVERY_MS,
     errorHandler(error: unknown) {
       onError?.(error);

@@ -29,6 +29,7 @@ describe("timeline logic", () => {
     ]);
     expect(timeline.counts).toEqual({
       clicks: 1,
+      deadClicks: 0,
       errors: 1,
       rages: 1,
       navs: 1,

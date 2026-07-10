@@ -6,6 +6,7 @@ export {
   segmentFileName,
 } from "./api.ts";
 export { PlayerEmitter } from "./emitter.ts";
+export { bucketActivity, detectDeadClicks } from "./friction.ts";
 export { acceptLiveFrame, createLiveFrameState, decodeLiveFrame, liveFrameKey } from "./live.ts";
 export { ReplayOverlay } from "./overlay.ts";
 export { OrangePlayer } from "./player.ts";
@@ -34,5 +35,6 @@ export { installDecodeWorkerEntry, makeDecodeWorkerSource } from "./worker-entry
 export { DecodeWorkerHost } from "./worker-host.ts";
 export type * from "./types.ts";
 export type { ClickPoint, RageBurst, RageDetectionOptions } from "./rage.ts";
+export type { ActivityBucket, DeadClick } from "./friction.ts";
 export type { CursorPoint, ReplayOverlayEvents } from "./replay-events.ts";
 export type { DecodeWorkerRequest, DecodeWorkerResponse } from "./worker-entry.ts";

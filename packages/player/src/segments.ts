@@ -1,5 +1,7 @@
 import { decodeIngestBody, parseSegment, segmentBatch } from "@orange-replay/shared/wire";
-import type { BatchIndex, SegmentRef } from "@orange-replay/shared/types";
+import { MAX_CHECKPOINTS_PER_SEGMENT } from "@orange-replay/shared/constants";
+import type { BatchIndex, SegmentCheckpoint, SegmentRef } from "@orange-replay/shared/types";
+import { EventType } from "rrweb";
 import type { DecodeWorkerHost } from "./worker-host.ts";
 import type { ReplayEvent, SegmentWindow } from "./types.ts";
 
@@ -11,6 +13,7 @@ export interface DecodedReplayBatch {
   index: BatchIndex;
   events: ReplayEvent[];
   decodedBytes: number;
+  segmentBatchIndex: number;
 }
 
 export const MAX_DECODED_SEGMENT_EVENTS = 100_000;
@@ -84,25 +87,114 @@ export function findSegmentIndex(
 export function chooseSegmentWindow(
   segments: readonly SegmentRef[],
   activeIndex: number,
+  options: { targetTimestamp?: number; replayTab?: string } = {},
 ): SegmentWindow {
   if (segments.length === 0 || activeIndex < 0 || activeIndex >= segments.length) {
-    return { activeIndex: -1, neededIndexes: [], prefetchIndexes: [] };
+    return { activeIndex: -1, startIndex: -1, neededIndexes: [], prefetchIndexes: [] };
   }
 
+  const activeSegment = segments[activeIndex];
+  const targetTimestamp = options.targetTimestamp ?? activeSegment?.t1 ?? Number.POSITIVE_INFINITY;
+  const checkpoint = findNearestSegmentCheckpoint(
+    segments,
+    activeIndex,
+    targetTimestamp,
+    options.replayTab,
+  );
+  const startIndex = checkpoint?.segmentIndex ?? 0;
   const nextIndex = activeIndex + 1;
   return {
     activeIndex,
-    neededIndexes: [activeIndex],
+    startIndex,
+    neededIndexes: Array.from(
+      { length: activeIndex - startIndex + 1 },
+      (_unused, index) => startIndex + index,
+    ),
     prefetchIndexes: nextIndex < segments.length ? [nextIndex] : [],
+    ...(checkpoint === undefined ? {} : { checkpoint }),
   };
+}
+
+export function findPrimaryReplayTab(segments: readonly SegmentRef[]): string | undefined {
+  let first: { timestamp: number; tab: string; segmentIndex: number; batch: number } | undefined;
+
+  for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex += 1) {
+    for (const checkpoint of segments[segmentIndex]?.checkpoints ?? []) {
+      if (
+        first === undefined ||
+        checkpoint.timestamp < first.timestamp ||
+        (checkpoint.timestamp === first.timestamp && segmentIndex < first.segmentIndex) ||
+        (checkpoint.timestamp === first.timestamp &&
+          segmentIndex === first.segmentIndex &&
+          checkpoint.batch < first.batch)
+      ) {
+        first = { ...checkpoint, segmentIndex };
+      }
+    }
+  }
+
+  return first?.tab;
+}
+
+export function eventsFromCheckpoint(
+  events: readonly ReplayEvent[],
+  timestamp: number,
+): ReplayEvent[] {
+  const checkpointIndex = events.findIndex(
+    (event) => event.type === EventType.FullSnapshot && event.timestamp === timestamp,
+  );
+  if (checkpointIndex < 0) {
+    throw new Error("Replay checkpoint does not match a full snapshot.");
+  }
+  return events.slice(checkpointIndex);
+}
+
+export function validateSegmentCheckpoints(
+  segment: SegmentRef,
+  batches: readonly DecodedReplayBatch[],
+): void {
+  for (const checkpoint of segment.checkpoints ?? []) {
+    const batch = batches.find((candidate) => candidate.segmentBatchIndex === checkpoint.batch);
+    if (
+      batch === undefined ||
+      batch.index.tab !== checkpoint.tab ||
+      !batch.index.checkpointTimestamps?.includes(checkpoint.timestamp) ||
+      !batch.events.some(
+        (event) =>
+          event.type === EventType.FullSnapshot && event.timestamp === checkpoint.timestamp,
+      )
+    ) {
+      throw new Error("Replay segment checkpoint metadata does not match its full snapshot.");
+    }
+  }
+}
+
+export function discoverSegmentCheckpoints(
+  batches: readonly DecodedReplayBatch[],
+): SegmentCheckpoint[] {
+  const checkpoints: SegmentCheckpoint[] = [];
+  for (const batch of batches) {
+    for (const event of batch.events) {
+      if (event.type !== EventType.FullSnapshot) {
+        continue;
+      }
+      checkpoints.push({
+        timestamp: event.timestamp,
+        tab: batch.index.tab,
+        batch: batch.segmentBatchIndex,
+      });
+      if (checkpoints.length >= MAX_CHECKPOINTS_PER_SEGMENT) {
+        return checkpoints;
+      }
+    }
+  }
+  return checkpoints.toSorted(
+    (left, right) => left.timestamp - right.timestamp || left.batch - right.batch,
+  );
 }
 
 export function mergeReplayEvents(events: readonly ReplayEvent[]): ReplayEvent[] {
   return [...events].sort((left, right) => left.timestamp - right.timestamp);
-}
-
-export function eventKey(event: ReplayEvent): string {
-  return `${event.timestamp}:${event.type}:${JSON.stringify(event.data)}`;
 }
 
 async function decodeSegmentBatch(
@@ -125,6 +217,7 @@ async function decodeSegmentBatch(
   if (encoded !== undefined) {
     return {
       index: encoded.index,
+      segmentBatchIndex: batchNumber,
       ...(await worker.decodeBatchWithStats(encoded.payload)),
     };
   }
@@ -134,7 +227,37 @@ async function decodeSegmentBatch(
     decodedBytes: decoded.decodedBytes,
     events: decoded.events,
     index: legacyBatchIndex(decoded.events, batchNumber),
+    segmentBatchIndex: batchNumber,
   };
+}
+
+function findNearestSegmentCheckpoint(
+  segments: readonly SegmentRef[],
+  activeIndex: number,
+  targetTimestamp: number,
+  replayTab: string | undefined,
+): SegmentWindow["checkpoint"] {
+  let nearest: SegmentWindow["checkpoint"];
+
+  for (let segmentIndex = 0; segmentIndex <= activeIndex; segmentIndex += 1) {
+    for (const checkpoint of segments[segmentIndex]?.checkpoints ?? []) {
+      if (checkpoint.timestamp > targetTimestamp || (replayTab && checkpoint.tab !== replayTab)) {
+        continue;
+      }
+      if (
+        nearest === undefined ||
+        checkpoint.timestamp > nearest.timestamp ||
+        (checkpoint.timestamp === nearest.timestamp && segmentIndex > nearest.segmentIndex) ||
+        (checkpoint.timestamp === nearest.timestamp &&
+          segmentIndex === nearest.segmentIndex &&
+          checkpoint.batch > nearest.batch)
+      ) {
+        nearest = { ...checkpoint, segmentIndex };
+      }
+    }
+  }
+
+  return nearest;
 }
 
 function legacyBatchIndex(events: readonly ReplayEvent[], batchNumber: number): BatchIndex {

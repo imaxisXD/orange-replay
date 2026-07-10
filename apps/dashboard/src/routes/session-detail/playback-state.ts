@@ -1,4 +1,4 @@
-import type { LiveEvent, PlayerErrorEvent } from "@orange-replay/player";
+import type { DeadClick, LiveEvent, PlayerErrorEvent } from "@orange-replay/player";
 import type { ReplayMode } from "./session-detail-data";
 
 export interface PlaybackState {
@@ -13,17 +13,19 @@ export interface PlaybackState {
   liveState: LiveEvent;
   waitingForKeyframe: boolean;
   flashKey: number;
+  deadClicks: DeadClick[];
 }
 
 export type PlaybackAction =
   | { type: "ready"; durationMs: number }
-  | { type: "timeline"; durationMs: number }
+  | { type: "timeline"; durationMs: number; deadClicks: DeadClick[] }
   | { type: "progress"; currentMs: number; durationMs: number }
   | { type: "buffering"; buffering: boolean }
   | { type: "playing"; playing: boolean }
   | { type: "seek"; timeMs: number; flash: boolean }
   | { type: "speed"; speed: number }
   | { type: "skipIdle" }
+  | { type: "retry" }
   | { type: "error"; error: PlayerErrorEvent | null }
   | { type: "live"; liveState: LiveEvent }
   | { type: "waitingKeyframe"; waiting: boolean };
@@ -35,8 +37,13 @@ export function playbackReducer(state: PlaybackState, action: PlaybackAction): P
       return { ...state, ready: true, durationMs: action.durationMs, buffering: false };
     }
     case "timeline":
-      if (state.durationMs === action.durationMs) return state;
-      return { ...state, durationMs: action.durationMs };
+      if (
+        state.durationMs === action.durationMs &&
+        sameDeadClicks(state.deadClicks, action.deadClicks)
+      ) {
+        return state;
+      }
+      return { ...state, durationMs: action.durationMs, deadClicks: action.deadClicks };
     case "progress":
       if (state.currentMs === action.currentMs && state.durationMs === action.durationMs)
         return state;
@@ -59,6 +66,16 @@ export function playbackReducer(state: PlaybackState, action: PlaybackAction): P
       return { ...state, speed: action.speed };
     case "skipIdle":
       return { ...state, skipIdle: !state.skipIdle };
+    case "retry":
+      return {
+        ...state,
+        ready: false,
+        buffering: false,
+        playing: false,
+        currentMs: 0,
+        playerError: null,
+        waitingForKeyframe: state.liveState.following,
+      };
     case "error": {
       const nextBuffering = action.error ? false : state.buffering;
       if (state.playerError === action.error && state.buffering === nextBuffering) return state;
@@ -95,5 +112,15 @@ export function initialPlaybackState(durationMs: number, mode: ReplayMode): Play
     liveState: { following: mode === "live", connected: false },
     waitingForKeyframe: mode === "live",
     flashKey: 0,
+    deadClicks: [],
   };
+}
+
+function sameDeadClicks(left: readonly DeadClick[], right: readonly DeadClick[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every(
+      (click, index) => click.t === right[index]?.t && click.detail === right[index]?.detail,
+    )
+  );
 }

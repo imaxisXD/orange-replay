@@ -1,4 +1,5 @@
 import type { IndexEvent } from "@orange-replay/shared/types";
+import { DEFAULT_INACTIVITY_GAP_MS } from "@orange-replay/shared/insights";
 import type {
   InactivityGap,
   PlayerTimeline,
@@ -7,7 +8,7 @@ import type {
   TimelineTick,
 } from "./types.ts";
 
-export const DEFAULT_INACTIVITY_GAP_MS = 5_000;
+export { DEFAULT_INACTIVITY_GAP_MS } from "@orange-replay/shared/insights";
 const DEFAULT_TICK_COUNT = 120;
 
 const markerKinds = new Set<TimelineMarkerKind>(["click", "rage", "error", "nav", "custom"]);
@@ -52,11 +53,13 @@ export function buildTimeline(
     markers,
     counts: {
       clicks: countKind(events, "click"),
+      deadClicks: 0,
       errors: countKind(events, "error"),
       rages: countKind(events, "rage"),
       navs: countKind(events, "nav"),
       customs: countKind(events, "custom"),
     },
+    deadClicks: [],
     sourceEvents: [...events].sort(compareIndexEvents),
   };
 }

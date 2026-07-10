@@ -5,6 +5,7 @@ import {
   type RageBurst,
 } from "./rage.ts";
 import { extractOverlayEvents, type CursorPoint } from "./replay-events.ts";
+import type { DeadClick } from "./friction.ts";
 import type { OverlayOptions, ReplayEvent } from "./types.ts";
 
 interface ResolvedOverlayOptions {
@@ -19,13 +20,17 @@ interface ResolvedOverlayOptions {
 
 const defaultOptions: ResolvedOverlayOptions = {
   cursorColor: "oklch(0.784 0.159 72.991)",
-  cursorOpacity: 0.75,
+  cursorOpacity: 0.95,
   clickColor: "oklch(0.784 0.159 72.991)",
   clickOpacity: 0.7,
   rageColor: "oklch(0.662 0.198 25.892)",
   rageOpacity: 0.78,
-  trailMs: 1_000,
+  trailMs: 1_800,
 };
+
+const TRAIL_OUTLINE_COLOR = "rgb(255 255 255 / 0.95)";
+const TRAIL_OUTLINE_WIDTH = 8;
+const TRAIL_CORE_WIDTH = 4;
 
 const LIVE_MIN_TRAIL_WINDOW_MS = 2_000;
 const LIVE_CLICK_WINDOW_MS = 4_000;
@@ -34,6 +39,13 @@ const MAX_CURSOR_POINTS = 20_000;
 const MAX_CLICK_POINTS = 10_000;
 const MAX_RAGE_BURSTS = 5_000;
 const MAX_RAGE_DETECTION_WINDOW_CLICKS = 500;
+const MAX_TRAIL_POINTS_PER_FRAME = 120;
+const MAX_CLICK_EFFECTS_PER_FRAME = 50;
+const MAX_RAGE_EFFECTS_PER_FRAME = 25;
+const MAX_DEAD_CLICK_EFFECTS_PER_FRAME = 50;
+const CLICK_DRAW_WINDOW_MS = 700;
+const DEAD_CLICK_DRAW_WINDOW_MS = 500;
+const DEAD_CLICK_MATCH_WINDOW_MS = 150;
 
 export class ReplayOverlay {
   private readonly canvas: HTMLCanvasElement;
@@ -46,6 +58,7 @@ export class ReplayOverlay {
   private cursor: CursorPoint[] = [];
   private clicks: ClickPoint[] = [];
   private rageBursts: RageBurst[] = [];
+  private deadClickTimes: number[] = [];
 
   constructor(container: HTMLElement, options: OverlayOptions = {}) {
     this.container = container;
@@ -84,6 +97,13 @@ export class ReplayOverlay {
     this.startedAt = startedAt;
   }
 
+  setDeadClicks(deadClicks: readonly DeadClick[]): void {
+    this.deadClickTimes = [
+      ...new Set(deadClicks.map((click) => Math.max(0, click.t - this.startedAt))),
+    ].sort((left, right) => left - right);
+    this.draw(this.currentMs);
+  }
+
   addEvents(events: readonly ReplayEvent[], options: { liveEdgeMs?: number } = {}): void {
     const extracted = extractOverlayEvents(events, this.startedAt);
     this.cursor = mergePointsByTime(this.cursor, extracted.cursor);
@@ -105,6 +125,14 @@ export class ReplayOverlay {
     this.resize();
   }
 
+  reset(): void {
+    this.cursor = [];
+    this.clicks = [];
+    this.rageBursts = [];
+    this.deadClickTimes = [];
+    this.draw(this.currentMs);
+  }
+
   draw(currentMs: number): void {
     this.currentMs = currentMs;
     this.resize();
@@ -120,6 +148,7 @@ export class ReplayOverlay {
     this.drawTrail(context, currentMs);
     this.drawClicks(context, currentMs);
     this.drawRageBursts(context, currentMs);
+    this.drawDeadClicks(context, currentMs);
     context.restore();
   }
 
@@ -142,9 +171,20 @@ export class ReplayOverlay {
   }
 
   private drawTrail(context: CanvasRenderingContext2D, currentMs: number): void {
-    const visible = this.cursor.filter(
-      (point) => point.timeMs <= currentMs && currentMs - point.timeMs <= this.options.trailMs,
+    const visible = visiblePoints(
+      this.cursor,
+      currentMs - this.options.trailMs,
+      currentMs,
+      MAX_TRAIL_POINTS_PER_FRAME,
     );
+
+    if (visible.length === 1) {
+      const point = visible[0];
+      if (point !== undefined) {
+        this.drawTrailMarker(context, point, currentMs);
+      }
+      return;
+    }
 
     if (visible.length < 2) {
       return;
@@ -152,9 +192,6 @@ export class ReplayOverlay {
 
     context.lineCap = "round";
     context.lineJoin = "round";
-    context.lineWidth = 2.5;
-    context.strokeStyle = this.options.cursorColor;
-
     for (let index = 1; index < visible.length; index += 1) {
       const previous = visible[index - 1];
       const next = visible[index];
@@ -163,7 +200,20 @@ export class ReplayOverlay {
       }
 
       const age = currentMs - next.timeMs;
-      context.globalAlpha = this.options.cursorOpacity * (1 - age / this.options.trailMs);
+      const fade = Math.max(0, 1 - age / this.options.trailMs);
+      const alpha = this.options.cursorOpacity * fade;
+
+      context.globalAlpha = alpha * 0.9;
+      context.lineWidth = TRAIL_OUTLINE_WIDTH;
+      context.strokeStyle = TRAIL_OUTLINE_COLOR;
+      context.beginPath();
+      context.moveTo(previous.x, previous.y);
+      context.lineTo(next.x, next.y);
+      context.stroke();
+
+      context.globalAlpha = alpha;
+      context.lineWidth = TRAIL_CORE_WIDTH;
+      context.strokeStyle = this.options.cursorColor;
       context.beginPath();
       context.moveTo(previous.x, previous.y);
       context.lineTo(next.x, next.y);
@@ -171,30 +221,59 @@ export class ReplayOverlay {
     }
   }
 
-  private drawClicks(context: CanvasRenderingContext2D, currentMs: number): void {
-    for (const click of this.clicks) {
-      const age = currentMs - click.timeMs;
-      if (age < 0 || age > 650) {
-        continue;
-      }
+  private drawTrailMarker(
+    context: CanvasRenderingContext2D,
+    point: CursorPoint,
+    currentMs: number,
+  ): void {
+    const age = currentMs - point.timeMs;
+    const fade = Math.max(0, 1 - age / this.options.trailMs);
+    const alpha = this.options.cursorOpacity * fade;
 
-      const progress = age / 650;
+    context.globalAlpha = alpha * 0.9;
+    context.lineWidth = 6;
+    context.strokeStyle = TRAIL_OUTLINE_COLOR;
+    context.beginPath();
+    context.arc(point.x, point.y, 8, 0, Math.PI * 2);
+    context.stroke();
+
+    context.globalAlpha = alpha;
+    context.lineWidth = 3;
+    context.strokeStyle = this.options.cursorColor;
+    context.stroke();
+  }
+
+  private drawClicks(context: CanvasRenderingContext2D, currentMs: number): void {
+    for (const click of visiblePoints(
+      this.clicks,
+      currentMs - CLICK_DRAW_WINDOW_MS,
+      currentMs,
+      MAX_CLICK_EFFECTS_PER_FRAME,
+    )) {
+      const age = currentMs - click.timeMs;
+      const progress = age / CLICK_DRAW_WINDOW_MS;
       context.globalAlpha = this.options.clickOpacity * (1 - progress);
       context.strokeStyle = this.options.clickColor;
       context.lineWidth = 2;
       context.beginPath();
-      context.arc(click.x, click.y, 8 + progress * 24, 0, Math.PI * 2);
+      context.arc(click.x, click.y, 8 + progress * 36, 0, Math.PI * 2);
+      context.stroke();
+
+      context.globalAlpha = this.options.clickOpacity * 0.5 * (1 - progress);
+      context.beginPath();
+      context.arc(click.x, click.y, 14 + progress * 38, 0, Math.PI * 2);
       context.stroke();
     }
   }
 
   private drawRageBursts(context: CanvasRenderingContext2D, currentMs: number): void {
-    for (const burst of this.rageBursts) {
+    for (const burst of visiblePoints(
+      this.rageBursts,
+      currentMs - RAGE_DRAW_WINDOW_MS,
+      currentMs,
+      MAX_RAGE_EFFECTS_PER_FRAME,
+    )) {
       const age = currentMs - burst.timeMs;
-      if (age < 0 || age > 900) {
-        continue;
-      }
-
       const progress = age / 900;
       context.strokeStyle = this.options.rageColor;
       context.lineWidth = 2.5;
@@ -205,6 +284,36 @@ export class ReplayOverlay {
         context.arc(burst.x, burst.y, 10 + progress * 30 + ring * 8, 0, Math.PI * 2);
         context.stroke();
       }
+    }
+  }
+
+  private drawDeadClicks(context: CanvasRenderingContext2D, currentMs: number): void {
+    for (const deadClickTime of visibleTimes(
+      this.deadClickTimes,
+      currentMs - DEAD_CLICK_DRAW_WINDOW_MS,
+      currentMs,
+      MAX_DEAD_CLICK_EFFECTS_PER_FRAME,
+    )) {
+      const age = currentMs - deadClickTime;
+      const click = closestClick(this.clicks, deadClickTime);
+      if (
+        click === undefined ||
+        Math.abs(click.timeMs - deadClickTime) > DEAD_CLICK_MATCH_WINDOW_MS
+      ) {
+        continue;
+      }
+
+      const progress = age / DEAD_CLICK_DRAW_WINDOW_MS;
+      const arm = 5 + progress * 3;
+      context.globalAlpha = 0.9 * (1 - progress);
+      context.strokeStyle = "rgb(139 139 149)";
+      context.lineWidth = 2.5;
+      context.beginPath();
+      context.moveTo(click.x - arm, click.y - arm);
+      context.lineTo(click.x + arm, click.y + arm);
+      context.moveTo(click.x + arm, click.y - arm);
+      context.lineTo(click.x - arm, click.y + arm);
+      context.stroke();
     }
   }
 
@@ -304,6 +413,77 @@ function trimPointCount<T>(points: readonly T[], maxPoints: number): T[] {
     return [...points];
   }
   return points.slice(points.length - maxPoints);
+}
+
+function closestClick(clicks: readonly ClickPoint[], timeMs: number): ClickPoint | undefined {
+  let low = 0;
+  let high = clicks.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    const click = clicks[middle];
+    if (click !== undefined && click.timeMs < timeMs) {
+      low = middle + 1;
+    } else {
+      high = middle;
+    }
+  }
+
+  const next = clicks[low];
+  const previous = clicks[low - 1];
+  if (previous === undefined) return next;
+  if (next === undefined) return previous;
+  return timeMs - previous.timeMs <= next.timeMs - timeMs ? previous : next;
+}
+
+function visiblePoints<T extends { timeMs: number }>(
+  points: readonly T[],
+  startMs: number,
+  endMs: number,
+  limit: number,
+): T[] {
+  return boundedSortedWindow(points, startMs, endMs, limit, (point) => point.timeMs);
+}
+
+function visibleTimes(
+  times: readonly number[],
+  startMs: number,
+  endMs: number,
+  limit: number,
+): number[] {
+  return boundedSortedWindow(times, startMs, endMs, limit, (time) => time);
+}
+
+function boundedSortedWindow<T>(
+  values: readonly T[],
+  startMs: number,
+  endMs: number,
+  limit: number,
+  readTime: (value: T) => number,
+): T[] {
+  const startIndex = lowerBoundByTime(values, startMs, readTime);
+  const endIndex = lowerBoundByTime(values, endMs, readTime, true);
+  return values.slice(Math.max(startIndex, endIndex - limit), endIndex);
+}
+
+function lowerBoundByTime<T>(
+  values: readonly T[],
+  targetMs: number,
+  readTime: (value: T) => number,
+  afterEqual = false,
+): number {
+  let low = 0;
+  let high = values.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    const value = values[middle];
+    const timeMs = value === undefined ? Number.POSITIVE_INFINITY : readTime(value);
+    if (timeMs < targetMs || (afterEqual && timeMs === targetMs)) {
+      low = middle + 1;
+    } else {
+      high = middle;
+    }
+  }
+  return low;
 }
 
 export function shouldRunRageDetectionForClicks(clicks: readonly ClickPoint[]): boolean {

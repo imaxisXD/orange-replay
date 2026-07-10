@@ -24,6 +24,7 @@ export class DecodeWorkerHost {
   private restartCount = 0;
   private terminalError: Error | undefined;
   private synchronousFallback = false;
+  private stopped = false;
 
   constructor(options: DecodeWorkerOptions = {}) {
     this.revokeObjectUrl = options.revokeObjectUrl ?? URL.revokeObjectURL.bind(URL);
@@ -58,6 +59,10 @@ export class DecodeWorkerHost {
   }
 
   async decodeBatchWithStats(payload: Uint8Array): Promise<DecodedReplayEvents> {
+    if (this.stopped) {
+      throw new Error("Replay worker stopped.");
+    }
+
     if (this.worker === undefined) {
       if (!this.synchronousFallback) {
         throw this.terminalError ?? new Error("Replay worker is not available.");
@@ -92,6 +97,7 @@ export class DecodeWorkerHost {
   }
 
   stop(): void {
+    this.stopped = true;
     if (this.worker !== undefined) {
       this.worker.postMessage({ type: "stop" });
       this.worker.terminate();

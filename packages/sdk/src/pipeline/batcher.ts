@@ -189,7 +189,10 @@ export class Batcher {
 
 export function estimateRrwebEventBytes(event: eventWithTime): number {
   if (event.type === EventType.FullSnapshot) {
-    return 16 * 1024;
+    // Full snapshots can now contain sealed image bytes. This runs only at the
+    // initial snapshot and periodic checkpoints, and prevents large pages from
+    // being counted as a fixed 16KB.
+    return Math.max(16 * 1024, JSON.stringify(event).length * 2);
   }
 
   if (event.type !== EventType.IncrementalSnapshot) {
@@ -207,9 +210,25 @@ export function estimateRrwebEventBytes(event: eventWithTime): number {
     case IncrementalSource.MouseInteraction:
     case IncrementalSource.Input:
       return 512;
+    case IncrementalSource.CanvasMutation:
+      return estimateCanvasFrameBytes(event.data);
     default:
       return 1024;
   }
+}
+
+function estimateCanvasFrameBytes(data: unknown): number {
+  if (typeof data !== "object" || data === null) return 1024;
+  const commands = (data as { commands?: unknown }).commands;
+  if (!Array.isArray(commands)) return 1024;
+  const draw = commands[1];
+  if (typeof draw !== "object" || draw === null) return 1024;
+  const args = (draw as { args?: unknown }).args;
+  if (!Array.isArray(args)) return 1024;
+
+  const image = args[0] as { args?: Array<{ data?: Array<{ base64?: unknown }> }> } | undefined;
+  const base64 = image?.args?.[0]?.data?.[0]?.base64;
+  return typeof base64 === "string" ? base64.length + 1024 : 1024;
 }
 
 function cleanPositiveNumber(value: number | undefined, fallback: number): number {

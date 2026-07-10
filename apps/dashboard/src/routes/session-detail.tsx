@@ -1,26 +1,18 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
-import type { SegmentRef, SessionManifest } from "@orange-replay/shared/types";
+import type { SessionManifest } from "@orange-replay/shared/types";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CountryFlag } from "@/components/country-flag";
 import { IconSwap } from "@/components/ui/icon-swap";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Tooltip } from "@/components/ui/tooltip";
 import { ApiError } from "@/lib/api";
 import { formatCountryCode } from "@/lib/country";
 import { useDashboardWorkspace } from "@/lib/dashboard-workspace";
-import { formatBytes, formatDuration, formatErrorCount } from "@/lib/format";
+import { formatDuration, formatErrorCount } from "@/lib/format";
 import { AlertCircle, ArrowLeft, Check, Copy, RotateCcw } from "@/lib/icon-map";
 import { ReplayWorkspace } from "./session-detail/replay-playback";
 import { loadSessionManifest } from "./session-detail/session-detail-data";
@@ -39,6 +31,11 @@ export function SessionDetailPage() {
   const loading = manifestQuery.isPending;
   const error = manifestQuery.error === null ? "" : readErrorMessage(manifestQuery.error);
   const notFound = manifestQuery.data?.notFound ?? false;
+  const [deadClickCount, setDeadClickCount] = useState(0);
+
+  useEffect(() => {
+    setDeadClickCount(0);
+  }, [sessionId]);
 
   if (sessionId === undefined) {
     return (
@@ -82,20 +79,21 @@ export function SessionDetailPage() {
         </Alert>
       )}
 
-      {loading ? <DetailLoading /> : manifest !== null && <ManifestHeader manifest={manifest} />}
+      {loading ? (
+        <DetailLoading />
+      ) : (
+        manifest !== null && <ManifestHeader deadClickCount={deadClickCount} manifest={manifest} />
+      )}
 
       {!loading && manifest !== null && (
         <ReplayWorkspace
           isDemo={isDemo}
           manifest={manifest}
           mode={mode}
+          onDeadClickCountChange={setDeadClickCount}
           projectId={projectId}
           sessionId={sessionId}
         />
-      )}
-
-      {manifest !== null && manifest.segments.length > 0 && (
-        <SegmentTable segments={manifest.segments} />
       )}
     </div>
   );
@@ -160,7 +158,13 @@ function BackToSessionsButton({ isDemo, projectId }: { isDemo: boolean; projectI
   );
 }
 
-function ManifestHeader({ manifest }: { manifest: SessionManifest }) {
+function ManifestHeader({
+  deadClickCount,
+  manifest,
+}: {
+  deadClickCount: number;
+  manifest: SessionManifest;
+}) {
   const attrs = manifest.attrs;
   const errors = manifest.counts.errors;
   const rageClicks = manifest.counts.rages;
@@ -172,6 +176,7 @@ function ManifestHeader({ manifest }: { manifest: SessionManifest }) {
         <Metric label="Events" value={String(manifest.counts.events)} />
         <Metric label="Errors" value={String(errors)} warm={errors > 0} />
         <Metric label="Rage clicks" value={String(rageClicks)} warm={rageClicks > 0} />
+        {deadClickCount > 0 && <Metric label="Dead clicks" value={String(deadClickCount)} warm />}
       </div>
 
       <div className="flex flex-wrap gap-2 px-4.5 pb-3.75">
@@ -238,50 +243,6 @@ function DetailLoading() {
       </div>
     </section>
   );
-}
-
-function SegmentTable({ segments }: { segments: SegmentRef[] }) {
-  return (
-    <section className="lit overflow-hidden rounded-lg">
-      <div className="border-b border-dashed border-dash px-4 py-3">
-        <h2 className="text-[15px] font-medium">Segments</h2>
-      </div>
-      <div className="overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Segment</TableHead>
-              <TableHead className="text-right">Time</TableHead>
-              <TableHead className="text-right">Batches</TableHead>
-              <TableHead className="text-right">Size</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {segments.map((segment, index) => (
-              <TableRow index={index} key={segment.key}>
-                <TableCell className="font-mono text-[12px] text-muted-foreground">
-                  {firstSegmentName(segment.key)}
-                </TableCell>
-                <TableCell className="text-right font-mono text-[12px] text-foreground">
-                  {formatDuration(segment.t1 - segment.t0)}
-                </TableCell>
-                <TableCell className="text-right font-mono text-[12px] text-muted-foreground">
-                  {segment.batches}
-                </TableCell>
-                <TableCell className="text-right font-mono text-[12px] text-muted-foreground">
-                  {formatBytes(segment.bytes)}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-    </section>
-  );
-}
-
-function firstSegmentName(key: string): string {
-  return key.split("/").at(-1) ?? key;
 }
 
 function readErrorMessage(error: unknown): string {

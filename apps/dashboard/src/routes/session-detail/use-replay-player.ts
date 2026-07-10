@@ -42,6 +42,7 @@ export interface ReplayPlayerState {
   };
   actions: {
     cycleSpeed: () => void;
+    seekAndPlay: (timeMs: number, flash?: boolean) => void;
     retryPlayer: () => void;
     seekFromPointer: (event: ReactPointerEvent<HTMLDivElement>) => void;
     seekTo: (timeMs: number, flash?: boolean) => void;
@@ -51,10 +52,6 @@ export interface ReplayPlayerState {
     togglePlayback: () => void;
     toggleSkipIdle: () => void;
   };
-}
-
-export interface ReplayPlayerController {
-  seekTo: (timeMs: number, flash?: boolean) => void;
 }
 
 // OrangePlayer currently uses a non-empty token as the signal that live
@@ -72,6 +69,9 @@ export function useReplayPlayer({
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<OrangePlayer | null>(null);
   const draggingTimeline = useRef(false);
+  const lastProgressCommitRef = useRef(0);
+  const progressFrameRef = useRef<number | null>(null);
+  const pendingProgressRef = useRef<{ currentMs: number; durationMs: number } | null>(null);
   const speedRef = useRef(1);
   const skipIdleRef = useRef(false);
   const [retryKey, requestRetry] = useReducer((key: number) => key + 1, 0);
@@ -135,12 +135,41 @@ export function useReplayPlayer({
       });
   }
 
+  function seekAndPlay(nextTimeMs: number, flash = false): void {
+    const clampedTime = clampTime(nextTimeMs, timelineDurationMs);
+    dispatch({ type: "seek", timeMs: clampedTime, flash });
+    dispatch({ type: "error", error: null });
+
+    const player = playerRef.current;
+    if (player === null) {
+      return;
+    }
+
+    player.pause();
+    dispatch({ type: "playing", playing: false });
+    void player
+      .seek(clampedTime)
+      .then(() => player.play())
+      .then(() => dispatch({ type: "playing", playing: true }))
+      .catch((caughtError: unknown) => {
+        dispatch({
+          type: "error",
+          error: {
+            message: readErrorMessage(caughtError),
+            error: caughtError,
+          },
+        });
+        dispatch({ type: "playing", playing: false });
+        dispatch({ type: "buffering", buffering: false });
+      });
+  }
+
   function cycleSpeed(): void {
     dispatch({ type: "speed", speed: state.speed === 1 ? 2 : state.speed === 2 ? 4 : 1 });
   }
 
   function retryPlayer(): void {
-    dispatch({ type: "error", error: null });
+    dispatch({ type: "retry" });
     requestRetry();
   }
 
@@ -177,6 +206,10 @@ export function useReplayPlayer({
   }
 
   const handleKeyDown = useEffectEvent((event: KeyboardEvent) => {
+    if (mode === "live") {
+      return;
+    }
+
     const action = getPlayerKeyAction(event);
     if (action === null) {
       return;
@@ -219,22 +252,39 @@ export function useReplayPlayer({
     });
     playerRef.current = player;
 
+    const flushProgress = (frameTime: number): void => {
+      const timeSinceLastCommit = frameTime - lastProgressCommitRef.current;
+      if (timeSinceLastCommit < 1000 / 60) {
+        progressFrameRef.current = window.requestAnimationFrame(flushProgress);
+        return;
+      }
+
+      progressFrameRef.current = null;
+      lastProgressCommitRef.current = frameTime;
+      const pendingProgress = pendingProgressRef.current;
+      pendingProgressRef.current = null;
+      if (pendingProgress === null) return;
+      dispatch({ type: "progress", ...pendingProgress });
+    };
+
     const stopListening = [
       player.on("ready", (loadedManifest) => {
         dispatch({ type: "ready", durationMs: loadedManifest.durationMs });
       }),
       player.on("timeline", (timeline) => {
-        dispatch({ type: "timeline", durationMs: timeline.durationMs });
-      }),
-      player.on("progress", (progress) => {
         dispatch({
-          type: "progress",
-          currentMs: progress.currentMs,
-          durationMs: progress.durationMs,
+          type: "timeline",
+          durationMs: timeline.durationMs,
+          deadClicks: timeline.deadClicks,
         });
       }),
-      player.on("segment", () => {
-        dispatch({ type: "buffering", buffering: false });
+      player.on("progress", (progress) => {
+        pendingProgressRef.current = {
+          currentMs: progress.currentMs,
+          durationMs: progress.durationMs,
+        };
+        if (progressFrameRef.current !== null) return;
+        progressFrameRef.current = window.requestAnimationFrame(flushProgress);
       }),
       player.on("buffering", (event) => {
         dispatch({ type: "buffering", buffering: event.buffering });
@@ -249,7 +299,11 @@ export function useReplayPlayer({
         dispatch({ type: "waitingKeyframe", waiting: event.waiting });
       }),
       player.on("error", (event) => {
+        if (event.severity === "warning" || event.severity === "recovering") {
+          return;
+        }
         dispatch({ type: "error", error: event });
+        dispatch({ type: "playing", playing: false });
         dispatch({ type: "buffering", buffering: false });
       }),
     ];
@@ -259,6 +313,12 @@ export function useReplayPlayer({
     }
 
     return () => {
+      if (progressFrameRef.current !== null) {
+        window.cancelAnimationFrame(progressFrameRef.current);
+        progressFrameRef.current = null;
+      }
+      lastProgressCommitRef.current = 0;
+      pendingProgressRef.current = null;
       for (const stop of stopListening) {
         stop();
       }
@@ -284,6 +344,7 @@ export function useReplayPlayer({
     },
     actions: {
       cycleSpeed,
+      seekAndPlay,
       retryPlayer,
       seekFromPointer,
       seekTo,

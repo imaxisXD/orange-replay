@@ -15,9 +15,10 @@ const budgets = [
     name: "core ESM bundle",
     kind: "file",
     file: "dist/orange-replay.js",
-    // Privacy/session hardening now crosses the old 32KB target; keep that as
-    // a warning and fail only if the core grows past the revised hard limit.
-    limitBytes: 35 * 1024,
+    // Privacy/session hardening crossed the old 32KB target. The 2026-07-10
+    // image sealing and opt-in, script-free canvas frames add 0.42KB gz to the
+    // ESM build; keep 32KB as a warning and 36KB as the new hard ceiling.
+    limitBytes: 36 * 1024,
     warnBytes: 32 * 1024,
   },
   {

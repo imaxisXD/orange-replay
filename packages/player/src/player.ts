@@ -1,85 +1,45 @@
-import { EventType, Replayer } from "rrweb";
-import type { SegmentRef, SessionManifest } from "@orange-replay/shared/types";
-import { fetchSegmentBytes, liveSocketUrl, loadSession, mintLiveTicket } from "./api.ts";
+import type { SessionManifest } from "@orange-replay/shared/types";
 import { PlayerEmitter } from "./emitter.ts";
-import {
-  cleanReplayViewport,
-  fitReplayToStage,
-  replayViewportAt,
-  type ReplayViewport,
-} from "./geometry.ts";
-import {
-  acceptLiveEventBatchAfterKeyframeWithStatus,
-  acceptLiveFrame,
-  createLiveFrameState,
-  createLiveKeyframeBuffer,
-  startWaitingForKeyframe,
-  stopWaitingForKeyframe,
-  type LiveFrame,
-  type LiveFrameState,
-  type LiveKeyframeBuffer,
-  type LiveReplayBatch,
-} from "./live.ts";
+import { DEAD_CLICK_RESULT_WINDOW_MS, detectDeadClicks, type DeadClick } from "./friction.ts";
 import { ReplayOverlay } from "./overlay.ts";
+import { LiveFollowController } from "./player/live-follow-controller.ts";
+import { RecordedPlaybackController } from "./player/recorded-playback-controller.ts";
 import {
-  chooseSegmentWindow,
-  decodeSegmentBatches,
-  eventKey,
-  findSegmentIndex,
-  mergeReplayEvents,
-  type DecodedReplayBatch,
-} from "./segments.ts";
-import {
-  clearReplaySanitizerState,
-  createReplaySanitizerState,
-  sanitizeReplayEvents,
-} from "./sanitize.ts";
-import { applySkipInactivity, buildTimeline, findInactivityGaps } from "./timeline.ts";
+  RecordedSegmentLoader,
+  type LoadedRecordedSegment,
+} from "./player/recorded-segment-loader.ts";
+import { ReplayEventStore } from "./player/replay-event-store.ts";
+import { ReplaySurface } from "./player/replay-surface.ts";
+import { buildTimeline } from "./timeline.ts";
+import { eventsFromCheckpoint } from "./segments.ts";
 import type {
-  InactivityGap,
   OrangePlayerEventName,
   OrangePlayerHandler,
   OrangePlayerOptions,
   PlayerErrorEvent,
   PlayerTimeline,
   ReplayEvent,
+  SegmentWindow,
 } from "./types.ts";
 import { DecodeWorkerHost } from "./worker-host.ts";
 
 const DEFAULT_SPEED = 1;
 const MIN_SPEED = 0.1;
 const MAX_SPEED = 16;
-const LIVE_BASE_RECONNECT_MS = 500;
-const LIVE_MAX_RECONNECT_MS = 8_000;
 const LIVE_EVENT_RETENTION_MS = 5 * 60_000;
-const SEEN_EVENT_KEY_LIMIT = 20_000;
-
-interface ReplayerResizeEvent {
-  width?: unknown;
-  height?: unknown;
-}
 
 export class OrangePlayer {
-  private readonly container: HTMLElement;
-  private readonly options: OrangePlayerOptions;
   private readonly emitter = new PlayerEmitter();
   private readonly worker: DecodeWorkerHost;
   private readonly overlay: ReplayOverlay;
-  private readonly stageResizeObserver: ResizeObserver | undefined;
-  private readonly loadedSegments = new Set<number>();
-  private readonly loadingSegments = new Map<number, Promise<void>>();
-  private readonly liveFrames: LiveFrameState = createLiveFrameState();
-  private readonly liveKeyframes: LiveKeyframeBuffer = createLiveKeyframeBuffer();
-  private readonly sanitizerState = createReplaySanitizerState();
-  private readonly seenEventKeys = new Set<string>();
-  private liveDecodeQueue: Promise<void> = Promise.resolve();
+  private readonly surface: ReplaySurface;
+  private readonly eventStore = new ReplayEventStore();
+  private readonly segmentLoader: RecordedSegmentLoader;
+  private readonly playback: RecordedPlaybackController;
+  private readonly liveController: LiveFollowController;
+  private readonly abortController = new AbortController();
   private manifest: SessionManifest | undefined;
   private timeline: PlayerTimeline | undefined;
-  private gaps: InactivityGap[] = [];
-  private events: ReplayEvent[] = [];
-  private replayer: Replayer | undefined;
-  private replayWrapper: HTMLDivElement | undefined;
-  private replayViewport: ReplayViewport | undefined;
   private readyPromise: Promise<SessionManifest>;
   private currentMs = 0;
   private speed = DEFAULT_SPEED;
@@ -87,29 +47,99 @@ export class OrangePlayer {
   private playing = false;
   private playRequested = false;
   private destroyed = false;
-  private progressFrame: number | undefined;
-  private lastProgressAt = 0;
-  private liveSocket: WebSocket | undefined;
-  private liveReconnectTimer: ReturnType<typeof setTimeout> | undefined;
-  private liveReconnectAttempt = 0;
+  private playbackOperation = 0;
+  private bufferingOperations = 0;
   private following = false;
-  private liveConnected = false;
   private liveRebuildAfterKeyframe = false;
-  private activeReplayTab: string | undefined;
+  private recordedCheckpoint: SegmentWindow["checkpoint"];
+  private rebasingRecordedReplay = false;
+  private readonly deadClicksByTime = new Map<number, DeadClick>();
 
   constructor(container: HTMLElement, options: OrangePlayerOptions) {
-    this.container = container;
-    this.options = options;
     this.speed = cleanSpeed(options.speed);
     this.skipInactivity = options.skipInactivity === true;
-    ensureStage(container);
     this.worker = new DecodeWorkerHost(options.worker);
+    this.segmentLoader = new RecordedSegmentLoader({
+      request: options,
+      signal: this.abortController.signal,
+      worker: this.worker,
+      isDestroyed: () => this.destroyed,
+      isFollowing: () => this.following,
+      onSegmentLoaded: (loaded) => this.handleRecordedSegmentLoaded(loaded),
+    });
     this.overlay = new ReplayOverlay(container, options.overlay);
-    if (typeof ResizeObserver === "function") {
-      this.stageResizeObserver = new ResizeObserver(() => this.applyReplayLayout());
-      this.stageResizeObserver.observe(container);
-    }
+    this.surface = new ReplaySurface({
+      container,
+      overlay: this.overlay,
+      host: {
+        onFinish: () => this.playback.handleReplayerFinish(),
+        onError: (message, error) => this.emitError(message, error),
+      },
+    });
+    this.playback = new RecordedPlaybackController({
+      segments: this.segmentLoader,
+      host: {
+        isPlaying: () => this.playing,
+        isDestroyed: () => this.destroyed,
+        isFollowing: () => this.following,
+        isPlayRequested: () => this.playRequested,
+        isCurrentPlaybackOperation: (operation) => this.isCurrentPlaybackOperation(operation),
+        getManifest: () => this.manifest,
+        getCurrentMs: () => this.currentMs,
+        getPlaybackOperation: () => this.playbackOperation,
+        setCurrentMs: (currentMs) => {
+          this.currentMs = currentMs;
+          this.maybeAdvanceRecordedCheckpoint();
+        },
+        setPlaying: (playing) => {
+          this.playing = playing;
+        },
+        setPlayRequested: (playRequested) => {
+          this.playRequested = playRequested;
+        },
+        readRenderedTime: () => this.currentReplayerTime(),
+        emitProgress: () => this.emitProgress(),
+        drawOverlay: () => this.overlay.draw(this.currentMs),
+        emitEnded: () => this.emitter.emit("ended", undefined),
+        startPlayback: () => {
+          this.startPlayback();
+        },
+        beginBuffering: (segmentIndex) => this.beginBuffering(segmentIndex),
+        endBuffering: (segmentIndex) => this.endBuffering(segmentIndex),
+        onError: (message, error, severity) => this.emitError(message, error, severity),
+      },
+    });
+    this.liveController = new LiveFollowController({
+      request: options,
+      signal: this.abortController.signal,
+      worker: this.worker,
+      host: {
+        isFollowing: () => this.following,
+        isDestroyed: () => this.destroyed,
+        acceptsReplayTab: (tab, events, keyframeStarted) =>
+          this.eventStore.acceptsLiveTab(tab, events, keyframeStarted),
+        onLiveEvents: (events) => this.handleLiveEvents(events),
+        onResetReplayEvents: () => this.resetReplayEventsForLiveKeyframe(),
+        onReconnectStarted: () => {
+          this.liveRebuildAfterKeyframe = this.surface.hasReplayer;
+        },
+        onKeyframeOverflow: () => {
+          this.liveRebuildAfterKeyframe = true;
+        },
+        onSocketOpen: () => {
+          if (!this.playing && !this.liveController.waitingForKeyframe) {
+            void this.play();
+          }
+        },
+        onConnectionChanged: () => this.emitLive(),
+        onWaitingChanged: () => this.emitWaitingKeyframe(),
+        onError: (message, error, severity) => this.emitError(message, error, severity),
+      },
+    });
     this.readyPromise = this.load();
+    // The event API does not require callers to await ready(). Keep the
+    // internal promise handled while preserving rejection for explicit users.
+    void this.readyPromise.catch(() => undefined);
   }
 
   on<K extends OrangePlayerEventName>(name: K, handler: OrangePlayerHandler<K>): () => void {
@@ -125,27 +155,65 @@ export class OrangePlayer {
   }
 
   async play(): Promise<void> {
+    const operation = ++this.playbackOperation;
     this.playRequested = true;
-    await this.readyPromise;
+    const manifest = await this.readyPromise;
+    if (!this.isCurrentPlaybackOperation(operation) || !this.playRequested) {
+      return;
+    }
+
+    if (this.following) {
+      this.startPlayback();
+      return;
+    }
+
     await this.ensureSegmentForTime(this.currentMs);
-    this.startPlayback();
+    if (!this.isCurrentPlaybackOperation(operation) || !this.playRequested) {
+      return;
+    }
+    if (this.playback.isAtRecordedEnd(manifest, this.eventStore.events)) {
+      this.currentMs = 0;
+      this.overlay.draw(0);
+      this.emitProgress();
+    }
+    if (!this.startPlayback()) {
+      throw new Error("This session does not contain enough replay data to play.");
+    }
   }
 
   pause(): void {
+    if (this.following && !this.destroyed) {
+      return;
+    }
+    this.playbackOperation += 1;
+    this.stopPlayback();
+  }
+
+  private stopPlayback(): void {
     this.playRequested = false;
     this.playing = false;
-    this.cancelProgressLoop();
-    this.replayer?.pause(this.playerOffset(this.currentMs));
+    this.playback.cancelProgressLoop();
+    this.surface.pause();
     this.emitProgress();
     this.overlay.draw(this.currentMs);
   }
 
   async seek(ms: number): Promise<void> {
-    const manifest = await this.readyPromise;
+    if (this.following) {
+      return;
+    }
+    const operation = ++this.playbackOperation;
     const shouldResume = this.playing || this.playRequested;
-    this.pause();
+    this.stopPlayback();
+    const manifest = await this.readyPromise;
+    if (!this.isCurrentPlaybackOperation(operation)) {
+      return;
+    }
     this.currentMs = clamp(ms, 0, manifest.durationMs);
     await this.ensureSegmentForTime(this.currentMs);
+    if (!this.isCurrentPlaybackOperation(operation)) {
+      return;
+    }
     this.rebuildReplayer();
     this.overlay.draw(this.currentMs);
     this.emitProgress();
@@ -157,17 +225,14 @@ export class OrangePlayer {
   }
 
   setSpeed(value: number): void {
-    this.updateProgressTime();
+    this.playback.updateProgressTime();
     this.speed = cleanSpeed(value);
-    this.replayer?.setConfig({ speed: this.speed });
+    this.surface.setSpeed(this.speed);
   }
 
   setSkipInactivity(value: boolean): void {
     this.skipInactivity = value;
-    this.replayer?.setConfig({
-      skipInactive: value,
-      inactivePeriodThreshold: 5_000,
-    });
+    this.surface.setSkipInactivity(value);
   }
 
   follow(): void {
@@ -175,14 +240,16 @@ export class OrangePlayer {
       return;
     }
 
+    this.playbackOperation += 1;
+    this.stopPlayback();
+    this.surface.destroyReplay();
     this.following = true;
-    startWaitingForKeyframe(this.liveKeyframes);
-    this.emitLive();
-    this.emitWaitingKeyframe();
+    this.liveRebuildAfterKeyframe = true;
+    this.liveController.startFollowing();
     void this.readyPromise.then(
       () => {
         if (!this.destroyed) {
-          this.connectLive();
+          this.liveController.connect();
         }
       },
       (error) => this.emitError("Could not start live follow.", error),
@@ -192,29 +259,31 @@ export class OrangePlayer {
   destroy(): void {
     this.destroyed = true;
     this.pause();
-    this.disconnectLive();
-    this.stageResizeObserver?.disconnect();
-    this.replayer?.destroy();
-    this.replayer = undefined;
-    this.replayWrapper = undefined;
+    this.abortController.abort();
+    this.following = false;
+    this.liveRebuildAfterKeyframe = false;
+    this.liveController.disconnect();
+    this.surface.stop();
     this.overlay.destroy();
     this.worker.stop();
+    this.segmentLoader.clearLoadingSegments();
     this.emitter.clear();
   }
 
   private async load(): Promise<SessionManifest> {
     try {
-      const manifest = await loadSession(this.options.api, {
-        projectId: this.options.projectId,
-        sessionId: this.options.sessionId,
-        token: this.options.token,
-      });
+      const manifest = await this.segmentLoader.loadManifest();
+      if (this.destroyed) {
+        return manifest;
+      }
       this.manifest = manifest;
+      this.segmentLoader.useManifest(manifest);
+      const initialWindow = this.segmentLoader.segmentWindowAt(0);
+      this.recordedCheckpoint = initialWindow?.checkpoint;
+      this.eventStore.resetRecordedEvents(
+        initialWindow?.checkpoint?.tab ?? this.segmentLoader.replayTab,
+      );
       this.timeline = buildTimeline(manifest.timeline, {
-        startedAt: manifest.startedAt,
-        durationMs: manifest.durationMs,
-      });
-      this.gaps = findInactivityGaps(manifest.timeline, {
         startedAt: manifest.startedAt,
         durationMs: manifest.durationMs,
       });
@@ -223,96 +292,57 @@ export class OrangePlayer {
       this.emitter.emit("ready", manifest);
 
       if (manifest.segments.length > 0) {
-        void this.loadSegment(0).catch((error) => {
-          this.emitError("Could not prefetch the first replay segment.", error);
-        });
+        this.playback.prefetchSegment(0, "Could not prefetch the first replay segment.");
       }
 
       return manifest;
     } catch (error) {
-      this.emitError("Could not load replay session.", error);
+      if (!this.destroyed) {
+        this.emitError("Could not load replay session.", error);
+      }
       throw error;
     }
   }
 
   private async ensureSegmentForTime(timeMs: number): Promise<void> {
-    const manifest = this.manifest;
-    if (manifest === undefined) {
+    const window = this.segmentLoader.segmentWindowAt(timeMs);
+    if (window === undefined || window.activeIndex < 0) {
       return;
     }
 
-    const index = findSegmentIndex(manifest.segments, manifest.startedAt, timeMs);
-    const window = chooseSegmentWindow(manifest.segments, index);
-    if (window.activeIndex < 0) {
-      return;
-    }
+    this.prepareRecordedWindow(window);
 
-    this.emitter.emit("buffering", { buffering: true, segmentIndex: window.activeIndex });
+    this.beginBuffering(window.activeIndex);
     try {
-      await Promise.all(window.neededIndexes.map((segmentIndex) => this.loadSegment(segmentIndex)));
+      // Sanitizer state and rrweb mutations are ordered. Fetching a later
+      // segment before its parent mutations can produce a different page.
+      await this.segmentLoader.loadSegmentsInOrder(window.neededIndexes);
     } finally {
-      this.emitter.emit("buffering", { buffering: false, segmentIndex: window.activeIndex });
+      this.endBuffering(window.activeIndex);
     }
 
     for (const segmentIndex of window.prefetchIndexes) {
-      void this.loadSegment(segmentIndex).catch((error) => {
-        this.emitError("Could not prefetch replay segment.", error);
-      });
+      this.playback.prefetchSegment(segmentIndex, "Could not prefetch replay segment.");
     }
   }
 
-  private loadSegment(index: number): Promise<void> {
-    const manifest = this.manifest;
-    if (manifest === undefined || index < 0 || index >= manifest.segments.length) {
-      return Promise.resolve();
+  private handleRecordedSegmentLoaded(loaded: LoadedRecordedSegment): void {
+    let events = this.eventStore.eventsForRecordedBatches(loaded.batches);
+    if (this.recordedCheckpoint?.segmentIndex === loaded.index) {
+      events = eventsFromCheckpoint(events, this.recordedCheckpoint.timestamp);
     }
-
-    if (this.loadedSegments.has(index)) {
-      return Promise.resolve();
-    }
-
-    const activeLoad = this.loadingSegments.get(index);
-    if (activeLoad !== undefined) {
-      return activeLoad;
-    }
-
-    const segment = manifest.segments[index];
-    if (segment === undefined) {
-      return Promise.resolve();
-    }
-
-    const load = this.fetchAndDecodeSegment(index, segment).finally(() => {
-      this.loadingSegments.delete(index);
-    });
-    this.loadingSegments.set(index, load);
-    return load;
-  }
-
-  private async fetchAndDecodeSegment(index: number, segment: SegmentRef): Promise<void> {
-    if (index > 0 && !this.loadedSegments.has(0)) {
-      await this.loadSegment(0);
-      if (this.destroyed) {
-        return;
-      }
-    }
-
-    const bytes = await fetchSegmentBytes(this.options.api, {
-      projectId: this.options.projectId,
-      sessionId: this.options.sessionId,
-      token: this.options.token,
-      segment,
-    });
-    const batches = await decodeSegmentBatches(bytes, this.worker);
-    const events = this.eventsForActiveReplayTab(batches);
-    this.loadedSegments.add(index);
     const addedEvents = this.addReplayEvents(events);
-    this.emitter.emit("segment", { index, segment, eventCount: events.length });
+    this.emitter.emit("segment", {
+      index: loaded.index,
+      segment: loaded.segment,
+      eventCount: events.length,
+    });
 
-    if (this.replayer === undefined && addedEvents.length > 0) {
+    if (!this.surface.hasReplayer && addedEvents.length > 0) {
       this.rebuildReplayer();
     }
+    this.maybeAdvanceRecordedCheckpoint();
   }
-
   private addReplayEvents(
     events: readonly ReplayEvent[],
     options: { liveEdgeMs?: number } = {},
@@ -321,398 +351,115 @@ export class OrangePlayer {
       return [];
     }
 
-    const newEvents = this.newReplayEvents(events);
-    if (newEvents.length === 0) {
-      return [];
-    }
-
-    const sanitizedEvents = sanitizeReplayEvents(newEvents, this.sanitizerState);
-
-    this.appendReplayEvents(sanitizedEvents);
+    const sanitizedEvents = this.eventStore.add(events);
     this.syncReplayViewportForCurrentTime();
     this.overlay.addEvents(sanitizedEvents, options);
 
-    if (this.replayer !== undefined) {
-      for (const event of sanitizedEvents) {
-        try {
-          this.replayer.addEvent(event);
-        } catch (error) {
-          this.emitError("Could not add replay event.", error);
-          this.replayer.destroy();
-          this.replayer = undefined;
-          break;
-        }
-      }
-    }
+    this.surface.addEvents(sanitizedEvents);
 
     this.pruneLiveReplayState(options.liveEdgeMs);
+    this.refreshFrictionTimeline();
     return sanitizedEvents;
   }
 
+  private refreshFrictionTimeline(): void {
+    const manifest = this.manifest;
+    const timeline = this.timeline;
+    if (manifest === undefined || timeline === undefined) {
+      return;
+    }
+
+    const events = this.eventStore.events;
+    const firstObserved = events[0]?.timestamp;
+    const lastObserved = events.at(-1)?.timestamp;
+    if (firstObserved !== undefined && lastObserved !== undefined) {
+      const minimumClickTimestamp = firstObserved;
+      const confirmedThrough = lastObserved - DEAD_CLICK_RESULT_WINDOW_MS;
+      for (const timestamp of this.deadClicksByTime.keys()) {
+        if (timestamp >= minimumClickTimestamp && timestamp <= confirmedThrough) {
+          this.deadClicksByTime.delete(timestamp);
+        }
+      }
+      for (const deadClick of detectDeadClicks(events, manifest.timeline, {
+        minimumClickTimestamp,
+      })) {
+        this.deadClicksByTime.set(deadClick.t, deadClick);
+      }
+    }
+    const deadClicks = [...this.deadClicksByTime.values()].toSorted(
+      (left, right) => left.t - right.t,
+    );
+    this.timeline = {
+      ...timeline,
+      counts: { ...timeline.counts, deadClicks: deadClicks.length },
+      deadClicks,
+    };
+    this.overlay.setDeadClicks(deadClicks);
+    this.emitter.emit("timeline", this.timeline);
+  }
+
   private rebuildReplayer(): void {
-    if (this.events.length === 0 || this.manifest === undefined || this.destroyed) {
+    const events = this.eventStore.events;
+    if (events.length === 0 || this.manifest === undefined || this.destroyed) {
       return;
     }
 
-    if (this.following && !this.liveKeyframes.started) {
+    if (this.following && !this.liveController.keyframeStarted) {
       return;
     }
 
-    this.replayer?.destroy();
-    this.replayer = undefined;
-    try {
-      this.replayer = new Replayer([...this.events], {
-        root: this.container,
-        speed: this.speed,
-        skipInactive: this.skipInactivity,
-        inactivePeriodThreshold: 5_000,
-        showWarning: false,
-        showDebug: false,
-        mouseTail: false,
-        useVirtualDom: true,
-        liveMode: this.following,
-        logger: {
-          log() {
-            /* keep the player headless */
-          },
-          warn() {
-            /* keep the player headless */
-          },
-        },
-      });
-    } catch (error) {
-      this.emitError("Could not render replay events.", error);
-      return;
-    }
-    const replayer = this.replayer;
-    if (replayer === undefined) {
-      return;
-    }
-    this.syncReplayViewportForCurrentTime();
-    this.attachReplayWrapper();
-    replayer.on("resize", (event) => this.handleReplayerResize(event));
-    replayer.on("finish", () => this.finishIfDone());
-
-    if (this.following) {
-      // Anchor the live baseline at the last buffered event: rrweb discards
-      // addEvent() payloads older than the baseline, so "now" would drop
-      // every frame that was recorded before it arrived here.
-      replayer.startLive(this.events.at(-1)?.timestamp);
-    } else if (this.playing || this.playRequested) {
-      replayer.play(this.playerOffset(this.currentMs));
-    } else {
-      replayer.pause(this.playerOffset(this.currentMs));
-    }
-  }
-
-  private handleReplayerResize(event: unknown): void {
-    const resize = event as ReplayerResizeEvent;
-    const viewport = cleanReplayViewport(resize.width, resize.height);
-    if (viewport === null) {
-      return;
-    }
-
-    this.setReplayViewport(viewport);
-  }
-
-  private attachReplayWrapper(): void {
-    const wrapper = this.replayer?.wrapper;
-    if (wrapper === undefined) {
-      return;
-    }
-
-    this.replayWrapper = wrapper;
-    this.hardenReplayFrame();
-    wrapper.style.position = "absolute";
-    wrapper.style.margin = "0";
-    wrapper.style.transformOrigin = "top left";
-    wrapper.style.overflow = "hidden";
-    this.applyReplayLayout();
-    this.overlay.mount(wrapper);
-    this.overlay.bringToFront();
-  }
-
-  private hardenReplayFrame(): void {
-    this.replayer?.iframe.setAttribute("sandbox", "allow-same-origin");
+    this.surface.rebuild({
+      events,
+      speed: this.speed,
+      skipInactivity: this.skipInactivity,
+      following: this.following,
+      currentTimestamp: this.currentTimestamp(),
+      playerOffset: this.playerOffset(this.currentMs),
+      shouldPlay: this.playing || this.playRequested,
+    });
   }
 
   private syncReplayViewportForCurrentTime(): void {
-    const viewport = replayViewportAt(this.events, this.currentTimestamp());
-    if (viewport !== null) {
-      this.setReplayViewport(viewport);
-    }
+    this.surface.syncViewport(this.eventStore.events, this.currentTimestamp());
   }
-
-  private setReplayViewport(viewport: ReplayViewport): void {
-    if (
-      this.replayViewport?.width === viewport.width &&
-      this.replayViewport.height === viewport.height
-    ) {
-      this.applyReplayLayout();
-      return;
-    }
-
-    this.replayViewport = viewport;
-    this.applyReplayLayout();
-  }
-
-  private applyReplayLayout(): void {
-    const wrapper = this.replayWrapper;
-    const viewport = this.replayViewport;
-    if (wrapper === undefined || viewport === undefined) {
-      return;
-    }
-
-    const fit = fitReplayToStage(readStageSize(this.container), viewport);
-    wrapper.style.width = `${viewport.width}px`;
-    wrapper.style.height = `${viewport.height}px`;
-    wrapper.style.left = `${fit.left}px`;
-    wrapper.style.top = `${fit.top}px`;
-    wrapper.style.transform = `scale(${fit.scale})`;
-  }
-
-  private startPlayback(): void {
+  private startPlayback(): boolean {
     if (this.destroyed || this.manifest === undefined) {
-      return;
+      return false;
     }
 
-    if (this.following && this.liveKeyframes.waiting) {
-      this.emitter.emit("buffering", { buffering: false });
-      return;
+    if (this.following && this.liveController.waitingForKeyframe) {
+      return false;
     }
 
-    if (this.replayer === undefined) {
+    if (!this.surface.hasReplayer) {
       this.rebuildReplayer();
     }
 
-    if (this.replayer === undefined) {
-      this.emitter.emit("buffering", { buffering: true });
-      return;
+    if (!this.surface.hasReplayer) {
+      this.playing = false;
+      this.playRequested = false;
+      this.emitError("This session does not contain enough replay data to play.");
+      return false;
     }
 
-    this.emitter.emit("buffering", { buffering: false });
     this.playing = true;
     this.playRequested = true;
-    this.lastProgressAt = nowMs();
-    this.replayer.play(this.playerOffset(this.currentMs));
-    this.scheduleProgressLoop();
-    this.prefetchAroundCurrentTime();
+    if (!this.following) {
+      this.surface.play(this.playerOffset(this.currentMs));
+    }
+    this.playback.scheduleProgressLoop();
+    this.playback.prefetchAroundCurrentTime();
+    return true;
   }
 
-  private scheduleProgressLoop(): void {
-    this.cancelProgressLoop();
-    this.progressFrame = requestFrame(() => this.progressLoop());
-  }
-
-  private progressLoop(): void {
-    if (!this.playing || this.manifest === undefined || this.destroyed) {
-      return;
-    }
-
-    this.updateProgressTime();
-    this.emitProgress();
-    this.overlay.draw(this.currentMs);
-    this.prefetchAroundCurrentTime();
-
-    if (this.currentMs >= this.manifest.durationMs && !this.following) {
-      this.finishIfDone();
-      return;
-    }
-
-    this.progressFrame = requestFrame(() => this.progressLoop());
-  }
-
-  private updateProgressTime(): void {
-    if (!this.playing || this.manifest === undefined) {
-      this.lastProgressAt = nowMs();
-      return;
-    }
-
-    const currentTime = nowMs();
-    const elapsedMs = Math.max(0, currentTime - this.lastProgressAt) * this.speed;
-    this.lastProgressAt = currentTime;
-    const next = Math.min(this.manifest.durationMs, this.currentMs + elapsedMs);
-    const skipped = this.skipInactivity
-      ? applySkipInactivity(this.currentMs, next, this.gaps)
-      : null;
-
-    if (skipped?.skipped === true) {
-      this.currentMs = skipped.timeMs;
-      this.replayer?.play(this.playerOffset(this.currentMs));
-      return;
-    }
-
-    this.currentMs = Math.max(this.currentMs, skipped?.timeMs ?? next);
-  }
-
-  private prefetchAroundCurrentTime(): void {
-    const manifest = this.manifest;
-    if (manifest === undefined) {
-      return;
-    }
-
-    const index = findSegmentIndex(manifest.segments, manifest.startedAt, this.currentMs);
-    const window = chooseSegmentWindow(manifest.segments, index);
-    for (const segmentIndex of window.prefetchIndexes) {
-      void this.loadSegment(segmentIndex).catch((error) => {
-        this.emitError("Could not prefetch replay segment.", error);
-      });
-    }
-  }
-
-  private finishIfDone(): void {
-    if (
-      this.following ||
-      this.manifest === undefined ||
-      this.currentMs < this.manifest.durationMs
-    ) {
-      return;
-    }
-
-    this.playing = false;
-    this.playRequested = false;
-    this.cancelProgressLoop();
-    this.currentMs = this.manifest.durationMs;
-    this.emitProgress();
-    this.emitter.emit("ended", undefined);
-  }
-
-  private connectLive(reconnecting = false): void {
-    void this.connectLiveWithTicket(reconnecting);
-  }
-
-  private async connectLiveWithTicket(reconnecting: boolean): Promise<void> {
-    if (!this.following || this.destroyed) {
-      return;
-    }
-
-    if (reconnecting) {
-      startWaitingForKeyframe(this.liveKeyframes);
-      this.liveRebuildAfterKeyframe = this.replayer !== undefined;
-      this.emitWaitingKeyframe();
-    }
-
-    const token = this.options.token;
-    if (token === undefined || token.length === 0) {
-      this.emitError("Live follow needs an API token.");
-      return;
-    }
-
-    let ticket: string;
-    try {
-      const response = await mintLiveTicket(this.options.api, {
-        projectId: this.options.projectId,
-        sessionId: this.options.sessionId,
-        token,
-      });
-      ticket = response.ticket;
-    } catch (error) {
-      this.emitError("Could not create a live ticket.", error);
-      if (this.following && !this.destroyed) {
-        this.scheduleLiveReconnect();
-      }
-      return;
-    }
-
-    if (!this.following || this.destroyed) {
-      return;
-    }
-
-    const socket = new WebSocket(
-      liveSocketUrl(this.options.api, {
-        projectId: this.options.projectId,
-        sessionId: this.options.sessionId,
-        token,
-        ticket,
-      }),
-    );
-    socket.binaryType = "arraybuffer";
-    this.liveSocket = socket;
-
-    socket.onopen = () => {
-      this.liveReconnectAttempt = 0;
-      this.liveConnected = true;
-      this.emitLive();
-      if (!this.playing && !this.liveKeyframes.waiting) {
-        void this.play();
-      }
-    };
-
-    socket.onmessage = (event) => {
-      this.handleLiveMessage(event.data);
-    };
-
-    socket.onerror = () => {
-      this.emitError("Live socket failed.");
-    };
-
-    socket.onclose = () => {
-      this.liveConnected = false;
-      this.emitLive();
-      if (this.following && !this.destroyed) {
-        this.scheduleLiveReconnect();
-      }
-    };
-  }
-
-  private handleLiveMessage(data: unknown): void {
-    if (typeof data === "string") {
-      return;
-    }
-
-    if (!(data instanceof ArrayBuffer)) {
-      return;
-    }
-
-    let frame;
-    try {
-      frame = acceptLiveFrame(this.liveFrames, data);
-    } catch (error) {
-      this.emitError("Could not read live replay frame.", error);
-      return;
-    }
-
-    if (frame === null) {
-      return;
-    }
-
-    this.queueLiveFrame(frame);
-  }
-
-  private queueLiveFrame(frame: LiveFrame): void {
-    this.liveDecodeQueue = this.liveDecodeQueue
-      .then(() => this.decodeAndApplyLiveFrame(frame))
-      .catch((error) => {
-        this.emitError("Could not decode live replay frame.", error);
-      });
-  }
-
-  private async decodeAndApplyLiveFrame(frame: LiveFrame): Promise<void> {
-    if (!this.following || this.destroyed) {
-      return;
-    }
-
-    const events = await this.worker.decodeBatch(frame.payload);
-    if (!this.following || this.destroyed || !this.acceptsReplayTab(frame.index.tab, events)) {
-      return;
-    }
-
-    const acceptedEvents = this.acceptLiveReplayEvents({
-      tab: frame.index.tab,
-      seq: frame.index.seq,
-      events,
-    });
-    if (acceptedEvents.length === 0) {
-      return;
-    }
-
+  private handleLiveEvents(acceptedEvents: readonly ReplayEvent[]): void {
     const liveEdgeMs = this.latestEventOffsetMs(acceptedEvents);
     const addedEvents = this.addReplayEvents(acceptedEvents, { liveEdgeMs });
     if (addedEvents.length === 0) {
       return;
     }
 
-    if (this.liveRebuildAfterKeyframe && !this.liveKeyframes.waiting) {
+    if (this.liveRebuildAfterKeyframe && !this.liveController.waitingForKeyframe) {
       this.liveRebuildAfterKeyframe = false;
       this.rebuildReplayer();
     }
@@ -720,83 +467,58 @@ export class OrangePlayer {
     this.moveToLiveEdge(addedEvents);
   }
 
-  private acceptLiveReplayEvents(batch: LiveReplayBatch): ReplayEvent[] {
-    if (!this.following || this.liveKeyframes.started) {
-      return [...batch.events];
-    }
-
-    const wasWaiting = this.liveKeyframes.waiting;
-    const result = acceptLiveEventBatchAfterKeyframeWithStatus(this.liveKeyframes, batch);
-    if (wasWaiting !== this.liveKeyframes.waiting) {
-      this.emitWaitingKeyframe();
-    }
-    if (result.status === "overflow") {
-      this.reconnectLiveAfterKeyframeOverflow();
-      return [];
-    }
-
-    return result.events;
+  private resetReplayEventsForLiveKeyframe(): void {
+    this.eventStore.resetEvents();
+    this.segmentLoader.clearLoadedSegments();
+    this.recordedCheckpoint = undefined;
+    this.deadClicksByTime.clear();
+    this.surface.destroyReplay();
+    this.overlay.reset();
+    this.refreshFrictionTimeline();
   }
 
-  private eventsForActiveReplayTab(batches: readonly DecodedReplayBatch[]): ReplayEvent[] {
-    this.chooseActiveReplayTab(batches);
-    if (this.activeReplayTab === undefined) {
-      return [];
-    }
-
-    return mergeReplayEvents(
-      batches
-        .filter((batch) => batch.index.tab === this.activeReplayTab)
-        .flatMap((batch) => batch.events),
-    );
-  }
-
-  private chooseActiveReplayTab(batches: readonly DecodedReplayBatch[]): void {
-    if (this.activeReplayTab !== undefined) {
+  private prepareRecordedWindow(window: SegmentWindow): void {
+    if (sameCheckpoint(this.recordedCheckpoint, window.checkpoint)) {
       return;
     }
 
-    const snapshotBatch = batches.find((batch) => batch.events.some(isFullSnapshotEvent));
-    const firstBatch = snapshotBatch ?? batches.find((batch) => batch.events.length > 0);
-    if (firstBatch !== undefined) {
-      this.activeReplayTab = firstBatch.index.tab;
-    }
+    this.segmentLoader.resetLoadedWindow(window.startIndex);
+    this.eventStore.resetRecordedEvents(window.checkpoint?.tab ?? this.segmentLoader.replayTab);
+    this.surface.destroyReplay();
+    this.overlay.reset();
+    this.recordedCheckpoint = window.checkpoint;
   }
 
-  private acceptsReplayTab(tab: string, events: readonly ReplayEvent[]): boolean {
-    if (this.activeReplayTab !== undefined) {
-      return this.activeReplayTab === tab;
-    }
-
-    if (events.some(isFullSnapshotEvent)) {
-      this.activeReplayTab = tab;
-      return true;
-    }
-
-    if (this.liveKeyframes.started) {
-      this.activeReplayTab = tab;
-      return true;
-    }
-
-    return false;
-  }
-
-  private reconnectLiveAfterKeyframeOverflow(): void {
-    if (!this.following || this.destroyed) {
+  private maybeAdvanceRecordedCheckpoint(): void {
+    if (this.following || this.rebasingRecordedReplay || this.manifest === undefined) {
       return;
     }
 
-    this.liveRebuildAfterKeyframe = true;
-    this.liveConnected = false;
-    if (this.liveSocket !== undefined) {
-      this.liveSocket.onclose = null;
-      this.liveSocket.close();
-      this.liveSocket = undefined;
+    const checkpoint = this.segmentLoader.segmentWindowAt(this.currentMs)?.checkpoint;
+    if (
+      checkpoint === undefined ||
+      sameCheckpoint(this.recordedCheckpoint, checkpoint) ||
+      (this.recordedCheckpoint !== undefined &&
+        checkpoint.timestamp <= this.recordedCheckpoint.timestamp)
+    ) {
+      return;
     }
-    this.emitLive();
-    this.emitWaitingKeyframe();
-    this.emitError("Live replay waited too long for a keyframe.");
-    this.scheduleLiveReconnect();
+    if (!this.eventStore.rebaseAtCheckpoint(checkpoint.timestamp)) {
+      return;
+    }
+
+    this.rebasingRecordedReplay = true;
+    try {
+      this.recordedCheckpoint = checkpoint;
+      this.segmentLoader.forgetLoadedBefore(checkpoint.segmentIndex);
+      this.surface.destroyReplay();
+      this.overlay.reset();
+      this.overlay.addEvents(this.eventStore.events);
+      this.refreshFrictionTimeline();
+      this.rebuildReplayer();
+    } finally {
+      this.rebasingRecordedReplay = false;
+    }
   }
 
   private moveToLiveEdge(events: readonly ReplayEvent[]): void {
@@ -823,47 +545,9 @@ export class OrangePlayer {
       this.startPlayback();
     }
   }
-
-  private scheduleLiveReconnect(): void {
-    if (this.liveReconnectTimer !== undefined) {
-      clearTimeout(this.liveReconnectTimer);
-    }
-
-    const delay = Math.min(
-      LIVE_MAX_RECONNECT_MS,
-      LIVE_BASE_RECONNECT_MS * 2 ** this.liveReconnectAttempt,
-    );
-    this.liveReconnectAttempt += 1;
-    this.liveReconnectTimer = setTimeout(() => {
-      this.liveReconnectTimer = undefined;
-      this.connectLive(true);
-    }, delay);
-  }
-
-  private disconnectLive(): void {
-    this.following = false;
-    this.liveConnected = false;
-    this.liveRebuildAfterKeyframe = false;
-    stopWaitingForKeyframe(this.liveKeyframes);
-
-    if (this.liveReconnectTimer !== undefined) {
-      clearTimeout(this.liveReconnectTimer);
-      this.liveReconnectTimer = undefined;
-    }
-
-    if (this.liveSocket !== undefined) {
-      this.liveSocket.onclose = null;
-      this.liveSocket.close();
-      this.liveSocket = undefined;
-    }
-
-    this.emitLive();
-    this.emitWaitingKeyframe();
-  }
-
   private playerOffset(timeMs: number): number {
     const manifest = this.manifest;
-    const first = this.events[0];
+    const first = this.eventStore.events[0];
     if (manifest === undefined || first === undefined) {
       return Math.max(0, timeMs);
     }
@@ -877,52 +561,22 @@ export class OrangePlayer {
       return manifest.startedAt + this.currentMs;
     }
 
-    return this.events[0]?.timestamp ?? 0;
+    return this.eventStore.events[0]?.timestamp ?? 0;
   }
 
-  private newReplayEvents(events: readonly ReplayEvent[]): ReplayEvent[] {
-    const newEvents: ReplayEvent[] = [];
-    for (const event of events) {
-      const key = eventKey(event);
-      if (this.seenEventKeys.has(key)) {
-        continue;
-      }
-
-      this.seenEventKeys.add(key);
-      this.pruneSeenEventKeys();
-      newEvents.push(event);
+  private currentReplayerTime(): number | null {
+    const manifest = this.manifest;
+    const firstEvent = this.eventStore.events[0];
+    const replayerTime = this.surface.currentTime();
+    if (manifest === undefined || firstEvent === undefined || replayerTime === null) {
+      return null;
     }
 
-    return newEvents;
+    return Math.max(0, firstEvent.timestamp + replayerTime - manifest.startedAt);
   }
 
-  private pruneSeenEventKeys(): void {
-    while (this.seenEventKeys.size > SEEN_EVENT_KEY_LIMIT) {
-      const oldest = this.seenEventKeys.values().next().value;
-      if (oldest === undefined) {
-        return;
-      }
-      this.seenEventKeys.delete(oldest);
-    }
-  }
-
-  private appendReplayEvents(events: readonly ReplayEvent[]): void {
-    const orderedEvents = [...events].sort((left, right) => left.timestamp - right.timestamp);
-    const lastEvent = this.events.at(-1);
-    const firstNewEvent = orderedEvents[0];
-
-    if (
-      lastEvent === undefined ||
-      firstNewEvent === undefined ||
-      firstNewEvent.timestamp >= lastEvent.timestamp
-    ) {
-      this.events.push(...orderedEvents);
-      return;
-    }
-
-    for (const event of orderedEvents) {
-      insertReplayEvent(this.events, event);
-    }
+  private isCurrentPlaybackOperation(operation: number): boolean {
+    return !this.destroyed && operation === this.playbackOperation;
   }
 
   private latestEventOffsetMs(events: readonly ReplayEvent[]): number | undefined {
@@ -945,37 +599,13 @@ export class OrangePlayer {
 
   private pruneLiveReplayState(liveEdgeMs: number | undefined): void {
     const manifest = this.manifest;
-    if (!this.following || manifest === undefined || this.events.length === 0) {
+    if (!this.following || manifest === undefined || this.eventStore.events.length === 0) {
       return;
     }
 
     const liveEdgeTimestamp = manifest.startedAt + Math.max(0, liveEdgeMs ?? this.currentMs);
     const cutoff = liveEdgeTimestamp - LIVE_EVENT_RETENTION_MS;
-    const cutoffIndex = this.events.findIndex((event) => event.timestamp >= cutoff);
-    if (cutoffIndex <= 0) {
-      return;
-    }
-
-    const baselineSnapshotIndex = lastFullSnapshotBefore(this.events, cutoffIndex);
-    const baselineStart =
-      baselineSnapshotIndex > 0 && this.events[baselineSnapshotIndex - 1]?.type === EventType.Meta
-        ? baselineSnapshotIndex - 1
-        : baselineSnapshotIndex;
-    const baselineEvents =
-      baselineStart >= 0 ? this.events.slice(baselineStart, baselineSnapshotIndex + 1) : [];
-    const recentEvents = this.events.slice(cutoffIndex);
-    this.events = [...baselineEvents, ...recentEvents];
-    this.rebuildSeenEventKeys();
-    clearReplaySanitizerState(this.sanitizerState);
-    sanitizeReplayEvents(this.events, this.sanitizerState);
-  }
-
-  private rebuildSeenEventKeys(): void {
-    this.seenEventKeys.clear();
-    for (const event of this.events) {
-      this.seenEventKeys.add(eventKey(event));
-      this.pruneSeenEventKeys();
-    }
+    this.eventStore.pruneLiveEvents(cutoff);
   }
 
   private emitProgress(): void {
@@ -989,31 +619,40 @@ export class OrangePlayer {
   private emitLive(): void {
     this.emitter.emit("live", {
       following: this.following,
-      connected: this.liveConnected,
+      connected: this.liveController.connected,
     });
   }
 
   private emitWaitingKeyframe(): void {
     this.emitter.emit("waiting_keyframe", {
-      waiting: this.liveKeyframes.waiting,
+      waiting: this.liveController.waitingForKeyframe,
     });
   }
 
-  private emitError(message: string, error?: unknown): void {
-    const event: PlayerErrorEvent = { message };
+  private emitError(
+    message: string,
+    error?: unknown,
+    severity: NonNullable<PlayerErrorEvent["severity"]> = "fatal",
+  ): void {
+    const event: PlayerErrorEvent = { message, severity };
     if (error !== undefined) {
       event.error = error;
     }
     this.emitter.emit("error", event);
   }
 
-  private cancelProgressLoop(): void {
-    if (this.progressFrame === undefined) {
-      return;
+  private beginBuffering(segmentIndex?: number): void {
+    this.bufferingOperations += 1;
+    if (this.bufferingOperations === 1) {
+      this.emitter.emit("buffering", { buffering: true, segmentIndex });
     }
+  }
 
-    cancelFrame(this.progressFrame);
-    this.progressFrame = undefined;
+  private endBuffering(segmentIndex?: number): void {
+    this.bufferingOperations = Math.max(0, this.bufferingOperations - 1);
+    if (this.bufferingOperations === 0) {
+      this.emitter.emit("buffering", { buffering: false, segmentIndex });
+    }
   }
 }
 
@@ -1029,79 +668,17 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function nowMs(): number {
-  if (typeof performance !== "undefined" && typeof performance.now === "function") {
-    return performance.now();
+function sameCheckpoint(
+  left: SegmentWindow["checkpoint"],
+  right: SegmentWindow["checkpoint"],
+): boolean {
+  if (left === undefined || right === undefined) {
+    return left === right;
   }
-
-  return Date.now();
-}
-
-function requestFrame(callback: () => void): number {
-  if (typeof requestAnimationFrame === "function") {
-    return requestAnimationFrame(callback);
-  }
-
-  return Number(setTimeout(callback, 16));
-}
-
-function cancelFrame(id: number): void {
-  if (typeof cancelAnimationFrame === "function") {
-    cancelAnimationFrame(id);
-    return;
-  }
-
-  clearTimeout(id);
-}
-
-function ensureStage(container: HTMLElement): void {
-  // Check the COMPUTED position: the host may position the container via
-  // classes (e.g. Tailwind absolute inset-0) that inline styles would clobber.
-  if (getComputedStyle(container).position === "static") {
-    container.style.position = "relative";
-  }
-
-  if (container.style.overflow.trim().length === 0) {
-    container.style.overflow = "hidden";
-  }
-}
-
-function readStageSize(container: HTMLElement): { width: number; height: number } {
-  const rect = container.getBoundingClientRect();
-  return {
-    width: container.clientWidth > 0 ? container.clientWidth : rect.width,
-    height: container.clientHeight > 0 ? container.clientHeight : rect.height,
-  };
-}
-
-function insertReplayEvent(events: ReplayEvent[], event: ReplayEvent): void {
-  let low = 0;
-  let high = events.length;
-
-  while (low < high) {
-    const mid = Math.floor((low + high) / 2);
-    const existing = events[mid];
-    if (existing !== undefined && existing.timestamp <= event.timestamp) {
-      low = mid + 1;
-      continue;
-    }
-
-    high = mid;
-  }
-
-  events.splice(low, 0, event);
-}
-
-function isFullSnapshotEvent(event: ReplayEvent): boolean {
-  return event.type === EventType.FullSnapshot;
-}
-
-function lastFullSnapshotBefore(events: readonly ReplayEvent[], beforeIndex: number): number {
-  for (let index = beforeIndex - 1; index >= 0; index -= 1) {
-    if (isFullSnapshotEvent(events[index]!)) {
-      return index;
-    }
-  }
-
-  return -1;
+  return (
+    left.segmentIndex === right.segmentIndex &&
+    left.batch === right.batch &&
+    left.timestamp === right.timestamp &&
+    left.tab === right.tab
+  );
 }

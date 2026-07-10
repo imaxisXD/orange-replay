@@ -1,4 +1,5 @@
 import { sessionManifestSchema } from "@orange-replay/shared/schemas";
+import { MAX_ENCODED_SEGMENT_BYTES } from "@orange-replay/shared/constants";
 import type { LiveTicketResponse, SegmentRef, SessionManifest } from "@orange-replay/shared/types";
 import type {
   LiveRequest,
@@ -9,6 +10,8 @@ import type {
   SessionRequest,
 } from "./types.ts";
 
+export { MAX_ENCODED_SEGMENT_BYTES };
+
 export async function loadSession(
   api: PlayerApiInput,
   options: LoadSessionOptions,
@@ -16,6 +19,7 @@ export async function loadSession(
   const resolved = resolveApi(api);
   const response = await resolved.fetchFn(resolved.manifestUrl(options), {
     headers: authHeaders(options.token),
+    signal: options.signal,
   });
 
   if (!response.ok) {
@@ -27,20 +31,74 @@ export async function loadSession(
 
 export async function fetchSegmentBytes(
   api: PlayerApiInput,
-  options: SessionRequest & { segment: SegmentRef },
+  options: SessionRequest & { segment: SegmentRef; signal?: AbortSignal },
 ): Promise<Uint8Array> {
+  if (options.segment.bytes > MAX_ENCODED_SEGMENT_BYTES) {
+    throw new Error("Replay segment is too large to load safely.");
+  }
+
   const resolved = resolveApi(api);
   const segmentName = segmentFileName(options.segment);
   const request: SegmentRequest = { ...options, segmentName };
   const response = await resolved.fetchFn(resolved.segmentUrl(request), {
     headers: authHeaders(options.token),
+    signal: options.signal,
   });
 
   if (!response.ok) {
     throw new Error(await readApiError(response, "Could not load replay segment."));
   }
 
-  return new Uint8Array(await response.arrayBuffer());
+  const bytes = await readResponseBytesCapped(response, options.segment.bytes);
+  if (bytes.byteLength !== options.segment.bytes) {
+    throw new Error("Replay segment size does not match the session manifest.");
+  }
+  return bytes;
+}
+
+export async function readResponseBytesCapped(
+  response: Response,
+  maxBytes: number,
+): Promise<Uint8Array> {
+  const cleanLimit = Math.max(0, Math.min(MAX_ENCODED_SEGMENT_BYTES, Math.floor(maxBytes)));
+  const declaredLength = readContentLength(response.headers.get("content-length"));
+  if (declaredLength !== null && declaredLength > cleanLimit) {
+    await response.body?.cancel();
+    throw new Error("Replay segment response exceeds its allowed size.");
+  }
+
+  const body = response.body;
+  if (body === null) {
+    throw new Error("Replay segment response body is missing.");
+  }
+
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) {
+        break;
+      }
+      totalBytes += next.value.byteLength;
+      if (totalBytes > cleanLimit) {
+        await reader.cancel();
+        throw new Error("Replay segment response exceeds its allowed size.");
+      }
+      chunks.push(next.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
 }
 
 export function liveSocketUrl(api: PlayerApiInput, options: LiveRequest): string {
@@ -49,12 +107,13 @@ export function liveSocketUrl(api: PlayerApiInput, options: LiveRequest): string
 
 export async function mintLiveTicket(
   api: PlayerApiInput,
-  options: SessionRequest & { token: string },
+  options: SessionRequest & { token: string; signal?: AbortSignal },
 ): Promise<LiveTicketResponse> {
   const resolved = resolveApi(api);
   const response = await resolved.fetchFn(resolved.liveTicketUrl(options), {
     method: "POST",
     headers: authHeaders(options.token),
+    signal: options.signal,
   });
 
   if (!response.ok) {
@@ -74,6 +133,14 @@ interface ResolvedApi {
   segmentUrl: (params: SegmentRequest) => string;
   liveUrl: (params: LiveRequest) => string;
   liveTicketUrl: (params: SessionRequest) => string;
+}
+
+function readContentLength(value: string | null): number | null {
+  if (value === null || value.trim().length === 0) {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
 }
 
 function resolveApi(api: PlayerApiInput): ResolvedApi {

@@ -73,8 +73,29 @@ describe("Recorder", () => {
     expect(options.blockSelector).toBe("[data-orange-block], .user-block");
     expect(options.ignoreSelector).toBe("[data-orange-ignore], .user-ignore");
     expect(options.maskTextSelector).toBe(".mask-text");
+    expect(options.inlineImages).toBe(true);
     expect(options.recordCanvas).toBe(false);
+    expect(options.sampling).toEqual({ canvas: 2 });
+    expect(options.dataURLOptions).toEqual({ type: "image/webp", quality: 0.62 });
+    expect(options.checkoutEveryNth).toBe(5_000);
     expect(options.checkoutEveryNms).toBe(240_000);
+  });
+
+  it("records safe image frames when canvas capture is enabled", async () => {
+    rrwebMocks.record.mockReturnValue(vi.fn());
+    const { Recorder } = await import("../src/recorder.ts");
+    const recorder = new Recorder({
+      config: {
+        ...baseConfig,
+        capture: { ...baseConfig.capture, canvas: true },
+      },
+      sink: makeSink(),
+    });
+
+    recorder.start();
+
+    const options = rrwebMocks.record.mock.calls[0]?.[0] as recordOptions<eventWithTime>;
+    expect(options.recordCanvas).toBe(true);
   });
 
   it("disables recording when the emit path fails and does not throw to the host page", async () => {

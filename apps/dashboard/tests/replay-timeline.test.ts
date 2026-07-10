@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import type { IndexEvent } from "@orange-replay/shared/types";
 import {
   buildTimelineTickBuckets,
+  buildJourneyBreadcrumbs,
   getPlayerKeyAction,
   mapTimelineSidebarRows,
   timeToTimelineX,
@@ -66,8 +67,8 @@ describe("event sidebar rows", () => {
         id: "click-2000-0",
         type: "click",
         dot: "blue",
-        label: "button.buy-now",
-        detail: "Buy now",
+        label: "Clicked “Buy now”",
+        detail: "button.buy-now",
         offsetMs: 1_000,
         offsetLabel: "0:01",
       },
@@ -99,6 +100,46 @@ describe("event sidebar rows", () => {
       },
     ]);
   });
+
+  it("relabels detected dead clicks without duplicating the click row", () => {
+    const rows = mapTimelineSidebarRows(
+      [{ t: 2_000, k: "click", d: "button.save" }],
+      { startedAt: 1_000, durationMs: 8_000 },
+      [{ t: 2_000, detail: "main > button.save" }],
+    );
+
+    expect(rows).toEqual([
+      {
+        id: "dead-click-2000-0",
+        type: "dead-click",
+        dot: "hollow",
+        label: "Dead click",
+        detail: "button.save",
+        offsetMs: 1_000,
+        offsetLabel: "0:01",
+      },
+    ]);
+  });
+});
+
+describe("journey breadcrumbs", () => {
+  it("starts with the entry page and maps navigation times", () => {
+    expect(
+      buildJourneyBreadcrumbs(
+        "https://example.com/start?plan=pro",
+        [
+          { t: 5_000, k: "click" },
+          { t: 3_000, k: "nav", d: "https://example.com/checkout" },
+          { t: 7_000, k: "nav", m: { url: "/complete" } },
+        ],
+        { startedAt: 1_000, durationMs: 10_000 },
+      ),
+    ).toEqual([
+      { id: "entry", path: "/start?plan=pro", offsetMs: 0 },
+      { id: "nav-3000-0", path: "/checkout", offsetMs: 2_000 },
+      { id: "nav-7000-1", path: "/complete", offsetMs: 6_000 },
+    ]);
+  });
 });
 
 describe("keyboard controls", () => {
@@ -124,5 +165,16 @@ describe("keyboard controls", () => {
 
     expect(getPlayerKeyAction({ key: " ", target: input })).toBeNull();
     expect(getPlayerKeyAction({ key: "ArrowRight", target: editable })).toBeNull();
+  });
+
+  it("does not double-handle keys owned by focused controls", () => {
+    const button = document.createElement("button");
+    const link = document.createElement("a");
+    const slider = document.createElement("div");
+    slider.setAttribute("role", "slider");
+
+    expect(getPlayerKeyAction({ key: " ", target: button })).toBeNull();
+    expect(getPlayerKeyAction({ key: " ", target: link })).toBeNull();
+    expect(getPlayerKeyAction({ key: "ArrowRight", target: slider })).toBeNull();
   });
 });

@@ -61,6 +61,14 @@ function getValidTagName(element: HTMLElement): Lowercase<string> {
 
 let canvasService: HTMLCanvasElement | null;
 let canvasCtx: CanvasRenderingContext2D | null;
+const MAX_INLINE_IMAGE_PIXELS = 4_000_000;
+const MAX_INLINE_IMAGE_DATA_URL_CHARACTERS = 2_000_000;
+
+function keepInlineImage(target: attributes, dataURL: string): void {
+  if (dataURL.length <= MAX_INLINE_IMAGE_DATA_URL_CHARACTERS) {
+    target.rr_dataURL = dataURL;
+  }
+}
 
 // eslint-disable-next-line no-control-regex
 const SRCSET_NOT_SPACES = /^[^ \t\n\r\u000c]+/; // Don't use \s, to avoid matching non-breaking space
@@ -642,31 +650,38 @@ function serializeElementNode(
 
   // canvas image data
   if (tagName === "canvas" && recordCanvas) {
-    if ((n as ICanvas).__context === "2d") {
-      // only record this on 2d canvas
-      if (!is2DCanvasBlank(n as HTMLCanvasElement)) {
-        attributes.rr_dataURL = (n as HTMLCanvasElement).toDataURL(
+    try {
+      if ((n as ICanvas).__context === "2d") {
+        // only record this on 2d canvas
+        if (!is2DCanvasBlank(n as HTMLCanvasElement)) {
+          keepInlineImage(
+            attributes,
+            (n as HTMLCanvasElement).toDataURL(dataURLOptions.type, dataURLOptions.quality),
+          );
+        }
+      } else if (!("__context" in n)) {
+        // context is unknown, better not call getContext to trigger it
+        const canvasDataURL = (n as HTMLCanvasElement).toDataURL(
           dataURLOptions.type,
           dataURLOptions.quality,
         );
-      }
-    } else if (!("__context" in n)) {
-      // context is unknown, better not call getContext to trigger it
-      const canvasDataURL = (n as HTMLCanvasElement).toDataURL(
-        dataURLOptions.type,
-        dataURLOptions.quality,
-      );
 
-      // create blank canvas of same dimensions
-      const blankCanvas = doc.createElement("canvas");
-      blankCanvas.width = (n as HTMLCanvasElement).width;
-      blankCanvas.height = (n as HTMLCanvasElement).height;
-      const blankCanvasDataURL = blankCanvas.toDataURL(dataURLOptions.type, dataURLOptions.quality);
+        // create blank canvas of same dimensions
+        const blankCanvas = doc.createElement("canvas");
+        blankCanvas.width = (n as HTMLCanvasElement).width;
+        blankCanvas.height = (n as HTMLCanvasElement).height;
+        const blankCanvasDataURL = blankCanvas.toDataURL(
+          dataURLOptions.type,
+          dataURLOptions.quality,
+        );
 
-      // no need to save dataURL if it's the same as blank canvas
-      if (canvasDataURL !== blankCanvasDataURL) {
-        attributes.rr_dataURL = canvasDataURL;
+        // no need to save dataURL if it's the same as blank canvas
+        if (canvasDataURL !== blankCanvasDataURL) {
+          keepInlineImage(attributes, canvasDataURL);
+        }
       }
+    } catch {
+      // A tainted canvas is unreadable. Keep recording the rest of the page.
     }
   }
   // save image offline
@@ -676,38 +691,31 @@ function serializeElementNode(
       canvasCtx = canvasService.getContext("2d");
     }
     const image = n as HTMLImageElement;
-    const imageSrc: string = image.currentSrc || image.getAttribute("src") || "<unknown-src>";
-    const priorCrossOrigin = image.crossOrigin;
     const recordInlineImage = () => {
       image.removeEventListener("load", recordInlineImage);
+      if (
+        image.naturalWidth <= 0 ||
+        image.naturalHeight <= 0 ||
+        image.naturalWidth * image.naturalHeight > MAX_INLINE_IMAGE_PIXELS
+      ) {
+        return;
+      }
       try {
         canvasService!.width = image.naturalWidth;
         canvasService!.height = image.naturalHeight;
         canvasCtx!.drawImage(image, 0, 0);
-        attributes.rr_dataURL = canvasService!.toDataURL(
-          dataURLOptions.type,
-          dataURLOptions.quality,
+        keepInlineImage(
+          attributes,
+          canvasService!.toDataURL(dataURLOptions.type, dataURLOptions.quality),
         );
-      } catch (err) {
-        if (image.crossOrigin !== "anonymous") {
-          image.crossOrigin = "anonymous";
-          if (image.complete && image.naturalWidth !== 0)
-            recordInlineImage(); // too early due to image reload
-          else image.addEventListener("load", recordInlineImage);
-          return;
-        } else {
-          console.warn(`Cannot inline img src=${imageSrc}! Error: ${err as string}`);
-        }
-      }
-      if (image.crossOrigin === "anonymous") {
-        priorCrossOrigin
-          ? (attributes.crossOrigin = priorCrossOrigin)
-          : image.removeAttribute("crossorigin");
+      } catch {
+        // Cross-origin images without CORS cannot be read. Do not change the
+        // live image or trigger a second request from the customer's page.
       }
     };
     // The image content may not have finished loading yet.
     if (image.complete && image.naturalWidth !== 0) recordInlineImage();
-    else image.addEventListener("load", recordInlineImage);
+    else image.addEventListener("load", recordInlineImage, { once: true });
   }
   // media elements
   if (["audio", "video"].includes(tagName)) {

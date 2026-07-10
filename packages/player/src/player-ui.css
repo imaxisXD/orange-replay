@@ -1,0 +1,19 @@
+.replayer-wrapper > .replayer-mouse {
+  z-index: 4;
+  width: 32px;
+  height: 32px;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2032%2032%27%3E%3Cpath%20d%3D%27M4%202.5V25l6.3-6.1%205.3%2010.5%204.5-2.3-5.2-10.2H24z%27%20fill%3D%27black%27%20stroke%3D%27white%27%20stroke-width%3D%273.2%27%20stroke-linejoin%3D%27round%27%2F%3E%3C%2Fsvg%3E");
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 75%));
+}
+
+/* Orange Replay draws its own click and rage rings on the overlay canvas. */
+.replayer-wrapper > .replayer-mouse::after {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .replayer-wrapper > .replayer-mouse {
+    transition: none;
+  }
+}

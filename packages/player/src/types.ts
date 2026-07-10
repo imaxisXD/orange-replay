@@ -1,5 +1,11 @@
-import type { IndexEvent, SegmentRef, SessionManifest } from "@orange-replay/shared/types";
+import type {
+  IndexEvent,
+  SegmentCheckpoint,
+  SegmentRef,
+  SessionManifest,
+} from "@orange-replay/shared/types";
 import type { eventWithTime } from "rrweb";
+import type { DeadClick } from "./friction.ts";
 
 export type ReplayEvent = eventWithTime;
 
@@ -29,7 +35,9 @@ export interface LiveRequest extends SessionRequest {
   ticket: string;
 }
 
-export interface LoadSessionOptions extends SessionRequest {}
+export interface LoadSessionOptions extends SessionRequest {
+  signal?: AbortSignal;
+}
 
 export interface TimelineTick {
   timeMs: number;
@@ -51,11 +59,13 @@ export interface PlayerTimeline {
   markers: TimelineMarker[];
   counts: {
     clicks: number;
+    deadClicks: number;
     errors: number;
     rages: number;
     navs: number;
     customs: number;
   };
+  deadClicks: DeadClick[];
   sourceEvents: IndexEvent[];
 }
 
@@ -67,8 +77,10 @@ export interface InactivityGap {
 
 export interface SegmentWindow {
   activeIndex: number;
+  startIndex: number;
   neededIndexes: number[];
   prefetchIndexes: number[];
+  checkpoint?: SegmentCheckpoint & { segmentIndex: number };
 }
 
 export interface OverlayOptions {
@@ -125,6 +137,7 @@ export interface WaitingKeyframeEvent {
 export interface PlayerErrorEvent {
   message: string;
   error?: unknown;
+  severity?: "fatal" | "recovering" | "warning";
 }
 
 export interface OrangePlayerEventMap {

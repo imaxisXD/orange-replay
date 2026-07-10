@@ -2,7 +2,14 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BatchIndex, SessionManifest } from "@orange-replay/shared/types";
 import { buildSegment, encodeIngestBody } from "@orange-replay/shared/wire";
-import { fetchSegmentBytes, liveSocketUrl, loadSession, mintLiveTicket } from "../src/api.ts";
+import {
+  fetchSegmentBytes,
+  liveSocketUrl,
+  loadSession,
+  MAX_ENCODED_SEGMENT_BYTES,
+  mintLiveTicket,
+  readResponseBytesCapped,
+} from "../src/api.ts";
 import { OrangePlayer } from "../src/player.ts";
 import {
   decodeSegmentBatches,
@@ -20,6 +27,71 @@ afterEach(() => {
 });
 
 describe("manifest and segment loading", () => {
+  it("does not continue loading segments after the player is destroyed", async () => {
+    let resolveManifest: ((response: Response) => void) | undefined;
+    let segmentFetches = 0;
+    let readyEvents = 0;
+    const manifest = makeManifest(10);
+    const api = {
+      fetch: async (url: string | URL | Request) => {
+        const requestUrl = requestUrlString(url);
+        if (requestUrl.endsWith("/manifest")) {
+          return await new Promise<Response>((resolve) => {
+            resolveManifest = resolve;
+          });
+        }
+        segmentFetches += 1;
+        return new Response(new Uint8Array());
+      },
+    };
+    const container = document.createElement("div");
+    document.body.append(container);
+    const player = new OrangePlayer(container, {
+      api,
+      projectId: "project",
+      sessionId: "session",
+      worker: { allowSynchronousFallback: true },
+    });
+    player.on("ready", () => {
+      readyEvents += 1;
+    });
+
+    player.destroy();
+    resolveManifest?.(Response.json(manifest));
+    await player.ready();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(segmentFetches).toBe(0);
+    expect(readyEvents).toBe(0);
+    container.remove();
+  });
+
+  it("returns a clear error instead of buffering forever when replay data is empty", async () => {
+    const manifest = makeManifest(0);
+    manifest.segments = [];
+    manifest.timeline = [];
+    const api = {
+      fetch: async () => Response.json(manifest),
+    };
+    const container = document.createElement("div");
+    document.body.append(container);
+    const player = new OrangePlayer(container, {
+      api,
+      projectId: "project",
+      sessionId: "session",
+      worker: { allowSynchronousFallback: true },
+    });
+    const errors: string[] = [];
+    player.on("error", (error) => errors.push(error.message));
+
+    await player.ready();
+    await expect(player.play()).rejects.toThrow("does not contain enough replay data");
+    expect(errors).toContain("This session does not contain enough replay data to play.");
+
+    player.destroy();
+    container.remove();
+  });
+
   it("loads a manifest and decodes an ORS1 segment built by shared helpers", async () => {
     const events = [makeEvent(1_100, "full"), makeEvent(1_200, "click")];
     const segment = buildSegment([await gzipJson(events)]);
@@ -60,6 +132,93 @@ describe("manifest and segment loading", () => {
       "https://api.example.test/api/v1/projects/project/sessions/session/manifest",
       "https://api.example.test/api/v1/projects/project/sessions/session/segments/seg-000001.ors",
     ]);
+  });
+
+  it("rejects oversized or mismatched encoded segment responses before decoding", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response(new Uint8Array([1, 2])));
+    await expect(
+      fetchSegmentBytes(
+        { fetch: fetchMock },
+        {
+          projectId: "project",
+          sessionId: "session",
+          segment: {
+            key: "p/project/session/seg-000001.ors",
+            bytes: MAX_ENCODED_SEGMENT_BYTES + 1,
+            t0: 1,
+            t1: 2,
+            batches: 1,
+          },
+        },
+      ),
+    ).rejects.toThrow("too large");
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await expect(
+      fetchSegmentBytes(
+        { fetch: async () => new Response(new Uint8Array([1, 2])) },
+        {
+          projectId: "project",
+          sessionId: "session",
+          segment: {
+            key: "p/project/session/seg-000001.ors",
+            bytes: 3,
+            t0: 1,
+            t1: 2,
+            batches: 1,
+          },
+        },
+      ),
+    ).rejects.toThrow("does not match");
+  });
+
+  it("stops reading a streamed segment as soon as it crosses the byte limit", async () => {
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new Uint8Array([1, 2]));
+          controller.enqueue(new Uint8Array([3, 4]));
+          controller.close();
+        },
+      }),
+    );
+
+    await expect(readResponseBytesCapped(response, 3)).rejects.toThrow("exceeds");
+  });
+
+  it("updates the player timeline with dead clicks after replay data decodes", async () => {
+    const segment = buildSegment([
+      await gzipJson([makeEvent(1_000, "start"), makeEvent(2_000, "observed")]),
+    ]);
+    const manifest = makeManifest(segment.byteLength);
+    manifest.timeline = [{ t: 1_100, k: "click", m: { selector: "button.save-settings" } }];
+    const api = {
+      fetch: async (url: string | URL | Request) => {
+        if (requestUrlString(url).endsWith("/manifest")) {
+          return Response.json(manifest);
+        }
+        return new Response(segment as unknown as BodyInit, {
+          headers: { "content-type": "application/octet-stream" },
+        });
+      },
+    };
+    const container = document.createElement("div");
+    document.body.append(container);
+    const player = new OrangePlayer(container, {
+      api,
+      projectId: "project",
+      sessionId: "session",
+      worker: { allowSynchronousFallback: true },
+    });
+    const deadClickCounts: number[] = [];
+    player.on("timeline", (timeline) => deadClickCounts.push(timeline.counts.deadClicks));
+
+    await player.ready();
+    await waitFor(() => deadClickCounts.includes(1));
+
+    expect(deadClickCounts.at(-1)).toBe(1);
+    player.destroy();
+    container.remove();
   });
 
   it("preserves tab indexes when decoding encoded segment batches", async () => {

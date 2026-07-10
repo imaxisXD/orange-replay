@@ -24,6 +24,7 @@ test("records, replays, masks, and follows a live session from the dashboard", a
   const state = await readState();
   let recordedSessionId = "";
   let recordedSession: IndexedSession | null = null;
+  let recordedStyleSignature: DemoStyleSignature | undefined;
   let dashboardContext: BrowserContext | undefined;
   let dashboardPage: Page | undefined;
   let liveContext: BrowserContext | undefined;
@@ -41,7 +42,9 @@ test("records, replays, masks, and follows a live session from the dashboard", a
       const recordPage = await recordContext.newPage();
 
       try {
-        recordedSessionId = await recordDemoSession(recordPage, state);
+        const recording = await recordDemoSession(recordPage, state);
+        recordedSessionId = recording.sessionId;
+        recordedStyleSignature = recording.styleSignature;
       } finally {
         await recordContext.close();
       }
@@ -82,7 +85,13 @@ test("records, replays, masks, and follows a live session from the dashboard", a
 
     await test.step("playback with effects", async () => {
       const page = requirePage(dashboardPage);
-      await waitForReplayFrameWithText(page, "Warehouse stock timeline", 20_000);
+      const initialFrame = await waitForReplayFrameWithText(
+        page,
+        "Warehouse stock timeline",
+        20_000,
+      );
+      expect(recordedStyleSignature).toBeDefined();
+      expect(await readDemoStyleSignature(initialFrame)).toEqual(recordedStyleSignature);
 
       await page.getByRole("button", { name: "Play replay" }).click();
       await expect(
@@ -104,6 +113,29 @@ test("records, replays, masks, and follows a live session from the dashboard", a
         })
         .toBe(true);
 
+      const replayCursor = page.locator(".replayer-mouse").first();
+      await expect(replayCursor).toBeVisible();
+      await expect
+        .poll(async () => {
+          return replayCursor.evaluate((element) => {
+            const style = window.getComputedStyle(element);
+            return {
+              backgroundImage: style.backgroundImage,
+              height: style.height,
+              position: style.position,
+              width: style.width,
+            };
+          });
+        })
+        .toMatchObject({
+          height: "32px",
+          position: "absolute",
+          width: "32px",
+        });
+      expect(
+        await replayCursor.evaluate((element) => window.getComputedStyle(element).backgroundImage),
+      ).not.toBe("none");
+
       await expect.poll(async () => replayFitsInsideStage(page)).toBe(true);
 
       const replayGeometry = await readReplayGeometry(page);
@@ -113,6 +145,45 @@ test("records, replays, masks, and follows a live session from the dashboard", a
         Math.abs((replayGeometry?.leftGap ?? 0) - (replayGeometry?.rightGap ?? 0)),
       ).toBeLessThanOrEqual(4);
 
+      const heatStrip = page.getByTestId("activity-heat-strip");
+      await expect(heatStrip).toBeVisible();
+      await expect
+        .poll(() =>
+          heatStrip.locator('[data-activity-count]:not([data-activity-count="0"])').count(),
+        )
+        .toBeGreaterThan(0);
+
+      await expect(page.getByTestId("journey-breadcrumbs")).toBeVisible();
+      const secondPageBreadcrumb = page
+        .getByTestId("journey-breadcrumbs")
+        .getByRole("button", { name: /page2/i });
+      await expect(secondPageBreadcrumb).toBeVisible();
+
+      const timeline = page.getByRole("slider", { name: "Replay timeline" });
+      await timeline.click({ position: { x: 1, y: 13 } });
+      const beforeJourney = readNumber(await timeline.getAttribute("aria-valuenow"));
+      await secondPageBreadcrumb.click();
+      await expect
+        .poll(async () => readNumber(await timeline.getAttribute("aria-valuenow")))
+        .toBeGreaterThan(beforeJourney);
+
+      await expect(page.getByTestId("dead-click-marker").first()).toBeVisible();
+      await expect(
+        page
+          .locator("aside")
+          .getByRole("button", { name: /dead click/i })
+          .first(),
+      ).toBeVisible();
+
+      await timeline.click({ position: { x: 1, y: 13 } });
+      const beforeFirstError = readNumber(await timeline.getAttribute("aria-valuenow"));
+      await page.getByTestId("first-error-button").click();
+      await expect
+        .poll(async () => readNumber(await timeline.getAttribute("aria-valuenow")))
+        .toBeGreaterThan(beforeFirstError);
+
+      await expect(page.getByRole("heading", { name: "Segments" })).toHaveCount(0);
+
       const errorRow = page
         .locator("aside")
         .getByRole("button")
@@ -120,7 +191,6 @@ test("records, replays, masks, and follows a live session from the dashboard", a
         .first();
       await expect(errorRow).toBeVisible();
 
-      const timeline = page.getByRole("slider", { name: "Replay timeline" });
       await timeline.click({ position: { x: 1, y: 13 } });
       const before = readNumber(await timeline.getAttribute("aria-valuenow"));
       await errorRow.click();
@@ -291,10 +361,14 @@ async function seedProject(
   expect(response.status).toBe(200);
 }
 
-async function recordDemoSession(page: Page, state: ServerState): Promise<string> {
+async function recordDemoSession(
+  page: Page,
+  state: ServerState,
+): Promise<{ sessionId: string; styleSignature: DemoStyleSignature }> {
   await page.goto(state.demoUrl);
   await expect(page.getByRole("heading", { name: "Signal Board starter kit" })).toBeVisible();
   const sessionId = await readSessionId(page);
+  const styleSignature = await readDemoStyleSignature(page);
 
   await page.getByLabel("Workspace name").fill(textSecret);
   await page.getByLabel("Admin password").fill(passwordSecret);
@@ -315,7 +389,69 @@ async function recordDemoSession(page: Page, state: ServerState): Promise<string
 
   expect(await readSessionId(page)).toBe(sessionId);
   await page.close();
-  return sessionId;
+  return { sessionId, styleSignature };
+}
+
+interface DemoStyleSignature {
+  body: Record<string, string>;
+  topbar: Record<string, string>;
+  hero: Record<string, string>;
+  productPanel: Record<string, string>;
+  actionButton: Record<string, string>;
+  noteGrid: Record<string, string>;
+}
+
+async function readDemoStyleSignature(target: Page | Frame): Promise<DemoStyleSignature> {
+  return target.evaluate(() => {
+    const read = (selector: string, properties: string[]): Record<string, string> => {
+      const element = document.querySelector(selector);
+      if (!(element instanceof HTMLElement)) {
+        throw new Error(`Missing demo element: ${selector}`);
+      }
+
+      const style = window.getComputedStyle(element);
+      return Object.fromEntries(
+        properties.map((property) => [property, style.getPropertyValue(property)]),
+      );
+    };
+
+    return {
+      body: read("body", ["color", "background-color", "font-family", "margin"]),
+      topbar: read(".topbar", [
+        "display",
+        "position",
+        "gap",
+        "padding-left",
+        "padding-top",
+        "background-color",
+        "border-bottom-width",
+      ]),
+      hero: read(".hero", [
+        "display",
+        "grid-template-columns",
+        "gap",
+        "min-height",
+        "padding-top",
+        "background-color",
+        "border-top-width",
+      ]),
+      productPanel: read(".product-panel", [
+        "display",
+        "min-height",
+        "padding-top",
+        "background-color",
+        "border-top-width",
+      ]),
+      actionButton: read("button", [
+        "min-height",
+        "border-radius",
+        "padding-left",
+        "color",
+        "background-color",
+      ]),
+      noteGrid: read(".note-grid", ["display", "grid-template-columns", "gap", "margin-top"]),
+    };
+  });
 }
 
 async function readSessionId(page: Page): Promise<string> {

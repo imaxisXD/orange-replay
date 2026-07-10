@@ -177,6 +177,28 @@ export function decodeLiveFrame(bytes: ArrayBuffer | Uint8Array): LiveFrame {
   return decodeIngestBody(view);
 }
 
+export function retainLiveReplayEvents(
+  events: readonly ReplayEvent[],
+  cutoffTimestamp: number,
+): ReplayEvent[] {
+  const cutoffIndex = events.findIndex((event) => event.timestamp >= cutoffTimestamp);
+  if (cutoffIndex <= 0) {
+    return [...events];
+  }
+
+  let snapshotIndex = -1;
+  for (let index = cutoffIndex - 1; index >= 0; index -= 1) {
+    if (isFullSnapshotEvent(events[index]!)) {
+      snapshotIndex = index;
+      break;
+    }
+  }
+
+  const baselineStart =
+    snapshotIndex > 0 && isMetaEvent(events[snapshotIndex - 1]) ? snapshotIndex - 1 : snapshotIndex;
+  return baselineStart >= 0 ? events.slice(baselineStart) : events.slice(cutoffIndex);
+}
+
 export function liveFrameKey(index: BatchIndex): string {
   return `${index.tab}:${index.seq}`;
 }

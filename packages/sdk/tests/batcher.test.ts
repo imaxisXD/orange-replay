@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import { SDK_FLUSH_LIVE_MS } from "@orange-replay/shared/constants";
-import { Batcher } from "../src/pipeline/batcher.ts";
+import { EventType, IncrementalSource, type eventWithTime } from "@orange-replay/rrweb-fork";
+import { Batcher, estimateRrwebEventBytes } from "../src/pipeline/batcher.ts";
 
 describe("Batcher", () => {
   it("retunes the timer from ingest ack flushMs and tightens for live sessions", () => {
@@ -59,5 +60,24 @@ describe("Batcher", () => {
       totalRawBytes: 95,
     });
     expect(batcher.eventCount()).toBe(0);
+  });
+
+  it("counts sealed image bytes in canvas frames", () => {
+    const event = {
+      type: EventType.IncrementalSnapshot,
+      timestamp: 1,
+      data: {
+        source: IncrementalSource.CanvasMutation,
+        commands: [
+          { property: "clearRect", args: [0, 0, 1, 1] },
+          {
+            property: "drawImage",
+            args: [{ args: [{ data: [{ base64: "A".repeat(8_000) }] }] }],
+          },
+        ],
+      },
+    } as unknown as eventWithTime;
+
+    expect(estimateRrwebEventBytes(event)).toBe(9_024);
   });
 });

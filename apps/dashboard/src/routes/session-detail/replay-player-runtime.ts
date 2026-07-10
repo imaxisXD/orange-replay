@@ -62,9 +62,11 @@ export function clampTime(value: number, durationMs: number): number {
 
 export function readReplayOverlayColors() {
   return {
-    cursorColor: readThemeColor("--amber", "oklch(0.784 0.159 72.991)"),
+    cursorColor: readThemeColor("--teal", "#2dd4bf"),
+    cursorOpacity: 0.95,
     clickColor: readThemeColor("--amber", "oklch(0.784 0.159 72.991)"),
     rageColor: readThemeColor("--danger", "oklch(0.662 0.198 25.892)"),
+    trailMs: 1_800,
   };
 }
 

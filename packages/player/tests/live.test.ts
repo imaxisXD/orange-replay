@@ -9,6 +9,7 @@ import {
   createLiveKeyframeBuffer,
   createLiveFrameState,
   decodeLiveFrame,
+  retainLiveReplayEvents,
   startWaitingForKeyframe,
 } from "../src/live.ts";
 import { EventType, IncrementalSource, type eventWithTime } from "rrweb";
@@ -107,6 +108,22 @@ describe("live frame handling", () => {
     ).toEqual({ events: [meta, snapshot, tail], status: "accepted" });
     expect(buffer.waiting).toBe(false);
     expect(buffer.started).toBe(true);
+  });
+
+  it("keeps every mutation after the live rebuild snapshot", () => {
+    const oldSnapshot = fullSnapshotEvent(1_000);
+    const oldMutation = incrementalEvent(2_000);
+    const meta = metaEvent(5_000);
+    const snapshot = fullSnapshotEvent(5_001);
+    const requiredMutation = incrementalEvent(6_000);
+    const recentMutation = incrementalEvent(11_000);
+
+    expect(
+      retainLiveReplayEvents(
+        [oldSnapshot, oldMutation, meta, snapshot, requiredMutation, recentMutation],
+        10_000,
+      ),
+    ).toEqual([meta, snapshot, requiredMutation, recentMutation]);
   });
 });
 

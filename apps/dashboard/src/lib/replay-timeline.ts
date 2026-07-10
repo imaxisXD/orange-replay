@@ -1,4 +1,5 @@
 import type { IndexEvent } from "@orange-replay/shared/types";
+import type { DeadClick } from "@orange-replay/player";
 
 const activityKinds = new Set<IndexEvent["k"]>([
   "click",
@@ -10,8 +11,10 @@ const activityKinds = new Set<IndexEvent["k"]>([
 ]);
 const displayableKinds = new Set<SidebarEventKind>(["click", "error", "rage", "nav"]);
 
-export type SidebarEventKind = Extract<IndexEvent["k"], "click" | "error" | "rage" | "nav">;
-export type TimelineDot = "blue" | "danger" | "amber" | "teal";
+export type SidebarEventKind =
+  | Extract<IndexEvent["k"], "click" | "error" | "rage" | "nav">
+  | "dead-click";
+export type TimelineDot = "blue" | "danger" | "amber" | "teal" | "hollow";
 
 export interface TimelineBucketOptions {
   startedAt: number;
@@ -43,6 +46,12 @@ export interface TimelineSidebarRow {
   detail?: string;
   offsetMs: number;
   offsetLabel: string;
+}
+
+export interface JourneyBreadcrumb {
+  id: string;
+  path: string;
+  offsetMs: number;
 }
 
 export type PlayerKeyAction = { type: "toggle-play" } | { type: "seek"; deltaMs: -5000 | 5000 };
@@ -137,16 +146,30 @@ export function timelineProgressPercent(timeMs: number, durationMs: number): num
 export function mapTimelineSidebarRows(
   events: readonly IndexEvent[],
   options: TimelineSidebarOptions,
+  deadClicks: readonly DeadClick[] = [],
 ): TimelineSidebarRow[] {
   const durationMs = Math.max(0, Math.floor(options.durationMs));
+  const deadClickByTime = new Map(deadClicks.map((click) => [click.t, click]));
 
   return events
-    .filter((event): event is IndexEvent & { k: SidebarEventKind } =>
-      displayableKinds.has(event.k as SidebarEventKind),
+    .filter((event): event is IndexEvent & { k: "click" | "error" | "rage" | "nav" } =>
+      displayableKinds.has(event.k as "click" | "error" | "rage" | "nav"),
     )
     .toSorted((left, right) => left.t - right.t)
     .map((event, index) => {
       const offsetMs = clamp(event.t - options.startedAt, 0, durationMs);
+      const deadClick = event.k === "click" ? deadClickByTime.get(event.t) : undefined;
+      if (deadClick !== undefined) {
+        return {
+          id: `dead-click-${event.t}-${index}`,
+          type: "dead-click" as const,
+          dot: "hollow" as const,
+          label: "Dead click",
+          detail: shortSelector(deadClick.detail),
+          offsetMs,
+          offsetLabel: formatOffsetTime(offsetMs),
+        };
+      }
       const content = eventRowContent(event);
 
       return {
@@ -159,6 +182,37 @@ export function mapTimelineSidebarRows(
         offsetLabel: formatOffsetTime(offsetMs),
       };
     });
+}
+
+export function buildJourneyBreadcrumbs(
+  entryUrl: string | undefined,
+  events: readonly IndexEvent[],
+  options: TimelineSidebarOptions,
+): JourneyBreadcrumb[] {
+  const durationMs = Math.max(0, Math.floor(options.durationMs));
+  const breadcrumbs: JourneyBreadcrumb[] = [];
+
+  if (entryUrl !== undefined && entryUrl.trim().length > 0) {
+    breadcrumbs.push({ id: "entry", path: shortPath(entryUrl), offsetMs: 0 });
+  }
+
+  for (const [index, event] of events
+    .filter((item) => item.k === "nav")
+    .toSorted((left, right) => left.t - right.t)
+    .entries()) {
+    const target = event.d ?? firstMetaText(event, ["url", "href", "to", "path"]);
+    if (target === undefined) {
+      continue;
+    }
+
+    breadcrumbs.push({
+      id: `nav-${event.t}-${index}`,
+      path: shortPath(target),
+      offsetMs: clamp(event.t - options.startedAt, 0, durationMs),
+    });
+  }
+
+  return breadcrumbs;
 }
 
 export function getPlayerKeyAction(event: PlayerKeyEvent): PlayerKeyAction | null {
@@ -194,7 +248,11 @@ export function shouldIgnorePlayerKeyTarget(target: EventTarget | null): boolean
     return true;
   }
 
-  return ["input", "textarea", "select"].includes(target.tagName.toLowerCase());
+  if (["input", "textarea", "select"].includes(target.tagName.toLowerCase())) {
+    return true;
+  }
+
+  return target.closest("button, a, [role='slider']") !== null;
 }
 
 export function formatOffsetTime(valueMs: number): string {
@@ -218,11 +276,13 @@ function eventRowContent(event: IndexEvent & { k: SidebarEventKind }): {
   detail?: string;
 } {
   if (event.k === "click") {
+    // The human phrase leads; the CSS selector is supporting detail — a
+    // sidebar row should read like a sentence, not like devtools.
     const selector = firstMetaText(event, ["selector", "target", "path"]) ?? event.d;
-    const detail = firstMetaText(event, ["text", "label"]);
+    const text = firstMetaText(event, ["text", "label"]);
     return {
-      label: selector === undefined ? "Click" : shortSelector(selector),
-      ...(detail !== undefined ? { detail: truncateText(detail, 56) } : {}),
+      label: text === undefined ? "Clicked" : `Clicked “${truncateText(text, 40)}”`,
+      ...(selector !== undefined ? { detail: shortSelector(selector) } : {}),
     };
   }
 

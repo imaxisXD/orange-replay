@@ -6,7 +6,7 @@ import { CheckpointSnapshotLimiter } from "../src/checkpoint.ts";
 import { InlineSink } from "../src/sink.ts";
 import { SessionManager, type StorageLike } from "../src/session.ts";
 import type { RecorderConfig } from "../src/types.ts";
-import type { eventWithTime } from "@orange-replay/rrweb-fork";
+import { EventType, type eventWithTime } from "@orange-replay/rrweb-fork";
 
 class MemoryStorage implements StorageLike {
   private readonly values = new Map<string, string>();
@@ -95,6 +95,25 @@ describe("InlineSink", () => {
 
     expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({ [HDR_SEQ]: "0" });
     expect(fetchMock.mock.calls[1]?.[1]?.headers).toMatchObject({ [HDR_SEQ]: "1" });
+  });
+
+  it("publishes checkpoint timestamps for inline full snapshots", async () => {
+    let body: Uint8Array = new Uint8Array();
+    const fetchMock = vi.fn<typeof fetch>(async (_input, init) => {
+      body = init?.body as Uint8Array;
+      return new Response(JSON.stringify({ ok: true, live: false, flushMs: 15_000 }));
+    });
+    const session = makeSession(["session-one", "tab-one"]);
+    const sink = new InlineSink({ config, session, window, fetch: fetchMock });
+
+    sink.addRrwebEvent({
+      type: EventType.FullSnapshot,
+      timestamp: 25,
+      data: { node: { id: 1, type: 0 }, initialOffset: { left: 0, top: 0 } },
+    } as eventWithTime);
+    await sink.flush("manual");
+
+    expect(decodeIngestBody(body).index.checkpointTimestamps).toEqual([25]);
   });
 
   it("rotates the session on a closed ingest ack", async () => {

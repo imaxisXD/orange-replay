@@ -2,7 +2,7 @@ import { EventType, IncrementalSource, type eventWithTime } from "@orange-replay
 
 export const SDK_BUFFER_CAP_BYTES = 4 * 1024 * 1024;
 
-export type DropTier = "mouse" | "scroll" | "keep";
+export type DropTier = "mouse" | "canvas" | "scroll" | "keep";
 
 export interface BufferedEvent<T> {
   value: T;
@@ -84,7 +84,7 @@ export function trimBufferedEvents<T>(
   let bytes = totalBytes(events);
   const dropped = new Set<number>();
 
-  for (const tier of ["mouse", "scroll"] satisfies DropTier[]) {
+  for (const tier of ["mouse", "canvas", "scroll"] satisfies DropTier[]) {
     for (let i = 0; i < events.length && bytes > capBytes; i += 1) {
       const event = events[i];
       if (event === undefined || event.tier !== tier || dropped.has(i)) {
@@ -133,6 +133,10 @@ export function eventDropTier(event: eventWithTime): DropTier {
 
   if (source === IncrementalSource.Scroll) {
     return "scroll";
+  }
+
+  if (source === IncrementalSource.CanvasMutation) {
+    return "canvas";
   }
 
   return "keep";
