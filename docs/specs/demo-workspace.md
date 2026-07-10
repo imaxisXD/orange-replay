@@ -67,7 +67,7 @@ Cost invariants untouched: no timers, no payload decompression, no DO/hibernatio
 
 ## Task A — worker + bootstrap
 
-File budget: `apps/worker/src/api/handler.ts`, `apps/worker/src/index.ts`, `apps/worker/src/app-shell.ts` (serve the dashboard shell at `/demo` and `/demo/*`), the worker `Env` type declaration, `apps/worker/wrangler.jsonc` (dev + `env.production`: vars placeholders + `DEMO_API_RATE_LIMITER`), `apps/worker/.env.example` (local demo values), worker tests, `scripts/bootstrap-demo-project.mjs` (new), `packages/shared/src/constants.ts` (only if a shared constant is genuinely needed).
+File budget: `apps/worker/src/api/handler.ts`, `apps/worker/src/index.ts`, `apps/worker/src/app-shell.ts` (serve the dashboard shell at `/demo` and `/demo/*`), the worker `Env` type declaration, `apps/worker/wrangler.jsonc` (dev + `env.production`: vars placeholders + `DEMO_API_RATE_LIMITER`), `apps/worker/.dev.vars.example` (local demo values), worker tests, `scripts/bootstrap-demo-project.mjs` (new), `packages/shared/src/constants.ts` (only if a shared constant is genuinely needed).
 
 Bootstrap script: creates the demo org + project (`retention_days: 2`, `sample_rate: 1.0`, `allowed_origins` = the production landing origin per `docs/deployment.md`) + one write key. Follow `scripts/bootstrap-prod-project.mjs` conventions exactly: generated secrets go to the ignored local env file, never printed; print the wrangler commands the operator runs to set `DEMO_PROJECT_ID` / `DEMO_WRITE_KEY`. Header comment: this script touches production — review and test before running.
 
@@ -96,4 +96,4 @@ File budget: `landing/index.html` only. Keep edits surgical and avoid a wholesal
 
 ## Verification
 
-Run `vp check` and `vp test` from the repo root. The test config sets `CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false`, so the developer's local `apps/worker/.env` stays in place but cannot change test behavior. Then run the full Playwright suite, compare `/demo` and the landing page with `design-final.html`, and record the result in `HANDOFF.md`.
+Run `vp check` and `vp test` from the repo root with `apps/worker/.dev.vars` temporarily moved aside. Then run the full Playwright suite, compare `/demo` and the landing page with `design-final.html`, and record the result in `HANDOFF.md`.

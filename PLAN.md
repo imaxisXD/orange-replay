@@ -48,17 +48,17 @@ Git init + initial commit (worktrees need HEAD) · Vite Plus monorepo scaffold (
 
 ## Phase 1 — Spine (Workflow W1)
 
-Phase 0 seeded `apps/worker` with the **final router** (`src/index.ts`), `env.ts` (bindings + `shardDb`), `wrangler.jsonc`, and the `/__test/*` dispatch (`src/test/harness-routes.ts`) — these are seed-owned and final. Each fan-out task owns exactly its module directory plus its own test-route file (`src/test/do-routes.ts` → T1.2, `ingest-routes.ts` → T1.3, `consumer-routes.ts` → T1.4, `api-routes.ts` → T1.5), so parallel worktrees never touch a shared file. T1.6 therefore shrinks to: D1 migrations SQL, local seed script, `.env` template, replacing the `FinalizeMessage` placeholder in `env.ts` with the shared import, and any integration glue the merge reveals.
+Phase 0 seeded `apps/worker` with the **final router** (`src/index.ts`), `env.ts` (bindings + `shardDb`), `wrangler.jsonc`, and the `/__test/*` dispatch (`src/test/harness-routes.ts`) — these are seed-owned and final. Each fan-out task owns exactly its module directory plus its own test-route file (`src/test/do-routes.ts` → T1.2, `ingest-routes.ts` → T1.3, `consumer-routes.ts` → T1.4, `api-routes.ts` → T1.5), so parallel worktrees never touch a shared file. T1.6 therefore shrinks to: D1 migrations SQL, local seed script, `.dev.vars` template, replacing the `FinalizeMessage` placeholder in `env.ts` with the shared import, and any integration glue the merge reveals.
 
-| Task | Scope                                                                                                                                                                                      | Depends       |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------- |
-| T1.1 | `packages/shared`: wire codec (ingest body `[index][0x00][payload]`), ORS1 segment codec, types, constants, zod schemas, wide-event logger, unit tests                                     | — (gate task) |
-| T1.2 | `SessionRecorder` DO: (tab,seq) dedupe, SQLite buffering, ORS1 flush → R2, alarm lifecycle (minimal writes), finalize → queue + manifest, hibernation WS hub, live-flag return             | T1.1          |
-| T1.3 | Ingest handler: CORS, header/size validation, KV config + D1 read-through, quota drop, `request.cf` enrichment, gzip-normalize fallback, DO RPC, wide event                                | T1.1          |
-| T1.4 | Queue consumer (idempotent D1 upserts + usage rollups, per-message ack/retry, DLQ classification) + retention sweeper cron                                                                 | T1.1          |
-| T1.5 | API Worker routes: health, dev-token auth middleware, sessions list (filters), manifest fetch, segment stream (+Cache API), live WS proxy to DO                                            | T1.1          |
-| T1.6 | `apps/worker` assembly: router, wrangler.jsonc (DO migration `new_sqlite_classes`, R2/KV/D1/Queues bindings, cron), D1 migration SQL, local seed script (org/project/key), `.env` template | T1.2–T1.5     |
-| T1.7 | Integration e2e: node script drives synthetic wire batches at `wrangler dev` → asserts local R2 segments/manifest, D1 rows after shortened idle, segment fetch via API, live WS echo       | T1.6          |
+| Task | Scope                                                                                                                                                                                           | Depends       |
+| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| T1.1 | `packages/shared`: wire codec (ingest body `[index][0x00][payload]`), ORS1 segment codec, types, constants, zod schemas, wide-event logger, unit tests                                          | — (gate task) |
+| T1.2 | `SessionRecorder` DO: (tab,seq) dedupe, SQLite buffering, ORS1 flush → R2, alarm lifecycle (minimal writes), finalize → queue + manifest, hibernation WS hub, live-flag return                  | T1.1          |
+| T1.3 | Ingest handler: CORS, header/size validation, KV config + D1 read-through, quota drop, `request.cf` enrichment, gzip-normalize fallback, DO RPC, wide event                                     | T1.1          |
+| T1.4 | Queue consumer (idempotent D1 upserts + usage rollups, per-message ack/retry, DLQ classification) + retention sweeper cron                                                                      | T1.1          |
+| T1.5 | API Worker routes: health, dev-token auth middleware, sessions list (filters), manifest fetch, segment stream (+Cache API), live WS proxy to DO                                                 | T1.1          |
+| T1.6 | `apps/worker` assembly: router, wrangler.jsonc (DO migration `new_sqlite_classes`, R2/KV/D1/Queues bindings, cron), D1 migration SQL, local seed script (org/project/key), `.dev.vars` template | T1.2–T1.5     |
+| T1.7 | Integration e2e: node script drives synthetic wire batches at `wrangler dev` → asserts local R2 segments/manifest, D1 rows after shortened idle, segment fetch via API, live WS echo            | T1.6          |
 
 **Gate**: T1.7 green end-to-end locally. Then judge loop.
 

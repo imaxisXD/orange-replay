@@ -22,7 +22,7 @@
 - rrweb plugins for console, network, canvas WebRTC, and sequential id.
 - rrweb-snapshot rebuild/replay utilities and PostCSS replay helpers.
 - Tests, fixtures, benchmarks, docs, build scripts, and package manager files from upstream.
-- Upstream canvas API-call capture, its inline worker, and `base64-arraybuffer`. Orange Replay uses a smaller local image-frame recorder instead.
+- Canvas recording internals that require the inline worker and `base64-arraybuffer`. The record package hard-imports the canvas manager, so this fork keeps a no-op local canvas manager for now and does not ship canvas capture.
 
 ## Local changes
 
@@ -30,8 +30,7 @@
 - Rewrote upstream package import specifiers for `@rrweb/types`, `@rrweb/utils`, `rrweb-snapshot`, and `rrdom` to local vendored paths so root workspace tests can load the fork without extra aliases.
 - Added a capture-only `src/vendor/rrweb-snapshot/index.ts` so snapshot recording does not pull rebuild/replay helpers into the fork.
 - Added `src/vendor/rrdom-stub.ts` and `src/vendor/rrweb/replay.ts` type stubs for replay-only type references left in upstream shared files.
-- Replaced upstream `record/observers/canvas/canvas-manager.ts` with a bounded 1–4 FPS image-frame recorder. It deduplicates frames, caps dimensions and bytes, skips blocked or unreadable canvases, and emits only the fixed frame format allowed by Orange Replay's sanitizer.
-- Tightened image inlining so large images are skipped and cross-origin failures never change or reload the customer's live `<img>` element.
+- Replaced upstream `record/observers/canvas/canvas-manager.ts` with a no-op capture-only stub. This keeps DOM recording working while excluding canvas capture code from this task.
 - Added a small `jsdom` test dependency to this package only because rrweb's recorder expects browser DOM APIs such as `DOMTokenList.prototype`.
 - This package exports TypeScript source directly from `./src/index.ts`, matching the in-repo SDK import path. The package build script is intentionally a no-op and `pack.dts` is disabled because `vp pack`/`tsgo` hung on the vendored rrweb tree in an earlier run. Declaration output is not required for this private workspace package.
 - This package relaxes TypeScript strictness only for the fork: `strict`, `noUnusedLocals`, and `noUncheckedIndexedAccess` are disabled in `packages/rrweb-fork/tsconfig.json`. `skipLibCheck` stays enabled. The reason is upstream vendored code is not authored to this repo's stricter package flags.

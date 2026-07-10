@@ -2,7 +2,7 @@
 
 Orange Replay has two environments only:
 
-- **Dev**: local `wrangler dev`, local storage, and `apps/worker/.env`.
+- **Dev**: local `wrangler dev`, local storage, and `apps/worker/.dev.vars`.
 - **Prod**: real Cloudflare resources in the `production` Wrangler environment.
 
 There is no staging environment.
@@ -14,11 +14,11 @@ Run these from the repo root after `vp install`:
 ```sh
 export PATH="$HOME/.vite-plus/bin:$PATH"
 
-vp exec --filter @orange-replay/worker -- wrangler d1 create orange-replay-idx-00-prod --env-file wrangler.production.env
-vp exec --filter @orange-replay/worker -- wrangler r2 bucket create orange-replay-recordings-prod --env-file wrangler.production.env
-vp exec --filter @orange-replay/worker -- wrangler kv namespace create CONFIG --env-file wrangler.production.env
-vp exec --filter @orange-replay/worker -- wrangler queues create or-session-finalized-prod --env-file wrangler.production.env
-vp exec --filter @orange-replay/worker -- wrangler queues create or-dlq-prod --env-file wrangler.production.env
+vp exec --filter @orange-replay/worker -- wrangler d1 create orange-replay-idx-00-prod
+vp exec --filter @orange-replay/worker -- wrangler r2 bucket create orange-replay-recordings-prod
+vp exec --filter @orange-replay/worker -- wrangler kv namespace create CONFIG
+vp exec --filter @orange-replay/worker -- wrangler queues create or-session-finalized-prod
+vp exec --filter @orange-replay/worker -- wrangler queues create or-dlq-prod
 ```
 
 Put the printed D1 `database_id` and KV `id` into a private deployment copy, or provide them as Cloudflare Workers Builds variables when deploying from GitHub. Keep the committed `INGEST_LOOKUP_RATE_LIMITER`, `INGEST_PROJECT_RATE_LIMITER`, and `INGEST_SESSION_RATE_LIMITER` bindings enabled; they protect public ingest before D1 lookups and Durable Object writes.
@@ -28,15 +28,10 @@ The committed file uses placeholder IDs. Keep real production IDs, tokens, and g
 ## 2. Apply D1 Migrations
 
 ```sh
-node scripts/apply-d1-migrations.mjs orange-replay-idx-00-prod \
-  --env-file apps/worker/wrangler.production.env \
+vp exec --filter @orange-replay/worker -- wrangler d1 migrations apply IDX_00 \
   --env production \
   --remote
 ```
-
-Use the database name for migrations, not the binding name. Cloudflare notes that a binding can be renamed while the database name stays stable. Never edit a migration that may already be recorded in `d1_migrations`; add the next numbered migration instead.
-
-For schema changes and agent rules, follow [D1 schema and migration workflow](./d1-migrations.md).
 
 ## 3. Prepare Dashboard API Secrets
 
@@ -52,8 +47,6 @@ Use long random secrets, at least 32 characters. `ORANGE_REPLAY_PROD_API_PROJECT
 The dashboard build uses the first `ORANGE_REPLAY_PROD_API_PROJECT_IDS` value as its default project route. Set `VITE_DEFAULT_PROJECT_ID` before `vp run deploy:prod` only if you need the dashboard to open a different allowed project first. The value must also be listed in `ORANGE_REPLAY_PROD_API_PROJECT_IDS`.
 
 Generated production values are stored locally in `apps/worker/.env.production`. That file is ignored by git.
-
-Production Wrangler commands pass the committed, comment-only `--env-file wrangler.production.env` explicitly. This prevents Wrangler from merging the local development `.env` into a production command. Actual credentials still come from the command environment or Cloudflare secrets.
 
 Do not put production tokens, live ticket secrets, SDK write keys, or Cloudflare API tokens in `wrangler.jsonc`, package scripts, build commands, docs, or dashboard source. `pnpm deploy:prod` validates and uploads the production dashboard secrets before deploying, then calls a protected API route with the same token. The SDK write key is kept only in the ignored local env file.
 
@@ -76,7 +69,7 @@ By default, the script creates the first project id from `ORANGE_REPLAY_PROD_API
 vp run deploy:prod
 ```
 
-This builds the browser SDK, builds the dashboard, copies the static landing page to `apps/dashboard/dist/index.html`, keeps the dashboard app shell at `apps/dashboard/dist/dashboard/index.html`, copies `orange-replay.iife.js` to `apps/dashboard/dist/or-recorder.js`, and deploys the Worker with `apps/worker/wrangler.jsonc` using `--env production --env-file wrangler.production.env`.
+This builds the browser SDK, builds the dashboard, copies the static landing page to `apps/dashboard/dist/index.html`, keeps the dashboard app shell at `apps/dashboard/dist/dashboard/index.html`, copies `orange-replay.iife.js` to `apps/dashboard/dist/or-recorder.js`, and deploys the Worker with `apps/worker/wrangler.jsonc` using `--env production`.
 After deploy, the smoke check calls the configured project config route and requires a `200` response, so run the bootstrap step before `vp run deploy:prod`.
 
 Production route split:
@@ -101,13 +94,13 @@ In Cloudflare Workers Builds, connect the GitHub repo to the `orange-replay` Wor
 
 Use these settings:
 
-| Setting                      | Value                                                                         |
-| ---------------------------- | ----------------------------------------------------------------------------- |
-| Root directory               | `apps/worker`                                                                 |
-| Build command                | `cd ../.. && pnpm install --frozen-lockfile && pnpm exec vp run build:deploy` |
-| Deploy command               | `cd ../.. && pnpm exec vp run deploy:cloudflare-build`                        |
-| Production branch            | `main`                                                                        |
-| Non-production branch builds | Disabled                                                                      |
+| Setting                      | Value                                                                                                                                                                                                                |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Root directory               | `apps/worker`                                                                                                                                                                                                        |
+| Build command                | `cd ../.. && pnpm install --frozen-lockfile && pnpm exec vp run build:deploy`                                                                                                                                        |
+| Deploy command               | `cd ../.. && node scripts/prepare-cloudflare-build-config.mjs && pnpm exec vp exec --filter @orange-replay/worker -- wrangler deploy --config wrangler.cloudflare-build.jsonc --env production --minify --keep-vars` |
+| Production branch            | `main`                                                                                                                                                                                                               |
+| Non-production branch builds | Disabled                                                                                                                                                                                                             |
 
 Add these Workers Builds variables before the first GitHub build:
 
@@ -118,8 +111,6 @@ Add these Workers Builds variables before the first GitHub build:
 | `ORANGE_REPLAY_PROD_API_PROJECT_IDS` | Comma-separated project ids, for example `p1`         |
 
 The deploy command generates an ignored `apps/worker/wrangler.cloudflare-build.jsonc` file inside the build machine. The generated file contains deployment resource IDs, not tokens. Runtime secrets must be set in Worker Settings > Variables and Secrets: `DEV_API_TOKEN`, `DEV_API_PROJECT_IDS`, and `LIVE_TICKET_SECRET`.
-
-The dashboard deploy command is intentionally stable. The `deploy:cloudflare-build` package script generates the private Wrangler config, applies every pending migration in `apps/worker/migrations`, then uploads the Worker. Adding a future numbered migration does not require another dashboard setting change. Wrangler captures a backup and rolls back the failed migration if one migration fails, so a schema failure stops the deploy before incompatible code reaches production.
 
 ## 7. SDK Snippet Values
 

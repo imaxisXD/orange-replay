@@ -71,15 +71,13 @@ R2 buckets, queues, and rate-limit bindings use the names and namespace IDs in t
 
 ## 3. Apply D1 Migrations
 
-From the repository root:
+From `infra/template`:
 
 ```sh
-node scripts/apply-d1-migrations.mjs orange-replay-idx-00 \
-  --config infra/template/wrangler.jsonc \
-  --remote
+wrangler d1 migrations apply orange-replay-idx-00
 ```
 
-The mirror script copies `apps/worker/migrations` into `infra/template/migrations` verbatim. The wrapper stops before the historic project-scope repair if an older database has sparse events whose project ownership is ambiguous; follow `docs/d1-migrations.md` if that check fails.
+The mirror script copies `apps/worker/migrations` into `infra/template/migrations` verbatim.
 
 ## 4. Set The API Token Secrets
 
@@ -120,10 +118,9 @@ When `apps/worker/wrangler.jsonc` or `apps/worker/migrations` changes:
 ```sh
 node scripts/mirror-template.mjs
 node scripts/mirror-template.mjs --check
-node scripts/apply-d1-migrations.mjs orange-replay-idx-00 \
-  --config infra/template/wrangler.jsonc \
-  --remote
-cd infra/template && wrangler deploy
+cd infra/template
+wrangler d1 migrations apply orange-replay-idx-00
+wrangler deploy
 ```
 
 If you need a stamped manifest for release automation, pass the stamp explicitly:
