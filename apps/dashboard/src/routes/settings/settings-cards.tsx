@@ -30,7 +30,11 @@ const captureRows: {
   { key: "heatmaps", label: "Heatmaps", description: "Record cursor and click heat cells." },
   { key: "console", label: "Console", description: "Capture browser console events." },
   { key: "network", label: "Network", description: "Capture request timing and status." },
-  { key: "canvas", label: "Canvas", description: "Allow canvas snapshots when supported." },
+  {
+    key: "canvas",
+    label: "Canvas",
+    description: "Capture canvas pixels at 2 frames per second. Canvas content cannot be masked.",
+  },
 ];
 
 export function CaptureCard({

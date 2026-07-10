@@ -27,8 +27,13 @@ describe("demo routes", () => {
   });
 
   it("hides settings and install navigation", () => {
-    expect(dashboardNavItems(true).map((item) => item.label)).toEqual(["Sessions", "Live"]);
+    expect(dashboardNavItems(true).map((item) => item.label)).toEqual([
+      "Overview",
+      "Sessions",
+      "Live",
+    ]);
     expect(dashboardNavItems(false).map((item) => item.label)).toEqual([
+      "Overview",
       "Sessions",
       "Live",
       "Settings",

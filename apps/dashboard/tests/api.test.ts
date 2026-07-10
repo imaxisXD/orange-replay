@@ -3,9 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import {
   ApiError,
   buildSessionListUrl,
+  buildStatsUrl,
   checkApiToken,
   clearApiToken,
   fetchLiveSessions,
+  fetchProjectStats,
   getApiToken,
   health,
   listSessions,
@@ -93,6 +95,18 @@ describe("api client", () => {
     expect(headers.get("authorization")).toBe("Bearer secret-token");
   });
 
+  it("loads project stats with the canonical shared filter", async () => {
+    setApiToken("secret-token");
+    fetchMock.mockResolvedValue(jsonResponse({ sessions: { value: 0, filter: {} } }));
+
+    await fetchProjectStats("project 1", { browser: "Chrome", country: "US" });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/projects/project%201/stats?country=US&browser=Chrome",
+      { headers: expect.any(Headers) },
+    );
+  });
+
   it("does not add auth to health checks", async () => {
     setApiToken("secret-token");
     fetchMock.mockResolvedValue(jsonResponse({ ok: true }));
@@ -131,13 +145,20 @@ describe("api client", () => {
     expect(
       buildSessionListUrl("project 1", {
         before: "3000:session_a",
-        country: " us ",
-        hasErrors: true,
+        country: "US",
+        has_errors: true,
+        has_rage: true,
         limit: 25,
-        minDurationMs: 60_000,
+        min_duration_ms: 60_000,
       }),
     ).toBe(
-      "/api/v1/projects/project%201/sessions?limit=25&before=3000%3Asession_a&country=US&has_errors=1&min_duration_ms=60000",
+      "/api/v1/projects/project%201/sessions?limit=25&before=3000%3Asession_a&country=US&has_errors=1&has_rage=1&min_duration_ms=60000",
+    );
+  });
+
+  it("builds a canonical stats query string", () => {
+    expect(buildStatsUrl("project 1", { os: "macOS", device: "desktop", from: 1000 })).toBe(
+      "/api/v1/projects/project%201/stats?from=1000&device=desktop&os=macOS",
     );
   });
 

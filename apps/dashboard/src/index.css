@@ -330,12 +330,50 @@
   animation: timeline-playhead-flash 520ms ease-out;
 }
 
+/* ─────────────────────────────────────────────────────────
+ * SESSIONS TRIAGE STORYBOARD (state changes only, no choreography)
+ *
+ *   select card   →  stage content arrives: fade + 4px rise, 200ms
+ *   mark watched  →  amber dot recedes: fade + scale, 200ms
+ * ───────────────────────────────────────────────────────── */
+
+@keyframes stage-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.stage-in {
+  animation: stage-in 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.watched-dot {
+  transition:
+    opacity 200ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.watched-dot[data-watched="true"] {
+  opacity: 0;
+  transform: scale(0.4);
+}
+
 @media (prefers-reduced-motion: reduce) {
   /* Decorative loops stop; progress spinners (animate-spin, the button
      spinner keyframes) are left running since they represent ongoing work. */
   .live-pulse,
   .timeline-playhead-flash,
-  .animate-pulse {
+  .animate-pulse,
+  .stage-in {
     animation: none;
+  }
+
+  .watched-dot {
+    transition: none;
   }
 }

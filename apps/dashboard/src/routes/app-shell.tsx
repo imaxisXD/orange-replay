@@ -1,5 +1,5 @@
 import { type ReactNode } from "react";
-import { Link, Outlet, useNavigate } from "@tanstack/react-router";
+import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { BrandMark } from "@/components/brand-mark";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,10 @@ export function AppShell({ children }: { children?: ReactNode }) {
   const { projectId, isDemo } = useDashboardWorkspace();
   const navigate = useNavigate();
   const projectOptions = [{ id: projectId, label: `Project ${projectId}` }];
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  // The two-pane sessions triage needs a real player viewport; every other
+  // screen keeps the design language's 1200px column.
+  const wideMain = /\/sessions\/?$/.test(pathname);
 
   function handleLogout(): void {
     clearApiToken();
@@ -33,8 +37,8 @@ export function AppShell({ children }: { children?: ReactNode }) {
           <Link
             className="flex items-center gap-2.5 text-[14px] font-semibold tracking-[-0.01em] text-foreground"
             {...(isDemo
-              ? { to: "/demo/sessions" as const }
-              : { params: { projectId }, to: "/projects/$projectId/sessions" as const })}
+              ? { to: "/demo/overview" as const }
+              : { params: { projectId }, to: "/projects/$projectId/overview" as const })}
           >
             <BrandMark />
             <span>Orange Replay</span>
@@ -45,11 +49,11 @@ export function AppShell({ children }: { children?: ReactNode }) {
           <Select
             onValueChange={(nextProjectId) => {
               if (isDemo) {
-                void navigate({ to: "/demo/sessions" });
+                void navigate({ to: "/demo/overview" });
                 return;
               }
               void navigate({
-                to: "/projects/$projectId/sessions",
+                to: "/projects/$projectId/overview",
                 params: { projectId: nextProjectId },
               });
             }}
@@ -102,7 +106,9 @@ export function AppShell({ children }: { children?: ReactNode }) {
         {isDemo && <DemoReadOnlyBanner />}
       </header>
 
-      <main className="mx-auto w-full max-w-300 px-7 py-6">{children ?? <Outlet />}</main>
+      <main className={cn("mx-auto w-full px-7 py-6", wideMain ? "max-w-475" : "max-w-300")}>
+        {children ?? <Outlet />}
+      </main>
     </div>
   );
 }

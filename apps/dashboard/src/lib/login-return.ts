@@ -1,6 +1,6 @@
 import { defaultProjectId } from "./routes";
 
-const defaultReturnTo = `/projects/${defaultProjectId}/sessions`;
+const defaultReturnTo = `/projects/${defaultProjectId}/overview`;
 
 export function safeReturnPath(value: string | undefined): string {
   if (value === undefined || value.length === 0) return defaultReturnTo;

@@ -15,7 +15,11 @@ import InboxIcon from "@hugeicons/core-free-icons/InboxIcon";
 import Key02Icon from "@hugeicons/core-free-icons/Key02Icon";
 import RefreshIcon from "@hugeicons/core-free-icons/RefreshIcon";
 import Search01Icon from "@hugeicons/core-free-icons/Search01Icon";
+import ArrowUpRight01Icon from "@hugeicons/core-free-icons/ArrowUpRight01Icon";
+import MouseLeftClick06Icon from "@hugeicons/core-free-icons/MouseLeftClick06Icon";
+import AngryIcon from "@hugeicons/core-free-icons/AngryIcon";
 import ServerStack01Icon from "@hugeicons/core-free-icons/ServerStack01Icon";
+import SmartPhone01Icon from "@hugeicons/core-free-icons/SmartPhone01Icon";
 
 export interface IconComponentProps extends Omit<
   SVGProps<SVGSVGElement>,
@@ -46,7 +50,12 @@ function createHugeIcon(icon: IconSvgElement): IconComponent {
 }
 
 export const AlertCircle = createHugeIcon(AlertCircleIcon);
+/** THE rage-click glyph, app-wide, always amber (see docs/design-language.md). */
+export const Angry = createHugeIcon(AngryIcon);
 export const ArrowLeft = createHugeIcon(ArrowLeft01Icon);
+export const ArrowUpRight = createHugeIcon(ArrowUpRight01Icon);
+export const MousePointer = createHugeIcon(MouseLeftClick06Icon);
+export const Smartphone = createHugeIcon(SmartPhone01Icon);
 export const Check = createHugeIcon(CheckIcon);
 export const ChevronRight = createHugeIcon(ChevronRightIcon);
 export const Code2 = createHugeIcon(CodeIcon);

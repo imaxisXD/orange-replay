@@ -14,10 +14,13 @@ import { DemoRoute } from "@/routes/demo";
 import { InstallPage } from "@/routes/install";
 import { LivePage } from "@/routes/live";
 import { LoginPage } from "@/routes/login";
+import { OverviewPage } from "@/routes/overview";
 import { RouteError } from "@/routes/route-error";
 import { SessionDetailPage } from "@/routes/session-detail";
 import { SessionsPage } from "@/routes/sessions";
 import { SettingsPage } from "@/routes/settings";
+import { validateSessionSearch } from "@/lib/session-filters";
+import { validateSessionsViewSearch } from "@/lib/sessions-view-search";
 
 interface LoginSearch {
   reason?: string;
@@ -45,7 +48,7 @@ const rootIndexRoute = createRoute({
   path: "/",
   beforeLoad: () => {
     throw redirect({
-      to: "/projects/$projectId/sessions",
+      to: "/projects/$projectId/overview",
       params: { projectId: defaultProjectId },
       replace: true,
     });
@@ -68,16 +71,24 @@ const projectIndexRoute = createRoute({
   path: "/",
   beforeLoad: ({ params }) => {
     throw redirect({
-      to: "/projects/$projectId/sessions",
+      to: "/projects/$projectId/overview",
       params: { projectId: params.projectId },
       replace: true,
     });
   },
 });
 
+const overviewRoute = createRoute({
+  getParentRoute: () => projectRoute,
+  path: "overview",
+  validateSearch: validateSessionSearch,
+  component: OverviewPage,
+});
+
 const sessionsRoute = createRoute({
   getParentRoute: () => projectRoute,
   path: "sessions",
+  validateSearch: validateSessionsViewSearch,
   component: SessionsPage,
 });
 
@@ -118,15 +129,23 @@ const demoIndexRoute = createRoute({
   path: "/",
   beforeLoad: () => {
     throw redirect({
-      to: "/demo/sessions",
+      to: "/demo/overview",
       replace: true,
     });
   },
 });
 
+const demoOverviewRoute = createRoute({
+  getParentRoute: () => demoRoute,
+  path: "overview",
+  validateSearch: validateSessionSearch,
+  component: OverviewPage,
+});
+
 const demoSessionsRoute = createRoute({
   getParentRoute: () => demoRoute,
   path: "sessions",
+  validateSearch: validateSessionsViewSearch,
   component: SessionsPage,
 });
 
@@ -145,9 +164,16 @@ const demoLiveRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   loginRoute,
   rootIndexRoute,
-  demoRoute.addChildren([demoIndexRoute, demoSessionsRoute, demoSessionDetailRoute, demoLiveRoute]),
+  demoRoute.addChildren([
+    demoIndexRoute,
+    demoOverviewRoute,
+    demoSessionsRoute,
+    demoSessionDetailRoute,
+    demoLiveRoute,
+  ]),
   projectRoute.addChildren([
     projectIndexRoute,
+    overviewRoute,
     sessionsRoute,
     sessionDetailRoute,
     liveRoute,

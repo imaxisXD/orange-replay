@@ -9,18 +9,18 @@ describe("login return path", () => {
       "/projects/p1/sessions?limit=10#top",
     );
     expect(safeReturnPath("https://evil.example/projects/p1/sessions")).toBe(
-      `/projects/${defaultProjectId}/sessions`,
+      `/projects/${defaultProjectId}/overview`,
     );
     expect(safeReturnPath("//evil.example/projects/p1/sessions")).toBe(
-      `/projects/${defaultProjectId}/sessions`,
+      `/projects/${defaultProjectId}/overview`,
     );
     expect(safeReturnPath("/%5Cevil.example/projects/p1/sessions")).toBe(
-      `/projects/${defaultProjectId}/sessions`,
+      `/projects/${defaultProjectId}/overview`,
     );
     expect(safeReturnPath("/\\evil.example/projects/p1/sessions")).toBe(
-      `/projects/${defaultProjectId}/sessions`,
+      `/projects/${defaultProjectId}/overview`,
     );
-    expect(safeReturnPath("/admin")).toBe(`/projects/${defaultProjectId}/sessions`);
+    expect(safeReturnPath("/admin")).toBe(`/projects/${defaultProjectId}/overview`);
   });
 
   it("reads project ids from safe project routes", () => {

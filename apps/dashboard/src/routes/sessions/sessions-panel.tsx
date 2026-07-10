@@ -1,86 +1,144 @@
-import { useState } from "react";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useRef, useState, type KeyboardEvent } from "react";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty";
-import { InputField, InputGroup } from "@/components/ui/input-group";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-} from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Tooltip } from "@/components/ui/tooltip";
-import { ApiError, listSessions, type SessionListItem } from "@/lib/api";
-import { AlertCircle, Inbox, RotateCcw, Search } from "@/lib/icon-map";
+import { ApiError, fetchProjectStats, listSessions, type SessionListItem } from "@/lib/api";
+import { filterChips, removeFilterKey } from "@/lib/filter-chips";
+import { AlertCircle } from "@/lib/icon-map";
 import { appendUniqueSessions, canLoadMore } from "@/lib/session-list";
-import { SessionRow } from "./session-row";
+import { canonicalSessionFilter } from "@/lib/session-filters";
+import {
+  sessionFilterOf,
+  type SessionSort,
+  type SessionsViewSearch,
+} from "@/lib/sessions-view-search";
+import { markSessionWatched, watchedSessionIds } from "@/lib/watched";
+import { entryPath } from "./session-card";
+import { SessionFilterChips } from "./session-filter-chips";
+import { SessionListPane } from "./session-list-pane";
+import { SessionStage } from "./session-stage";
+import { SessionsToolbar } from "./sessions-toolbar";
 
 const pageSize = 25;
 
-const minDurationOptions = [
-  { label: "Any duration", value: "any", ms: undefined },
-  { label: "30 seconds", value: "30000", ms: 30_000 },
-  { label: "1 minute", value: "60000", ms: 60_000 },
-  { label: "5 minutes", value: "300000", ms: 300_000 },
-] as const;
-
 export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectId: string }) {
-  const [country, setCountry] = useState("");
-  const [hasErrors, setHasErrors] = useState(false);
-  const [minDurationValue, setMinDurationValue] = useState("any");
+  const view = useSearch({ strict: false }) as SessionsViewSearch;
+  const filter = sessionFilterOf(view);
+  const sort: SessionSort = view.sort ?? "newest";
+  const selected = view.selected;
+  const navigate = useNavigate();
+  const [watchedVersion, setWatchedVersion] = useState(0);
+  const [announcement, setAnnouncement] = useState("");
+  const watched = watchedSessionIds(projectId);
 
-  const selectedMinDuration = minDurationOptions.find(
-    (option) => option.value === minDurationValue,
-  );
+  const chips = filterChips(filter);
+
+  function navigateView(nextView: SessionsViewSearch, options: { push?: boolean } = {}): void {
+    const replace = options.push !== true;
+    if (isDemo) {
+      void navigate({ to: "/demo/sessions", search: nextView, replace });
+      return;
+    }
+    void navigate({
+      to: "/projects/$projectId/sessions",
+      params: { projectId },
+      search: nextView,
+      replace,
+    });
+  }
+
+  function replaceView(nextView: SessionsViewSearch): void {
+    navigateView(nextView);
+  }
+
+  function replaceFilter(nextFilter: SessionsViewSearch): void {
+    navigateView({ ...nextFilter, selected, sort: view.sort });
+  }
+
+  function selectSession(session: SessionListItem): void {
+    markSessionWatched(projectId, session.session_id);
+    setWatchedVersion(watchedVersion + 1);
+    setAnnouncement(`Now playing ${entryPath(session.entry_url)}`);
+    // Selection is the high-frequency, high-regret action — it pushes history
+    // so Back walks the triage trail; keystroke-level filter edits replace.
+    navigateView({ ...view, selected: session.session_id }, { push: true });
+    // Router re-render drops focus to <body>; put it back on the card so
+    // arrow keys / j / k keep working after every selection.
+    requestAnimationFrame(() => {
+      railRef.current
+        ?.querySelector<HTMLElement>(`[data-session-id="${session.session_id}"]`)
+        ?.focus();
+    });
+  }
 
   const sessionsQuery = useInfiniteQuery({
     queryKey: [
       "sessions",
       isDemo ? "demo" : "private",
       projectId,
-      country.trim().toUpperCase(),
-      hasErrors,
-      selectedMinDuration?.ms ?? null,
+      canonicalSessionFilter(filter),
+      sort,
     ],
     initialPageParam: null as string | null,
     queryFn: ({ pageParam, signal }) =>
       listSessions(
         projectId,
         {
+          ...filter,
+          sort,
           before: pageParam,
-          country,
-          hasErrors,
           limit: pageSize,
-          minDurationMs: selectedMinDuration?.ms,
         },
         { signal },
       ),
     getNextPageParam: (lastPage) => lastPage.nextBefore,
   });
 
+  const countriesQuery = useQuery({
+    queryKey: ["stats-countries", isDemo ? "demo" : "private", projectId],
+    queryFn: ({ signal }) => fetchProjectStats(projectId, {}, { signal }),
+    staleTime: 60_000,
+  });
+  const countries = countriesQuery.data?.breakdowns.country ?? [];
+
   const sessions = (sessionsQuery.data?.pages ?? []).reduce<SessionListItem[]>(
     (currentSessions, page) => appendUniqueSessions(currentSessions, page.sessions),
     [],
   );
+  // Unwatched-only is a client-side lens (watched state lives in localStorage);
+  // the selected session always stays visible so it does not vanish the moment
+  // selecting it marks it watched.
+  const unwatchedOnly = view.unwatched === true;
+  const visibleSessions = unwatchedOnly
+    ? sessions.filter(
+        (session) => !watched.has(session.session_id) || session.session_id === selected,
+      )
+    : sessions;
+  const selectedIndex = visibleSessions.findIndex((session) => session.session_id === selected);
+  const railRef = useRef<HTMLDivElement>(null);
+
+  function stepSelection(delta: 1 | -1): void {
+    if (visibleSessions.length === 0) return;
+    const targetIndex =
+      selectedIndex === -1
+        ? delta > 0
+          ? 0
+          : visibleSessions.length - 1
+        : Math.min(Math.max(selectedIndex + delta, 0), visibleSessions.length - 1);
+    const target = visibleSessions[targetIndex];
+    if (target === undefined || target.session_id === selected) return;
+    selectSession(target);
+  }
+
+  function handleRailKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
+    if (event.key === "ArrowDown" || event.key === "j") {
+      event.preventDefault();
+      stepSelection(1);
+    } else if (event.key === "ArrowUp" || event.key === "k") {
+      event.preventDefault();
+      stepSelection(-1);
+    }
+  }
   const nextBefore = sessionsQuery.data?.pages.at(-1)?.nextBefore ?? null;
   const loadState = sessionsQuery.isPending
     ? "loading"
@@ -95,184 +153,79 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
   }
 
   return (
-    <section className="lit session-table-panel overflow-hidden rounded-lg">
-      <div className="flex items-center gap-2.5 border-b border-dashed border-dash px-4 py-3">
-        <CountryFilter onCommit={setCountry} value={country} />
+    <div className="flex flex-col gap-3">
+      <SessionsToolbar
+        countries={countries}
+        countryQueryFailed={countriesQuery.isError}
+        countryQueryPending={countriesQuery.isPending}
+        filter={filter}
+        hasMore={canLoadMore(nextBefore)}
+        isLoading={loadState === "loading"}
+        onFilterChange={replaceFilter}
+        onRefresh={() => void sessionsQuery.refetch()}
+        sessionCount={sessions.length}
+      />
 
-        <Select onValueChange={setMinDurationValue} value={minDurationValue}>
-          <SelectTrigger
-            aria-label="Minimum duration"
-            className="h-8.5 min-w-40 rounded-[7px] border border-border bg-secondary px-3 text-[12px]"
-            placeholder="Any duration"
-          />
-          <SelectContent className="rounded-lg border border-border bg-popover">
-            <SelectGroup>
-              {minDurationOptions.map((option, index) => (
-                <SelectItem index={index} key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-
-        <Switch
-          checked={hasErrors}
-          className="px-0 py-0"
-          label="Has errors"
-          onToggle={() => setHasErrors((currentValue) => !currentValue)}
-        />
-
-        <div className="flex-1" />
-
-        <span className="font-mono text-[11.5px] text-dim">{sessions.length} sessions</span>
-        <Tooltip content="Refresh">
-          <Button
-            aria-label="Refresh"
-            className="text-muted-foreground hover:text-foreground"
-            disabled={loadState === "loading"}
-            onClick={() => void sessionsQuery.refetch()}
-            size="icon-sm"
-            variant="ghost"
-          >
-            <RotateCcw aria-hidden className="size-4" />
-          </Button>
-        </Tooltip>
-      </div>
+      <SessionFilterChips
+        chips={chips}
+        onClear={() => replaceFilter({})}
+        onRemove={(key) => replaceFilter(removeFilterKey(filter, key))}
+      />
 
       {error.length > 0 && (
-        <div className="px-4 py-3">
-          <Alert variant="destructive">
-            <AlertCircle aria-hidden />
-            <AlertTitle>Could not load sessions</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        </div>
+        <Alert variant="destructive">
+          <AlertCircle aria-hidden />
+          <AlertTitle>Could not load sessions</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
 
-      <div className="overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Session</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">Duration</TableHead>
-              <TableHead>Client</TableHead>
-              <TableHead className="text-right">Size</TableHead>
-              <TableHead className="text-right">When</TableHead>
-              <TableHead aria-hidden className="w-6 px-0" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loadState === "loading" ? (
-              <LoadingRows />
-            ) : (
-              sessions.map((session, index) => (
-                <SessionRow
-                  isDemo={isDemo}
-                  index={index}
-                  key={session.session_id}
-                  projectId={projectId}
-                  session={session}
-                />
-              ))
-            )}
-          </TableBody>
-        </Table>
+      <div className="flex items-start gap-5">
+        <SessionListPane
+          chipsCount={chips.length}
+          error={error}
+          hasMore={canLoadMore(nextBefore)}
+          loadState={loadState}
+          onClearFilters={() => replaceFilter({})}
+          onLoadMore={loadMore}
+          onRailKeyDown={handleRailKeyDown}
+          onSelect={selectSession}
+          onShowAll={() => replaceView({ ...view, unwatched: undefined })}
+          onSortChange={(value) =>
+            replaceView({
+              ...view,
+              sort: value === "newest" ? undefined : value,
+            })
+          }
+          onToggleUnwatched={() =>
+            replaceView({ ...view, unwatched: unwatchedOnly ? undefined : true })
+          }
+          railRef={railRef}
+          selected={selected}
+          sessions={sessions}
+          sort={sort}
+          unwatchedOnly={unwatchedOnly}
+          visibleSessions={visibleSessions}
+          watched={watched}
+        />
+
+        <div className="min-w-0 flex-1">
+          <SessionStage
+            hasNext={selectedIndex !== -1 && selectedIndex < visibleSessions.length - 1}
+            hasPrev={selectedIndex > 0}
+            isDemo={isDemo}
+            onStep={stepSelection}
+            projectId={projectId}
+            railEmpty={loadState !== "loading" && sessions.length === 0}
+            sessionId={selected}
+          />
+        </div>
       </div>
 
-      {loadState !== "loading" && sessions.length === 0 && error.length === 0 && (
-        <div className="p-4">
-          <SessionsEmptyState />
-        </div>
-      )}
-
-      {canLoadMore(nextBefore) && (
-        <div className="flex justify-center border-t border-dashed border-dash px-4 py-3">
-          <Button
-            className="rounded-lg border border-border bg-card text-[12.5px] font-medium text-foreground"
-            disabled={loadState !== "idle"}
-            loading={loadState === "loading_more"}
-            onClick={() => void loadMore()}
-            variant="secondary"
-          >
-            Load more
-          </Button>
-        </div>
-      )}
-    </section>
-  );
-}
-
-function CountryFilter({
-  onCommit,
-  value,
-}: {
-  onCommit: (country: string) => void;
-  value: string;
-}) {
-  const [input, setInput] = useState(value);
-
-  function commitCountry(nextValue: string): void {
-    const cleanValue = nextValue.trim();
-    if (cleanValue.length === 0 || cleanValue.length === 2) {
-      onCommit(cleanValue);
-    }
-  }
-
-  return (
-    <InputGroup className="w-40 gap-0">
-      <InputField
-        hideLabel
-        icon={Search}
-        index={0}
-        label="Country code"
-        maxLength={2}
-        onBlur={() => commitCountry(input)}
-        onChange={(nextValue) => {
-          const upperValue = nextValue.toUpperCase();
-          setInput(upperValue);
-          commitCountry(upperValue);
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") commitCountry(input);
-        }}
-        placeholder="Country code"
-        value={input}
-      />
-    </InputGroup>
-  );
-}
-
-function LoadingRows() {
-  return Array.from({ length: 5 }, (_, index) => (
-    <TableRow index={index} key={index}>
-      {Array.from({ length: 7 }, (_unused, cellIndex) => (
-        <TableCell
-          className={cellIndex >= 2 && cellIndex !== 3 ? "text-right" : ""}
-          key={cellIndex}
-        >
-          <Skeleton className="h-5 w-full" />
-        </TableCell>
-      ))}
-    </TableRow>
-  ));
-}
-
-function SessionsEmptyState() {
-  return (
-    <Empty className="border border-dashed border-dash">
-      <EmptyHeader>
-        <EmptyMedia variant="icon">
-          <Inbox aria-hidden />
-        </EmptyMedia>
-        <EmptyTitle>No sessions yet</EmptyTitle>
-        <EmptyDescription>
-          Captured sessions will appear here when your app sends data.
-        </EmptyDescription>
-      </EmptyHeader>
-      <EmptyContent />
-    </Empty>
+      <div aria-live="polite" className="sr-only" role="status">
+        {announcement}
+      </div>
+    </div>
   );
 }
 
