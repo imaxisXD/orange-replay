@@ -24,8 +24,8 @@ vp run dev
 This starts the Worker on `http://localhost:8787` and the dashboard on
 `http://localhost:5200`. Set `CLEAR_DEV_PORTS=1` only when you want the dev
 script to stop existing listeners on those ports first. It uses
-`apps/worker/.dev.vars` when present, otherwise it uses
-`apps/worker/.dev.vars.example`.
+`apps/worker/.env` when present, otherwise it uses
+`apps/worker/.env.example`.
 
 To run the dashboard only:
 
@@ -43,7 +43,7 @@ cd fixtures/demo-site
 vp dev
 ```
 
-The dashboard uses the dev bearer token from `apps/worker/.dev.vars.example`.
+The dashboard uses the dev bearer token from `apps/worker/.env.example`.
 
 ## Repo Map
 
