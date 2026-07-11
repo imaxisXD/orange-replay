@@ -65,32 +65,3 @@ export function selectedDateRange(filter: SessionFilter): DateRangeValue | "cust
 export function canonicalSessionFilter(filter: SessionFilter): string {
   return encodeSessionFilter(filter).toString();
 }
-
-export function activeFilterLabels(filter: SessionFilter): string[] {
-  const labels: string[] = [];
-  if (filter.from !== undefined || filter.to !== undefined) labels.push("Date range");
-  if (filter.country !== undefined) labels.push(`Country ${filter.country}`);
-  if (filter.region !== undefined) labels.push(`Region ${filter.region}`);
-  if (filter.device !== undefined) labels.push(filter.device);
-  if (filter.browser !== undefined) labels.push(filter.browser);
-  if (filter.os !== undefined) labels.push(filter.os);
-  if (filter.entry_url !== undefined) labels.push(`Entry ${filter.entry_url}`);
-  if (filter.entry_url_prefix !== undefined) {
-    labels.push(`Entry starts with ${filter.entry_url_prefix}`);
-  }
-  if (filter.has_errors === true) labels.push("Has errors");
-  if (filter.has_errors === false) labels.push("No errors");
-  if (filter.error_detail !== undefined) labels.push(`Error ${filter.error_detail}`);
-  if (filter.has_page_coverage === true) labels.push("Page count covered");
-  if (filter.has_page_coverage === false) labels.push("Page count not covered");
-  if (filter.has_rage === true) labels.push("Has rage clicks");
-  if (filter.has_rage === false) labels.push("No rage clicks");
-  if (filter.has_quick_back === true) labels.push("Has in-app quick backs");
-  if (filter.has_quick_back === false) labels.push("No in-app quick backs");
-  if (filter.has_insights === true) labels.push("Insights covered");
-  if (filter.has_insights === false) labels.push("Insights not covered");
-  if (filter.min_duration_ms !== undefined) {
-    labels.push(`At least ${Math.round(filter.min_duration_ms / 1000)}s`);
-  }
-  return labels;
-}

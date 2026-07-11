@@ -1,37 +1,12 @@
 import type { IndexEvent } from "@orange-replay/shared/types";
 import type { DeadClick } from "@orange-replay/player";
 
-const activityKinds = new Set<IndexEvent["k"]>([
-  "click",
-  "rage",
-  "input",
-  "scroll",
-  "nav",
-  "custom",
-]);
 const displayableKinds = new Set<SidebarEventKind>(["click", "error", "rage", "nav"]);
 
 export type SidebarEventKind =
   | Extract<IndexEvent["k"], "click" | "error" | "rage" | "nav">
   | "dead-click";
 export type TimelineDot = "blue" | "danger" | "amber" | "teal" | "hollow";
-
-export interface TimelineBucketOptions {
-  startedAt: number;
-  durationMs: number;
-  bucketCount?: number;
-  minHeightPx?: number;
-  maxHeightPx?: number;
-}
-
-export interface TimelineTickBucket {
-  index: number;
-  startMs: number;
-  endMs: number;
-  count: number;
-  leftPercent: number;
-  heightPx: number;
-}
 
 export interface TimelineSidebarOptions {
   startedAt: number;
@@ -62,69 +37,6 @@ export interface PlayerKeyEvent {
   altKey?: boolean;
   ctrlKey?: boolean;
   metaKey?: boolean;
-}
-
-export function buildTimelineTickBuckets(
-  events: readonly IndexEvent[],
-  options: TimelineBucketOptions,
-): TimelineTickBucket[] {
-  const bucketCount = cleanPositiveInteger(options.bucketCount, 32);
-  const durationMs = Math.max(0, Math.floor(options.durationMs));
-  const minHeightPx = cleanPositiveInteger(options.minHeightPx, 4);
-  const maxHeightPx = Math.max(minHeightPx, cleanPositiveInteger(options.maxHeightPx, 18));
-  const buckets = Array.from({ length: bucketCount }, (_unused, index) => {
-    const startMs = Math.floor((durationMs * index) / bucketCount);
-    const endMs = Math.floor((durationMs * (index + 1)) / bucketCount);
-    return {
-      index,
-      startMs,
-      endMs,
-      count: 0,
-      leftPercent: bucketCount <= 1 ? 0 : (index / (bucketCount - 1)) * 100,
-      heightPx: 0,
-    };
-  });
-
-  if (durationMs === 0) {
-    return buckets;
-  }
-
-  for (const event of events) {
-    if (!activityKinds.has(event.k)) {
-      continue;
-    }
-
-    const offsetMs = clamp(event.t - options.startedAt, 0, durationMs);
-    const bucketIndex = Math.min(
-      bucketCount - 1,
-      Math.floor((offsetMs / durationMs) * bucketCount),
-    );
-    const bucket = buckets[bucketIndex];
-    if (bucket !== undefined) {
-      bucket.count += 1;
-    }
-  }
-
-  const maxCount = Math.max(0, ...buckets.map((bucket) => bucket.count));
-  if (maxCount === 0) {
-    return buckets;
-  }
-
-  return buckets.map((bucket) => ({
-    ...bucket,
-    heightPx:
-      bucket.count === 0
-        ? 0
-        : Math.round(minHeightPx + (bucket.count / maxCount) * (maxHeightPx - minHeightPx)),
-  }));
-}
-
-export function timeToTimelineX(timeMs: number, durationMs: number, widthPx: number): number {
-  if (durationMs <= 0 || widthPx <= 0 || !Number.isFinite(timeMs)) {
-    return 0;
-  }
-
-  return (clamp(timeMs, 0, durationMs) / durationMs) * widthPx;
 }
 
 export function timelineXToTime(xPx: number, durationMs: number, widthPx: number): number {
@@ -368,14 +280,6 @@ function truncateText(value: string, maxLength: number): string {
   }
 
   return `${cleanValue.slice(0, Math.max(0, maxLength - 3))}...`;
-}
-
-function cleanPositiveInteger(value: number | undefined, fallback: number): number {
-  if (value === undefined || !Number.isFinite(value) || value < 1) {
-    return fallback;
-  }
-
-  return Math.floor(value);
 }
 
 function clamp(value: number, min: number, max: number): number {

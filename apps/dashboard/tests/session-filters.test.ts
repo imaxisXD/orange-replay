@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
-  activeFilterLabels,
   canonicalSessionFilter,
   dateRangeFilter,
   selectedDateRange,
@@ -71,7 +70,7 @@ describe("dashboard session filters", () => {
     });
   });
 
-  it("keeps doorway filters canonical and visible", () => {
+  it("keeps doorway filters canonical", () => {
     const filter = {
       from: 1000,
       country: "US",
@@ -86,16 +85,5 @@ describe("dashboard session filters", () => {
     expect(canonicalSessionFilter(filter)).toBe(
       "from=1000&country=US&device=desktop&has_errors=1&error_detail=Checkout+failed&has_page_coverage=1&has_rage=1&has_quick_back=1&has_insights=1",
     );
-    expect(activeFilterLabels(filter)).toEqual([
-      "Date range",
-      "Country US",
-      "desktop",
-      "Has errors",
-      "Error Checkout failed",
-      "Page count covered",
-      "Has rage clicks",
-      "Has in-app quick backs",
-      "Insights covered",
-    ]);
   });
 });

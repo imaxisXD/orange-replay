@@ -53,24 +53,6 @@ export function formatDuration(value: number): string {
   return `${hours}:${padTimePart(remainingMinutes)}:${padTimePart(remainingSeconds)}`;
 }
 
-export function formatBytes(value: number): string {
-  const bytes = Math.max(0, value);
-  if (bytes < 1_024) return `${Math.round(bytes)}B`;
-
-  const units = ["K", "M", "G", "T"];
-  let size = bytes / 1_024;
-  let unitIndex = 0;
-
-  while (size >= 1_024 && unitIndex < units.length - 1) {
-    size /= 1_024;
-    unitIndex += 1;
-  }
-
-  const roundedSize =
-    unitIndex === 0 ? size.toFixed(0) : size < 10 ? size.toFixed(1) : size.toFixed(0);
-  return `${roundedSize}${units[unitIndex]}`;
-}
-
 export function formatErrorCount(count: number): string {
   return `${count} ${count === 1 ? "error" : "errors"}`;
 }

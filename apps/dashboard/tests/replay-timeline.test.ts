@@ -1,47 +1,13 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vite-plus/test";
-import type { IndexEvent } from "@orange-replay/shared/types";
 import {
-  buildTimelineTickBuckets,
   buildJourneyBreadcrumbs,
   getPlayerKeyAction,
   mapTimelineSidebarRows,
-  timeToTimelineX,
   timelineXToTime,
 } from "../src/lib/replay-timeline";
 
-describe("timeline tick buckets", () => {
-  it("buckets activity events and scales tick heights", () => {
-    const events: IndexEvent[] = [
-      { t: 1_000, k: "click" },
-      { t: 1_250, k: "scroll" },
-      { t: 3_000, k: "input" },
-      { t: 5_000, k: "error" },
-      { t: 9_900, k: "rage" },
-    ];
-
-    const buckets = buildTimelineTickBuckets(events, {
-      startedAt: 1_000,
-      durationMs: 10_000,
-      bucketCount: 4,
-      minHeightPx: 4,
-      maxHeightPx: 18,
-    });
-
-    expect(buckets.map((bucket) => bucket.count)).toEqual([3, 0, 0, 1]);
-    expect(buckets[0]?.heightPx).toBe(18);
-    expect(buckets[3]?.heightPx).toBeGreaterThan(0);
-    expect(buckets[1]?.heightPx).toBe(0);
-  });
-});
-
 describe("timeline seek math", () => {
-  it("maps time to x and clamps to the timeline width", () => {
-    expect(timeToTimelineX(5_000, 10_000, 200)).toBe(100);
-    expect(timeToTimelineX(-1_000, 10_000, 200)).toBe(0);
-    expect(timeToTimelineX(12_000, 10_000, 200)).toBe(200);
-  });
-
   it("maps x to time and clamps to the session duration", () => {
     expect(timelineXToTime(50, 10_000, 200)).toBe(2_500);
     expect(timelineXToTime(-50, 10_000, 200)).toBe(0);
