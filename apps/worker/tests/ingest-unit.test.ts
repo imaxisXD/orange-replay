@@ -246,38 +246,30 @@ describe("ingest config row mapping", () => {
     });
   });
 
-  it("rejects invalid allowed origin JSON", () => {
-    expect(
-      mapConfigRowToProjectConfig({
-        projectId: "project_3",
-        active: 1,
-        orgId: "org_3",
-        retentionDays: 30,
-        jurisdiction: null,
-        sampleRate: 1,
-        allowedOrigins: "not json",
-        maskPolicyVersion: 1,
-        quotaState: "ok",
-        shard: 0,
-      }),
-    ).toBeNull();
-  });
+  it("rejects invalid allowed origins from stored config rows", () => {
+    const invalidAllowedOrigins: unknown[] = [
+      "not json",
+      JSON.stringify([]),
+      JSON.stringify(["https://app.example", 1]),
+      ["https://app.example"],
+    ];
 
-  it("rejects empty allowed origins from stored config rows", () => {
-    expect(
-      mapConfigRowToProjectConfig({
-        projectId: "project_4",
-        active: 1,
-        orgId: "org_4",
-        retentionDays: 30,
-        jurisdiction: null,
-        sampleRate: 1,
-        allowedOrigins: JSON.stringify([]),
-        maskPolicyVersion: 1,
-        quotaState: "ok",
-        shard: 0,
-      }),
-    ).toBeNull();
+    for (const allowedOrigins of invalidAllowedOrigins) {
+      expect(
+        mapConfigRowToProjectConfig({
+          projectId: "project_invalid",
+          active: 1,
+          orgId: "org_invalid",
+          retentionDays: 30,
+          jurisdiction: null,
+          sampleRate: 1,
+          allowedOrigins,
+          maskPolicyVersion: 1,
+          quotaState: "ok",
+          shard: 0,
+        }),
+      ).toBeNull();
+    }
   });
 
   it("does not turn empty allowed origins into wildcard CORS", () => {

@@ -27,10 +27,11 @@ export function mapConfigRowToProjectConfig(row: ProjectConfigRow | null): Proje
   }
 
   const active = activeFlagToBoolean(row.active);
-  const allowedOrigins = parseAllowedOrigins(row.allowedOrigins);
+  const allowedOrigins =
+    typeof row.allowedOrigins === "string" ? parseJsonValue(row.allowedOrigins) : undefined;
   const jurisdiction = nullableString(row.jurisdiction);
 
-  if (active === null || allowedOrigins === null || jurisdiction === null) {
+  if (active === null || jurisdiction === null) {
     return null;
   }
 
@@ -72,25 +73,6 @@ function activeFlagToBoolean(value: unknown): boolean | null {
   }
 
   return null;
-}
-
-function parseAllowedOrigins(value: unknown): string[] | null {
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(value);
-  } catch {
-    return null;
-  }
-
-  if (!Array.isArray(parsed) || !parsed.every((item) => typeof item === "string")) {
-    return null;
-  }
-
-  return parsed;
 }
 
 function nullableString(value: unknown): string | undefined | null {
