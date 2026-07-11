@@ -11,7 +11,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { fetchProjectKeys } from "@/lib/api";
-import { Elevated } from "@/lib/elevated";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/format";
 import { useShape } from "@/lib/shape-context";
 import { cn } from "@/lib/utils";
@@ -67,15 +66,11 @@ export function KeysCard({ projectId }: { projectId: string }) {
                       {key.key_hash.slice(0, 12)}…
                     </TableCell>
                     <TableCell>
-                      <Elevated
-                        className={cn("inline-flex", shape.item)}
-                        offset={4}
-                        shadowLevel={4}
-                      >
+                      <div className={cn("inline-flex bg-surface-5 shadow-surface-4", shape.item)}>
                         <Badge color={key.active ? "green" : "gray"} size="sm" variant="dot">
                           {key.active ? "active" : "revoked"}
                         </Badge>
-                      </Elevated>
+                      </div>
                     </TableCell>
                     <TableCell
                       className="text-[12px] text-dim"

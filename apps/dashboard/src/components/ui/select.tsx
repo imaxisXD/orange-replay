@@ -18,7 +18,6 @@ import { cn } from "@/lib/utils";
 import { spring, exitFallbackMs } from "@/lib/springs";
 import { useProximityHover } from "@/hooks/use-proximity-hover";
 import { useShape } from "@/lib/shape-context";
-import { Elevated } from "@/lib/elevated";
 
 // ---------------------------------------------------------------------------
 // Select context
@@ -345,9 +344,7 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
                   rects anchor to — the same double duty the Popup performed
                   in the Base UI flavor. */}
               <SelectPrimitive.Viewport asChild>
-                <Elevated
-                  offset={2}
-                  shadowLevel={3}
+                <div
                   ref={(node: HTMLDivElement | null) => {
                     (containerRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
                     if (typeof ref === "function") ref(node);
@@ -380,7 +377,7 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
                   className={cn(
                     // min-w tracks the trigger via Radix's popper-provided
                     // vars, matching the base flavor's --anchor-width.
-                    `relative flex flex-col gap-0.5 min-w-[var(--radix-select-trigger-width)] max-h-[min(300px,var(--radix-select-content-available-height))] overflow-y-auto ${shape.container} border border-border bg-popover p-1 select-none outline-none`,
+                    `relative flex flex-col gap-0.5 min-w-[var(--radix-select-trigger-width)] max-h-[min(300px,var(--radix-select-content-available-height))] overflow-y-auto ${shape.container} border border-border bg-popover p-1 shadow-surface-3 select-none outline-none`,
                     className,
                   )}
                 >
@@ -467,7 +464,7 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
                   </AnimatePresence>
 
                   {children}
-                </Elevated>
+                </div>
               </SelectPrimitive.Viewport>
             </SelectContentContext.Provider>
           </m.div>
