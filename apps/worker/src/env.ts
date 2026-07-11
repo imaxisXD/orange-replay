@@ -24,7 +24,6 @@ export interface Env {
   INGEST_PROJECT_RATE_LIMITER?: RateLimitBinding;
   INGEST_SESSION_RATE_LIMITER?: RateLimitBinding;
   DEMO_API_RATE_LIMITER?: RateLimitBinding;
-  TRENDS?: AnalyticsEngineDataset;
   CF_VERSION_METADATA?: WorkerVersionMetadata;
   /** Deployment environment name. Production disables all dev-only test gates. */
   WORKER_ENV?: string;

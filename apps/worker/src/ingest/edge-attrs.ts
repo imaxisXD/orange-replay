@@ -1,5 +1,4 @@
 import type { EdgeAttrs } from "@orange-replay/shared";
-import type { Env } from "../env.ts";
 
 export function browserOriginIsAllowed(
   request: Request,
@@ -29,23 +28,6 @@ export function attrsFromRequest(request: Request): EdgeAttrs {
         }),
     ...deviceInfo,
   };
-}
-
-export function writeTrend(
-  env: Env,
-  projectId: string,
-  country: string | undefined,
-  payloadBytes: number,
-): void {
-  try {
-    env.TRENDS?.writeDataPoint({
-      indexes: [projectId],
-      blobs: [country ?? ""],
-      doubles: [1, payloadBytes],
-    });
-  } catch {
-    // Analytics Engine must never make ingest fail.
-  }
 }
 
 function attrsFromUserAgent(userAgent: string): Pick<EdgeAttrs, "browser" | "os" | "device"> {

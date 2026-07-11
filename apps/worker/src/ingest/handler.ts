@@ -13,7 +13,7 @@ import type { IngestAck, WideEventOutcome } from "@orange-replay/shared";
 import type { AppendArgs } from "../do/contract.ts";
 import { setWorkerLoggerVersion } from "../env.ts";
 import type { Env } from "../env.ts";
-import { attrsFromRequest, browserOriginIsAllowed, writeTrend } from "./edge-attrs.ts";
+import { attrsFromRequest, browserOriginIsAllowed } from "./edge-attrs.ts";
 import {
   MAX_INGEST_BODY_BYTES,
   ingestPostHeaders,
@@ -258,7 +258,6 @@ async function handleIngestPost(
       return finish(ack, 202, "dropped");
     }
 
-    writeTrend(env, config.projectId, attrs.country, payload.byteLength);
     event.set({ flags: cleanedFlags, live: result.live });
 
     return finish(ack, 200, "success");
