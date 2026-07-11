@@ -15,7 +15,10 @@ export default defineConfig({
     options: { typeAware: true, typeCheck: true },
   },
   run: {
-    cache: true,
+    cache: {
+      scripts: false,
+      tasks: true,
+    },
   },
   test: {
     exclude: ["**/node_modules/**", "**/dist/**", "**/.wrangler/**", "**/.claude/**"],
