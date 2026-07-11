@@ -22,17 +22,8 @@ const JSON_SECURITY_HEADERS = {
 
 const ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
-interface PresenceRow {
+interface PresenceRow extends PresenceSession {
   [key: string]: SqlRowValue;
-  session_id: string;
-  started_at: number;
-  last_seen: number;
-  entry_url: string | null;
-  country: string | null;
-  city: string | null;
-  browser: string | null;
-  os: string | null;
-  device: string | null;
 }
 
 interface MetaRow {
@@ -240,18 +231,7 @@ export class PresenceRegistry extends DurableObject<Env> {
           ORDER BY last_seen DESC, session_id ASC`,
         cutoff,
       )
-      .toArray()
-      .map((row) => ({
-        session_id: row.session_id,
-        started_at: row.started_at,
-        last_seen: row.last_seen,
-        entry_url: row.entry_url,
-        country: row.country,
-        city: row.city,
-        browser: row.browser,
-        os: row.os,
-        device: row.device,
-      }));
+      .toArray();
   }
 
   private firstEventAt(): number | null {
