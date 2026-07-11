@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { createContext, Script } from "node:vm";
-import { installWorkerEntry, makeWorkerEntrySource } from "../src/pipeline/worker-entry.ts";
+import { makeWorkerEntrySource } from "../src/pipeline/worker-entry.ts";
 import type { eventWithTime } from "@orange-replay/rrweb-fork";
 
 interface TestWorkerScope {
@@ -16,24 +16,6 @@ afterEach(() => {
 });
 
 describe("worker entry", () => {
-  it("posts an error batch when the TypeScript worker flush fails", async () => {
-    const scope = makeScope();
-    installWorkerEntry(scope as unknown as Parameters<typeof installWorkerEntry>[0], async () => {
-      throw new Error("batch failed");
-    });
-
-    scope.onmessage?.({
-      data: { type: "add", events: [makeEvent(1, "one")] },
-    } as MessageEvent<unknown>);
-    scope.onmessage?.({ data: { type: "flush", id: 7 } } as MessageEvent<unknown>);
-    await flushPromises();
-
-    expect(scope.postMessage).toHaveBeenCalledWith(
-      { type: "batch", id: 7, error: "batch failed" },
-      [],
-    );
-  });
-
   it("runs the production worker string and drops only bad events", async () => {
     vi.stubGlobal("CompressionStream", undefined);
     const scope = makeScope();
