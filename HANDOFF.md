@@ -96,6 +96,8 @@ Judging under flattering conditions hides geometry bugs. The T3.5 replay embed w
 
 - [x] Undeployed landing exploration cleanup (2026-07-11) — deleted the unreferenced 1,363-line `landing/live-led-exploration.html` design exploration. It was not part of the explicit deploy asset list and was never present in `apps/dashboard/dist`. `node scripts/build-deploy.mjs` still succeeds and confirms the file is absent; `vp check` passes with the three existing rrweb-fork warnings; all 500 tests pass.
 
+- [x] Exploratory brand asset cleanup (2026-07-11) — deleted 51 unreferenced dashboard logo explorations under `public/brand/saas-inspired` and `public/brand/variants` (511,882 source bytes). Kept all four root final logo files, including the mark used by the app and landing page, so official public brand URLs stay intact. The deploy build succeeds and contains the four root assets with neither exploration directory; `vp check` passes with the three existing rrweb-fork warnings; all 500 tests pass.
+
 ### Post-v1 product backlog (strategy: `docs/product-moat.md`)
 
 Ranked moat features (each with pain/mechanism/build sketch in the doc): 1) edge injection — zero-code install for CF-proxied zones; 2) everything-buffer + promotion rules (record 100%, 48h, promote what matters); 3) share links / unlimited viewers (scoped session-read tickets + public player route); 4) presence API + co-browse; 5) provable privacy report; 6) ephemeral per-PR replay stacks. Player roadmap in the same doc — **known player gap: multi-tab sessions interleave into one replayer (verified: `mergeReplayEvents` is a timestamp sort, tab identity dropped at decode) — first fix is a tab picker**; then clip export (client-side canvas→WebM), comments, dead-click markers, friction heat-lane.
