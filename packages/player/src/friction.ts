@@ -36,7 +36,9 @@ export function detectDeadClicks(
   for (const event of orderedTimeline) {
     if (event.k === "click") clicks.push(event);
     if (event.k === "error") errorTimes.push(event.t);
-    if (event.k === "nav") navigationTimes.push(event.t);
+    if (event.k === "nav" || (event.k === "vital" && event.d === "navigation")) {
+      navigationTimes.push(event.t);
+    }
   }
 
   for (const event of orderedEvents) {

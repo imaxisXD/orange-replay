@@ -10,6 +10,7 @@ import type { ShadowDomManager } from "./record/shadow-dom-manager";
 import type { Replayer } from "./replay";
 import type { RRNode } from "../rrdom-stub.ts";
 import type { CanvasManager } from "./record/observers/canvas/canvas-manager";
+import type { ImageManager } from "./record/observers/image-manager.ts";
 import type { StylesheetManager } from "./record/stylesheet-manager";
 import type {
   DataURLOptions,
@@ -26,6 +27,7 @@ import type {
   listenerHandler,
   maskTextClass,
   mediaInteractionCallback,
+  mutationRecord,
   mouseInteractionCallBack,
   mousemoveCallBack,
   mutationCallBack,
@@ -82,6 +84,8 @@ export type recordOptions<T> = {
   mousemoveWait?: number;
   keepIframeSrcFn?: KeepIframeSrcFn;
   errorHandler?: ErrorHandler;
+  snapshotTimeSliceMs?: number;
+  prepareForSnapshotPart?: (nextBytes?: number) => Promise<void>;
 };
 
 export type observerParam = {
@@ -118,11 +122,15 @@ export type observerParam = {
   slimDOMOptions: SlimDOMOptions;
   dataURLOptions: DataURLOptions;
   doc: Document;
+  shouldRecord?: () => boolean;
   mirror: Mirror;
   iframeManager: IframeManager;
   stylesheetManager: StylesheetManager;
   shadowDomManager: ShadowDomManager;
   canvasManager: CanvasManager;
+  imageManager: ImageManager;
+  mutationObservedCb?: (mutations: readonly mutationRecord[]) => void;
+  largeMutationCb?: () => void;
   processedNodeManager: ProcessedNodeManager;
   ignoreCSSAttributes: Set<string>;
   plugins: Array<{
@@ -158,12 +166,15 @@ export type MutationBufferParam = Pick<
   | "stylesheetManager"
   | "shadowDomManager"
   | "canvasManager"
+  | "imageManager"
+  | "mutationObservedCb"
+  | "largeMutationCb"
   | "processedNodeManager"
 >;
 
 export type ReplayPlugin = {
   handler?: (event: eventWithTime, isSync: boolean, context: { replayer: Replayer }) => void;
-  onBuild?: (node: Node | RRNode, context: { id: number; replayer: Replayer }) => void;
+  onBuild?: (node: Node, context: { id: number; replayer: Replayer }) => void;
   getMirror?: (mirrors: { nodeMirror: Mirror }) => void;
 };
 export type { Replayer } from "./replay";
@@ -200,7 +211,7 @@ export type playerConfig = {
 };
 
 export type missingNode = {
-  node: Node | RRNode;
+  node: Node;
   mutation: addedNodeMutation;
 };
 export type missingNodeMap = {

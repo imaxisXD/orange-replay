@@ -6,15 +6,24 @@ import type {
   addedNodeMutation,
   DocumentDimension,
   IWindow,
-  DeprecatedMirror,
   textMutation,
   IMirror,
 } from "../rrweb-types/index.ts";
 import type { Mirror, SlimDOMOptions } from "../rrweb-snapshot/index.ts";
-import { isShadowRoot, IGNORED_NODE, classMatchesRegex } from "../rrweb-snapshot/index.ts";
+import {
+  isShadowRoot,
+  IGNORED_NODE,
+  classMatchesRegex,
+  closestPrivacyElement,
+  privacyParentElement,
+} from "../rrweb-snapshot/index.ts";
 import { RRNode, RRIFrameElement, BaseRRNode } from "../rrdom-stub.ts";
 import dom from "../rrweb-utils/index.ts";
 export { nowTimestamp } from "../rrweb-utils/index.ts";
+
+declare const __ORANGE_REPLAY_SDK_PROFILE__: boolean | undefined;
+const isOrangeReplaySdk =
+  typeof __ORANGE_REPLAY_SDK_PROFILE__ !== "undefined" && __ORANGE_REPLAY_SDK_PROFILE__;
 
 export function on(
   type: string,
@@ -24,47 +33,6 @@ export function on(
   const options = { capture: true, passive: true };
   target.addEventListener(type, fn, options);
   return () => target.removeEventListener(type, fn, options);
-}
-
-// https://github.com/rrweb-io/rrweb/pull/407
-const DEPARTED_MIRROR_ACCESS_WARNING =
-  "Please stop import mirror directly. Instead of that," +
-  "\r\n" +
-  "now you can use replayer.getMirror() to access the mirror instance of a replayer," +
-  "\r\n" +
-  "or you can use record.mirror to access the mirror instance during recording.";
-/** @deprecated */
-export let _mirror: DeprecatedMirror = {
-  map: {},
-  getId() {
-    console.error(DEPARTED_MIRROR_ACCESS_WARNING);
-    return -1;
-  },
-  getNode() {
-    console.error(DEPARTED_MIRROR_ACCESS_WARNING);
-    return null;
-  },
-  removeNodeFromMap() {
-    console.error(DEPARTED_MIRROR_ACCESS_WARNING);
-  },
-  has() {
-    console.error(DEPARTED_MIRROR_ACCESS_WARNING);
-    return false;
-  },
-  reset() {
-    console.error(DEPARTED_MIRROR_ACCESS_WARNING);
-  },
-};
-if (typeof window !== "undefined" && window.Proxy && window.Reflect) {
-  _mirror = new Proxy(_mirror, {
-    get(target, prop, receiver) {
-      if (prop === "map") {
-        console.error(DEPARTED_MIRROR_ACCESS_WARNING);
-      }
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-      return Reflect.get(target, prop, receiver);
-    },
-  });
 }
 
 // copy from underscore and modified
@@ -191,28 +159,21 @@ export function isBlocked(
   blockSelector: string | null,
   checkAncestors: boolean,
 ): boolean {
-  if (!node) {
-    return false;
-  }
-  const el = closestElementOfNode(node);
+  let element = closestPrivacyElement(node);
 
-  if (!el) {
-    return false;
-  }
-
-  try {
-    if (typeof blockClass === "string") {
-      if (el.classList.contains(blockClass)) return true;
-      if (checkAncestors && el.closest("." + blockClass) !== null) return true;
-    } else {
-      if (classMatchesRegex(el, blockClass, checkAncestors)) return true;
+  while (element !== null) {
+    try {
+      if (isOrangeReplaySdk || typeof blockClass === "string") {
+        if (element.classList.contains(blockClass as string)) return true;
+      } else if (classMatchesRegex(element, blockClass, false)) {
+        return true;
+      }
+      if (blockSelector && element.matches(blockSelector)) return true;
+    } catch (e) {
+      // Invalid selectors should not stop recording.
     }
-  } catch (e) {
-    // e
-  }
-  if (blockSelector) {
-    if (el.matches(blockSelector)) return true;
-    if (checkAncestors && el.closest(blockSelector) !== null) return true;
+    if (!checkAncestors) return false;
+    element = privacyParentElement(element);
   }
   return false;
 }
@@ -238,7 +199,7 @@ export function isAncestorRemoved(target: Node, mirror: Mirror): boolean {
     return false;
   }
   const id = mirror.getId(target);
-  if (!mirror.has(id)) {
+  if (!mirror.isActiveNode(target)) {
     return true;
   }
   const parent = dom.parentNode(target);
@@ -331,17 +292,14 @@ export function iterateResolveTree(
 
 export type AppendedIframe = {
   mutationInQueue: addedNodeMutation;
-  builtNode: HTMLIFrameElement | RRIFrameElement;
+  builtNode: HTMLIFrameElement;
 };
 
-export function isSerializedIframe<TNode extends Node | RRNode>(
-  n: TNode,
-  mirror: IMirror<TNode>,
-): boolean {
+export function isSerializedIframe<TNode extends Node>(n: TNode, mirror: IMirror<TNode>): boolean {
   return Boolean(n.nodeName === "IFRAME" && mirror.getMeta(n));
 }
 
-export function isSerializedStylesheet<TNode extends Node | RRNode>(
+export function isSerializedStylesheet<TNode extends Node>(
   n: TNode,
   mirror: IMirror<TNode>,
 ): boolean {
@@ -377,7 +335,7 @@ export function getBaseDimension(node: Node, rootIframe: Node): DocumentDimensio
   };
 }
 
-export function hasShadowRoot<T extends Node | RRNode>(n: T): n is T & { shadowRoot: ShadowRoot } {
+export function hasShadowRoot<T extends Node>(n: T): n is T & { shadowRoot: ShadowRoot } {
   if (!n) return false;
   if (n instanceof BaseRRNode && "shadowRoot" in n) {
     return Boolean(n.shadowRoot);
@@ -440,7 +398,6 @@ export function uniqueTextMutations(mutations: textMutation[]): textMutation[] {
 export class StyleSheetMirror {
   private id = 1;
   private styleIDMap = new WeakMap<CSSStyleSheet, number>();
-  private idStyleMap = new Map<number, CSSStyleSheet>();
 
   getId(stylesheet: CSSStyleSheet): number {
     return this.styleIDMap.get(stylesheet) ?? -1;
@@ -460,17 +417,11 @@ export class StyleSheetMirror {
       newId = this.id++;
     } else newId = id;
     this.styleIDMap.set(stylesheet, newId);
-    this.idStyleMap.set(newId, stylesheet);
     return newId;
-  }
-
-  getStyle(id: number): CSSStyleSheet | null {
-    return this.idStyleMap.get(id) || null;
   }
 
   reset(): void {
     this.styleIDMap = new WeakMap();
-    this.idStyleMap = new Map();
     this.id = 1;
   }
 
@@ -517,4 +468,25 @@ export function inDom(n: Node): boolean {
   const doc = dom.ownerDocument(n);
   if (!doc) return false;
   return dom.contains(doc, n) || shadowHostInDom(n);
+}
+
+/** True when a node lives in a removed light DOM, shadow DOM, or iframe tree. */
+export function isNodeInSubtrees(node: Node, roots: readonly Node[]): boolean {
+  let current: Node | null = node;
+  while (current !== null) {
+    for (const root of roots) {
+      if (root === current || dom.contains(root, current)) return true;
+    }
+    const shadowHost = getShadowHost(current);
+    if (shadowHost !== null) {
+      current = shadowHost;
+      continue;
+    }
+    try {
+      current = dom.ownerDocument(current)?.defaultView?.frameElement ?? null;
+    } catch {
+      return false;
+    }
+  }
+  return false;
 }

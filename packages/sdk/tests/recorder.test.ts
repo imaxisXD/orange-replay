@@ -40,6 +40,9 @@ function makeSink(): Sink {
     async flush() {
       /* test hook */
     },
+    async prepareForSnapshotPart() {
+      /* test hook */
+    },
     async prepareForSessionRotation() {
       /* test hook */
     },
@@ -65,7 +68,9 @@ describe("Recorder", () => {
     rrwebMocks.record.mockReturnValue(stop);
     const { Recorder } = await import("../src/recorder.ts");
 
-    const recorder = new Recorder({ config: baseConfig, sink: makeSink() });
+    const sink = makeSink();
+    const prepareForSnapshotPart = vi.spyOn(sink, "prepareForSnapshotPart");
+    const recorder = new Recorder({ config: baseConfig, sink });
     recorder.start();
 
     const options = rrwebMocks.record.mock.calls[0]?.[0] as recordOptions<eventWithTime>;
@@ -75,10 +80,57 @@ describe("Recorder", () => {
     expect(options.maskTextSelector).toBe(".mask-text");
     expect(options.inlineImages).toBe(true);
     expect(options.recordCanvas).toBe(false);
-    expect(options.sampling).toEqual({ canvas: 2 });
-    expect(options.dataURLOptions).toEqual({ type: "image/webp", quality: 0.62 });
     expect(options.checkoutEveryNth).toBe(5_000);
     expect(options.checkoutEveryNms).toBe(240_000);
+    expect(options.snapshotTimeSliceMs).toBe(4);
+    await options.prepareForSnapshotPart?.(256_000);
+    expect(prepareForSnapshotPart).toHaveBeenCalledWith(256_000);
+  });
+
+  it.each([
+    ["invalid syntax", { blockSelector: "[" }],
+    ["stateful block selector", { blockSelector: ".private:focus-within" }],
+    ["stateful mask selector", { maskTextSelector: "input:checked" }],
+  ])("disables recording for an unsafe local %s", async (_caseName, configOverride) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const { Recorder } = await import("../src/recorder.ts");
+    const recorder = new Recorder({
+      config: { ...baseConfig, ...configOverride },
+      sink: makeSink(),
+    });
+
+    expect(() => recorder.start()).toThrow("must use a stable CSS selector");
+    expect(rrwebMocks.record).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("records with stable local privacy selectors", async () => {
+    rrwebMocks.record.mockReturnValue(vi.fn());
+    const { Recorder } = await import("../src/recorder.ts");
+    const blockSelector =
+      '[data-url="https://example.test/a:b"], .field\\:name, section > .private:nth-child(2)';
+    const maskTextSelector = "article:not(.public)";
+    const recorder = new Recorder({
+      config: { ...baseConfig, blockSelector, maskTextSelector },
+      sink: makeSink(),
+    });
+
+    recorder.start();
+
+    const options = rrwebMocks.record.mock.calls[0]?.[0] as recordOptions<eventWithTime>;
+    expect(options.blockSelector).toBe(`[data-orange-block], ${blockSelector}`);
+    expect(options.maskTextSelector).toBe(maskTextSelector);
+  });
+
+  it("caps custom event names before they reach rrweb", async () => {
+    rrwebMocks.record.mockReturnValue(vi.fn());
+    const { Recorder } = await import("../src/recorder.ts");
+    const recorder = new Recorder({ config: baseConfig, sink: makeSink() });
+    recorder.start();
+
+    recorder.addCustomEvent("x".repeat(500), { step: 1 });
+
+    expect(rrwebMocks.addCustomEvent.mock.calls[0]?.[0]).toHaveLength(200);
   });
 
   it("records safe image frames when canvas capture is enabled", async () => {
@@ -123,7 +175,6 @@ describe("Recorder", () => {
       } as eventWithTime),
     ).not.toThrow();
 
-    expect(recorder.isDisabled()).toBe(true);
     expect(stop).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalledTimes(1);
   });

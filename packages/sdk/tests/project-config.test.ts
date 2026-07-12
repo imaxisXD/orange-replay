@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
+  isSafePrivacySelector,
   loadRecorderProjectConfig,
   mergeRecorderProjectConfig,
   parseRecorderProjectConfig,
@@ -26,7 +27,6 @@ const remoteConfig = {
   maskRules: [
     { selector: ".remote-mask", action: "mask" as const },
     { selector: ".remote-block", action: "block" as const },
-    { selector: "[", action: "block" as const },
   ],
   capture: { heatmaps: true, console: false, network: false, canvas: true },
   version: 7,
@@ -51,6 +51,46 @@ describe("recorder project config", () => {
         document,
       ).sampleRate,
     ).toBe(0.1);
+  });
+
+  it.each([
+    ["block" as const, "["],
+    ["mask" as const, ".private:hover"],
+    ["block" as const, ".field:focus-within"],
+    ["mask" as const, "input:checked"],
+    ["block" as const, "input:dir(rtl)"],
+    ["mask" as const, ".form:has(input:dir(rtl))"],
+    ["mask" as const, "a:\\l\\i\\n\\k"],
+    ["block" as const, ".private:has(a:\\l\\i\\n\\k)"],
+  ])("stops recording when a remote %s selector is unsafe: %s", (action, selector) => {
+    const merged = mergeRecorderProjectConfig(
+      localConfig,
+      {
+        ...remoteConfig,
+        maskRules: [{ selector, action }],
+      },
+      document,
+    );
+
+    expect(merged.sampleRate).toBe(0);
+  });
+
+  it.each([
+    '[data-url="https://example.test/a:b"]',
+    "[data\\-private]",
+    ".field\\:name",
+    "section > .private:nth-child(2)",
+    "article:not(.public)",
+    "ARTICLE:NOT(.public)",
+  ])("accepts a stable privacy selector: %s", (selector) => {
+    expect(isSafePrivacySelector(selector, document)).toBe(true);
+  });
+
+  it("checks selector syntax without searching the page DOM", () => {
+    const pageQuery = vi.spyOn(document, "querySelector");
+
+    expect(isSafePrivacySelector("main > .private:nth-child(2)", document)).toBe(true);
+    expect(pageQuery).not.toHaveBeenCalled();
   });
 
   it("loads config using the public write key", async () => {

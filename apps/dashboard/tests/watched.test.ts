@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it } from "vite-plus/test";
-import { markSessionWatched, watchedSessionIds } from "../src/lib/watched";
+import { markSessionWatched, unmarkSessionWatched, watchedSessionIds } from "../src/lib/watched";
 
 describe("watched session store", () => {
   beforeEach(() => {
@@ -19,6 +19,13 @@ describe("watched session store", () => {
     markSessionWatched("p1", "s1");
     markSessionWatched("p1", "s1");
     expect([...watchedSessionIds("p1")]).toEqual(["s1"]);
+  });
+
+  it("removes a watched session without touching the rest", () => {
+    markSessionWatched("p1", "s1");
+    markSessionWatched("p1", "s2");
+    unmarkSessionWatched("p1", "s1");
+    expect([...watchedSessionIds("p1")]).toEqual(["s2"]);
   });
 
   it("survives corrupted storage", () => {

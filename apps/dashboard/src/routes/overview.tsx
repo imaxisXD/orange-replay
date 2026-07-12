@@ -60,7 +60,7 @@ export function OverviewPage() {
         <h1 className="text-[18px] font-semibold tracking-[-0.015em]">
           Overview
           <span className="ml-2.5 text-[12px] font-normal text-dim">
-            Exact analytics from finalized sessions.
+            Exact analytics — every finalized session counted, not a sample.
           </span>
         </h1>
         <Select onValueChange={changeDateRange} value={range === "custom" ? undefined : range}>

@@ -210,6 +210,40 @@ export function shadowRoot(n: Node): ShadowRoot | null {
   return getUntaintedAccessor("Element", n as Element, "shadowRoot");
 }
 
+let snapshotChildNodes: ((node: Node) => NodeListOf<Node>) | undefined;
+let snapshotNextSibling: ((node: Node) => ChildNode | null) | undefined;
+let snapshotShadowRoot: ((node: Element) => ShadowRoot | null) | undefined;
+
+export function getSnapshotChildNodes(): (node: Node) => NodeListOf<Node> {
+  if (snapshotChildNodes !== undefined) return snapshotChildNodes;
+  const childNodesGetter = Object.getOwnPropertyDescriptor(
+    getUntaintedPrototype("Node"),
+    "childNodes",
+  )?.get as ((this: Node) => NodeListOf<Node>) | undefined;
+  snapshotChildNodes = (node) => childNodesGetter?.call(node) ?? node.childNodes;
+  return snapshotChildNodes;
+}
+
+export function getSnapshotNextSibling(): (node: Node) => ChildNode | null {
+  if (snapshotNextSibling !== undefined) return snapshotNextSibling;
+  const nextSiblingGetter = Object.getOwnPropertyDescriptor(
+    getUntaintedPrototype("Node"),
+    "nextSibling",
+  )?.get as ((this: Node) => ChildNode | null) | undefined;
+  snapshotNextSibling = (node) => nextSiblingGetter?.call(node) ?? node.nextSibling;
+  return snapshotNextSibling;
+}
+
+export function getSnapshotShadowRoot(): (node: Element) => ShadowRoot | null {
+  if (snapshotShadowRoot !== undefined) return snapshotShadowRoot;
+  const shadowRootGetter = Object.getOwnPropertyDescriptor(
+    getUntaintedPrototype("Element"),
+    "shadowRoot",
+  )?.get as ((this: Element) => ShadowRoot | null) | undefined;
+  snapshotShadowRoot = (node) => shadowRootGetter?.call(node) ?? node.shadowRoot;
+  return snapshotShadowRoot;
+}
+
 export function querySelector(n: Element, selectors: string): Element | null {
   return getUntaintedAccessor("Element", n, "querySelector")(selectors);
 }

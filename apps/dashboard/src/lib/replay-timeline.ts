@@ -109,22 +109,37 @@ export function buildJourneyBreadcrumbs(
   }
 
   for (const [index, event] of events
-    .filter((item) => item.k === "nav")
+    .filter((item) => item.k === "nav" || isPageLoadEvent(item))
     .toSorted((left, right) => left.t - right.t)
     .entries()) {
-    const target = event.d ?? firstMetaText(event, ["url", "href", "to", "path"]);
+    const target =
+      event.k === "nav"
+        ? (event.d ?? firstMetaText(event, ["url", "href", "to", "path"]))
+        : firstMetaText(event, ["url"]);
     if (target === undefined) {
       continue;
     }
 
+    const path = shortPath(target);
+    const offsetMs = clamp(event.t - options.startedAt, 0, durationMs);
+    if (isPageLoadEvent(event) && offsetMs === 0 && breadcrumbs[0]?.path === path) {
+      continue;
+    }
+
     breadcrumbs.push({
-      id: `nav-${event.t}-${index}`,
-      path: shortPath(target),
-      offsetMs: clamp(event.t - options.startedAt, 0, durationMs),
+      id: `${event.k === "nav" ? "nav" : "load"}-${event.t}-${index}`,
+      path,
+      offsetMs,
     });
   }
 
   return breadcrumbs;
+}
+
+function isPageLoadEvent(event: IndexEvent): boolean {
+  return (
+    event.k === "vital" && event.d === "navigation" && firstMetaText(event, ["url"]) !== undefined
+  );
 }
 
 export function getPlayerKeyAction(event: PlayerKeyEvent): PlayerKeyAction | null {

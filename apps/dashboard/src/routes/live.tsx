@@ -164,7 +164,7 @@ function LiveLoadingRows() {
 function LiveEmptyState() {
   return (
     <div className="flex min-h-26 items-center justify-center rounded-lg border border-dashed border-dash px-4 py-8 text-center text-[13px] text-muted-foreground">
-      No live sessions. Active visitors appear here within seconds.
+      No one is browsing right now. Visitors appear here within seconds of landing.
     </div>
   );
 }
@@ -172,5 +172,5 @@ function LiveEmptyState() {
 function readErrorMessage(error: unknown): string {
   if (error instanceof ApiError) return error.code ?? error.message;
   if (error instanceof Error) return error.message;
-  return "The API request failed.";
+  return "The request failed. Try again in a moment.";
 }

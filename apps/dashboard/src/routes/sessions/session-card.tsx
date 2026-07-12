@@ -1,5 +1,6 @@
 import { useEffect, useRef, type KeyboardEvent } from "react";
-import { ActivitySpark } from "@/components/activity-spark";
+import { ClientLabel } from "@/components/client-label";
+import { decodeActivityHist } from "@/lib/activity-hist";
 import { CountryFlag } from "@/components/country-flag";
 import { StatusPill } from "@/components/status-pill";
 import type { SessionListItem } from "@/lib/api";
@@ -10,15 +11,18 @@ import {
   formatErrorCount,
   formatShortRelativeTime,
 } from "@/lib/format";
-import { Smartphone } from "@/lib/icon-map";
+import { MousePointer } from "@/lib/icon-map";
+import { sessionEvidenceLabel } from "./session-evidence";
 
 export function SessionCard({
   isSelected,
+  isTabStop,
   isWatched,
   onSelect,
   session,
 }: {
   isSelected: boolean;
+  isTabStop: boolean;
   isWatched: boolean;
   onSelect: () => void;
   session: SessionListItem;
@@ -26,12 +30,8 @@ export function SessionCard({
   const cardRef = useRef<HTMLDivElement>(null);
   const countryCode = cleanCountryCode(session.country);
   const location = formatLocationName(session.country, session.city);
-  const metaParts = [location];
-  const client = [session.browser, session.os].filter(Boolean).join("/");
-  if (client.length > 0) metaParts.push(client);
-  if (session.page_count !== null && session.page_count > 0) {
-    metaParts.push(`${session.page_count} pg`);
-  }
+  const hasClient = Boolean(session.browser) || Boolean(session.os);
+  const activity = decodeActivityHist(session.activity_hist);
 
   // Deep links land with the playing session visible in the rail.
   useEffect(() => {
@@ -46,24 +46,19 @@ export function SessionCard({
 
   return (
     <div
-      aria-current={isSelected ? "true" : undefined}
       aria-label={cardLabel(session, location, isWatched)}
+      aria-selected={isSelected}
       data-session-id={session.session_id}
-      className={`cursor-pointer border-b border-dashed border-dash px-4 py-3 outline-none transition-colors last:border-b-0 focus-visible:ring-2 focus-visible:ring-amber ${
+      className={`flex cursor-pointer flex-col border-b border-dashed border-dash px-4 py-[15px] text-left outline-none transition-colors last:border-b-0 focus-visible:ring-2 focus-visible:ring-amber ${
         isSelected ? "bg-secondary" : "hover:bg-[#141419]"
       }`}
       onClick={onSelect}
       onKeyDown={handleKeyDown}
       ref={cardRef}
-      role="link"
-      tabIndex={0}
+      role="option"
+      tabIndex={isTabStop ? 0 : -1}
     >
       <div className="flex items-center gap-2">
-        <span
-          aria-hidden
-          className="watched-dot size-1.5 shrink-0 rounded-full bg-amber"
-          data-watched={isWatched}
-        />
         <span
           className={`min-w-0 flex-1 truncate text-[13px] font-medium ${
             isSelected ? "text-amber" : "text-foreground"
@@ -71,38 +66,73 @@ export function SessionCard({
         >
           {entryPath(session.entry_url)}
         </span>
-        <span className="shrink-0 font-mono text-[12px] text-foreground">
-          {formatDuration(session.duration_ms)}
-        </span>
-      </div>
-
-      {/* Frustration pills appear only when there is something to say — a
-          healthy session's signal is the absence of markers, so problem rows
-          pop preattentively instead of drowning in green "clean" chips. */}
-      <div className="mt-1.5 flex min-h-5 items-center gap-1.5">
-        <div className="flex min-w-0 flex-1 gap-1.5">
-          {session.errors > 0 && (
-            <StatusPill kind="err">{formatErrorCount(session.errors)}</StatusPill>
-          )}
-          {session.rages > 0 && <StatusPill kind="rage">{session.rages} rage</StatusPill>}
-        </div>
-        <ActivitySpark hist={session.activity_hist} />
-      </div>
-
-      {/* muted-foreground, not dim: 11.5px body-adjacent text must clear WCAG AA
-          (dim measures 3.19:1 on the card surface — reserved for labels). */}
-      <div className="mt-1.5 flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
-        <CountryFlag country={countryCode} />
-        {/* Exception signal, like the pills: desktop is the default and shows
-            nothing; a handheld session gets a glyph worth noticing. */}
-        {(session.device === "mobile" || session.device === "tablet") && (
-          <Smartphone
-            aria-label="Mobile device"
-            className="size-3 shrink-0 text-muted-foreground"
-          />
+        {!isWatched && (
+          /* Replaces the old unlabeled amber dot: unwatched state now says
+                 what it means; watched rows show nothing. */
+          <span
+            className="shrink-0 rounded-full border border-[rgba(245,166,35,0.35)] bg-[rgba(245,166,35,0.08)] px-1.5 text-[10px] font-medium leading-[16px] text-[#ffd9a0]"
+            title="You haven't watched this session yet"
+          >
+            New
+          </span>
         )}
-        <span className="min-w-0 flex-1 truncate">{metaParts.join(" · ")}</span>
-        <span className="shrink-0" title={formatAbsoluteTime(session.started_at)}>
+      </div>
+
+      <div className="mt-[9px] flex min-w-0 items-center gap-1.5">
+        {session.segment_count === 0 ? (
+          <span className="min-w-0 truncate text-[11.5px] text-muted-foreground">
+            Metadata only — nothing to replay
+          </span>
+        ) : (
+          <span className="flex items-center gap-1.5 font-mono text-[11px] tabular-nums text-muted-foreground">
+            <span className="flex items-center gap-1">
+              <MousePointer aria-hidden className="size-3.5 shrink-0" />
+              {session.clicks} {session.clicks === 1 ? "click" : "clicks"}
+            </span>
+            <span className="text-dim">·</span>
+            <span className="text-foreground">{formatDuration(session.duration_ms)}</span>
+          </span>
+        )}
+        <span className="flex-1" />
+        {session.errors > 0 && (
+          <StatusPill kind="err">{formatErrorCount(session.errors)}</StatusPill>
+        )}
+        {session.rages > 0 && <StatusPill kind="rage">{session.rages} rage</StatusPill>}
+      </div>
+
+      <div aria-hidden className="mt-[9px] flex h-[3px] items-stretch gap-[2px]">
+        {activity === null ? (
+          <div className="h-full w-full rounded-[1px] bg-[#17171c]" />
+        ) : (
+          activity.levels.map((level, index) => (
+            <div
+              className="h-full w-full rounded-[1px]"
+              key={index}
+              style={{
+                backgroundColor:
+                  activity.errors[index] === true
+                    ? "#f4534e"
+                    : `rgba(148, 148, 163, ${(0.1 + 0.75 * (level / 15)).toFixed(3)})`,
+              }}
+            />
+          ))
+        )}
+      </div>
+
+      <div className="mt-[9px] flex min-w-0 items-center gap-1.5 text-[11.5px] text-muted-foreground">
+        <CountryFlag country={countryCode} />
+        <span className="min-w-0 truncate">{location}</span>
+        {hasClient && (
+          <>
+            <span className="text-dim">·</span>
+            <ClientLabel browser={session.browser} os={session.os} />
+          </>
+        )}
+        <span className="flex-1" />
+        <span
+          className="shrink-0 font-mono text-[11px]"
+          title={formatAbsoluteTime(session.started_at)}
+        >
           {formatShortRelativeTime(session.started_at)}
         </span>
       </div>
@@ -111,7 +141,11 @@ export function SessionCard({
 }
 
 function cardLabel(session: SessionListItem, location: string, isWatched: boolean): string {
-  const parts = [entryPath(session.entry_url), formatDuration(session.duration_ms)];
+  const parts = [
+    entryPath(session.entry_url),
+    formatDuration(session.duration_ms),
+    sessionEvidenceLabel(session),
+  ];
   if (session.errors > 0) parts.push(formatErrorCount(session.errors));
   if (session.rages > 0) parts.push(`${session.rages} rage clicks`);
   parts.push(location, formatShortRelativeTime(session.started_at));

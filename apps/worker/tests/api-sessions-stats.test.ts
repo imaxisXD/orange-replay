@@ -101,6 +101,11 @@ describe("dashboard api", () => {
         firstPageCursor: "2000:api_mid",
       },
       {
+        sort: "friction",
+        order: ["api_mid", "api_new", "api_old"],
+        firstPageCursor: "friction:1102:api_new",
+      },
+      {
         sort: "duration",
         order: ["api_new", "api_old", "api_mid"],
         firstPageCursor: "duration:1500:api_old",
@@ -308,7 +313,7 @@ describe("dashboard api", () => {
   });
 
   it("paginates sessions that share the active sort value", async () => {
-    for (const sort of ["newest", "duration", "clicks", "pages"] as const) {
+    for (const sort of ["newest", "friction", "duration", "clicks", "pages"] as const) {
       const seen: string[] = [];
       let before = "";
 

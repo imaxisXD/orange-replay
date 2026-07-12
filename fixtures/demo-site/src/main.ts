@@ -17,12 +17,14 @@ const ingestUrl =
     : "http://127.0.0.1:8787";
 const params = new URLSearchParams(window.location.search);
 const sampleRate = params.get("sampleRate") === "0" ? 0 : 1;
+const transport = params.get("transport") === "inline" ? "inline" : undefined;
 
 const handle = init({
   key: ingestKey,
   ingestUrl,
   sampleRate,
   flushMs: 1_000,
+  transport,
 });
 
 window.__orangeReplay = handle;

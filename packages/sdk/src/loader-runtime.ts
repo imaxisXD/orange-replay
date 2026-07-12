@@ -98,8 +98,8 @@ export function installLoaderRuntime(config: LoaderRuntimeConfig): void {
 
   push({
     k: "vital",
-    n: "navigation",
     start: win.performance?.timeOrigin || now(),
+    u: win.location.href,
   });
 
   const script = doc.createElement("script");

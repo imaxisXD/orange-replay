@@ -119,6 +119,9 @@ export class OrangePlayer {
         acceptsReplayTab: (tab, events, keyframeStarted) =>
           this.eventStore.acceptsLiveTab(tab, events, keyframeStarted),
         onLiveEvents: (events) => this.handleLiveEvents(events),
+        onLiveIndex: (index) => this.emitter.emit("live_index", index),
+        onLiveSnapshot: (snapshot) => this.emitter.emit("live_snapshot", snapshot),
+        onSessionEnded: () => this.emitter.emit("live_ended", undefined),
         onResetReplayEvents: () => this.resetReplayEventsForLiveKeyframe(),
         onReconnectStarted: () => {
           this.liveRebuildAfterKeyframe = this.surface.hasReplayer;

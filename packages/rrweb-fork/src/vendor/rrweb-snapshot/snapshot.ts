@@ -31,12 +31,25 @@ import {
   absolutifyURLs,
   markCssSplits,
 } from "./snapshot-utils";
-import dom from "../rrweb-utils/index.ts";
+import dom, {
+  getSnapshotChildNodes,
+  getSnapshotNextSibling,
+  getSnapshotShadowRoot,
+} from "../rrweb-utils/index.ts";
 
 let _id = 1;
 const tagNameRegex = new RegExp("[^a-z0-9-_:]");
 
 export const IGNORED_NODE = -2;
+const snapshotEstimatedBytes = new WeakMap<object, number>();
+
+declare const __ORANGE_REPLAY_SDK_PROFILE__: boolean | undefined;
+const isOrangeReplaySdk =
+  typeof __ORANGE_REPLAY_SDK_PROFILE__ !== "undefined" && __ORANGE_REPLAY_SDK_PROFILE__;
+
+export function getSnapshotEstimatedBytes(node: serializedNodeWithId): number | undefined {
+  return snapshotEstimatedBytes.get(node);
+}
 
 export function genId(): number {
   return _id++;
@@ -223,13 +236,14 @@ export function _isBlockedElement(
   blockSelector: string | null,
 ): boolean {
   try {
-    if (typeof blockClass === "string") {
-      if (element.classList.contains(blockClass)) {
+    if (isOrangeReplaySdk || typeof blockClass === "string") {
+      if (element.classList.contains(blockClass as string)) {
         return true;
       }
     } else {
       for (let eIndex = element.classList.length; eIndex--; ) {
         const className = element.classList[eIndex];
+        blockClass.lastIndex = 0;
         if (blockClass.test(className)) {
           return true;
         }
@@ -250,20 +264,57 @@ export function classMatchesRegex(
   regex: RegExp,
   checkAncestors: boolean,
 ): boolean {
-  if (!node) return false;
-  if (node.nodeType !== node.ELEMENT_NODE) {
-    if (!checkAncestors) return false;
-    return classMatchesRegex(dom.parentNode(node), regex, checkAncestors);
-  }
-
-  for (let eIndex = (node as HTMLElement).classList.length; eIndex--; ) {
-    const className = (node as HTMLElement).classList[eIndex];
-    if (regex.test(className)) {
-      return true;
+  let element = closestPrivacyElement(node);
+  while (element !== null) {
+    for (let eIndex = element.classList.length; eIndex--; ) {
+      const className = element.classList[eIndex];
+      regex.lastIndex = 0;
+      if (regex.test(className)) return true;
     }
+    if (!checkAncestors) return false;
+    element = privacyParentElement(element);
   }
-  if (!checkAncestors) return false;
-  return classMatchesRegex(dom.parentNode(node), regex, checkAncestors);
+  return false;
+}
+
+export function closestPrivacyElement(node: Node | null): Element | null {
+  if (node === null) return null;
+  if (node.nodeType === node.ELEMENT_NODE) return node as Element;
+  const parent = dom.parentElement(node);
+  if (parent !== null) return parent;
+  const root = node.getRootNode?.();
+  const host = (root as ShadowRoot | undefined)?.host;
+  if (host !== undefined && host.nodeType === 1) return host;
+  try {
+    return node.ownerDocument?.defaultView?.frameElement ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function privacyParentElement(element: Element): Element | null {
+  if (element.parentElement !== null) return element.parentElement;
+  const root = element.getRootNode?.();
+  const host = (root as ShadowRoot | undefined)?.host;
+  if (host !== undefined && host.nodeType === 1) return host;
+  try {
+    return element.ownerDocument.defaultView?.frameElement ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function matchesPrivacyTree(
+  node: Node,
+  privacyClass: string | RegExp,
+  privacySelector: string | null,
+): boolean {
+  let element = closestPrivacyElement(node);
+  while (element !== null) {
+    if (_isBlockedElement(element as HTMLElement, privacyClass, privacySelector)) return true;
+    element = privacyParentElement(element);
+  }
+  return false;
 }
 
 export function needMaskingText(
@@ -272,39 +323,27 @@ export function needMaskingText(
   maskTextSelector: string | null,
   checkAncestors: boolean,
 ): boolean {
-  let el: Element;
   if (isElement(node)) {
-    el = node;
-    if (!dom.childNodes(el).length) {
+    if (!dom.childNodes(node).length) {
       // optimisation: we can avoid any of the below checks on leaf elements
       // as masking is applied to child text nodes only
       return false;
     }
-  } else if (dom.parentElement(node) === null) {
-    // should warn? maybe a text node isn't attached to a parent node yet?
-    return false;
-  } else {
-    el = dom.parentElement(node)!;
   }
-  try {
-    if (typeof maskTextClass === "string") {
-      if (checkAncestors) {
-        if (el.closest(`.${maskTextClass}`)) return true;
-      } else {
-        if (el.classList.contains(maskTextClass)) return true;
+  let currentElement = closestPrivacyElement(node);
+  while (currentElement !== null) {
+    try {
+      if (isOrangeReplaySdk || typeof maskTextClass === "string") {
+        if (currentElement.classList.contains(maskTextClass as string)) return true;
+      } else if (classMatchesRegex(currentElement, maskTextClass, false)) {
+        return true;
       }
-    } else {
-      if (classMatchesRegex(el, maskTextClass, checkAncestors)) return true;
+      if (maskTextSelector && currentElement.matches(maskTextSelector)) return true;
+    } catch (e) {
+      // Invalid selectors should not stop recording.
     }
-    if (maskTextSelector) {
-      if (checkAncestors) {
-        if (el.closest(maskTextSelector)) return true;
-      } else {
-        if (el.matches(maskTextSelector)) return true;
-      }
-    }
-  } catch (e) {
-    //
+    if (!checkAncestors) return false;
+    currentElement = privacyParentElement(currentElement);
   }
   return false;
 }
@@ -314,6 +353,7 @@ function onceIframeLoaded(
   iframeEl: HTMLIFrameElement,
   listener: () => unknown,
   iframeLoadTimeout: number,
+  skipCurrentLoad = false,
 ) {
   const win = iframeEl.contentWindow;
   if (!win) {
@@ -347,12 +387,26 @@ function onceIframeLoaded(
   if (win.location.href !== blankUrl || iframeEl.src === blankUrl || iframeEl.src === "") {
     // iframe was already loaded, make sure we wait to trigger the listener
     // till _after_ the mutation that found this iframe has had time to process
-    setTimeout(listener, 0);
+    if (!skipCurrentLoad) setTimeout(listener, 0);
 
     return iframeEl.addEventListener("load", listener); // keep listing for future loads
   }
   // use default listener
   iframeEl.addEventListener("load", listener);
+}
+
+function getLoadedIframeDocument(iframe: HTMLIFrameElement): Document | null {
+  try {
+    const win = iframe.contentWindow;
+    const doc = iframe.contentDocument;
+    if (win === null || doc === null || doc.readyState !== "complete") return null;
+    const blankUrl = "about:blank";
+    return win.location.href !== blankUrl || iframe.src === blankUrl || iframe.src === ""
+      ? doc
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function onceStylesheetLoaded(
@@ -391,6 +445,7 @@ function serializeNode(
     mirror: Mirror;
     blockClass: string | RegExp;
     blockSelector: string | null;
+    needsBlock?: boolean;
     needsMask: boolean;
     inlineStylesheet: boolean;
     maskInputOptions: MaskInputOptions;
@@ -398,6 +453,7 @@ function serializeNode(
     maskInputFn: MaskInputFn | undefined;
     dataURLOptions?: DataURLOptions;
     inlineImages: boolean;
+    deferInlineImages: boolean;
     recordCanvas: boolean;
     keepIframeSrcFn: KeepIframeSrcFn;
     /**
@@ -406,12 +462,14 @@ function serializeNode(
     newlyAddedElement?: boolean;
     cssCaptured?: boolean;
   },
+  snapshotParent?: Node | null,
 ): serializedNode | false {
   const {
     doc,
     mirror,
     blockClass,
     blockSelector,
+    needsBlock,
     needsMask,
     inlineStylesheet,
     maskInputOptions = {},
@@ -419,6 +477,7 @@ function serializeNode(
     maskInputFn,
     dataURLOptions = {},
     inlineImages,
+    deferInlineImages,
     recordCanvas,
     keepIframeSrcFn,
     newlyAddedElement = false,
@@ -453,24 +512,30 @@ function serializeNode(
         doc,
         blockClass,
         blockSelector,
+        needsBlock,
         inlineStylesheet,
         maskInputOptions,
         maskInputFn,
         dataURLOptions,
         inlineImages,
+        deferInlineImages,
         recordCanvas,
         keepIframeSrcFn,
         newlyAddedElement,
         rootId,
       });
     case n.TEXT_NODE:
-      return serializeTextNode(n as Text, {
-        doc,
-        needsMask,
-        maskTextFn,
-        rootId,
-        cssCaptured,
-      });
+      return serializeTextNode(
+        n as Text,
+        {
+          doc,
+          needsMask,
+          maskTextFn,
+          rootId,
+          cssCaptured,
+        },
+        snapshotParent,
+      );
     case n.CDATA_SECTION_NODE:
       return {
         type: NodeType.CDATA,
@@ -503,11 +568,12 @@ function serializeTextNode(
     rootId: number | undefined;
     cssCaptured?: boolean;
   },
+  snapshotParent?: Node | null,
 ): serializedNode {
   const { needsMask, maskTextFn, rootId, cssCaptured } = options;
   // The parent node may not be a html element which has a tagName attribute.
   // So just let it be undefined which is ok in this use case.
-  const parent = dom.parentNode(n);
+  const parent = snapshotParent === undefined ? dom.parentNode(n) : snapshotParent;
   const parentTagName = parent && (parent as HTMLElement).tagName;
   let textContent: string | null = "";
   const isStyle = parentTagName === "STYLE" ? true : undefined;
@@ -525,9 +591,15 @@ function serializeTextNode(
     }
   }
   if (!isStyle && !isScript && textContent && needsMask) {
-    textContent = maskTextFn
-      ? maskTextFn(textContent, dom.parentElement(n))
-      : textContent.replace(/[\S]/g, "*");
+    textContent =
+      !isOrangeReplaySdk && maskTextFn
+        ? maskTextFn(
+            textContent,
+            parent !== null && parent.nodeType === parent.ELEMENT_NODE
+              ? (parent as HTMLElement)
+              : null,
+          )
+        : textContent.replace(/[\S]/g, "*");
   }
 
   return {
@@ -543,11 +615,13 @@ function serializeElementNode(
     doc: Document;
     blockClass: string | RegExp;
     blockSelector: string | null;
-    inlineStylesheet: boolean;
+    needsBlock?: boolean;
+    inlineStylesheet?: boolean;
     maskInputOptions: MaskInputOptions;
     maskInputFn: MaskInputFn | undefined;
     dataURLOptions?: DataURLOptions;
     inlineImages: boolean;
+    deferInlineImages: boolean;
     recordCanvas: boolean;
     keepIframeSrcFn: KeepIframeSrcFn;
     /**
@@ -561,17 +635,19 @@ function serializeElementNode(
     doc,
     blockClass,
     blockSelector,
+    needsBlock,
     inlineStylesheet,
     maskInputOptions = {},
     maskInputFn,
     dataURLOptions = {},
     inlineImages,
+    deferInlineImages,
     recordCanvas,
     keepIframeSrcFn,
     newlyAddedElement = false,
     rootId,
   } = options;
-  const needBlock = _isBlockedElement(n, blockClass, blockSelector);
+  const needBlock = needsBlock ?? _isBlockedElement(n, blockClass, blockSelector);
   const tagName = getValidTagName(n);
   let attributes: attributes = {};
   const len = n.attributes.length;
@@ -610,7 +686,13 @@ function serializeElementNode(
   if (["input", "textarea", "select"].includes(tagName)) {
     const value = (n as HTMLInputElement | HTMLTextAreaElement).value;
     const checked = (n as HTMLInputElement).checked;
-    if (
+    if (isOrangeReplaySdk) {
+      // Attribute values can be older than the live property. Always replace
+      // them, including empty, checkbox, and radio values.
+      attributes.value = "*".repeat(value.length);
+      if (checked) attributes.checked = true;
+      else delete attributes.checked;
+    } else if (
       attributes.type !== "radio" &&
       attributes.type !== "checkbox" &&
       attributes.type !== "submit" &&
@@ -630,7 +712,10 @@ function serializeElementNode(
     }
   }
   if (tagName === "option") {
-    if ((n as HTMLOptionElement).selected && !maskInputOptions["select"]) {
+    if (isOrangeReplaySdk && typeof attributes.value === "string") {
+      attributes.value = "*".repeat(attributes.value.length);
+    }
+    if ((n as HTMLOptionElement).selected && !isOrangeReplaySdk && !maskInputOptions["select"]) {
       attributes.selected = true;
     } else {
       // ignore the html attribute (which corresponds to DOM (n as HTMLOptionElement).defaultSelected)
@@ -649,7 +734,7 @@ function serializeElementNode(
   }
 
   // canvas image data
-  if (tagName === "canvas" && recordCanvas) {
+  if (!isOrangeReplaySdk && tagName === "canvas" && recordCanvas) {
     try {
       if ((n as ICanvas).__context === "2d") {
         // only record this on 2d canvas
@@ -684,38 +769,44 @@ function serializeElementNode(
       // A tainted canvas is unreadable. Keep recording the rest of the page.
     }
   }
-  // save image offline
-  if (tagName === "img" && inlineImages) {
-    if (!canvasService) {
-      canvasService = doc.createElement("canvas");
-      canvasCtx = canvasService.getContext("2d");
+  if (tagName === "img" && (isOrangeReplaySdk || inlineImages)) {
+    if (isOrangeReplaySdk || deferInlineImages) {
+      // ImageManager seals these pixels after the recorder snapshot. Remove
+      // network sources so replay cannot contact the recorded website first.
+      delete attributes.src;
+      delete attributes.srcset;
+      delete attributes.imagesrcset;
+    } else {
+      if (!canvasService) {
+        canvasService = doc.createElement("canvas");
+        canvasCtx = canvasService.getContext("2d");
+      }
+      const image = n as HTMLImageElement;
+      const recordInlineImage = () => {
+        image.removeEventListener("load", recordInlineImage);
+        if (
+          image.naturalWidth <= 0 ||
+          image.naturalHeight <= 0 ||
+          image.naturalWidth * image.naturalHeight > MAX_INLINE_IMAGE_PIXELS ||
+          canvasCtx === null
+        ) {
+          return;
+        }
+        try {
+          canvasService!.width = image.naturalWidth;
+          canvasService!.height = image.naturalHeight;
+          canvasCtx.drawImage(image, 0, 0);
+          keepInlineImage(
+            attributes,
+            canvasService!.toDataURL(dataURLOptions.type, dataURLOptions.quality),
+          );
+        } catch {
+          // Cross-origin images without CORS cannot be read.
+        }
+      };
+      if (image.complete && image.naturalWidth !== 0) recordInlineImage();
+      else image.addEventListener("load", recordInlineImage, { once: true });
     }
-    const image = n as HTMLImageElement;
-    const recordInlineImage = () => {
-      image.removeEventListener("load", recordInlineImage);
-      if (
-        image.naturalWidth <= 0 ||
-        image.naturalHeight <= 0 ||
-        image.naturalWidth * image.naturalHeight > MAX_INLINE_IMAGE_PIXELS
-      ) {
-        return;
-      }
-      try {
-        canvasService!.width = image.naturalWidth;
-        canvasService!.height = image.naturalHeight;
-        canvasCtx!.drawImage(image, 0, 0);
-        keepInlineImage(
-          attributes,
-          canvasService!.toDataURL(dataURLOptions.type, dataURLOptions.quality),
-        );
-      } catch {
-        // Cross-origin images without CORS cannot be read. Do not change the
-        // live image or trigger a second request from the customer's page.
-      }
-    };
-    // The image content may not have finished loading yet.
-    if (image.complete && image.naturalWidth !== 0) recordInlineImage();
-    else image.addEventListener("load", recordInlineImage, { once: true });
   }
   // media elements
   if (["audio", "video"].includes(tagName)) {
@@ -750,7 +841,7 @@ function serializeElementNode(
     };
   }
   // iframe
-  if (tagName === "iframe" && !keepIframeSrcFn(attributes.src as string)) {
+  if (tagName === "iframe" && (isOrangeReplaySdk || !keepIframeSrcFn(attributes.src as string))) {
     if (!(n as HTMLIFrameElement).contentDocument) {
       // we can't record it directly as we can't see into it
       // preserve the src attribute so a decision can be taken at replay time
@@ -902,34 +993,46 @@ export function serializeNodeWithId(
     mirror: Mirror;
     blockClass: string | RegExp;
     blockSelector: string | null;
+    needsBlock?: boolean;
     maskTextClass: string | RegExp;
     maskTextSelector: string | null;
     skipChild: boolean;
-    inlineStylesheet: boolean;
+    inlineStylesheet?: boolean;
     newlyAddedElement?: boolean;
     maskInputOptions?: MaskInputOptions;
     needsMask?: boolean;
-    maskTextFn: MaskTextFn | undefined;
-    maskInputFn: MaskInputFn | undefined;
-    slimDOMOptions: SlimDOMOptions;
+    maskTextFn?: MaskTextFn;
+    maskInputFn?: MaskInputFn;
+    slimDOMOptions?: SlimDOMOptions;
     dataURLOptions?: DataURLOptions;
     keepIframeSrcFn?: KeepIframeSrcFn;
     inlineImages?: boolean;
+    deferInlineImages?: boolean;
     recordCanvas?: boolean;
     preserveWhiteSpace?: boolean;
     onSerialize?: (n: Node) => unknown;
-    onIframeLoad?: (iframeNode: HTMLIFrameElement, node: serializedElementNodeWithId) => unknown;
+    onIframeLoad?: (
+      iframeNode: HTMLIFrameElement,
+      node: serializedElementNodeWithId,
+      capturedDocument?: Document,
+    ) => unknown;
     iframeLoadTimeout?: number;
     onStylesheetLoad?: (linkNode: HTMLLinkElement, node: serializedElementNodeWithId) => unknown;
     stylesheetLoadTimeout?: number;
     cssCaptured?: boolean;
+    reservedId?: number;
+    reuseIdsFrom?: Mirror;
+    onIframeReady?: (doc: Document) => void;
+    skipIframeInitialLoad?: boolean;
   },
+  snapshotParent?: Node | null,
 ): serializedNodeWithId | null {
   const {
     doc,
     mirror,
     blockClass,
     blockSelector,
+    needsBlock,
     maskTextClass,
     maskTextSelector,
     skipChild = false,
@@ -937,9 +1040,10 @@ export function serializeNodeWithId(
     maskInputOptions = {},
     maskTextFn,
     maskInputFn,
-    slimDOMOptions,
+    slimDOMOptions = {},
     dataURLOptions = {},
     inlineImages = false,
+    deferInlineImages = false,
     recordCanvas = false,
     onSerialize,
     onIframeLoad,
@@ -949,6 +1053,10 @@ export function serializeNodeWithId(
     keepIframeSrcFn = () => false,
     newlyAddedElement = false,
     cssCaptured = false,
+    reservedId,
+    reuseIdsFrom,
+    onIframeReady,
+    skipIframeInitialLoad = false,
   } = options;
   let { needsMask } = options;
   let { preserveWhiteSpace = true } = options;
@@ -959,42 +1067,48 @@ export function serializeNodeWithId(
     needsMask = needMaskingText(n as Element, maskTextClass, maskTextSelector, checkAncestors);
   }
 
-  const _serializedNode = serializeNode(n, {
-    doc,
-    mirror,
-    blockClass,
-    blockSelector,
-    needsMask,
-    inlineStylesheet,
-    maskInputOptions,
-    maskTextFn,
-    maskInputFn,
-    dataURLOptions,
-    inlineImages,
-    recordCanvas,
-    keepIframeSrcFn,
-    newlyAddedElement,
-    cssCaptured,
-  });
+  const _serializedNode = serializeNode(
+    n,
+    {
+      doc,
+      mirror,
+      blockClass,
+      blockSelector,
+      needsBlock,
+      needsMask,
+      inlineStylesheet,
+      maskInputOptions,
+      maskTextFn,
+      maskInputFn,
+      dataURLOptions,
+      inlineImages,
+      deferInlineImages,
+      recordCanvas,
+      keepIframeSrcFn,
+      newlyAddedElement,
+      cssCaptured,
+    },
+    snapshotParent,
+  );
   if (!_serializedNode) {
     // TODO: dev only
     console.warn(n, "not serialized");
     return null;
   }
 
-  let id: number | undefined;
-  if (mirror.hasNode(n)) {
-    // Reuse the previous id
-    id = mirror.getId(n);
-  } else if (
-    slimDOMExcluded(_serializedNode, slimDOMOptions) ||
-    (!preserveWhiteSpace &&
-      _serializedNode.type === NodeType.Text &&
-      !_serializedNode.textContent.replace(/^\s+|\s+$/gm, "").length)
+  let id: number;
+  if (
+    !isOrangeReplaySdk &&
+    (slimDOMExcluded(_serializedNode, slimDOMOptions) ||
+      (!preserveWhiteSpace &&
+        _serializedNode.type === NodeType.Text &&
+        !_serializedNode.textContent.replace(/^\s+|\s+$/gm, "").length))
   ) {
     id = IGNORED_NODE;
   } else {
-    id = genId();
+    const currentId = mirror.hasNode(n) ? mirror.getId(n) : -1;
+    const previousId = currentId > 0 ? currentId : (reservedId ?? reuseIdsFrom?.getId(n) ?? -1);
+    id = previousId > 0 ? previousId : genId();
   }
 
   const serializedNode = Object.assign(_serializedNode, { id });
@@ -1009,7 +1123,9 @@ export function serializeNodeWithId(
     onSerialize(n);
   }
   let recordChild = !skipChild;
+  let nodeWasBlocked = false;
   if (serializedNode.type === NodeType.Element) {
+    nodeWasBlocked = serializedNode.needBlock === true;
     recordChild = recordChild && !serializedNode.needBlock;
     // this property was not needed in replay side
     delete serializedNode.needBlock;
@@ -1021,6 +1137,7 @@ export function serializeNodeWithId(
     recordChild
   ) {
     if (
+      !isOrangeReplaySdk &&
       slimDOMOptions.headWhitespace &&
       serializedNode.type === NodeType.Element &&
       serializedNode.tagName === "head"
@@ -1044,15 +1161,18 @@ export function serializeNodeWithId(
       slimDOMOptions,
       dataURLOptions,
       inlineImages,
+      deferInlineImages,
       recordCanvas,
       preserveWhiteSpace,
       onSerialize,
       onIframeLoad,
+      onIframeReady,
       iframeLoadTimeout,
       onStylesheetLoad,
       stylesheetLoadTimeout,
       keepIframeSrcFn,
       cssCaptured: false,
+      reuseIdsFrom,
     };
 
     if (
@@ -1089,17 +1209,28 @@ export function serializeNodeWithId(
     }
   }
 
-  const parent = dom.parentNode(n);
-  if (parent && isShadowRoot(parent) && isNativeShadowDom(parent)) {
+  const liveParent = dom.parentNode(n);
+  if (liveParent && isShadowRoot(liveParent) && isNativeShadowDom(liveParent)) {
     serializedNode.isShadow = true;
   }
 
-  if (serializedNode.type === NodeType.Element && serializedNode.tagName === "iframe") {
-    onceIframeLoaded(
-      n as HTMLIFrameElement,
-      () => {
-        const iframeDoc = (n as HTMLIFrameElement).contentDocument;
-        if (iframeDoc && onIframeLoad) {
+  if (
+    serializedNode.type === NodeType.Element &&
+    serializedNode.tagName === "iframe" &&
+    !nodeWasBlocked
+  ) {
+    const iframe = n as HTMLIFrameElement;
+    if (onIframeReady !== undefined) {
+      const iframeDoc = iframe.contentDocument;
+      if (!skipIframeInitialLoad && iframeDoc?.readyState === "complete") {
+        onIframeReady(iframeDoc);
+      }
+    } else {
+      onceIframeLoaded(
+        iframe,
+        () => {
+          const iframeDoc = iframe.contentDocument;
+          if (!iframeDoc || !onIframeLoad) return;
           const serializedIframeNode = serializeNodeWithId(iframeDoc, {
             doc: iframeDoc,
             mirror,
@@ -1116,6 +1247,7 @@ export function serializeNodeWithId(
             slimDOMOptions,
             dataURLOptions,
             inlineImages,
+            deferInlineImages,
             recordCanvas,
             preserveWhiteSpace,
             onSerialize,
@@ -1124,18 +1256,16 @@ export function serializeNodeWithId(
             onStylesheetLoad,
             stylesheetLoadTimeout,
             keepIframeSrcFn,
+            reuseIdsFrom,
           });
 
           if (serializedIframeNode) {
-            onIframeLoad(
-              n as HTMLIFrameElement,
-              serializedIframeNode as serializedElementNodeWithId,
-            );
+            onIframeLoad(iframe, serializedIframeNode as serializedElementNodeWithId);
           }
-        }
-      },
-      iframeLoadTimeout,
-    );
+        },
+        iframeLoadTimeout,
+      );
+    }
   }
 
   // <link rel=stylesheet href=...>
@@ -1168,6 +1298,7 @@ export function serializeNodeWithId(
             slimDOMOptions,
             dataURLOptions,
             inlineImages,
+            deferInlineImages,
             recordCanvas,
             preserveWhiteSpace,
             onSerialize,
@@ -1176,6 +1307,7 @@ export function serializeNodeWithId(
             onStylesheetLoad,
             stylesheetLoadTimeout,
             keepIframeSrcFn,
+            reuseIdsFrom,
           });
 
           if (serializedLinkNode) {
@@ -1193,31 +1325,59 @@ export function serializeNodeWithId(
   return serializedNode;
 }
 
-function snapshot(
-  n: Document,
-  options?: {
-    mirror?: Mirror;
-    blockClass?: string | RegExp;
-    blockSelector?: string | null;
-    maskTextClass?: string | RegExp;
-    maskTextSelector?: string | null;
-    inlineStylesheet?: boolean;
-    maskAllInputs?: boolean | MaskInputOptions;
-    maskTextFn?: MaskTextFn;
-    maskInputFn?: MaskInputFn;
-    slimDOM?: "all" | boolean | SlimDOMOptions;
-    dataURLOptions?: DataURLOptions;
-    inlineImages?: boolean;
-    recordCanvas?: boolean;
-    preserveWhiteSpace?: boolean;
-    onSerialize?: (n: Node) => unknown;
-    onIframeLoad?: (iframeNode: HTMLIFrameElement, node: serializedElementNodeWithId) => unknown;
-    iframeLoadTimeout?: number;
-    onStylesheetLoad?: (linkNode: HTMLLinkElement, node: serializedElementNodeWithId) => unknown;
-    stylesheetLoadTimeout?: number;
-    keepIframeSrcFn?: KeepIframeSrcFn;
-  },
-): serializedNodeWithId | null {
+export interface SnapshotOptions {
+  mirror?: Mirror;
+  reuseIdsFrom?: Mirror;
+  blockClass?: string | RegExp;
+  blockSelector?: string | null;
+  maskTextClass?: string | RegExp;
+  maskTextSelector?: string | null;
+  inlineStylesheet?: boolean;
+  maskAllInputs?: boolean | MaskInputOptions;
+  maskTextFn?: MaskTextFn;
+  maskInputFn?: MaskInputFn;
+  slimDOM?: "all" | boolean | SlimDOMOptions;
+  dataURLOptions?: DataURLOptions;
+  inlineImages?: boolean;
+  /** Used by record() to move pixel encoding off the snapshot task. */
+  deferInlineImages?: boolean;
+  recordCanvas?: boolean;
+  preserveWhiteSpace?: boolean;
+  onSerialize?: (n: Node) => unknown;
+  onIframeLoad?: (
+    iframeNode: HTMLIFrameElement,
+    node: serializedElementNodeWithId,
+    capturedDocument?: Document,
+  ) => unknown;
+  onIframeReady?: (doc: Document) => void;
+  iframeLoadTimeout?: number;
+  onStylesheetLoad?: (linkNode: HTMLLinkElement, node: serializedElementNodeWithId) => unknown;
+  stylesheetLoadTimeout?: number;
+  keepIframeSrcFn?: KeepIframeSrcFn;
+}
+
+export interface ChunkedSnapshotControl {
+  timeSliceMs?: number;
+  now?: () => number;
+  yieldToMain?: () => Promise<void>;
+  shouldStop?: () => boolean;
+  beforeSnapshot?: () => void;
+  afterTopology?: (
+    capturedIds: readonly number[],
+    parentIndexes: readonly number[],
+    nextIds: readonly (number | null)[],
+  ) => void | Promise<void>;
+  onShadowRoot?: (shadowRoot: ShadowRoot) => void;
+  onIframeDocument?: (iframe: HTMLIFrameElement, doc: Document) => void;
+  deferIframeDocuments?: boolean;
+  getTopologyRevision?: () => number;
+  getPrivacyRevision?: () => number;
+  onSnapshotUnstable?: () => void;
+  privacyParent?: Element;
+  skipPreparation?: boolean;
+}
+
+function snapshot(n: Document, options?: SnapshotOptions): serializedNodeWithId | null {
   const {
     mirror = new Mirror(),
     blockClass = "rr-block",
@@ -1226,6 +1386,7 @@ function snapshot(
     maskTextSelector = null,
     inlineStylesheet = true,
     inlineImages = false,
+    deferInlineImages = false,
     recordCanvas = false,
     maskAllInputs = false,
     maskTextFn,
@@ -1235,36 +1396,14 @@ function snapshot(
     preserveWhiteSpace,
     onSerialize,
     onIframeLoad,
+    onIframeReady,
     iframeLoadTimeout,
     onStylesheetLoad,
     stylesheetLoadTimeout,
     keepIframeSrcFn = () => false,
+    reuseIdsFrom,
   } = options || {};
-  const maskInputOptions: MaskInputOptions =
-    maskAllInputs === true
-      ? {
-          color: true,
-          date: true,
-          "datetime-local": true,
-          email: true,
-          month: true,
-          number: true,
-          range: true,
-          search: true,
-          tel: true,
-          text: true,
-          time: true,
-          url: true,
-          week: true,
-          textarea: true,
-          select: true,
-          password: true,
-        }
-      : maskAllInputs === false
-        ? {
-            password: true,
-          }
-        : maskAllInputs;
+  const maskInputOptions = resolveMaskInputOptions(maskAllInputs);
   const slimDOMOptions = slimDOMDefaults(slimDOM);
 
   return serializeNodeWithId(n, {
@@ -1282,15 +1421,746 @@ function snapshot(
     slimDOMOptions,
     dataURLOptions,
     inlineImages,
+    deferInlineImages,
     recordCanvas,
     preserveWhiteSpace,
     onSerialize,
     onIframeLoad,
+    onIframeReady,
     iframeLoadTimeout,
     onStylesheetLoad,
     stylesheetLoadTimeout,
     keepIframeSrcFn,
     newlyAddedElement: false,
+    reuseIdsFrom,
+  });
+}
+
+function estimateSerializedNodeBytes(node: serializedNodeWithId): number {
+  let bytes = 48;
+  if (node.type === NodeType.Element) {
+    bytes += node.tagName.length * 2;
+    for (const [name, value] of Object.entries(node.attributes)) {
+      bytes += name.length * 2 + estimateSerializedValueBytes(value);
+    }
+  } else if (node.type === NodeType.Text || node.type === NodeType.Comment) {
+    bytes += node.textContent.length * 2;
+  } else if (node.type === NodeType.DocumentType) {
+    bytes += (node.name.length + node.publicId.length + node.systemId.length) * 2;
+  }
+  return bytes;
+}
+
+function estimateSerializedValueBytes(value: unknown): number {
+  if (typeof value === "string") return value.length * 2 + 2;
+  if (typeof value === "number") return 16;
+  if (typeof value === "boolean") return 5;
+  if (value === null || value === undefined) return 4;
+  return 64;
+}
+
+/**
+ * Serializes a live document in short tasks while the recorder's live mirror
+ * continues to process events.
+ */
+export async function snapshotInChunks(
+  n: Document,
+  options: SnapshotOptions = {},
+  control: ChunkedSnapshotControl = {},
+): Promise<serializedNodeWithId | null> {
+  const mirror = options.mirror ?? new Mirror();
+  const blockClass = options.blockClass ?? "rr-block";
+  const blockSelector = options.blockSelector ?? null;
+  const maskTextClass = options.maskTextClass ?? "rr-mask";
+  const maskTextSelector = options.maskTextSelector ?? null;
+  const inlineStylesheet = options.inlineStylesheet ?? true;
+  const maskInputOptions = resolveMaskInputOptions(options.maskAllInputs ?? false);
+  const slimDOMOptions: SlimDOMOptions = isOrangeReplaySdk
+    ? {}
+    : slimDOMDefaults(options.slimDOM ?? false);
+  const keepIframeSrcFn = options.keepIframeSrcFn ?? (() => false);
+  const now = isOrangeReplaySdk
+    ? () => n.defaultView?.performance.now() ?? Date.now()
+    : (control.now ?? (() => n.defaultView?.performance.now() ?? Date.now()));
+  const yieldToMain = isOrangeReplaySdk
+    ? () => yieldForPaint(n.defaultView)
+    : (control.yieldToMain ?? (() => yieldForPaint(n.defaultView)));
+  const timeSliceMs = isOrangeReplaySdk ? 4 : cleanTimeSlice(control.timeSliceMs);
+  const getTopologyChildNodes = getSnapshotChildNodes();
+  const getTopologyNextSibling = getSnapshotNextSibling();
+  const getTopologyShadowRoot = getSnapshotShadowRoot();
+  if (control.skipPreparation !== true) {
+    await yieldToMain();
+    if (control.shouldStop?.() === true) return null;
+  }
+  control.beforeSnapshot?.();
+  let sliceStartedAt = now();
+  let root: serializedNodeWithId | null = null;
+
+  type ParentNode = serializedNodeWithId & { childNodes: serializedNodeWithId[] };
+
+  // Capture the tree shape in bounded tasks too. Mutations are observed while
+  // this runs and reconciled against each node's captured parent before the
+  // baseline is emitted.
+  const MASKED = 1;
+  const BLOCKED = 2;
+  const SHADOW = 4;
+  const RECORD_CHILDREN = 8;
+  const IGNORE_DESCENDANTS = 16;
+  const PRESERVE_WHITE_SPACE = 32;
+  const CSS_CAPTURED = 64;
+  const BLOCKED_BY_ANCESTOR = 128;
+  if (
+    control.privacyParent !== undefined &&
+    matchesPrivacyTree(control.privacyParent, blockClass, blockSelector)
+  ) {
+    return null;
+  }
+  const rootNeedsMask =
+    control.privacyParent !== undefined &&
+    matchesPrivacyTree(control.privacyParent, maskTextClass, maskTextSelector);
+  const topologyNodes: Node[] = [];
+  const topologyParentIndexes: number[] = [];
+  const topologyFlags: number[] = [];
+  const topologyLiveIds: number[] = [];
+  const topologyNextLiveIds: Array<number | null> = [];
+  const lastChildIndexByParent: number[] = [];
+  const visitedTopologyNodes = new WeakSet<Node>();
+  const topologyIframeOwners = new Map<number, HTMLIFrameElement>();
+  const iframeDocumentOwners = new WeakMap<Document, HTMLIFrameElement>();
+  const iframeDocumentParentIndexes = new WeakMap<Document, number>();
+  const capturedIframeDocuments = new WeakMap<HTMLIFrameElement, Document>();
+  const topologyTaskNodes: Node[] = [n];
+  const topologyTaskParentIndexes: number[] = [-1];
+  const topologyTaskFlags: number[] = [rootNeedsMask ? MASKED : 0];
+  const topologyTaskIsChildCursor: boolean[] = [false];
+  const topologyTaskNextSiblings: Array<Node | null | undefined> = [undefined];
+  let topologyRevision = control.getTopologyRevision?.() ?? 0;
+  let topologyRepairs = 0;
+  while (true) {
+    while (topologyTaskNodes.length > 0) {
+      if (control.shouldStop?.() === true) return null;
+      const taskNode = topologyTaskNodes.pop()!;
+      const parentIndex = topologyTaskParentIndexes.pop()!;
+      const inheritedFlags = topologyTaskFlags.pop()!;
+      const isChildCursor = topologyTaskIsChildCursor.pop()!;
+      const capturedNextSibling = topologyTaskNextSiblings.pop();
+      if (isChildCursor) {
+        if (capturedNextSibling !== null && capturedNextSibling !== undefined) {
+          topologyTaskNodes.push(capturedNextSibling);
+          topologyTaskParentIndexes.push(parentIndex);
+          topologyTaskFlags.push(inheritedFlags);
+          topologyTaskIsChildCursor.push(true);
+          topologyTaskNextSiblings.push(getTopologyNextSibling(capturedNextSibling));
+        }
+        topologyTaskNodes.push(taskNode);
+        topologyTaskParentIndexes.push(parentIndex);
+        topologyTaskFlags.push(inheritedFlags);
+        topologyTaskIsChildCursor.push(false);
+        topologyTaskNextSiblings.push(undefined);
+        if (now() - sliceStartedAt >= timeSliceMs) {
+          await yieldToMain();
+          sliceStartedAt = now();
+        }
+        continue;
+      }
+
+      const currentNode = taskNode;
+      if (visitedTopologyNodes.has(currentNode)) continue;
+      visitedTopologyNodes.add(currentNode);
+      const currentIndex = topologyNodes.length;
+      const nodeType = currentNode.nodeType;
+      const isCurrentElement = nodeType === 1;
+      const canHaveChildren = isCurrentElement || nodeType === 9 || nodeType === 11;
+      const children = canHaveChildren ? getTopologyChildNodes(currentNode) : null;
+      let needsMask =
+        (inheritedFlags & MASKED) !== 0 ||
+        (parentIndex !== -1 && (topologyFlags[parentIndex]! & MASKED) !== 0);
+      let needsBlock = false;
+      if (isCurrentElement) {
+        const element = currentNode as HTMLElement;
+        // Most application elements have no class at all. Avoid creating and
+        // searching DOMTokenList twice for the common default privacy rules.
+        const hasPrivacyClass = element.hasAttribute("class");
+        if (!needsMask && children!.length > 0) {
+          needsMask =
+            !hasPrivacyClass && typeof maskTextClass === "string" && maskTextSelector === null
+              ? false
+              : _isBlockedElement(element, maskTextClass, maskTextSelector);
+        }
+        needsBlock =
+          !hasPrivacyClass && typeof blockClass === "string" && blockSelector === null
+            ? false
+            : _isBlockedElement(element, blockClass, blockSelector);
+      }
+      topologyNodes.push(currentNode);
+      topologyParentIndexes.push(parentIndex);
+      topologyFlags.push(
+        (needsMask ? MASKED : 0) | (needsBlock ? BLOCKED : 0) | (inheritedFlags & SHADOW),
+      );
+      const liveId = options.reuseIdsFrom?.getId(currentNode) ?? -1;
+      options.reuseIdsFrom?.activateReservation(currentNode);
+      topologyLiveIds.push(liveId);
+      topologyNextLiveIds.push(null);
+      if (parentIndex >= 0) {
+        const previousSiblingIndex = lastChildIndexByParent[parentIndex];
+        if (previousSiblingIndex !== undefined) {
+          topologyNextLiveIds[previousSiblingIndex] = liveId > 0 ? liveId : null;
+        }
+        lastChildIndexByParent[parentIndex] = currentIndex;
+      }
+      if (nodeType === 9) {
+        const iframeOwner = iframeDocumentOwners.get(currentNode as Document);
+        if (iframeOwner !== undefined) topologyIframeOwners.set(currentIndex, iframeOwner);
+      }
+
+      if (!needsBlock) {
+        if (isCurrentElement && currentNode.nodeName === "IFRAME") {
+          const iframe = currentNode as HTMLIFrameElement;
+          const iframeDocument = getLoadedIframeDocument(iframe);
+          if (iframeDocument !== null) {
+            capturedIframeDocuments.set(iframe, iframeDocument);
+            control.onIframeDocument?.(iframe, iframeDocument);
+            if (control.deferIframeDocuments !== true) {
+              topologyTaskNodes.push(iframeDocument);
+              topologyTaskParentIndexes.push(-1);
+              topologyTaskFlags.push(needsMask ? MASKED : 0);
+              topologyTaskIsChildCursor.push(false);
+              topologyTaskNextSiblings.push(undefined);
+              iframeDocumentOwners.set(iframeDocument, iframe);
+              iframeDocumentParentIndexes.set(iframeDocument, currentIndex);
+            }
+          }
+        }
+
+        const shadowRoot = isCurrentElement ? getTopologyShadowRoot(currentNode as Element) : null;
+        if (shadowRoot !== null) {
+          control.onShadowRoot?.(shadowRoot);
+          const firstShadowChild = getTopologyChildNodes(shadowRoot)[0];
+          if (firstShadowChild !== undefined) {
+            topologyTaskNodes.push(firstShadowChild);
+            topologyTaskParentIndexes.push(currentIndex);
+            topologyTaskFlags.push(isNativeShadowDom(shadowRoot) ? SHADOW : 0);
+            topologyTaskIsChildCursor.push(true);
+            topologyTaskNextSiblings.push(getTopologyNextSibling(firstShadowChild));
+          }
+        }
+
+        const firstChild = children?.[0];
+        if (firstChild !== undefined) {
+          topologyTaskNodes.push(firstChild);
+          topologyTaskParentIndexes.push(currentIndex);
+          topologyTaskFlags.push(0);
+          topologyTaskIsChildCursor.push(true);
+          topologyTaskNextSiblings.push(getTopologyNextSibling(firstChild));
+        }
+      }
+
+      if (topologyTaskNodes.length > 0 && now() - sliceStartedAt >= timeSliceMs) {
+        await yieldToMain();
+        sliceStartedAt = now();
+      }
+    }
+
+    const nextTopologyRevision = control.getTopologyRevision?.() ?? topologyRevision;
+    if (nextTopologyRevision === topologyRevision) break;
+    if (topologyRepairs >= 2) {
+      // Ordered mutation catch-up is the authority after this point. Stop
+      // rescanning so a continuously changing public page can still finish.
+      break;
+    }
+    topologyRepairs += 1;
+    topologyRevision = nextTopologyRevision;
+
+    // A removed cursor can hide a later sibling from a live NodeList. When a
+    // mutation happened during topology capture, rescan each captured parent
+    // in slices and queue only nodes that were not visited yet.
+    const repairLength = topologyNodes.length;
+    for (let index = 0; index < repairLength; index += 1) {
+      const currentNode = topologyNodes[index]!;
+      const currentFlags = topologyFlags[index]!;
+      if ((currentFlags & BLOCKED) !== 0) continue;
+      const isCurrentElement = currentNode.nodeType === currentNode.ELEMENT_NODE;
+      if (isCurrentElement && currentNode.nodeName === "IFRAME") {
+        const iframe = currentNode as HTMLIFrameElement;
+        const iframeDocument = getLoadedIframeDocument(iframe);
+        if (iframeDocument !== null && !visitedTopologyNodes.has(iframeDocument)) {
+          capturedIframeDocuments.set(iframe, iframeDocument);
+          control.onIframeDocument?.(iframe, iframeDocument);
+          if (control.deferIframeDocuments !== true) {
+            iframeDocumentOwners.set(iframeDocument, iframe);
+            iframeDocumentParentIndexes.set(iframeDocument, index);
+            topologyTaskNodes.push(iframeDocument);
+            topologyTaskParentIndexes.push(-1);
+            topologyTaskFlags.push(currentFlags & MASKED);
+            topologyTaskIsChildCursor.push(false);
+            topologyTaskNextSiblings.push(undefined);
+          }
+        }
+      }
+      const shadowRoot = isCurrentElement ? getTopologyShadowRoot(currentNode as Element) : null;
+      const firstShadowChild =
+        shadowRoot === null ? undefined : getTopologyChildNodes(shadowRoot)[0];
+      if (shadowRoot !== null) control.onShadowRoot?.(shadowRoot);
+      if (firstShadowChild !== undefined) {
+        topologyTaskNodes.push(firstShadowChild);
+        topologyTaskParentIndexes.push(index);
+        topologyTaskFlags.push(isNativeShadowDom(shadowRoot!) ? SHADOW : 0);
+        topologyTaskIsChildCursor.push(true);
+        topologyTaskNextSiblings.push(getTopologyNextSibling(firstShadowChild));
+      }
+      const firstChild =
+        isCurrentElement ||
+        currentNode.nodeType === currentNode.DOCUMENT_NODE ||
+        currentNode.nodeType === currentNode.DOCUMENT_FRAGMENT_NODE
+          ? getTopologyChildNodes(currentNode)[0]
+          : undefined;
+      if (firstChild !== undefined) {
+        topologyTaskNodes.push(firstChild);
+        topologyTaskParentIndexes.push(index);
+        topologyTaskFlags.push(0);
+        topologyTaskIsChildCursor.push(true);
+        topologyTaskNextSiblings.push(getTopologyNextSibling(firstChild));
+      }
+      if (index + 1 < repairLength && now() - sliceStartedAt >= timeSliceMs) {
+        await yieldToMain();
+        sliceStartedAt = now();
+      }
+    }
+  }
+  await control.afterTopology?.(topologyLiveIds, topologyParentIndexes, topologyNextLiveIds);
+  if (control.shouldStop?.() === true) return null;
+  if (topologyNodes.length > 0) await yieldToMain();
+  if (control.shouldStop?.() === true) return null;
+  sliceStartedAt = now();
+
+  const serializedNodes: Array<serializedNodeWithId | undefined> = [];
+  const serializedEstimates: Array<{ bytes: number } | undefined> = [];
+  const iframeSnapshots: Array<{
+    iframe: HTMLIFrameElement;
+    document: Document;
+    node: serializedElementNodeWithId;
+    estimate: { bytes: number };
+  }> = [];
+  let rootEstimate: { bytes: number } | undefined;
+
+  // The default class rules change only through DOM mutations, so their live
+  // ancestor state can be shared by descendants. Selector rules may depend on
+  // focus/hover state, so keep the uncached path for those custom options.
+  const canCacheLivePrivacy =
+    control.getPrivacyRevision !== undefined &&
+    !blockSelector?.includes(":") &&
+    !maskTextSelector?.includes(":");
+  let cachedPrivacyRevision = control.getPrivacyRevision?.() ?? 0;
+  let livePrivacyByElement = new WeakMap<Element, number>();
+  const resetLivePrivacyCache = () => {
+    cachedPrivacyRevision = control.getPrivacyRevision?.() ?? cachedPrivacyRevision;
+    livePrivacyByElement = new WeakMap();
+  };
+  const resolveLivePrivacy = (start: Element | null, useCache: boolean): number => {
+    if (useCache && control.getPrivacyRevision?.() !== cachedPrivacyRevision) {
+      resetLivePrivacyCache();
+    }
+    let element = start;
+    let privacy = 0;
+    if (!useCache) {
+      while (element !== null) {
+        if (_isBlockedElement(element as HTMLElement, blockClass, blockSelector)) {
+          privacy |= BLOCKED;
+        }
+        if (_isBlockedElement(element as HTMLElement, maskTextClass, maskTextSelector)) {
+          privacy |= MASKED;
+        }
+        element = privacyParentElement(element);
+      }
+      return privacy;
+    }
+
+    const uncached: Element[] = [];
+    while (element !== null) {
+      const cached = livePrivacyByElement.get(element);
+      if (cached !== undefined) {
+        privacy = cached;
+        break;
+      }
+      uncached.push(element);
+      element = privacyParentElement(element);
+    }
+    while (uncached.length > 0) {
+      const current = uncached.pop()!;
+      if (_isBlockedElement(current as HTMLElement, blockClass, blockSelector)) privacy |= BLOCKED;
+      if (_isBlockedElement(current as HTMLElement, maskTextClass, maskTextSelector)) {
+        privacy |= MASKED;
+      }
+      livePrivacyByElement.set(current, privacy);
+    }
+    return privacy;
+  };
+  const capturedPrivacy = new Uint8Array(topologyNodes.length);
+  const readLivePrivacy = (
+    topologyIndex: number,
+    capturedState: Uint8Array,
+    useCache = canCacheLivePrivacy,
+  ) => {
+    const currentNode = topologyNodes[topologyIndex]!;
+    const currentFlags = topologyFlags[topologyIndex]!;
+    let capturedParentIndex = topologyParentIndexes[topologyIndex]!;
+    if (capturedParentIndex === -1 && currentNode.nodeType === currentNode.DOCUMENT_NODE) {
+      capturedParentIndex = iframeDocumentParentIndexes.get(currentNode as Document) ?? -1;
+    }
+    const capturedParentPrivacy =
+      capturedParentIndex === -1 ? 0 : capturedState[capturedParentIndex]!;
+    let selfBlocked = (currentFlags & BLOCKED) !== 0;
+    let needsMask = (currentFlags & MASKED) !== 0;
+    let liveParent: Element | null;
+    if (currentNode.nodeType === currentNode.ELEMENT_NODE) {
+      const currentElement = currentNode as HTMLElement;
+      selfBlocked ||= _isBlockedElement(currentElement, blockClass, blockSelector);
+      needsMask ||= _isBlockedElement(currentElement, maskTextClass, maskTextSelector);
+      liveParent = privacyParentElement(currentElement);
+    } else if (currentNode.nodeType === currentNode.DOCUMENT_NODE) {
+      liveParent =
+        iframeDocumentOwners.get(currentNode as Document) ?? control.privacyParent ?? null;
+    } else {
+      liveParent = closestPrivacyElement(currentNode);
+    }
+    capturedState[topologyIndex] =
+      capturedParentPrivacy | (selfBlocked ? BLOCKED : 0) | (needsMask ? MASKED : 0);
+    const livePrivacy = resolveLivePrivacy(liveParent, useCache);
+    return (
+      (selfBlocked ? BLOCKED : 0) |
+      ((capturedParentPrivacy & BLOCKED) !== 0 || (livePrivacy & BLOCKED) !== 0
+        ? BLOCKED_BY_ANCESTOR
+        : 0) |
+      ((capturedState[topologyIndex]! & MASKED) !== 0 || (livePrivacy & MASKED) !== 0 ? MASKED : 0)
+    );
+  };
+
+  for (let topologyIndex = 0; topologyIndex < topologyNodes.length; topologyIndex += 1) {
+    if (control.shouldStop?.() === true) {
+      return null;
+    }
+
+    const currentNode = topologyNodes[topologyIndex]!;
+    let currentFlags = topologyFlags[topologyIndex]!;
+    const parentIndex = topologyParentIndexes[topologyIndex]!;
+    const parentFlags =
+      parentIndex === -1
+        ? (options.preserveWhiteSpace ?? true)
+          ? PRESERVE_WHITE_SPACE
+          : 0
+        : topologyFlags[parentIndex]!;
+    const iframeOwner = topologyIframeOwners.get(topologyIndex);
+    const parentNode =
+      parentIndex !== -1 && (parentFlags & RECORD_CHILDREN) !== 0
+        ? (serializedNodes[parentIndex] as ParentNode | undefined)
+        : undefined;
+    const parentEstimate = parentIndex === -1 ? undefined : serializedEstimates[parentIndex];
+    const parentIgnoreDescendants = (parentFlags & IGNORE_DESCENDANTS) !== 0;
+    const parentPreserveWhiteSpace = (parentFlags & PRESERVE_WHITE_SPACE) !== 0;
+    const parentCssCaptured = (parentFlags & CSS_CAPTURED) !== 0;
+    if (parentIndex !== -1 && (parentFlags & RECORD_CHILDREN) === 0) {
+      if (parentIgnoreDescendants) {
+        options.reuseIdsFrom?.updateMeta(currentNode, {
+          id: IGNORED_NODE,
+        } as serializedNodeWithId);
+      }
+      serializedNodes.push(undefined);
+      serializedEstimates.push(parentEstimate);
+      if (parentIgnoreDescendants) currentFlags |= IGNORE_DESCENDANTS;
+      topologyFlags[topologyIndex] = currentFlags;
+      continue;
+    }
+
+    const privacy = readLivePrivacy(topologyIndex, capturedPrivacy);
+    if ((privacy & BLOCKED_BY_ANCESTOR) !== 0) {
+      serializedNodes.push(undefined);
+      serializedEstimates.push(parentEstimate);
+      continue;
+    }
+
+    const estimate = parentEstimate ?? { bytes: 0 };
+
+    const currentDocument =
+      currentNode.nodeType === currentNode.DOCUMENT_NODE
+        ? (currentNode as Document)
+        : (currentNode.ownerDocument ?? n);
+    const currentIframe = currentNode.nodeName === "IFRAME" ? currentNode : undefined;
+    const capturedIframeDocument =
+      currentIframe === undefined
+        ? undefined
+        : capturedIframeDocuments.get(currentIframe as HTMLIFrameElement);
+    const serialized = serializeNodeWithId(
+      currentNode,
+      {
+        doc: currentDocument,
+        mirror,
+        reservedId: options.reuseIdsFrom?.getId(currentNode),
+        blockClass,
+        blockSelector,
+        needsBlock: (privacy & BLOCKED) !== 0,
+        maskTextClass,
+        maskTextSelector,
+        skipChild: true,
+        needsMask: (privacy & MASKED) !== 0,
+        ...(isOrangeReplaySdk
+          ? {}
+          : {
+              inlineStylesheet,
+              maskInputOptions,
+              maskTextFn: options.maskTextFn,
+              maskInputFn: options.maskInputFn,
+              slimDOMOptions,
+              dataURLOptions: options.dataURLOptions,
+              inlineImages: options.inlineImages,
+              deferInlineImages: options.deferInlineImages,
+              recordCanvas: options.recordCanvas,
+              preserveWhiteSpace: parentPreserveWhiteSpace,
+              iframeLoadTimeout: options.iframeLoadTimeout,
+              stylesheetLoadTimeout: options.stylesheetLoadTimeout,
+              keepIframeSrcFn,
+            }),
+        onSerialize: options.onSerialize,
+        onIframeLoad: options.onIframeLoad,
+        onIframeReady: options.onIframeReady,
+        onStylesheetLoad: options.onStylesheetLoad,
+        cssCaptured: (currentFlags & SHADOW) !== 0 ? false : parentCssCaptured,
+        newlyAddedElement: false,
+        skipIframeInitialLoad:
+          capturedIframeDocument !== undefined &&
+          capturedIframeDocument === getLoadedIframeDocument(currentIframe as HTMLIFrameElement),
+      },
+      currentNode.nodeType === currentNode.TEXT_NODE
+        ? parentIndex === -1
+          ? null
+          : topologyNodes[parentIndex]!
+        : undefined,
+    );
+    if (serialized !== null) {
+      estimate.bytes += estimateSerializedNodeBytes(serialized);
+      if ((currentFlags & SHADOW) !== 0) serialized.isShadow = true;
+      if (parentNode === undefined) {
+        if (iframeOwner !== undefined) {
+          iframeSnapshots.push({
+            iframe: iframeOwner,
+            document: currentNode as Document,
+            node: serialized as serializedElementNodeWithId,
+            estimate,
+          });
+        } else {
+          root = serialized;
+          rootEstimate = estimate;
+        }
+      } else parentNode.childNodes.push(serialized);
+    }
+    const liveMirror = options.reuseIdsFrom;
+    const candidateMeta = mirror.getMeta(currentNode);
+    if (liveMirror !== undefined && candidateMeta !== null) {
+      const liveId = liveMirror.getId(currentNode);
+      if (candidateMeta.id === IGNORED_NODE) {
+        liveMirror.updateMeta(currentNode, candidateMeta);
+      } else if (
+        !liveMirror.isRemovedNode(currentNode) &&
+        (liveId === candidateMeta.id || liveId === IGNORED_NODE)
+      ) {
+        liveMirror.add(currentNode, candidateMeta);
+      }
+    }
+    if (currentNode.nodeType !== currentNode.DOCUMENT_NODE) mirror.forgetNode(currentNode);
+
+    const recordChildren =
+      serialized !== null &&
+      hasSnapshotChildren(serialized) &&
+      (privacy & BLOCKED) === 0 &&
+      shouldReadChildren(serialized);
+    if (recordChildren) currentFlags |= RECORD_CHILDREN;
+    if (serialized === null) currentFlags |= IGNORE_DESCENDANTS;
+    const preserveWhiteSpace =
+      !isOrangeReplaySdk &&
+      slimDOMOptions.headWhitespace &&
+      serialized?.type === NodeType.Element &&
+      serialized.tagName === "head"
+        ? false
+        : parentPreserveWhiteSpace;
+    if (preserveWhiteSpace) currentFlags |= PRESERVE_WHITE_SPACE;
+    if (
+      serialized?.type === NodeType.Element &&
+      typeof serialized.attributes._cssText === "string"
+    ) {
+      currentFlags |= CSS_CAPTURED;
+    }
+    topologyFlags[topologyIndex] = currentFlags;
+    serializedNodes.push(serialized ?? undefined);
+    serializedEstimates.push(estimate);
+
+    const activeSliceMs = now() - sliceStartedAt;
+    if (topologyIndex + 1 < topologyNodes.length && activeSliceMs >= timeSliceMs) {
+      await yieldToMain();
+      sliceStartedAt = now();
+    }
+  }
+
+  // Privacy can change after an early branch was serialized. Recheck the full
+  // captured tree in slices and fail closed before any baseline is emitted.
+  if (topologyNodes.length > 0) await yieldToMain();
+  if (control.shouldStop?.() === true) return null;
+  sliceStartedAt = now();
+  resetLivePrivacyCache();
+  let finalPrivacyRevision = control.getPrivacyRevision?.() ?? 0;
+  let privacyRestarts = 0;
+  let useFinalPrivacyCache = canCacheLivePrivacy;
+  let finalCapturedPrivacy = new Uint8Array(topologyNodes.length);
+  for (let topologyIndex = 0; topologyIndex < topologyNodes.length; topologyIndex += 1) {
+    if (control.shouldStop?.() === true) return null;
+    const serialized = serializedNodes[topologyIndex];
+    if (serialized !== undefined) {
+      const privacy = readLivePrivacy(topologyIndex, finalCapturedPrivacy, useFinalPrivacyCache);
+      if ((privacy & (BLOCKED | BLOCKED_BY_ANCESTOR)) !== 0) {
+        if (serialized.type === NodeType.Element) {
+          const { width, height } = (
+            topologyNodes[topologyIndex] as Element
+          ).getBoundingClientRect();
+          serialized.attributes = {
+            class: serialized.attributes.class,
+            rr_width: `${width}px`,
+            rr_height: `${height}px`,
+          };
+          serialized.childNodes = [];
+          serialized.needBlock = true;
+        } else if (serialized.type === NodeType.Document) {
+          serialized.childNodes = [];
+        } else if (serialized.type === NodeType.Text) {
+          serialized.textContent = "";
+        }
+      } else if (
+        (privacy & MASKED) !== 0 &&
+        serialized.type === NodeType.Text &&
+        topologyNodes[topologyIndex]!.parentNode?.nodeName !== "STYLE" &&
+        topologyNodes[topologyIndex]!.parentNode?.nodeName !== "SCRIPT"
+      ) {
+        serialized.textContent =
+          !isOrangeReplaySdk && options.maskTextFn
+            ? options.maskTextFn(
+                serialized.textContent,
+                closestPrivacyElement(topologyNodes[topologyIndex]!) as HTMLElement | null,
+              )
+            : serialized.textContent.replace(/[\S]/g, "*");
+      }
+    }
+    if (topologyIndex + 1 < topologyNodes.length && now() - sliceStartedAt >= timeSliceMs) {
+      await yieldToMain();
+      sliceStartedAt = now();
+      const nextPrivacyRevision = control.getPrivacyRevision?.() ?? finalPrivacyRevision;
+      if (nextPrivacyRevision !== finalPrivacyRevision) {
+        if (privacyRestarts >= 2) {
+          control.onSnapshotUnstable?.();
+          return null;
+        }
+        privacyRestarts += 1;
+        finalPrivacyRevision = nextPrivacyRevision;
+        if (privacyRestarts === 2) useFinalPrivacyCache = false;
+        finalCapturedPrivacy = new Uint8Array(topologyNodes.length);
+        resetLivePrivacyCache();
+        topologyIndex = -1;
+      }
+    }
+  }
+
+  const privacyChangedAfterFinalPass = () =>
+    (control.getPrivacyRevision?.() ?? finalPrivacyRevision) !== finalPrivacyRevision;
+  for (let index = 0; index < iframeSnapshots.length; index += 1) {
+    const iframeSnapshot = iframeSnapshots[index]!;
+    if (
+      iframeSnapshot.document === getLoadedIframeDocument(iframeSnapshot.iframe) &&
+      !matchesPrivacyTree(iframeSnapshot.iframe, blockClass, blockSelector)
+    ) {
+      snapshotEstimatedBytes.set(iframeSnapshot.node, iframeSnapshot.estimate.bytes);
+      options.onIframeLoad?.(iframeSnapshot.iframe, iframeSnapshot.node, iframeSnapshot.document);
+    }
+    if ((index + 1) % 64 === 0 || now() - sliceStartedAt >= timeSliceMs) {
+      await yieldToMain();
+      sliceStartedAt = now();
+      if (control.shouldStop?.() === true) return null;
+      if (privacyChangedAfterFinalPass()) {
+        control.onSnapshotUnstable?.();
+        return null;
+      }
+    }
+  }
+  if (privacyChangedAfterFinalPass()) {
+    control.onSnapshotUnstable?.();
+    return null;
+  }
+
+  if (root !== null && rootEstimate !== undefined) {
+    snapshotEstimatedBytes.set(root, rootEstimate.bytes);
+  }
+
+  return root;
+}
+
+function resolveMaskInputOptions(maskAllInputs: boolean | MaskInputOptions): MaskInputOptions {
+  if (isOrangeReplaySdk) return {};
+  if (maskAllInputs !== true) {
+    return maskAllInputs === false ? { password: true } : maskAllInputs;
+  }
+
+  return {
+    color: true,
+    date: true,
+    "datetime-local": true,
+    email: true,
+    month: true,
+    number: true,
+    range: true,
+    search: true,
+    tel: true,
+    text: true,
+    time: true,
+    url: true,
+    week: true,
+    textarea: true,
+    select: true,
+    password: true,
+  };
+}
+
+function hasSnapshotChildren(
+  node: serializedNodeWithId,
+): node is serializedNodeWithId & { childNodes: serializedNodeWithId[] } {
+  return node.type === NodeType.Document || node.type === NodeType.Element;
+}
+
+function shouldReadChildren(
+  serialized: serializedNodeWithId & { childNodes: serializedNodeWithId[] },
+): boolean {
+  if (serialized.type !== NodeType.Element) return true;
+  return !(serialized.tagName === "textarea" && serialized.attributes.value !== undefined);
+}
+
+function cleanTimeSlice(value: number | undefined): number {
+  return value !== undefined && Number.isFinite(value) && value > 0 ? value : 4;
+}
+
+export function yieldForPaint(win: Window | null | undefined): Promise<void> {
+  if (win === null || win === undefined || typeof win.requestAnimationFrame !== "function") {
+    return new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  return new Promise((resolve) => {
+    let settled = false;
+    let frameId = 0;
+    let timeoutId = 0;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      win.cancelAnimationFrame(frameId);
+      win.clearTimeout(timeoutId);
+      resolve();
+    };
+    frameId = win.requestAnimationFrame(finish);
+    // requestAnimationFrame pauses in hidden tabs. Keep recording there, but
+    // favor a real paint whenever the page is visible.
+    timeoutId = win.setTimeout(finish, 50);
   });
 }
 

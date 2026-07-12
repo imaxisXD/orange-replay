@@ -1,30 +1,18 @@
 const WORKER_CORE_SOURCE = `
-const encoder = new TextEncoder();
-
 async function serializeAndCompressBatch(events) {
-  const serialized = stringifyReplayEvents(events);
-  const plainBytes = encoder.encode(serialized.json);
+  const serialized = chunkReplayEvents(events);
 
   if (typeof CompressionStream !== "function") {
     return {
-      payload: plainBytes,
+      payload: await encodeChunks(serialized.chunks),
       uncompressed: true,
       droppedEventCount: serialized.droppedEventCount,
     };
   }
 
   try {
-    const body = new Response(plainBytes).body;
-    if (body === null) {
-      return {
-        payload: plainBytes,
-        uncompressed: true,
-        droppedEventCount: serialized.droppedEventCount,
-      };
-    }
-
     const compressed = await new Response(
-      body.pipeThrough(new CompressionStream("gzip")),
+      new Blob(serialized.chunks).stream().pipeThrough(new CompressionStream("gzip")),
     ).arrayBuffer();
     return {
       payload: new Uint8Array(compressed),
@@ -33,41 +21,35 @@ async function serializeAndCompressBatch(events) {
     };
   } catch {
     return {
-      payload: plainBytes,
+      payload: await encodeChunks(serialized.chunks),
       uncompressed: true,
       droppedEventCount: serialized.droppedEventCount,
     };
   }
 }
 
-function stringifyReplayEvents(events) {
-  try {
-    return { json: JSON.stringify(events), droppedEventCount: 0 };
-  } catch {
-    const keptEvents = [];
-    let droppedEventCount = 0;
-
-    for (const event of events) {
-      try {
-        JSON.stringify(event);
-        keptEvents.push(event);
-      } catch {
-        droppedEventCount += 1;
-      }
+function chunkReplayEvents(events) {
+  const chunks = ["["];
+  let droppedEventCount = 0;
+  for (const event of events) {
+    if (chunks.length > 1) chunks.push(",");
+    if (event && Array.isArray(event.$)) {
+      chunks.push(...event.$);
+      continue;
     }
-
     try {
-      return {
-        json: JSON.stringify(keptEvents),
-        droppedEventCount,
-      };
+      chunks.push(JSON.stringify(event));
     } catch {
-      return {
-        json: "[]",
-        droppedEventCount: events.length,
-      };
+      droppedEventCount += 1;
+      if (chunks[chunks.length - 1] === ",") chunks.pop();
     }
   }
+  chunks.push("]");
+  return { chunks, droppedEventCount };
+}
+
+async function encodeChunks(chunks) {
+  return new Uint8Array(await new Blob(chunks).arrayBuffer());
 }
 `;
 
@@ -76,82 +58,118 @@ export function makeWorkerEntrySource(workerCoreSource = WORKER_CORE_SOURCE): st
 ${workerCoreSource}
 
 const events = [];
+let treeEvent = null;
+let treeChunks = [];
+let suffixes = [];
+let childCounts = [];
 
 self.onmessage = (rawEvent) => {
   const message = rawEvent.data;
-
-  if (message.type === "add") {
-    events.push(...message.events);
-    return;
-  }
-
-  if (message.type === "flush") {
-    flushEvents(message);
-    return;
-  }
-
-  if (message.type === "reset") {
-    events.splice(0);
-    return;
-  }
-
-  if (message.type === "stop") {
-    self.close();
+  switch (message[0]) {
+    case "a":
+      events.push(...message[1]);
+      break;
+    case "s":
+      treeEvent = message[1];
+      treeChunks = [];
+      suffixes = [];
+      childCounts = [];
+      break;
+    case "n":
+      addSnapshotNodes(message);
+      break;
+    case "e":
+      finishSnapshot();
+      break;
+    case "f":
+      flushEvents(message);
+      break;
+    case "r":
+      events.splice(0);
+      treeEvent = null;
+      treeChunks = [];
+      suffixes = [];
+      childCounts = [];
+      break;
+    case "x":
+      self.close();
   }
 };
 
+function addSnapshotNodes(message) {
+  const parts = [];
+  for (let index = 0; index < message[1].length; index += 1) {
+    const node = message[1][index];
+    const depth = message[2][index];
+    closeSnapshotNodes(depth, parts);
+    if (depth > 0) {
+      if (childCounts[depth - 1] > 0) parts.push(",");
+      childCounts[depth - 1] += 1;
+    }
+
+    const json = JSON.stringify(node);
+    const marker = '"childNodes":[]';
+    const markerIndex = json.indexOf(marker);
+    if (markerIndex === -1) {
+      parts.push(json);
+      continue;
+    }
+    parts.push(json.slice(0, markerIndex), '"childNodes":[');
+    suffixes[depth] = "]" + json.slice(markerIndex + marker.length);
+    suffixes.length = depth + 1;
+    childCounts[depth] = 0;
+    childCounts.length = depth + 1;
+  }
+  treeChunks.push(parts.join(""));
+}
+
+function finishSnapshot() {
+  const parts = [];
+  closeSnapshotNodes(0, parts);
+  treeChunks.push(parts.join(""));
+  const eventJson = JSON.stringify(treeEvent);
+  const marker = '"node":null';
+  const insertAt = eventJson.indexOf(marker);
+  events.push({
+    $: [
+      eventJson.slice(0, insertAt) + '"node":',
+      ...treeChunks,
+      eventJson.slice(insertAt + marker.length),
+    ],
+  });
+  treeEvent = null;
+}
+
+function closeSnapshotNodes(depth, parts) {
+  while (suffixes.length > depth) {
+    parts.push(suffixes.pop());
+    childCounts.pop();
+  }
+}
+
 function flushEvents(message) {
-  const take = cleanTake(message.take, events.length);
+  const take = message[2] ?? events.length;
   const batchEvents = events.splice(0, take);
   void serializeAndCompressBatch(batchEvents)
     .then((result) => {
-      const buffer = toTransferBuffer(result.payload);
+      const buffer = result.payload.buffer;
       self.postMessage(
-        {
-          type: "batch",
-          id: message.id,
-          payload: buffer,
-          uncompressed: result.uncompressed,
-          droppedEventCount: result.droppedEventCount,
-        },
+        ["b", message[1], buffer, result.uncompressed, result.droppedEventCount],
         [buffer],
       );
     })
     .catch((error) => {
-      self.postMessage({
-        type: "batch",
-        id: message.id,
-        error: stringFromUnknown(error) || "Orange Replay worker flush failed.",
-      });
+      const errorMessage =
+        error instanceof Error ? error.message : typeof error === "string" ? error : "";
+      self.postMessage([
+        "b",
+        message[1],
+        null,
+        null,
+        0,
+        errorMessage || "Orange Replay worker flush failed.",
+      ]);
     });
-}
-
-function cleanTake(value, total) {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-    return total;
-  }
-
-  return Math.min(total, Math.floor(value));
-}
-
-function toTransferBuffer(payload) {
-  if (payload.byteOffset === 0 && payload.byteLength === payload.buffer.byteLength) {
-    return payload.buffer;
-  }
-
-  return payload.buffer.slice(payload.byteOffset, payload.byteOffset + payload.byteLength);
-}
-
-function stringFromUnknown(value) {
-  if (value instanceof Error) {
-    return value.message;
-  }
-
-  if (typeof value === "string") {
-    return value;
-  }
-
-  return "";
 }
 `;
 }

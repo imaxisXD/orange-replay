@@ -89,26 +89,46 @@ test("records a real browser session into the local worker", async ({ page }) =>
   }
 });
 
-test("records through the degraded inline path when CSP blocks blob workers", async ({ page }) => {
+test("records through explicit inline transport when CSP blocks blob workers", async ({ page }) => {
   const state = await readState();
   const sentBatches = collectBrowserBatches(page);
-  const degradedWarnings: string[] = [];
+  const disabledWarnings: string[] = [];
   page.on("console", (message) => {
     const text = message.text();
-    if (text.includes("or:degraded")) {
-      degradedWarnings.push(text);
+    if (text.includes("or:disabled")) {
+      disabledWarnings.push(text);
     }
+  });
+
+  await seedProject(state);
+  await page.goto(`${state.cspDemoUrl}?transport=inline`);
+  await expect(page.getByRole("heading", { name: "Signal Board starter kit" })).toBeVisible();
+  await page.getByRole("button", { name: "Add product row" }).click();
+  await page.getByRole("button", { name: "Save settings" }).click();
+  await poll(async () => (sentBatches.length > 0 ? true : null), 5_000);
+
+  expect(disabledWarnings).toEqual([]);
+  expect(sentBatches.length).toBeGreaterThan(0);
+  await page.close();
+});
+
+test("fails safe when CSP blocks the default worker transport", async ({ page }) => {
+  const state = await readState();
+  const sentBatches = collectBrowserBatches(page);
+  const disabledWarnings: string[] = [];
+  page.on("console", (message) => {
+    const text = message.text();
+    if (text.includes("or:disabled")) disabledWarnings.push(text);
   });
 
   await seedProject(state);
   await page.goto(state.cspDemoUrl);
   await expect(page.getByRole("heading", { name: "Signal Board starter kit" })).toBeVisible();
   await page.getByRole("button", { name: "Add product row" }).click();
-  await page.getByRole("button", { name: "Save settings" }).click();
-  await poll(async () => (sentBatches.length > 0 ? true : null), 5_000);
+  await page.waitForTimeout(1_500);
 
-  expect(degradedWarnings.some((text) => text.includes("Worker creation failed"))).toBe(true);
-  expect(sentBatches.length).toBeGreaterThan(0);
+  expect(disabledWarnings).toEqual([expect.stringContaining("recording stopped")]);
+  expect(sentBatches).toHaveLength(0);
   await page.close();
 });
 
@@ -320,10 +340,13 @@ async function downloadReplayPayloads(
 
     const parsed = parseSegment(new Uint8Array(await response.arrayBuffer()));
     for (let index = 0; index < parsed.count; index += 1) {
-      // Stored segment batches are pure payload bytes — the DO strips the
-      // index sidecar at ingest and the worker gzip-normalizes uncompressed
-      // uploads, so every stored batch decodes as a standalone gzip member.
-      const text = await gunzipToText(segmentBatch(parsed, index));
+      // Stored batches keep their replay index beside the gzip payload so the
+      // player can preserve tab and checkpoint metadata.
+      const payload = decodeIngestBody(segmentBatch(parsed, index)).payload;
+      if (payload[0] !== 0x1f || payload[1] !== 0x8b) {
+        throw new Error(`Stored replay batch ${name}#${index} is not gzip data.`);
+      }
+      const text = await gunzipToText(payload);
       compressedBatchCount += 1;
       texts.push(text);
       const parsedEvents = JSON.parse(text) as unknown[];

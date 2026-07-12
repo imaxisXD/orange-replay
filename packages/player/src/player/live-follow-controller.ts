@@ -4,11 +4,13 @@ import {
   acceptLiveFrame,
   createLiveFrameState,
   createLiveKeyframeBuffer,
+  parseLiveHelloMessage,
   startWaitingForKeyframe,
   stopWaitingForKeyframe,
   type LiveFrame,
   type LiveReplayBatch,
 } from "../live.ts";
+import type { BatchIndex, LiveSessionSnapshot } from "@orange-replay/shared/types";
 import type { OrangePlayerOptions, PlayerErrorEvent, ReplayEvent } from "../types.ts";
 import type { DecodeWorkerHost } from "../worker-host.ts";
 
@@ -22,6 +24,9 @@ export interface LiveFollowHost {
   isDestroyed(): boolean;
   acceptsReplayTab(tab: string, events: readonly ReplayEvent[], keyframeStarted: boolean): boolean;
   onLiveEvents(events: readonly ReplayEvent[]): void;
+  onLiveIndex(index: BatchIndex): void;
+  onLiveSnapshot(snapshot: LiveSessionSnapshot): void;
+  onSessionEnded(): void;
   onResetReplayEvents(): void;
   onReconnectStarted(): void;
   onKeyframeOverflow(): void;
@@ -161,9 +166,13 @@ export class LiveFollowController {
       this.options.host.onError("Live socket failed.", undefined, "recovering");
     };
 
-    socket.onclose = () => {
+    socket.onclose = (event) => {
       this.connectedValue = false;
       this.options.host.onConnectionChanged(this.connectedValue);
+      if (event?.code === 1000) {
+        this.options.host.onSessionEnded();
+        return;
+      }
       if (this.options.host.isFollowing() && !this.options.host.isDestroyed()) {
         this.scheduleReconnect();
       }
@@ -171,7 +180,12 @@ export class LiveFollowController {
   }
 
   private handleLiveMessage(data: unknown): void {
-    if (typeof data === "string" || !(data instanceof ArrayBuffer)) {
+    if (typeof data === "string") {
+      const hello = parseLiveHelloMessage(data);
+      if (hello !== null) this.options.host.onLiveSnapshot(hello.snapshot);
+      return;
+    }
+    if (!(data instanceof ArrayBuffer)) {
       return;
     }
 
@@ -184,6 +198,7 @@ export class LiveFollowController {
     }
 
     if (frame !== null) {
+      this.options.host.onLiveIndex(frame.index);
       this.queueLiveFrame(frame);
     }
   }

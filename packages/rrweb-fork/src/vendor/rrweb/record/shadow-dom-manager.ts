@@ -9,7 +9,7 @@ import {
   initScrollObserver,
   initAdoptedStyleSheetObserver,
 } from "./observer";
-import { inDom } from "../utils";
+import { inDom, isBlocked, isNodeInSubtrees } from "../utils";
 import type { Mirror } from "../../rrweb-snapshot/index.ts";
 import { isNativeShadowDom } from "../../rrweb-snapshot/index.ts";
 import dom, { patch } from "../../rrweb-utils/index.ts";
@@ -23,11 +23,15 @@ type BypassOptions = Omit<
 
 export class ShadowDomManager {
   private shadowDoms = new WeakSet<ShadowRoot>();
+  private trackedShadowRoots = new Map<ShadowRoot, Array<() => void>>();
   private mutationCb: mutationCallBack;
   private scrollCb: scrollCallback;
   private bypassOptions: BypassOptions;
   private mirror: Mirror;
-  private restoreHandlers: (() => void)[] = [];
+  private restoreHandlers = new Map<Document, () => void>();
+  private iframeOwners = new Map<Document, HTMLIFrameElement>();
+  private observedIframeDocuments = new WeakSet<Document>();
+  private iframeDocuments = new WeakMap<HTMLIFrameElement, Document>();
 
   constructor(options: {
     mutationCb: mutationCallBack;
@@ -53,21 +57,35 @@ export class ShadowDomManager {
     if (!isNativeShadowDom(shadowRoot)) return;
     if (this.shadowDoms.has(shadowRoot)) return;
     this.shadowDoms.add(shadowRoot);
-    const [observer] = initMutationObserver(
+    const rootCleanups: Array<() => void> = [];
+    this.trackedShadowRoots.set(shadowRoot, rootCleanups);
+    const shouldRecord = () => {
+      const host = dom.host(shadowRoot);
+      return (
+        !isBlocked(host, this.bypassOptions.blockClass, this.bypassOptions.blockSelector, true) &&
+        host !== null &&
+        inDom(host)
+      );
+    };
+    const [, cleanupMutationObserver] = initMutationObserver(
       {
         ...this.bypassOptions,
         doc,
-        mutationCb: this.mutationCb,
+        mutationCb: (mutation: Parameters<mutationCallBack>[0]) => {
+          if (shouldRecord()) this.mutationCb(mutation);
+        },
         mirror: this.mirror,
         shadowDomManager: this,
       },
       shadowRoot,
     );
-    this.restoreHandlers.push(() => observer.disconnect());
-    this.restoreHandlers.push(
+    rootCleanups.push(cleanupMutationObserver);
+    rootCleanups.push(
       initScrollObserver({
         ...this.bypassOptions,
-        scrollCb: this.scrollCb,
+        scrollCb: (position: Parameters<scrollCallback>[0]) => {
+          if (shouldRecord()) this.scrollCb(position);
+        },
         // https://gist.github.com/praveenpuglia/0832da687ed5a5d7a0907046c9ef1813
         // scroll is not allowed to pass the boundary, so we need to listen the shadow document
         doc: shadowRoot as unknown as Document,
@@ -76,21 +94,65 @@ export class ShadowDomManager {
     );
     // Defer this to avoid adoptedStyleSheet events being created before the full snapshot is created or attachShadow action is recorded.
     setTimeout(() => {
-      if (shadowRoot.adoptedStyleSheets && shadowRoot.adoptedStyleSheets.length > 0)
+      const activeCleanups = this.trackedShadowRoots.get(shadowRoot);
+      if (activeCleanups === undefined) return;
+      if (
+        shouldRecord() &&
+        shadowRoot.adoptedStyleSheets &&
+        shadowRoot.adoptedStyleSheets.length > 0
+      )
         this.bypassOptions.stylesheetManager.adoptStyleSheets(
           shadowRoot.adoptedStyleSheets,
           this.mirror.getId(dom.host(shadowRoot)),
         );
-      this.restoreHandlers.push(
+      activeCleanups.push(
         initAdoptedStyleSheetObserver(
           {
             mirror: this.mirror,
             stylesheetManager: this.bypassOptions.stylesheetManager,
           },
           shadowRoot,
+          shouldRecord,
         ),
       );
     }, 0);
+  }
+
+  public emitAdoptedStyleSheetsForSnapshot() {
+    for (const shadowRoot of this.trackedShadowRoots.keys()) {
+      const hostId = this.mirror.getId(dom.host(shadowRoot));
+      const adoptedStyleSheets = shadowRoot.adoptedStyleSheets;
+      if (
+        hostId > 0 &&
+        !isBlocked(
+          dom.host(shadowRoot),
+          this.bypassOptions.blockClass,
+          this.bypassOptions.blockSelector,
+          true,
+        ) &&
+        adoptedStyleSheets &&
+        adoptedStyleSheets.length > 0
+      ) {
+        this.bypassOptions.stylesheetManager.adoptStyleSheets(adoptedStyleSheets, hostId);
+      }
+    }
+  }
+
+  public removeContainedRoots(roots: readonly Node[]): void {
+    if (roots.length === 0) return;
+    for (const [shadowRoot, cleanups] of this.trackedShadowRoots) {
+      const host = dom.host(shadowRoot);
+      if (host === null || !isNodeInSubtrees(host, roots)) continue;
+      for (const cleanup of cleanups) cleanup();
+      this.trackedShadowRoots.delete(shadowRoot);
+      this.shadowDoms.delete(shadowRoot);
+    }
+    for (const [doc] of this.restoreHandlers) {
+      if (doc === document) continue;
+      const frame = this.iframeOwners.get(doc);
+      if (frame == null || !isNodeInSubtrees(frame, roots)) continue;
+      this.removeDocument(doc);
+    }
   }
 
   /**
@@ -98,6 +160,15 @@ export class ShadowDomManager {
    */
   public observeAttachShadow(iframeElement: HTMLIFrameElement) {
     if (!iframeElement.contentWindow || !iframeElement.contentDocument) return;
+    const iframeDocument = iframeElement.contentDocument;
+    const previousDocument = this.iframeDocuments.get(iframeElement);
+    if (previousDocument !== undefined && previousDocument !== iframeDocument) {
+      this.removeDocument(previousDocument);
+    }
+    if (this.observedIframeDocuments.has(iframeDocument)) return;
+    this.iframeDocuments.set(iframeElement, iframeDocument);
+    this.iframeOwners.set(iframeDocument, iframeElement);
+    this.observedIframeDocuments.add(iframeDocument);
 
     this.patchAttachShadow(
       (
@@ -105,7 +176,7 @@ export class ShadowDomManager {
           Element: { prototype: Element };
         }
       ).Element,
-      iframeElement.contentDocument,
+      iframeDocument,
     );
   }
 
@@ -120,7 +191,8 @@ export class ShadowDomManager {
   ) {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const manager = this;
-    this.restoreHandlers.push(
+    this.restoreHandlers.set(
+      doc,
       patch(
         element.prototype,
         "attachShadow",
@@ -147,7 +219,30 @@ export class ShadowDomManager {
         //
       }
     });
-    this.restoreHandlers = [];
+    this.restoreHandlers.clear();
+    this.iframeOwners.clear();
+    for (const cleanups of this.trackedShadowRoots.values()) {
+      for (const cleanup of cleanups) cleanup();
+    }
     this.shadowDoms = new WeakSet();
+    this.trackedShadowRoots.clear();
+    this.observedIframeDocuments = new WeakSet();
+    this.iframeDocuments = new WeakMap();
+  }
+
+  public removeDocument(doc: Document): void {
+    for (const [shadowRoot, cleanups] of this.trackedShadowRoots) {
+      const host = dom.host(shadowRoot);
+      if (host?.ownerDocument !== doc) continue;
+      for (const cleanup of cleanups) cleanup();
+      this.trackedShadowRoots.delete(shadowRoot);
+      this.shadowDoms.delete(shadowRoot);
+    }
+    this.restoreHandlers.get(doc)?.();
+    this.restoreHandlers.delete(doc);
+    const iframe = this.iframeOwners.get(doc);
+    if (iframe !== undefined) this.iframeDocuments.delete(iframe);
+    this.iframeOwners.delete(doc);
+    this.observedIframeDocuments.delete(doc);
   }
 }

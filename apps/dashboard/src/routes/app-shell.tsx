@@ -3,6 +3,7 @@ import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-route
 import { BrandMark } from "@/components/brand-mark";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
   SelectContent,
@@ -12,6 +13,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select";
 import { clearApiToken } from "@/lib/api";
+import { ArrowUpRight } from "@/lib/icon-map";
 import { dashboardNavItems, type DashboardNavItem } from "@/lib/dashboard-navigation";
 import { useDashboardWorkspace } from "@/lib/dashboard-workspace";
 import { cn } from "@/lib/utils";
@@ -31,84 +33,95 @@ export function AppShell({ children }: { children?: ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <header className="sticky top-0 z-40">
-        <nav className="flex items-center gap-3.5 border-b border-border bg-chrome px-7 py-3 backdrop-blur">
-          <Link
-            className="flex items-center gap-2.5 text-[14px] font-semibold tracking-[-0.01em] text-foreground"
-            {...(isDemo
-              ? { to: "/demo/overview" as const }
-              : { params: { projectId }, to: "/projects/$projectId/overview" as const })}
-          >
-            <BrandMark />
-            <span>Orange Replay</span>
-          </Link>
+    <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
+      <header className="z-40 shrink-0 bg-background">
+        <ScrollArea orientation="horizontal" viewportClassName="scroll-fade-x">
+          <nav className="flex min-w-max items-center gap-3.5 border-b border-border bg-chrome px-4 py-3 backdrop-blur sm:px-7">
+            <Link
+              className="flex items-center gap-2.5 text-[14px] font-semibold tracking-[-0.01em] text-foreground"
+              {...(isDemo
+                ? { to: "/demo/overview" as const }
+                : { params: { projectId }, to: "/projects/$projectId/overview" as const })}
+            >
+              <BrandMark />
+              <span>Orange Replay</span>
+            </Link>
 
-          <span className="text-divider">/</span>
+            <span className="text-divider">/</span>
 
-          <Select
-            onValueChange={(nextProjectId) => {
-              if (isDemo) {
-                void navigate({ to: "/demo/overview" });
-                return;
-              }
-              void navigate({
-                to: "/projects/$projectId/overview",
-                params: { projectId: nextProjectId },
-              });
-            }}
-            value={projectId}
-          >
-            <SelectTrigger
-              aria-label="Project"
-              className="h-auto min-w-33 rounded-lg border border-border bg-card px-2.75 py-1.25 text-[12.5px] text-foreground [&_svg]:size-2.25 [&_svg]:text-dim"
-              placeholder="Project"
-            />
-            <SelectContent className="rounded-lg border border-border bg-popover">
-              <SelectGroup>
-                <SelectLabel>Projects</SelectLabel>
-                {projectOptions.map((project, index) => (
-                  <SelectItem index={index} key={project.id} value={project.id}>
-                    {project.label}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
+            <Select
+              onValueChange={(nextProjectId) => {
+                if (isDemo) {
+                  void navigate({ to: "/demo/overview" });
+                  return;
+                }
+                void navigate({
+                  to: "/projects/$projectId/overview",
+                  params: { projectId: nextProjectId },
+                });
+              }}
+              value={projectId}
+            >
+              <SelectTrigger
+                aria-label="Project"
+                className="min-w-33 rounded-lg border border-border bg-secondary px-2.75 py-1.25 text-[12.5px] text-foreground "
+                placeholder="Project"
+              />
+              <SelectContent className="rounded-lg border border-border bg-popover">
+                <SelectGroup>
+                  <SelectLabel>Projects</SelectLabel>
+                  {projectOptions.map((project, index) => (
+                    <SelectItem index={index} key={project.id} value={project.id}>
+                      {project.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
 
-          <Badge color="amber" size="sm">
-            {isDemo ? "Demo" : "Local dev"}
-          </Badge>
+            <Badge color="amber" size="sm">
+              {isDemo ? "Demo" : "Local dev"}
+            </Badge>
 
-          <div className="ml-auto flex items-center gap-4">
-            {!isDemo && (
-              <Button
-                className="h-auto px-0 py-0 text-[12.5px] text-muted-foreground hover:text-foreground"
-                onClick={handleLogout}
-                variant="ghost"
-              >
-                Log out
-              </Button>
-            )}
-            <span
-              aria-hidden="true"
-              className="size-6.5 rounded-full border border-border bg-[linear-gradient(135deg,var(--teal-soft),var(--teal))]"
-            />
-          </div>
-        </nav>
+            <div className="ml-auto flex items-center gap-4">
+              {!isDemo && (
+                <Button
+                  className="h-auto px-0 py-0 text-[12.5px] text-muted-foreground hover:text-foreground"
+                  onClick={handleLogout}
+                  variant="ghost"
+                >
+                  Log out
+                </Button>
+              )}
+              <span
+                aria-hidden="true"
+                className="size-6.5 rounded-full border border-border bg-[linear-gradient(135deg,var(--teal-soft),var(--teal))]"
+              />
+            </div>
+          </nav>
+        </ScrollArea>
 
-        <nav className="flex gap-1 border-b border-border bg-chrome px-7">
-          {dashboardNavItems(isDemo).map((item) => (
-            <TopNavTab isDemo={isDemo} item={item} key={item.label} projectId={projectId} />
-          ))}
-        </nav>
+        <ScrollArea orientation="horizontal" viewportClassName="scroll-fade-x">
+          <nav className="flex min-w-max gap-1 border-b border-border bg-chrome px-4 sm:px-7">
+            {dashboardNavItems(isDemo).map((item) => (
+              <TopNavTab isDemo={isDemo} item={item} key={item.label} projectId={projectId} />
+            ))}
+          </nav>
+        </ScrollArea>
 
         {isDemo && <DemoReadOnlyBanner />}
       </header>
 
-      <main className={cn("mx-auto w-full px-7 py-6", wideMain ? "max-w-475" : "max-w-300")}>
-        {children ?? <Outlet />}
-      </main>
+      <ScrollArea className="min-h-0 flex-1" viewportClassName="scroll-fade">
+        <main
+          className={cn(
+            "mx-auto w-dvw max-w-full px-4 py-5 sm:px-7 sm:py-6",
+            wideMain ? "max-w-475" : "max-w-300",
+          )}
+        >
+          {children ?? <Outlet />}
+        </main>
+      </ScrollArea>
     </div>
   );
 }
@@ -129,7 +142,7 @@ function TopNavTab({
           className: "border-amber font-medium text-foreground",
         }}
         className={cn(
-          "-mb-px border-b-2 border-transparent px-3.25 py-2.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground",
+          "-mb-px border-b-2 border-transparent px-3.25 py-3 text-[13px] text-muted-foreground transition-colors hover:text-foreground sm:py-2.5",
         )}
         to={item.demoTo}
       >
@@ -144,7 +157,7 @@ function TopNavTab({
         className: "border-amber font-medium text-foreground",
       }}
       className={cn(
-        "-mb-px border-b-2 border-transparent px-3.25 py-2.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground",
+        "-mb-px border-b-2 border-transparent px-3.25 py-3 text-[13px] text-muted-foreground transition-colors hover:text-foreground sm:py-2.5",
       )}
       params={{ projectId }}
       to={item.projectTo}
@@ -156,18 +169,31 @@ function TopNavTab({
 
 function DemoReadOnlyBanner() {
   return (
-    <div className="border-b border-dashed border-amber/35 bg-[rgba(245,166,35,0.07)] px-7 py-2">
+    <div className="demo-banner border-b border-dashed border-amber/25 px-4 py-1.5 sm:px-7">
+      <span aria-hidden className="demo-beam" />
       <div className="mx-auto flex max-w-300 items-center gap-3">
-        <span
-          aria-hidden
-          className="size-1.75 rounded-full bg-amber shadow-[0_0_10px_var(--amber-shadow)]"
-        />
-        <p className="text-[12.5px] text-foreground">
-          Live demo — real sessions from our landing page, read-only.
+        <span aria-hidden className="demo-scan-dot max-sm:hidden" />
+        <p className="text-[12.5px] text-muted-foreground max-sm:hidden">
+          Our <strong className="font-semibold text-foreground">own</strong> landing page, recorded
+          with our <strong className="font-semibold text-foreground">own</strong> product.{" "}
+          <span className="text-foreground">
+            Look closely — you might{" "}
+            <mark className="rounded-[3px] bg-amber/15 px-1 text-amber">spot yourself.</mark>
+          </span>
         </p>
-        <Button asChild className="ml-auto" size="sm">
-          <Link to="/login">Start free</Link>
-        </Button>
+        <Link
+          className="demo-cta group ml-auto flex items-center gap-2.5 rounded-[9px] bg-white py-1.25 pl-3.25 pr-1.5 text-[14px] font-[550] tracking-[-0.01em] text-black"
+          to="/login"
+        >
+          Start free
+          <span className="flex size-5.5 items-center justify-center rounded-full bg-black text-white">
+            <ArrowUpRight
+              className="transition-transform duration-200 ease-out group-hover:rotate-45"
+              size={13}
+              strokeWidth={1.5}
+            />
+          </span>
+        </Link>
       </div>
     </div>
   );

@@ -121,6 +121,11 @@ describe("api helper decisions", () => {
         bindings: ["project_1", 3000, 3000, "session_b", 10],
       },
       {
+        query: "sort=friction&before=friction:1102:session_b&limit=10",
+        sql: `${select} AND ((errors * 1000 + rages * 100 + clicks) < ? OR ((errors * 1000 + rages * 100 + clicks) = ? AND session_id < ?)) ORDER BY (errors * 1000 + rages * 100 + clicks) DESC, session_id DESC LIMIT ?`,
+        bindings: ["project_1", 1102, 1102, "session_b", 10],
+      },
+      {
         query: "sort=duration&before=duration:2500:session_b&limit=10",
         sql: `${select} AND (duration_ms < ? OR (duration_ms = ? AND session_id < ?)) ORDER BY duration_ms DESC, session_id DESC LIMIT ?`,
         bindings: ["project_1", 2500, 2500, "session_b", 10],
@@ -173,6 +178,9 @@ describe("api helper decisions", () => {
     expect(encodeSessionCursor({ clicks: 3, session_id: "session_b" }, "clicks")).toBe(
       "clicks:3:session_b",
     );
+    expect(
+      encodeSessionCursor({ clicks: 2, errors: 1, rages: 1, session_id: "session_b" }, "friction"),
+    ).toBe("friction:1102:session_b");
     expect(encodeSessionCursor({ page_count: 2, session_id: "session_b" }, "pages")).toBe(
       "pages:2:session_b",
     );
@@ -192,7 +200,7 @@ describe("api helper decisions", () => {
   });
 
   it("accepts only the whitelisted sessions sorts", () => {
-    for (const sort of ["newest", "duration", "clicks", "pages"] as const) {
+    for (const sort of ["newest", "friction", "duration", "clicks", "pages"] as const) {
       const parsed = parseSessionListQuery(new URLSearchParams(`sort=${sort}`));
       expect(parsed).toMatchObject({ ok: true, options: { sort } });
     }
@@ -214,6 +222,7 @@ describe("api helper decisions", () => {
   it("rejects cursors from a different sessions sort", () => {
     for (const query of [
       "sort=duration&before=3000:session_b",
+      "sort=friction&before=clicks:3:session_b",
       "sort=duration&before=clicks:3:session_b",
       "sort=clicks&before=duration:2500:session_b",
       "sort=pages&before=duration:2500:session_b",

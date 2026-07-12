@@ -25,8 +25,17 @@ describe("SessionRecorder Durable Object", () => {
     const conn = openDoLiveSocket(projectId, sessionId);
     try {
       const helloMessage = await waitForSocketMessage(conn, "hello", 5_000);
-      const hello = parseTextMessage<{ type: string; sessionId: string }>(helloMessage);
+      const hello = parseTextMessage<{
+        type: string;
+        sessionId: string;
+        snapshot: {
+          counts: { batches: number; events: number };
+          timeline: Array<{ k: string }>;
+        };
+      }>(helloMessage);
       expect(hello).toMatchObject({ type: "hello", sessionId });
+      expect(hello.snapshot.counts).toMatchObject({ batches: 1, events: 1 });
+      expect(hello.snapshot.timeline).toEqual([expect.objectContaining({ k: "custom" })]);
 
       const checkpointResult = await append({
         projectId,

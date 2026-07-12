@@ -11,6 +11,10 @@ describe("sessions view search", () => {
     expect(view).toEqual({ country: "US", selected: "0198c1c2-abc_DEF", sort: "duration" });
   });
 
+  it("keeps the friction sort in the URL view", () => {
+    expect(validateSessionsViewSearch({ sort: "friction" }).sort).toBe("friction");
+  });
+
   it("drops invalid selected and unknown sort values", () => {
     expect(validateSessionsViewSearch({ selected: "bad id with spaces" }).selected).toBeUndefined();
     expect(validateSessionsViewSearch({ selected: 42 }).selected).toBeUndefined();

@@ -1,5 +1,6 @@
 import { memo } from "react";
 import type { TimelineDot, TimelineSidebarRow } from "@/lib/replay-timeline";
+import { ScrollArea } from "../../../components/ui/scroll-area";
 import {
   AlertCircle,
   Angry,
@@ -29,13 +30,13 @@ export const TimelineSidebar = memo(function TimelineSidebar({
           No events captured in this session.
         </div>
       ) : (
-        <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
+        <ScrollArea className="-mx-1 mt-3 min-h-0 flex-1" viewportClassName="scroll-fade px-1">
           {rows.map((row) => {
             const kind = kindFor(row.dot);
             const KindIcon = kind.icon;
             return (
               <button
-                className="flex w-full items-center gap-2.5 border-b border-dashed border-dash py-2 text-left outline-none transition-colors last:border-b-0 enabled:hover:bg-hover enabled:focus-visible:ring-1 enabled:focus-visible:ring-amber disabled:cursor-default"
+                className="flex w-full items-center gap-2.5 rounded-md border-b border-dashed border-dash px-2.5 py-2.5 text-left outline-none transition-[background-color,box-shadow] duration-150 last:border-b-0 enabled:hover:bg-hover enabled:focus-visible:bg-active enabled:focus-visible:shadow-[inset_0_0_0_1px_var(--amber)] disabled:cursor-default"
                 disabled={disabled}
                 key={row.id}
                 onClick={() => onSeek(row.offsetMs)}
@@ -58,7 +59,7 @@ export const TimelineSidebar = memo(function TimelineSidebar({
               </button>
             );
           })}
-        </div>
+        </ScrollArea>
       )}
     </aside>
   );

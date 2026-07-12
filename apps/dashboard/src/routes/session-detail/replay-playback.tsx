@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { bucketActivity, type ActivityBucket } from "@orange-replay/player";
+import type { SessionManifest } from "@orange-replay/shared/types";
 import {
   buildJourneyBreadcrumbs,
   mapTimelineSidebarRows,
@@ -26,10 +27,15 @@ import {
 
 interface ReplayWorkspaceProps extends ReplayPlayerOptions {
   onDeadClickCountChange?: (count: number) => void;
+  onPlaybackStarted?: () => void;
+  playerManifest?: SessionManifest;
 }
 
 export function ReplayWorkspace(props: ReplayWorkspaceProps) {
-  const player = useReplayPlayer(props);
+  const player = useReplayPlayer({
+    ...props,
+    manifest: props.playerManifest ?? props.manifest,
+  });
   const staticPlaybackData = useMemo(
     () => ({
       activityBuckets: bucketActivity(
@@ -63,6 +69,7 @@ export function ReplayWorkspace(props: ReplayWorkspaceProps) {
     [player.state.deadClicks, props.manifest],
   );
   const seekToRef = useRef(player.actions.seekTo);
+  const startedSessionRef = useRef<string | null>(null);
   seekToRef.current = player.actions.seekTo;
   const seekFromTimeline = useCallback((timeMs: number) => {
     seekToRef.current(timeMs, true);
@@ -72,8 +79,22 @@ export function ReplayWorkspace(props: ReplayWorkspaceProps) {
     props.onDeadClickCountChange?.(player.state.deadClicks.length);
   }, [player.state.deadClicks.length, props.onDeadClickCountChange]);
 
+  useEffect(() => {
+    const started =
+      player.state.playing || (props.mode === "live" && player.state.liveState.connected);
+    if (!started || startedSessionRef.current === props.sessionId) return;
+    startedSessionRef.current = props.sessionId;
+    props.onPlaybackStarted?.();
+  }, [
+    player.state.liveState.connected,
+    player.state.playing,
+    props.mode,
+    props.onPlaybackStarted,
+    props.sessionId,
+  ]);
+
   return (
-    <section className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-[1fr_272px]">
+    <section className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-[minmax(0,1fr)_304px]">
       <ReplayPlayerCard
         activityBuckets={staticPlaybackData.activityBuckets}
         breadcrumbs={staticPlaybackData.breadcrumbs}

@@ -11,6 +11,7 @@ export interface PagehideBatch {
   flags: number;
   queuedEventCount: number;
   droppedEventCount: number;
+  containsRequiredSnapshot: boolean;
 }
 
 interface PagehideBatchOptions {
@@ -48,7 +49,8 @@ export function buildPagehideBatch(options: PagehideBatchOptions): {
 
   if (
     encoded.body.byteLength > options.maxBodyBytes ||
-    (keptEventCount === 0 && keptIndexCount === 0)
+    (keptEventCount === 0 && keptIndexCount === 0) ||
+    dropsRequiredBaseline(options.eventMetas, keptEventCount)
   ) {
     return { batch: null, droppedEventCount: options.rrwebEvents.length };
   }
@@ -61,6 +63,9 @@ export function buildPagehideBatch(options: PagehideBatchOptions): {
       flags: FLAG_UNCOMPRESSED,
       queuedEventCount: keptEventCount,
       droppedEventCount,
+      containsRequiredSnapshot: options.eventMetas
+        .slice(options.eventMetas.length - keptEventCount)
+        .some((event) => event.requiredSnapshot === true),
     },
     droppedEventCount,
   };
@@ -126,6 +131,12 @@ function findLargestIndexCount(options: PagehideBatchOptions, eventCount: number
 }
 
 function newestEventCountByBytes(eventMetas: readonly EventMeta[], maxRawBytes: number): number {
+  for (let index = eventMetas.length - 1; index >= 0; index -= 1) {
+    const event = eventMetas[index]!;
+    if (event.requiredSnapshot !== true) continue;
+    if (event.pagehideRequiredOversized === true) return 0;
+    break;
+  }
   let rawBytes = 0;
   let count = 0;
 
@@ -140,6 +151,9 @@ function newestEventCountByBytes(eventMetas: readonly EventMeta[], maxRawBytes: 
     }
 
     if (count === 0 && meta.rawBytes > maxRawBytes) {
+      // Do not synchronously stringify a known oversized optional event while
+      // the page is closing. Required baselines are handled above.
+      if (meta.pagehideEstimateUnknown === true) count = 1;
       break;
     }
 
@@ -148,4 +162,12 @@ function newestEventCountByBytes(eventMetas: readonly EventMeta[], maxRawBytes: 
   }
 
   return count;
+}
+
+function dropsRequiredBaseline(eventMetas: readonly EventMeta[], keptEventCount: number): boolean {
+  const keptStart = eventMetas.length - keptEventCount;
+  for (let index = eventMetas.length - 1; index >= 0; index -= 1) {
+    if (eventMetas[index]?.requiredSnapshot === true) return keptStart > index;
+  }
+  return false;
 }

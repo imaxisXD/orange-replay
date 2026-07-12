@@ -27,6 +27,7 @@ const index: BatchIndex = {
 };
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -86,6 +87,35 @@ describe("Transport", () => {
 
     expect(result).toMatchObject({ sent: true, dropped: false, attempts: 2 });
     expect(waits).toEqual([3_000]);
+  });
+
+  it("aborts requests that never return", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn<typeof fetch>((_input, init) => {
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("request timed out")));
+      });
+    });
+    const transport = new Transport({
+      config,
+      fetch: fetchMock,
+      wait: async () => undefined,
+    });
+
+    const resultPromise = transport.sendBatch({
+      body: new Uint8Array([1]),
+      index,
+      flags: 0,
+      keepalive: false,
+    });
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+
+    expect(result).toMatchObject({ sent: false, dropped: true, attempts: 5 });
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(
+      fetchMock.mock.calls.every((call) => (call[1]?.signal as AbortSignal | undefined)?.aborted),
+    ).toBe(true);
   });
 
   it("drops 4xx responses without retrying", async () => {
@@ -151,8 +181,9 @@ describe("Transport", () => {
     expect(ack).toMatchObject({ ok: true, live: true, flushMs: 4_000, checkpoint: true });
   });
 
-  it("queues sync batches with fetch first and does not also send a beacon", () => {
+  it("queues sync batches with fetch first and reports delivery", async () => {
     const sendBeacon = vi.fn(() => true);
+    const onSuccess = vi.fn();
     const fetchMock = vi
       .fn<typeof fetch>()
       .mockResolvedValue(new Response(JSON.stringify({ ok: true, live: false, flushMs: 15_000 })));
@@ -162,16 +193,22 @@ describe("Transport", () => {
     });
     vi.stubGlobal("navigator", { sendBeacon });
 
-    const queued = transport.queueBatchSync({
-      body: new Uint8Array([1]),
-      index,
-      flags: 0,
-      keepalive: true,
-    });
+    const queued = transport.queueBatchSync(
+      {
+        body: new Uint8Array([1]),
+        index,
+        flags: 0,
+        keepalive: true,
+      },
+      undefined,
+      onSuccess,
+    );
 
     expect(queued).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(sendBeacon).not.toHaveBeenCalled();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(onSuccess).toHaveBeenCalledOnce();
   });
 
   it("does not report a failed keepalive fetch as sent through sendBeacon", async () => {

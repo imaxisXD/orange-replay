@@ -144,15 +144,16 @@ describe("api client", () => {
   it("builds the sessions query string", () => {
     expect(
       buildSessionListUrl("project 1", {
-        before: "3000:session_a",
+        before: "friction:1102:session_a",
         country: "US",
         has_errors: true,
         has_rage: true,
         limit: 25,
         min_duration_ms: 60_000,
+        sort: "friction",
       }),
     ).toBe(
-      "/api/v1/projects/project%201/sessions?limit=25&before=3000%3Asession_a&country=US&has_errors=1&has_rage=1&min_duration_ms=60000",
+      "/api/v1/projects/project%201/sessions?limit=25&before=friction%3A1102%3Asession_a&sort=friction&country=US&has_errors=1&has_rage=1&min_duration_ms=60000",
     );
   });
 

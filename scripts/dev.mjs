@@ -1,12 +1,18 @@
 import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { parseJsonc } from "./mirror-template/jsonc.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const workerDir = path.join(repoRoot, "apps", "worker");
 const dashboardDir = path.join(repoRoot, "apps", "dashboard");
+const dashboardDistDir = path.join(dashboardDir, "dist");
+const localAssetsDir = path.join(workerDir, ".wrangler", "dev-assets");
+const sourceWorkerConfigPath = path.join(workerDir, "wrangler.jsonc");
+const localWorkerConfigPath = path.join(workerDir, "wrangler.dev.jsonc");
 const defaultWorkerPort = 8787;
 const defaultDashboardPort = 5200;
 
@@ -44,6 +50,21 @@ if (shouldClearPorts) {
   await clearPort(dashboardPort);
 }
 
+console.log("Building the local landing page, demo dashboard, and recorder.");
+const assetBuildSucceeded = await runForeground(process.execPath, [
+  path.join(repoRoot, "scripts", "build-deploy.mjs"),
+]);
+if (!assetBuildSucceeded) {
+  console.error("Local website assets could not be built.");
+  process.exit(1);
+}
+
+await rm(localAssetsDir, { force: true, recursive: true });
+await mkdir(path.dirname(localAssetsDir), { recursive: true });
+await cp(dashboardDistDir, localAssetsDir, { recursive: true });
+await writeLocalWorkerConfig();
+console.log("Local website assets are ready.");
+
 const workerArgs = [
   "exec",
   "--filter",
@@ -51,6 +72,8 @@ const workerArgs = [
   "--",
   "wrangler",
   "dev",
+  "--config",
+  localWorkerConfigPath,
   "--port",
   String(workerPort),
 ];
@@ -69,8 +92,8 @@ startServer("dashboard", "vp", ["dev", "--port", String(dashboardPort)], dashboa
   VITE_WORKER_URL: process.env["VITE_WORKER_URL"] ?? `http://127.0.0.1:${workerPort}`,
 });
 
-console.log(`Worker: http://localhost:${workerPort}`);
-console.log(`Dashboard: http://localhost:${dashboardPort}`);
+console.log(`Landing page and live demo: http://localhost:${workerPort}`);
+console.log(`Dashboard with hot reload: http://localhost:${dashboardPort}`);
 console.log("Press Ctrl+C to stop both servers.");
 
 process.on("SIGINT", () => stopServers("SIGINT"));
@@ -97,7 +120,7 @@ async function clearPort(port) {
   }
 
   console.log(`Stopping port ${port}: ${pids.join(", ")}`);
-  await runQuietly("kill", ["-TERM", ...pids]);
+  await stopProcessGroups(pids);
   await wait(900);
 
   const remainingPids = await findPortPids(port);
@@ -105,6 +128,34 @@ async function clearPort(port) {
     console.error(`Port ${port} is still in use by ${remainingPids.join(", ")}.`);
     process.exit(1);
   }
+}
+
+async function stopProcessGroups(pids) {
+  const currentGroup = await findProcessGroup(process.pid);
+  const groups = new Set();
+  const directPids = [];
+
+  for (const pid of pids) {
+    const group = await findProcessGroup(pid);
+    if (group === null || group === currentGroup) {
+      directPids.push(pid);
+      continue;
+    }
+    groups.add(group);
+  }
+
+  if (groups.size > 0) {
+    await runQuietly("/bin/kill", ["-TERM", "--", ...[...groups].map((group) => `-${group}`)]);
+  }
+  if (directPids.length > 0) {
+    await runQuietly("/bin/kill", ["-TERM", ...directPids]);
+  }
+}
+
+async function findProcessGroup(pid) {
+  const result = await runQuietly("ps", ["-o", "pgid=", "-p", String(pid)]);
+  const group = Number(result.stdout.trim());
+  return result.ok && Number.isInteger(group) && group > 0 ? group : null;
 }
 
 async function findPortPids(port) {
@@ -126,6 +177,25 @@ function runQuietly(command, args) {
       });
     });
   });
+}
+
+function runForeground(command, args) {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, { cwd: repoRoot, env: process.env, stdio: "inherit" });
+    child.on("error", () => resolve(false));
+    child.on("exit", (code) => resolve(code === 0));
+  });
+}
+
+async function writeLocalWorkerConfig() {
+  const source = await readFile(sourceWorkerConfigPath, "utf8");
+  const config = parseJsonc(source, "apps/worker/wrangler.jsonc");
+  config.assets = {
+    directory: localAssetsDir,
+    binding: "ASSETS",
+    run_worker_first: ["/api/*", "/v1/*", "/login", "/demo", "/demo/*", "/projects", "/projects/*"],
+  };
+  await writeFile(localWorkerConfigPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
 }
 
 function startServer(name, command, args, cwd, env) {

@@ -24,6 +24,10 @@ import type {
 } from "../rrweb-types/index.ts";
 import dom from "../rrweb-utils/index.ts";
 
+declare const __ORANGE_REPLAY_SDK_PROFILE__: boolean | undefined;
+const isOrangeReplaySdk =
+  typeof __ORANGE_REPLAY_SDK_PROFILE__ !== "undefined" && __ORANGE_REPLAY_SDK_PROFILE__;
+
 export function isElement(n: Node): n is Element {
   return n.nodeType === n.ELEMENT_NODE;
 }
@@ -185,11 +189,19 @@ export function isCSSStyleRule(rule: CSSRule): rule is CSSStyleRule {
 export class Mirror implements IMirror<Node> {
   private idNodeMap: idNodeMap = new Map();
   private nodeMetaMap: nodeMetaMap = new WeakMap();
+  private removedNodes = new WeakSet<Node>();
+  private activeReservations = new WeakSet<Node>();
+  private reserveNextId?: () => number;
 
   getId(n: Node | undefined | null): number {
     if (!n) return -1;
 
-    const id = this.getMeta(n)?.id;
+    let id = this.getMeta(n)?.id;
+
+    if (id === undefined && this.reserveNextId !== undefined) {
+      id = this.reserveNextId();
+      this.reserve(n, id);
+    }
 
     // if n is not a serialized Node, use -1 as its id.
     return id ?? -1;
@@ -200,7 +212,7 @@ export class Mirror implements IMirror<Node> {
   }
 
   getIds(): number[] {
-    return Array.from(this.idNodeMap.keys());
+    return isOrangeReplaySdk ? [] : Array.from(this.idNodeMap.keys());
   }
 
   getMeta(n: Node): serializedNodeWithId | null {
@@ -210,15 +222,29 @@ export class Mirror implements IMirror<Node> {
   // removes the node from idNodeMap
   // doesn't remove the node from nodeMetaMap
   removeNodeFromMap(n: Node) {
-    const id = this.getId(n);
-    this.idNodeMap.delete(id);
-
-    if (n.childNodes) {
-      n.childNodes.forEach((childNode) => this.removeNodeFromMap(childNode as unknown as Node));
+    const pending = [n];
+    while (pending.length > 0) {
+      const current = pending.pop()!;
+      const id = this.getMeta(current)?.id;
+      if (id !== undefined) this.idNodeMap.delete(id);
+      this.removedNodes.add(current);
+      for (const child of current.childNodes) pending.push(child);
+      const shadowRoot = dom.shadowRoot(current);
+      if (shadowRoot !== null) {
+        for (const child of shadowRoot.childNodes) pending.push(child);
+      }
+      if (current.nodeName === "IFRAME") {
+        try {
+          const iframeDocument = (current as HTMLIFrameElement).contentDocument;
+          if (iframeDocument !== null) pending.push(iframeDocument);
+        } catch {
+          // A cross-origin navigation has no readable document to remove.
+        }
+      }
     }
   }
   has(id: number): boolean {
-    return this.idNodeMap.has(id);
+    return !isOrangeReplaySdk && this.idNodeMap.has(id);
   }
 
   hasNode(node: Node): boolean {
@@ -227,22 +253,76 @@ export class Mirror implements IMirror<Node> {
 
   add(n: Node, meta: serializedNodeWithId) {
     const id = meta.id;
+    this.removedNodes.delete(n);
     this.idNodeMap.set(id, n);
     this.nodeMetaMap.set(n, meta);
+    this.activeReservations.delete(n);
+  }
+
+  updateMeta(n: Node, meta: serializedNodeWithId) {
+    const previousId = this.nodeMetaMap.get(n)?.id;
+    if (previousId !== undefined && this.idNodeMap.get(previousId) === n) {
+      this.idNodeMap.delete(previousId);
+    }
+    this.nodeMetaMap.set(n, meta);
+    if (!this.removedNodes.has(n)) this.idNodeMap.set(meta.id, n);
+  }
+
+  forgetNode(n: Node) {
+    const id = this.nodeMetaMap.get(n)?.id;
+    if (id !== undefined && this.idNodeMap.get(id) === n) this.idNodeMap.delete(id);
+    this.nodeMetaMap.delete(n);
+    this.removedNodes.delete(n);
+    this.activeReservations.delete(n);
+  }
+
+  isRemovedNode(n: Node): boolean {
+    return this.removedNodes.has(n);
+  }
+
+  reserve(n: Node, id: number) {
+    this.nodeMetaMap.set(n, { id } as serializedNodeWithId);
+  }
+
+  activateReservation(n: Node) {
+    this.activeReservations.add(n);
+  }
+
+  startIdReservation(nextId: () => number) {
+    this.reserveNextId = nextId;
+  }
+
+  stopIdReservation() {
+    this.reserveNextId = undefined;
+  }
+
+  isActiveNode(n: Node): boolean {
+    const id = this.nodeMetaMap.get(n)?.id;
+    return (
+      id !== undefined &&
+      id > 0 &&
+      !this.removedNodes.has(n) &&
+      (this.idNodeMap.get(id) === n || this.activeReservations.has(n))
+    );
   }
 
   replace(id: number, n: Node) {
-    const oldNode = this.getNode(id);
-    if (oldNode) {
-      const meta = this.nodeMetaMap.get(oldNode);
-      if (meta) this.nodeMetaMap.set(n, meta);
+    if (!isOrangeReplaySdk) {
+      const oldNode = this.getNode(id);
+      if (oldNode) {
+        const meta = this.nodeMetaMap.get(oldNode);
+        if (meta) this.nodeMetaMap.set(n, meta);
+      }
+      this.idNodeMap.set(id, n);
     }
-    this.idNodeMap.set(id, n);
   }
 
   reset() {
     this.idNodeMap = new Map();
     this.nodeMetaMap = new WeakMap();
+    this.removedNodes = new WeakSet();
+    this.activeReservations = new WeakSet();
+    this.reserveNextId = undefined;
   }
 }
 
@@ -269,10 +349,11 @@ export function maskInputValue({
   const actualType = type && toLowerCase(type);
 
   if (
+    isOrangeReplaySdk ||
     maskInputOptions[tagName.toLowerCase() as keyof MaskInputOptions] ||
     (actualType && maskInputOptions[actualType as keyof MaskInputOptions])
   ) {
-    if (maskInputFn) {
+    if (!isOrangeReplaySdk && maskInputFn) {
       text = maskInputFn(text, element);
     } else {
       text = "*".repeat(text.length);

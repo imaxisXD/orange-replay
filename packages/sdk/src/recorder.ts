@@ -5,7 +5,8 @@ import {
   type eventWithTime,
   type recordOptions,
 } from "@orange-replay/rrweb-fork";
-import { scrubUrl } from "./scrub.ts";
+import { assertSafePrivacySelectors } from "./project-config.ts";
+import { scrubUrl, truncateDetail } from "./scrub.ts";
 import type { Sink } from "./sink.ts";
 import type { RecorderConfig } from "./types.ts";
 
@@ -44,6 +45,7 @@ export class Recorder {
         this.config,
         (event) => this.emit(event),
         (error) => this.kill(error),
+        (nextBytes) => this.sink.prepareForSnapshotPart(nextBytes),
       );
       this.stopRecord = record(options);
       if (this.stopRecord === undefined) {
@@ -53,6 +55,7 @@ export class Recorder {
       this.drainPendingCustomEvents();
     } catch (error) {
       this.kill(error);
+      throw error;
     }
   }
 
@@ -75,21 +78,22 @@ export class Recorder {
     if (this.disabled) {
       return;
     }
+    const cleanName = truncateDetail(name);
 
     // Before rrweb is recording (initial start or a rotation-restart gap),
     // custom events queue instead of reaching rrweb — its "please add custom
     // event after start recording" throw is a recoverable ordering issue,
     // never a reason to kill the session.
     if (this.stopRecord === undefined) {
-      this.queueCustomEvent(name, payload);
+      this.queueCustomEvent(cleanName, payload);
       return;
     }
 
     try {
-      addRrwebCustomEvent(name, payload);
+      addRrwebCustomEvent(cleanName, payload);
     } catch (error) {
       if (isPreStartCustomEventError(error)) {
-        this.queueCustomEvent(name, payload);
+        this.queueCustomEvent(cleanName, payload);
         return;
       }
       this.kill(error);
@@ -126,17 +130,14 @@ export class Recorder {
     }
   }
 
-  isDisabled(): boolean {
-    return this.disabled;
-  }
-
   private emit(event: eventWithTime): void {
     if (this.disabled) {
       return;
     }
 
     try {
-      this.sink.addRrwebEvent(scrubMetaHref(event, this.config.allowUrlParams));
+      const cleanedEvent = scrubMetaHref(event, this.config.allowUrlParams);
+      this.sink.addRrwebEvent(cleanedEvent);
     } catch (error) {
       this.kill(error);
     }
@@ -145,7 +146,7 @@ export class Recorder {
   private kill(error: unknown): void {
     if (!this.warned) {
       this.warned = true;
-      console.warn("Orange Replay recorder stopped after an internal error.", error);
+      console.warn("Orange Replay recorder failed; recording stopped.", error);
     }
 
     this.disabled = true;
@@ -166,7 +167,10 @@ export function buildRecordOptions(
   config: RecorderConfig,
   emit: (event: eventWithTime) => void,
   onError?: (error: unknown) => void,
+  prepareForSnapshotPart?: (nextBytes?: number) => Promise<void>,
 ): recordOptions<eventWithTime> {
+  assertSafePrivacySelectors(config, document);
+
   return {
     emit,
     maskAllInputs: true,
@@ -180,12 +184,12 @@ export function buildRecordOptions(
     // setting. Frames are capped, deduplicated WebP images rather than canvas
     // API calls.
     recordCanvas: config.capture.canvas,
-    sampling: { canvas: 2 },
-    dataURLOptions: { type: "image/webp", quality: 0.62 },
     // Time bounds normal pages; event count bounds mutation-heavy pages so a
     // seek checkpoint cannot grow without limit between periodic snapshots.
     checkoutEveryNth: CHECKOUT_EVERY_NTH,
     checkoutEveryNms: CHECKOUT_EVERY_MS,
+    snapshotTimeSliceMs: 4,
+    prepareForSnapshotPart,
     errorHandler(error: unknown) {
       onError?.(error);
       return true;

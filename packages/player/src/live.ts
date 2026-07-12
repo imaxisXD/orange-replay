@@ -1,5 +1,10 @@
 import { decodeIngestBody } from "@orange-replay/shared/wire";
-import type { BatchIndex } from "@orange-replay/shared/types";
+import type {
+  BatchIndex,
+  LiveHelloMessage,
+  LiveSessionSnapshot,
+  SessionCounts,
+} from "@orange-replay/shared/types";
 import { EventType } from "rrweb";
 import type { ReplayEvent } from "./types.ts";
 
@@ -10,6 +15,28 @@ export interface LiveFrame {
 
 export interface LiveFrameState {
   seen: Set<string>;
+}
+
+export function parseLiveHelloMessage(value: string): LiveHelloMessage | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return null;
+  }
+
+  if (!isRecord(parsed) || parsed["type"] !== "hello") return null;
+  if (
+    readLiveSnapshot(parsed["snapshot"]) === null ||
+    typeof parsed["sessionId"] !== "string" ||
+    !Number.isFinite(parsed["startedAt"]) ||
+    !Array.isArray(parsed["segments"]) ||
+    !isNonnegativeNumber(parsed["pendingBatches"])
+  ) {
+    return null;
+  }
+
+  return parsed as unknown as LiveHelloMessage;
 }
 
 export interface LiveKeyframeBuffer {
@@ -246,6 +273,35 @@ function estimateReplayBytes(events: readonly ReplayEvent[]): number {
     }
   }
   return total;
+}
+
+function readLiveSnapshot(value: unknown): LiveSessionSnapshot | null {
+  if (!isRecord(value)) return null;
+  if (
+    !Number.isFinite(value["startedAt"]) ||
+    !Number.isFinite(value["endedAt"]) ||
+    !isNonnegativeNumber(value["durationMs"]) ||
+    !Array.isArray(value["timeline"]) ||
+    !isSessionCounts(value["counts"])
+  ) {
+    return null;
+  }
+  return value as unknown as LiveSessionSnapshot;
+}
+
+function isSessionCounts(value: unknown): value is SessionCounts {
+  if (!isRecord(value)) return false;
+  return ["batches", "events", "clicks", "errors", "rages", "navs"].every((key) =>
+    isNonnegativeNumber(value[key]),
+  );
+}
+
+function isNonnegativeNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function compareBufferedLiveReplayBatches(

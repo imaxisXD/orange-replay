@@ -183,5 +183,5 @@ export function useProjectSettingsEditor(projectId: string) {
 function readErrorMessage(error: unknown): string {
   if (error instanceof ApiError) return error.code ?? error.message;
   if (error instanceof Error) return error.message;
-  return "The API request failed.";
+  return "The request failed. Try again in a moment.";
 }

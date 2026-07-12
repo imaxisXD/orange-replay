@@ -63,24 +63,23 @@ test("records, replays, masks, and follows a live session from the dashboard", a
       await expect(dashboardPage.locator("body")).not.toContainText(passwordSecret);
 
       const row = await waitForFirstSessionRow(dashboardPage);
-      const entryCell = row.locator("td").first();
-      await expect(entryCell.locator("div").first()).toContainText(
-        entryPath(recordedSession.entry_url),
+      await expect(row).toContainText(entryPath(recordedSession.entry_url));
+      await expect(row).toContainText(
+        formatLocation(recordedSession.country, recordedSession.city),
       );
-      await expect(entryCell.locator("div").nth(1)).toContainText(
-        formatPlace(recordedSession.country, recordedSession.city),
-      );
-      await expect(row.locator("td").nth(1)).toContainText(
-        formatErrorCount(recordedSession.errors),
-      );
-      await expect(row.locator("td").nth(2)).toHaveText(/^\d+:\d{2}$/);
+      await expect(row).toContainText(formatErrorCount(recordedSession.errors));
+      await expect(row).toContainText(/\d+:\d{2}/);
 
       await row.click();
-      await dashboardPage.waitForURL(
-        new RegExp(
-          `/projects/${escapeRegex(state.projectId)}/sessions/${escapeRegex(recordedSessionId)}$`,
+      await expect(row).toHaveAttribute("aria-selected", "true");
+      await Promise.all([
+        dashboardPage.waitForURL(
+          new RegExp(
+            `/projects/${escapeRegex(state.projectId)}/sessions/${escapeRegex(recordedSessionId)}$`,
+          ),
         ),
-      );
+        dashboardPage.getByRole("link", { name: "Open full view" }).click(),
+      ]);
     });
 
     await test.step("playback with effects", async () => {
@@ -191,12 +190,16 @@ test("records, replays, masks, and follows a live session from the dashboard", a
         .first();
       await expect(errorRow).toBeVisible();
 
-      await timeline.click({ position: { x: 1, y: 13 } });
-      const before = readNumber(await timeline.getAttribute("aria-valuenow"));
+      const pauseReplay = page.getByRole("button", { name: "Pause replay" });
+      if (await pauseReplay.isVisible()) await pauseReplay.click();
+      await timeline.press("End");
+      await expect
+        .poll(async () => readNumber(await timeline.getAttribute("aria-valuenow")))
+        .toBe(readNumber(await timeline.getAttribute("aria-valuemax")));
       await errorRow.click();
       await expect
         .poll(async () => readNumber(await timeline.getAttribute("aria-valuenow")))
-        .toBeGreaterThan(before);
+        .toBe(0);
 
       // The replayer rebuilds its iframe document on play/seek, and playback
       // may have advanced into the page2 portion of the recording by now —
@@ -375,6 +378,9 @@ async function recordDemoSession(
   await page.getByRole("button", { name: "Add product row" }).click();
   await page.getByRole("button", { name: "Show stock panel" }).click();
   await page.getByRole("button", { name: "Save settings" }).click();
+  // Keep this no-op save separate from the later test error so the replay can
+  // correctly identify it as a dead click.
+  await page.waitForTimeout(700);
   await page.mouse.wheel(0, 1_800);
 
   const pageError = page.waitForEvent("pageerror");
@@ -505,7 +511,7 @@ async function openDashboardPage(
 }
 
 async function waitForFirstSessionRow(page: Page): Promise<Locator> {
-  const rows = page.locator("table").getByRole("link");
+  const rows = page.getByRole("listbox", { name: "Sessions" }).getByRole("option");
   await expect(rows.first()).toBeVisible({ timeout: 20_000 });
   return rows.first();
 }
@@ -645,22 +651,12 @@ function formatErrorCount(count: number): string {
   return `${count} ${count === 1 ? "error" : "errors"}`;
 }
 
-function formatPlace(country: string | null, city: string | null): string {
+function formatLocation(country: string | null, city: string | null): string {
   const cleanCity = city?.trim() ?? "";
-  if (country === null || country.trim().length === 0) {
-    return cleanCity.length > 0 ? cleanCity : "Unknown";
-  }
+  if (cleanCity.length > 0) return cleanCity;
 
-  const code = country.trim().toUpperCase();
-  const label = cleanCity.length > 0 ? cleanCity : code;
-  return `${flagForCountry(code)} ${label}`;
-}
-
-function flagForCountry(code: string): string {
-  if (!/^[A-Z]{2}$/.test(code)) return code;
-  const first = 0x1f1e6 + code.charCodeAt(0) - 65;
-  const second = 0x1f1e6 + code.charCodeAt(1) - 65;
-  return String.fromCodePoint(first, second);
+  const cleanCountry = country?.trim() ?? "";
+  return cleanCountry.length > 0 ? cleanCountry.toUpperCase() : "Unknown";
 }
 
 function entryPath(value: string | null): string {

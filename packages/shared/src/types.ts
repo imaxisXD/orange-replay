@@ -62,6 +62,23 @@ export interface SessionCounts {
   navs: number;
 }
 
+export interface LiveSessionSnapshot {
+  startedAt: number;
+  endedAt: number;
+  durationMs: number;
+  timeline: IndexEvent[];
+  counts: SessionCounts;
+}
+
+export interface LiveHelloMessage {
+  type: "hello";
+  sessionId: string;
+  startedAt: number;
+  segments: SegmentRef[];
+  pendingBatches: number;
+  snapshot: LiveSessionSnapshot;
+}
+
 export interface SessionInsights {
   maxScrollDepth: number;
   quickBacks: number;

@@ -6,7 +6,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { OrangePlayer } from "@orange-replay/player";
-import type { SessionManifest } from "@orange-replay/shared/types";
+import type { BatchIndex, LiveSessionSnapshot, SessionManifest } from "@orange-replay/shared/types";
 import { getApiToken } from "@/lib/api";
 import {
   getPlayerKeyAction,
@@ -30,10 +30,16 @@ export interface ReplayPlayerOptions {
   mode: ReplayMode;
   projectId: string;
   sessionId: string;
+  onLiveIndex?: (index: BatchIndex) => void;
+  onLiveSnapshot?: (snapshot: LiveSessionSnapshot) => void;
+  onLiveEnded?: () => void;
 }
 
 export interface ReplayPlayerState {
   containerRef: React.RefObject<HTMLDivElement | null>;
+  /** Attach to the timeline slider; the hook drives its `--playhead` CSS var
+      per frame so the needle stays smooth without React renders. */
+  timelineRef: React.RefObject<HTMLDivElement | null>;
   state: PlaybackState;
   values: {
     isFollowing: boolean;
@@ -63,15 +69,25 @@ export function useReplayPlayer({
   manifest,
   isDemo,
   mode,
+  onLiveIndex,
+  onLiveEnded,
+  onLiveSnapshot,
   projectId,
   sessionId,
 }: ReplayPlayerOptions): ReplayPlayerState {
   const containerRef = useRef<HTMLDivElement>(null);
+  const timelineRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<OrangePlayer | null>(null);
   const draggingTimeline = useRef(false);
-  const lastProgressCommitRef = useRef(0);
   const progressFrameRef = useRef<number | null>(null);
   const pendingProgressRef = useRef<{ currentMs: number; durationMs: number } | null>(null);
+  // Playback commits to React only when the displayed second changes; the
+  // smooth per-frame needle runs through the --playhead CSS var instead.
+  const lastCommittedSecondRef = useRef(-1);
+  const lastCommittedDurationRef = useRef(-1);
+  const dragSeekTimeoutRef = useRef<number | null>(null);
+  const lastDragSeekAtRef = useRef(0);
+  const pendingDragMsRef = useRef<number | null>(null);
   const speedRef = useRef(1);
   const skipIdleRef = useRef(false);
   const [retryKey, requestRetry] = useReducer((key: number) => key + 1, 0);
@@ -84,16 +100,21 @@ export function useReplayPlayer({
   const timelineDurationMs = Math.max(state.durationMs, manifest.durationMs, state.currentMs);
   const isFollowing = mode === "live" || state.liveState.following;
   const playheadPercent = timelineProgressPercent(state.currentMs, timelineDurationMs);
-  function seekTo(nextTimeMs: number, flash = false): void {
-    const clampedTime = clampTime(nextTimeMs, timelineDurationMs);
-    dispatch({ type: "seek", timeMs: clampedTime, flash });
 
+  function writePlayheadVar(timeMs: number, durationMs: number): void {
+    timelineRef.current?.style.setProperty(
+      "--playhead",
+      `${timelineProgressPercent(timeMs, durationMs)}%`,
+    );
+  }
+
+  function issuePlayerSeek(timeMs: number): void {
     const player = playerRef.current;
     if (player === null) {
       return;
     }
 
-    void player.seek(clampedTime).catch((caughtError: unknown) => {
+    void player.seek(timeMs).catch((caughtError: unknown) => {
       dispatch({
         type: "error",
         error: {
@@ -103,6 +124,14 @@ export function useReplayPlayer({
       });
       dispatch({ type: "buffering", buffering: false });
     });
+  }
+
+  function seekTo(nextTimeMs: number, flash = false): void {
+    const clampedTime = clampTime(nextTimeMs, timelineDurationMs);
+    dispatch({ type: "seek", timeMs: clampedTime, flash });
+    lastCommittedSecondRef.current = Math.floor(clampedTime / 1000);
+    writePlayheadVar(clampedTime, timelineDurationMs);
+    issuePlayerSeek(clampedTime);
   }
 
   function togglePlayback(): void {
@@ -139,6 +168,8 @@ export function useReplayPlayer({
     const clampedTime = clampTime(nextTimeMs, timelineDurationMs);
     dispatch({ type: "seek", timeMs: clampedTime, flash });
     dispatch({ type: "error", error: null });
+    lastCommittedSecondRef.current = Math.floor(clampedTime / 1000);
+    writePlayheadVar(clampedTime, timelineDurationMs);
 
     const player = playerRef.current;
     if (player === null) {
@@ -173,9 +204,16 @@ export function useReplayPlayer({
     requestRetry();
   }
 
-  function seekFromPointer(event: ReactPointerEvent<HTMLDivElement>): void {
+  function pointerTime(event: ReactPointerEvent<HTMLDivElement>): number {
     const rect = event.currentTarget.getBoundingClientRect();
-    seekTo(timelineXToTime(event.clientX - rect.left, timelineDurationMs, rect.width));
+    return clampTime(
+      timelineXToTime(event.clientX - rect.left, timelineDurationMs, rect.width),
+      timelineDurationMs,
+    );
+  }
+
+  function seekFromPointer(event: ReactPointerEvent<HTMLDivElement>): void {
+    seekTo(pointerTime(event));
   }
 
   function startTimelineDrag(event: ReactPointerEvent<HTMLDivElement>): void {
@@ -189,17 +227,55 @@ export function useReplayPlayer({
     seekFromPointer(event);
   }
 
+  // rrweb seeks rebuild from the nearest snapshot, so a drag must not issue
+  // one per pointermove. The needle and time label follow the pointer
+  // immediately; the actual player seek is throttled and flushed on release.
   function moveTimelineDrag(event: ReactPointerEvent<HTMLDivElement>): void {
     if (!draggingTimeline.current) {
       return;
     }
 
     event.preventDefault();
-    seekFromPointer(event);
+    const timeMs = pointerTime(event);
+    writePlayheadVar(timeMs, timelineDurationMs);
+    const second = Math.floor(timeMs / 1000);
+    if (second !== lastCommittedSecondRef.current) {
+      lastCommittedSecondRef.current = second;
+      dispatch({ type: "seek", timeMs, flash: false });
+    }
+
+    pendingDragMsRef.current = timeMs;
+    const now = performance.now();
+    if (now - lastDragSeekAtRef.current >= 110) {
+      lastDragSeekAtRef.current = now;
+      pendingDragMsRef.current = null;
+      issuePlayerSeek(timeMs);
+      return;
+    }
+
+    if (dragSeekTimeoutRef.current === null) {
+      dragSeekTimeoutRef.current = window.setTimeout(() => {
+        dragSeekTimeoutRef.current = null;
+        const pending = pendingDragMsRef.current;
+        if (pending === null || !draggingTimeline.current) return;
+        pendingDragMsRef.current = null;
+        lastDragSeekAtRef.current = performance.now();
+        issuePlayerSeek(pending);
+      }, 110);
+    }
   }
 
   function stopTimelineDrag(event: ReactPointerEvent<HTMLDivElement>): void {
+    const wasDragging = draggingTimeline.current;
     draggingTimeline.current = false;
+    if (dragSeekTimeoutRef.current !== null) {
+      window.clearTimeout(dragSeekTimeoutRef.current);
+      dragSeekTimeoutRef.current = null;
+    }
+    if (wasDragging && pendingDragMsRef.current !== null) {
+      seekTo(pendingDragMsRef.current);
+      pendingDragMsRef.current = null;
+    }
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
@@ -223,6 +299,11 @@ export function useReplayPlayer({
 
     seekTo(state.currentMs + action.deltaMs);
   });
+  const handleLiveIndex = useEffectEvent((index: BatchIndex) => onLiveIndex?.(index));
+  const handleLiveEnded = useEffectEvent(() => onLiveEnded?.());
+  const handleLiveSnapshot = useEffectEvent((snapshot: LiveSessionSnapshot) =>
+    onLiveSnapshot?.(snapshot),
+  );
 
   useEffect(() => {
     speedRef.current = state.speed;
@@ -252,18 +333,35 @@ export function useReplayPlayer({
     });
     playerRef.current = player;
 
-    const flushProgress = (frameTime: number): void => {
-      const timeSinceLastCommit = frameTime - lastProgressCommitRef.current;
-      if (timeSinceLastCommit < 1000 / 60) {
-        progressFrameRef.current = window.requestAnimationFrame(flushProgress);
-        return;
-      }
-
+    // Per frame: only the cheap CSS-var write for the needle. React commits
+    // happen when the displayed second (or duration) changes, so steady
+    // playback renders ~1x/s instead of 60x/s.
+    const flushProgress = (): void => {
       progressFrameRef.current = null;
-      lastProgressCommitRef.current = frameTime;
       const pendingProgress = pendingProgressRef.current;
       pendingProgressRef.current = null;
       if (pendingProgress === null) return;
+      if (draggingTimeline.current) return;
+
+      const effectiveDurationMs = Math.max(
+        pendingProgress.durationMs,
+        manifest.durationMs,
+        pendingProgress.currentMs,
+      );
+      timelineRef.current?.style.setProperty(
+        "--playhead",
+        `${timelineProgressPercent(pendingProgress.currentMs, effectiveDurationMs)}%`,
+      );
+
+      const second = Math.floor(pendingProgress.currentMs / 1000);
+      if (
+        second === lastCommittedSecondRef.current &&
+        pendingProgress.durationMs === lastCommittedDurationRef.current
+      ) {
+        return;
+      }
+      lastCommittedSecondRef.current = second;
+      lastCommittedDurationRef.current = pendingProgress.durationMs;
       dispatch({ type: "progress", ...pendingProgress });
     };
 
@@ -295,6 +393,9 @@ export function useReplayPlayer({
       player.on("live", (event) => {
         dispatch({ type: "live", liveState: event });
       }),
+      player.on("live_index", handleLiveIndex),
+      player.on("live_ended", handleLiveEnded),
+      player.on("live_snapshot", handleLiveSnapshot),
       player.on("waiting_keyframe", (event) => {
         dispatch({ type: "waitingKeyframe", waiting: event.waiting });
       }),
@@ -317,8 +418,14 @@ export function useReplayPlayer({
         window.cancelAnimationFrame(progressFrameRef.current);
         progressFrameRef.current = null;
       }
-      lastProgressCommitRef.current = 0;
+      if (dragSeekTimeoutRef.current !== null) {
+        window.clearTimeout(dragSeekTimeoutRef.current);
+        dragSeekTimeoutRef.current = null;
+      }
       pendingProgressRef.current = null;
+      pendingDragMsRef.current = null;
+      lastCommittedSecondRef.current = -1;
+      lastCommittedDurationRef.current = -1;
       for (const stop of stopListening) {
         stop();
       }
@@ -336,6 +443,7 @@ export function useReplayPlayer({
 
   return {
     containerRef,
+    timelineRef,
     state,
     values: {
       isFollowing,

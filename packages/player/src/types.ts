@@ -1,5 +1,7 @@
 import type {
+  BatchIndex,
   IndexEvent,
+  LiveSessionSnapshot,
   SegmentCheckpoint,
   SegmentRef,
   SessionManifest,
@@ -148,6 +150,9 @@ export interface OrangePlayerEventMap {
   buffering: BufferingEvent;
   ended: undefined;
   live: LiveEvent;
+  live_index: BatchIndex;
+  live_snapshot: LiveSessionSnapshot;
+  live_ended: undefined;
   waiting_keyframe: WaitingKeyframeEvent;
   error: PlayerErrorEvent;
 }

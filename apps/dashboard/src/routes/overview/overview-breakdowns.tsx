@@ -111,7 +111,7 @@ export function ErrorsCard({
         <CardTitle description="Grouped browser error messages" title="JS errors" />
       </div>
       {errors.length === 0 ? (
-        <CardEmpty description="No JavaScript errors in this range." />
+        <CardEmpty description="No JavaScript errors in this range — enjoy it." />
       ) : (
         <div>
           {errors.map((error) => (

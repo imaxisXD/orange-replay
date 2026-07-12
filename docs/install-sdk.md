@@ -51,7 +51,7 @@ The default SDK transport creates a Blob Web Worker for compression and batching
 worker-src blob:
 ```
 
-If that is not allowed, set `transport: "inline"`. Capture still works, but more work happens on the main thread.
+If that is not allowed, set `transport: "inline"`. Capture still works, but more work happens on the main thread. The SDK does not switch to inline mode automatically because a surprise main-thread snapshot can slow the customer page.
 
 ## Bundle Budgets
 

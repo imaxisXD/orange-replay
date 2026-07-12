@@ -2,7 +2,6 @@ import type { RefObject } from "react";
 import type { PlayerErrorEvent } from "@orange-replay/player";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { AlertCircle } from "@/lib/icon-map";
 
 export function ReplayStage({
@@ -32,19 +31,11 @@ export function ReplayStage({
     >
       <div ref={containerRef} className="absolute inset-0 overflow-hidden" />
 
-      {!ready && playerError === null && (
-        <div className="absolute inset-0 z-20 p-4">
-          <Skeleton className="h-full w-full rounded-md" />
-        </div>
-      )}
-
-      {ready && isFollowing && waitingForKeyframe && playerError === null && (
+      {isFollowing && waitingForKeyframe && playerError === null && (
         <ReplayOverlay
           dotClassName="live-pulse size-2.25 rounded-full bg-success"
           label={
-            liveConnected
-              ? "Connected live - waiting for the next keyframe..."
-              : "Connecting live..."
+            liveConnected ? "Connected live — waiting for the next keyframe…" : "Connecting live…"
           }
         />
       )}
@@ -52,7 +43,7 @@ export function ReplayStage({
       {ready && buffering && !waitingForKeyframe && playerError === null && (
         <ReplayOverlay
           dotClassName="size-8 animate-spin rounded-full border border-dash border-t-amber"
-          label="Buffering..."
+          label="Buffering…"
         />
       )}
 

@@ -5,10 +5,12 @@ import {
   forwardRef,
   isValidElement,
   type ButtonHTMLAttributes,
+  type CSSProperties,
   type ReactElement,
   type ReactNode,
+  type Ref,
 } from "react";
-import { Slot } from "@radix-ui/react-slot";
+import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import { cva, type VariantProps } from "class-variance-authority";
 import type { IconComponent } from "@/lib/icon-map";
 import { cn } from "@/lib/utils";
@@ -103,16 +105,18 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     },
     ref,
   ) => {
-    // asChild: the user's element becomes the root, but the button's internal
-    // structure (bg layer, content wrapper, spinner, icons) must survive. Slot
-    // requires exactly one child, so instead of Slottable we clone the user's
-    // element with our internals as its children — the element's own children
-    // become the label inside the content wrapper.
+    // asChild: the user's element becomes the root while the button's internal
+    // structure survives as its children. Fluid's Base UI version clones links
+    // directly so they keep link semantics instead of receiving button roles.
     const asChildElement =
       asChild && isValidElement(children)
-        ? (children as ReactElement<{ children?: ReactNode }>)
+        ? (children as ReactElement<{
+            children?: ReactNode;
+            className?: string;
+            style?: CSSProperties;
+            ref?: Ref<HTMLButtonElement>;
+          }>)
         : null;
-    const Comp = asChildElement ? Slot : "button";
     const label = asChildElement ? asChildElement.props.children : children;
     const isIconOnly = size === "icon" || size === "icon-sm" || size === "icon-lg";
     const iconSize = size === "sm" ? 14 : size === "lg" ? 20 : 16;
@@ -196,25 +200,41 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       </>
     );
 
+    const rootClassName = cn(
+      buttonVariants({
+        variant,
+        size,
+        iconLeft: !isIconOnly && !!LeadingIcon,
+        iconRight: !isIconOnly && !!TrailingIcon,
+      }),
+      shape.button,
+      className,
+    );
+
+    if (asChildElement) {
+      const childProps = asChildElement.props;
+      return cloneElement(
+        asChildElement,
+        {
+          ...props,
+          ref,
+          className: cn(rootClassName, childProps.className),
+          style: { ...style, ...childProps.style },
+        },
+        internals,
+      );
+    }
+
     return (
-      <Comp
-        ref={ref}
-        className={cn(
-          buttonVariants({
-            variant,
-            size,
-            iconLeft: !isIconOnly && !!LeadingIcon,
-            iconRight: !isIconOnly && !!TrailingIcon,
-          }),
-          shape.button,
-          className,
-        )}
+      <ButtonPrimitive
+        ref={ref as Ref<HTMLButtonElement>}
+        className={rootClassName}
         disabled={disabled || loading}
         style={style}
         {...props}
       >
-        {asChildElement ? cloneElement(asChildElement, undefined, internals) : internals}
-      </Comp>
+        {internals}
+      </ButtonPrimitive>
     );
   },
 );

@@ -26,7 +26,7 @@ export function CardEmpty({ description }: { description: string }) {
         <EmptyMedia variant="icon">
           <Inbox aria-hidden />
         </EmptyMedia>
-        <EmptyTitle>No data yet</EmptyTitle>
+        <EmptyTitle>Nothing in this range yet</EmptyTitle>
         <EmptyDescription>{description}</EmptyDescription>
       </EmptyHeader>
     </Empty>
@@ -76,7 +76,9 @@ export function OverviewLoading() {
 
 export function StatsError({ error }: { error: unknown }) {
   const message =
-    error instanceof ApiError ? (error.code ?? error.message) : "The analytics request failed.";
+    error instanceof ApiError
+      ? (error.code ?? error.message)
+      : "The analytics request failed. Refresh, or try a narrower date range.";
   return (
     <Alert variant="destructive">
       <AlertCircle aria-hidden />

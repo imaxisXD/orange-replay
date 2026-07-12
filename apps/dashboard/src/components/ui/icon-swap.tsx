@@ -28,9 +28,15 @@ export function IconSwap({ swapKey, children, className }: IconSwapProps) {
         <m.span
           key={swapKey}
           className="col-start-1 row-start-1 inline-grid place-items-center"
-          initial={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.25, filter: "blur(4px)" }}
-          animate={reduce ? { opacity: 1 } : { opacity: 1, scale: 1, filter: "blur(0px)" }}
-          exit={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.25, filter: "blur(4px)" }}
+          initial={
+            reduce ? { opacity: 0 } : { opacity: 0, transform: "scale(0.25)", filter: "blur(4px)" }
+          }
+          animate={
+            reduce ? { opacity: 1 } : { opacity: 1, transform: "scale(1)", filter: "blur(0px)" }
+          }
+          exit={
+            reduce ? { opacity: 0 } : { opacity: 0, transform: "scale(0.25)", filter: "blur(4px)" }
+          }
           transition={reduce ? { duration: 0 } : { type: "spring", duration: 0.3, bounce: 0 }}
         >
           {children}

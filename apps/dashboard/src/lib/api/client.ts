@@ -81,7 +81,11 @@ export async function requestJson<T>(path: string, options: RequestOptions): Pro
   try {
     response = await fetch(path, init);
   } catch (error) {
-    throw new ApiError(readErrorMessage(error, "Could not reach the API."), 0, "network_error");
+    throw new ApiError(
+      readErrorMessage(error, "Could not reach the API. Check your connection and try again."),
+      0,
+      "network_error",
+    );
   }
 
   if (!response.ok) {

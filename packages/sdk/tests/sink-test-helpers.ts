@@ -1,8 +1,9 @@
 import { vi } from "vite-plus/test";
 import type { eventWithTime } from "@orange-replay/rrweb-fork";
 import type { WorkerBatchResult } from "../src/pipeline/worker-core.ts";
-import type { WorkerHost } from "../src/pipeline/worker-host.ts";
+import type { WorkerEvent, WorkerHost } from "../src/pipeline/worker-host.ts";
 import { SessionManager, type StorageLike } from "../src/session.ts";
+import type { WorkerSink } from "../src/sink/worker-sink.ts";
 import type { RecorderConfig } from "../src/types.ts";
 
 class MemoryStorage implements StorageLike {
@@ -32,6 +33,14 @@ export const config: RecorderConfig = {
   allowUrlParams: [],
   flushMs: 15_000,
 };
+
+export function droppedEventCount(sink: WorkerSink): number {
+  const counters = sink as unknown as {
+    backpressure: { droppedCount(): number };
+    indexEvents: { droppedCount(): number };
+  };
+  return counters.backpressure.droppedCount() + counters.indexEvents.droppedCount();
+}
 
 export const decoder = new TextDecoder();
 
@@ -122,8 +131,8 @@ export function makeResolvedWorkerHost(): MockWorkerHost {
 export function makeCollectingWorkerHost(): MockWorkerHost {
   const events: eventWithTime[] = [];
   return {
-    addEvents: vi.fn((nextEvents: eventWithTime[]) => {
-      events.push(...nextEvents);
+    addEvents: vi.fn((nextEvents: WorkerEvent[]) => {
+      events.push(...nextEvents.map(([event]) => event));
     }),
     flushBatch: vi.fn(async ({ eventCount }: { eventCount?: number } = {}) => {
       const take = eventCount ?? events.length;

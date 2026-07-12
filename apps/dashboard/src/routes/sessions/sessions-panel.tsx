@@ -1,10 +1,11 @@
-import { useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
+import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ApiError, fetchProjectStats, listSessions, type SessionListItem } from "@/lib/api";
 import { filterChips, removeFilterKey } from "@/lib/filter-chips";
-import { AlertCircle } from "@/lib/icon-map";
+import { AlertCircle, ArrowLeft } from "@/lib/icon-map";
 import { appendUniqueSessions, canLoadMore } from "@/lib/session-list";
 import { canonicalSessionFilter } from "@/lib/session-filters";
 import {
@@ -12,7 +13,7 @@ import {
   type SessionSort,
   type SessionsViewSearch,
 } from "@/lib/sessions-view-search";
-import { markSessionWatched, watchedSessionIds } from "@/lib/watched";
+import { markSessionWatched, unmarkSessionWatched, watchedSessionIds } from "@/lib/watched";
 import { entryPath } from "./session-card";
 import { SessionFilterChips } from "./session-filter-chips";
 import { SessionListPane } from "./session-list-pane";
@@ -27,8 +28,12 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
   const sort: SessionSort = view.sort ?? "newest";
   const selected = view.selected;
   const navigate = useNavigate();
-  const [watchedVersion, setWatchedVersion] = useState(0);
+  const [, setWatchedVersion] = useState(0);
   const [announcement, setAnnouncement] = useState("");
+  const [recentlyWatched, setRecentlyWatched] = useState<{
+    sessionId: string;
+    label: string;
+  } | null>(null);
   const watched = watchedSessionIds(projectId);
 
   const chips = filterChips(filter);
@@ -56,9 +61,7 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
   }
 
   function selectSession(session: SessionListItem): void {
-    markSessionWatched(projectId, session.session_id);
-    setWatchedVersion(watchedVersion + 1);
-    setAnnouncement(`Now playing ${entryPath(session.entry_url)}`);
+    setAnnouncement(`Selected ${entryPath(session.entry_url)}`);
     // Selection is the high-frequency, high-regret action — it pushes history
     // so Back walks the triage trail; keystroke-level filter edits replace.
     navigateView({ ...view, selected: session.session_id }, { push: true });
@@ -106,8 +109,8 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
     [],
   );
   // Unwatched-only is a client-side lens (watched state lives in localStorage);
-  // the selected session always stays visible so it does not vanish the moment
-  // selecting it marks it watched.
+  // the selected session always stays visible so it does not vanish when
+  // playback starts and marks it watched.
   const unwatchedOnly = view.unwatched === true;
   const visibleSessions = unwatchedOnly
     ? sessions.filter(
@@ -116,6 +119,30 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
     : sessions;
   const selectedIndex = visibleSessions.findIndex((session) => session.session_id === selected);
   const railRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (recentlyWatched === null) return;
+    const timeout = window.setTimeout(() => setRecentlyWatched(null), 6_000);
+    return () => window.clearTimeout(timeout);
+  }, [recentlyWatched]);
+
+  function markPlaybackStarted(sessionId: string): void {
+    if (watchedSessionIds(projectId).has(sessionId)) return;
+    markSessionWatched(projectId, sessionId);
+    setWatchedVersion((version) => version + 1);
+    const session = sessions.find((item) => item.session_id === sessionId);
+    setRecentlyWatched({
+      sessionId,
+      label: entryPath(session?.entry_url ?? null),
+    });
+  }
+
+  function markUnwatched(sessionId: string): void {
+    unmarkSessionWatched(projectId, sessionId);
+    setWatchedVersion((version) => version + 1);
+    setRecentlyWatched(null);
+    setAnnouncement("Session marked unwatched");
+  }
 
   function stepSelection(delta: 1 | -1): void {
     if (visibleSessions.length === 0) return;
@@ -161,6 +188,9 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
         filter={filter}
         hasMore={canLoadMore(nextBefore)}
         isLoading={loadState === "loading"}
+        isRefreshing={
+          sessionsQuery.isFetching && !sessionsQuery.isPending && !sessionsQuery.isFetchingNextPage
+        }
         onFilterChange={replaceFilter}
         onRefresh={() => void sessionsQuery.refetch()}
         sessionCount={sessions.length}
@@ -172,16 +202,41 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
         onRemove={(key) => replaceFilter(removeFilterKey(filter, key))}
       />
 
+      {recentlyWatched !== null && (
+        <div
+          className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2 text-[12.5px] text-muted-foreground"
+          role="status"
+        >
+          <span className="truncate">
+            Marked <span className="font-medium text-foreground">{recentlyWatched.label}</span> as
+            watched after playback started.
+          </span>
+          <Button
+            className="h-auto shrink-0 px-0 py-0 text-[12.5px]"
+            onClick={() => markUnwatched(recentlyWatched.sessionId)}
+            variant="ghost"
+          >
+            Undo
+          </Button>
+        </div>
+      )}
+
       {error.length > 0 && (
         <Alert variant="destructive">
           <AlertCircle aria-hidden />
           <AlertTitle>Could not load sessions</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription>
+            <p>{error}</p>
+            <Button onClick={() => void sessionsQuery.refetch()} size="sm" variant="secondary">
+              Try again
+            </Button>
+          </AlertDescription>
         </Alert>
       )}
 
-      <div className="flex items-start gap-5">
+      <div className="flex min-w-0 items-start gap-5">
         <SessionListPane
+          className={selected === undefined ? "flex" : "hidden lg:flex"}
           chipsCount={chips.length}
           error={error}
           hasMore={canLoadMore(nextBefore)}
@@ -209,11 +264,32 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
           watched={watched}
         />
 
-        <div className="min-w-0 flex-1">
+        <div
+          className={selected === undefined ? "hidden min-w-0 flex-1 lg:block" : "min-w-0 flex-1"}
+        >
+          {selected !== undefined && (
+            <Button
+              className="mb-3 lg:hidden"
+              leadingIcon={ArrowLeft}
+              onClick={() => replaceView({ ...view, selected: undefined })}
+              size="sm"
+              variant="secondary"
+            >
+              Back to sessions
+            </Button>
+          )}
           <SessionStage
             hasNext={selectedIndex !== -1 && selectedIndex < visibleSessions.length - 1}
             hasPrev={selectedIndex > 0}
             isDemo={isDemo}
+            isWatched={selected === undefined ? false : watched.has(selected)}
+            onBack={() => replaceView({ ...view, selected: undefined })}
+            onMarkUnwatched={() => {
+              if (selected !== undefined) markUnwatched(selected);
+            }}
+            onPlaybackStarted={() => {
+              if (selected !== undefined) markPlaybackStarted(selected);
+            }}
             onStep={stepSelection}
             projectId={projectId}
             railEmpty={loadState !== "loading" && sessions.length === 0}
@@ -230,7 +306,13 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
 }
 
 function readErrorMessage(error: unknown): string {
-  if (error instanceof ApiError) return error.code ?? error.message;
+  if (error instanceof ApiError) return readableApiError(error);
   if (error instanceof Error) return error.message;
-  return "The API request failed.";
+  return "The request failed. Try again in a moment.";
+}
+
+function readableApiError(error: ApiError): string {
+  if (error.code === "network_error") return error.message;
+  if (error.status >= 500) return "The sessions service is unavailable. Try again in a moment.";
+  return error.message.replaceAll("_", " ");
 }

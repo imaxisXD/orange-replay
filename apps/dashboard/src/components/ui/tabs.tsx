@@ -14,7 +14,7 @@ const TabsList = forwardRef<HTMLDivElement, ComponentPropsWithoutRef<typeof Tabs
       ref={ref}
       {...props}
     >
-      <TabsPrimitive.Indicator className="pointer-events-none absolute top-(--active-tab-top) left-(--active-tab-left) h-(--active-tab-height) w-(--active-tab-width) rounded-md bg-card transition-[top,left,width,height] duration-200 ease-out motion-reduce:transition-none" />
+      <TabsPrimitive.Indicator className="pointer-events-none absolute top-0 left-0 h-(--active-tab-height) w-(--active-tab-width) [transform:translate(var(--active-tab-left),var(--active-tab-top))] rounded-md bg-card transition-[transform,width,height] duration-200 ease-in-out motion-reduce:transition-none" />
       {children}
     </TabsPrimitive.List>
   ),

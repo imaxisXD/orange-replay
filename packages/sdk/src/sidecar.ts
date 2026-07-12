@@ -23,7 +23,6 @@ interface QueueRecord {
   t?: unknown;
   m?: unknown;
   d?: unknown;
-  n?: unknown;
   u?: unknown;
   x?: unknown;
   y?: unknown;
@@ -119,21 +118,29 @@ export class Sidecar {
     }
   }
 
-  addCustomEvent(name: string, meta?: Record<string, unknown>): void {
+  addCustomEvent(name: string, meta?: Record<string, unknown>): CleanMeta {
+    const cleanMeta = cleanCustomMeta(meta);
     this.sink.addIndexEvent({
       t: this.now(),
       k: "custom",
       d: truncateDetail(name),
-      m: cleanCustomMeta(meta),
+      m: cleanMeta,
     });
+    return cleanMeta;
   }
 
   drainPreBuffer(): void {
     const win = this.window as LoaderWindow;
     const queue = Array.isArray(win.__orq) ? win.__orq.splice(0) : [];
+    let hasPageLoadEvent = false;
 
     for (const item of queue) {
-      this.addQueuedEvent(item);
+      hasPageLoadEvent = this.addQueuedEvent(item) || hasPageLoadEvent;
+    }
+
+    if (!hasPageLoadEvent) {
+      const timestamp = this.now();
+      this.addPageLoadEvent(timestamp, timestamp, this.window.location.href);
     }
 
     detachLoaderPreBuffer(win);
@@ -232,9 +239,9 @@ export class Sidecar {
     }) as History["replaceState"];
   }
 
-  private addQueuedEvent(item: unknown): void {
+  private addQueuedEvent(item: unknown): boolean {
     if (!isQueueRecord(item)) {
-      return;
+      return false;
     }
 
     const timestamp = typeof item.t === "number" && Number.isFinite(item.t) ? item.t : this.now();
@@ -262,7 +269,7 @@ export class Sidecar {
         d: detail,
         m: { x: coords.x, y: coords.y, w: width, h: height },
       });
-      return;
+      return false;
     }
 
     if (item.k === "error" || item.k === "unhandledrejection") {
@@ -271,22 +278,36 @@ export class Sidecar {
         k: "error",
         d: truncateDetail(stringFromUnknown(item.m) || "error"),
       });
-      return;
+      return false;
     }
 
     if (item.k === "nav" && typeof item.u === "string") {
       this.recordNavigation(item.u);
-      return;
+      return false;
     }
 
     if (item.k === "vital") {
-      this.sink.addIndexEvent({
-        t: timestamp,
-        k: "vital",
-        d: typeof item.n === "string" ? truncateDetail(item.n) : "navigation",
-        m: { start: cleanNumber(item.start, timestamp) },
-      });
+      this.addPageLoadEvent(
+        timestamp,
+        cleanNumber(item.start, timestamp),
+        typeof item.u === "string" ? item.u : this.window.location.href,
+      );
+      return true;
     }
+
+    return false;
+  }
+
+  private addPageLoadEvent(timestamp: number, start: number, url: string): void {
+    this.sink.addIndexEvent({
+      t: timestamp,
+      k: "vital",
+      d: "navigation",
+      m: {
+        start,
+        url: truncateDetail(scrubUrl(url, this.config.allowUrlParams)),
+      },
+    });
   }
 
   private viewport(): { width: number; height: number } {

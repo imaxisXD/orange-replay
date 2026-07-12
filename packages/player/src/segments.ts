@@ -2,6 +2,7 @@ import { decodeIngestBody, parseSegment, segmentBatch } from "@orange-replay/sha
 import { MAX_CHECKPOINTS_PER_SEGMENT } from "@orange-replay/shared/constants";
 import type { BatchIndex, SegmentCheckpoint, SegmentRef } from "@orange-replay/shared/types";
 import { EventType } from "rrweb";
+import { replayViewportFromEvent } from "./geometry.ts";
 import type { DecodeWorkerHost } from "./worker-host.ts";
 import type { ReplayEvent, SegmentWindow } from "./types.ts";
 
@@ -146,7 +147,19 @@ export function eventsFromCheckpoint(
   if (checkpointIndex < 0) {
     throw new Error("Replay checkpoint does not match a full snapshot.");
   }
-  return events.slice(checkpointIndex);
+
+  const checkpointEvents = events.slice(checkpointIndex);
+  for (let index = checkpointIndex - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (event !== undefined && replayViewportFromEvent(event) !== null) {
+      // rrweb keeps its iframe hidden until it receives a viewport event.
+      // Keep the latest viewport when rebasing at a full snapshot so the
+      // checkpoint can render immediately instead of leaving a black stage.
+      return [event, ...checkpointEvents];
+    }
+  }
+
+  return checkpointEvents;
 }
 
 export function validateSegmentCheckpoints(

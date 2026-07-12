@@ -25,3 +25,12 @@ export function markSessionWatched(projectId: string, sessionId: string): void {
     // Storage unavailable (private mode, quota) — watched state is a nicety.
   }
 }
+
+export function unmarkSessionWatched(projectId: string, sessionId: string): void {
+  try {
+    const current = [...watchedSessionIds(projectId)].filter((id) => id !== sessionId);
+    localStorage.setItem(storageKey(projectId), JSON.stringify(current));
+  } catch {
+    // Storage unavailable (private mode, quota) — watched state is a nicety.
+  }
+}

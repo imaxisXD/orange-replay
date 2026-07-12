@@ -43,13 +43,24 @@ export const sessionRowColumns = [
 
 export type SessionColumn = (typeof sessionRowColumns)[number];
 
-export const sessionSortValues = ["newest", "duration", "clicks", "pages"] as const;
+export const sessionSortValues = ["newest", "friction", "duration", "clicks", "pages"] as const;
 export type SessionSort = (typeof sessionSortValues)[number];
+
+const frictionScoreSql = (tableAlias: "sessions" | "s" = "sessions"): string => {
+  const prefix = tableAlias === "sessions" ? "" : `${tableAlias}.`;
+  // Errors are the strongest sign of a broken journey, then rage clicks,
+  // then ordinary click activity as the final tie-break signal.
+  return `(${prefix}errors * 1000 + ${prefix}rages * 100 + ${prefix}clicks)`;
+};
 
 const sessionSortSql = {
   newest: {
     column: "started_at",
     orderBy: "started_at DESC, session_id DESC",
+  },
+  friction: {
+    column: null,
+    orderBy: `${frictionScoreSql()} DESC, session_id DESC`,
   },
   duration: {
     column: "duration_ms",
@@ -63,7 +74,7 @@ const sessionSortSql = {
     column: "page_count",
     orderBy: "page_count IS NULL, page_count DESC, session_id DESC",
   },
-} as const satisfies Record<SessionSort, { column: SessionColumn; orderBy: string }>;
+} as const satisfies Record<SessionSort, { column: SessionColumn | null; orderBy: string }>;
 
 export interface SessionRow {
   session_id: string;
@@ -107,7 +118,7 @@ export type SessionQueryValue = string | number;
 
 export type SessionCursor =
   | { sort: "newest"; sortValue: number; sessionId?: string }
-  | { sort: "duration" | "clicks"; sortValue: number; sessionId: string }
+  | { sort: "friction" | "duration" | "clicks"; sortValue: number; sessionId: string }
   | { sort: "pages"; sortValue: number | null; sessionId: string };
 
 export interface SessionsQuery {
@@ -205,7 +216,11 @@ export function buildSessionWhere(
   const bindings: SessionQueryValue[] = [projectId];
 
   if (before !== undefined) {
-    const sortColumn = column(sessionSortSql[before.sort].column);
+    const sortConfig = sessionSortSql[before.sort];
+    const sortColumn =
+      before.sort === "friction"
+        ? frictionScoreSql(tableAlias)
+        : column(sortConfig.column as SessionColumn);
 
     if (before.sort === "newest") {
       if (before.sessionId === undefined) {
@@ -347,7 +362,9 @@ export function buildSessionWhere(
 
 export function encodeSessionCursor(
   session: Pick<SessionRow, "session_id"> &
-    Partial<Pick<SessionRow, "started_at" | "duration_ms" | "clicks" | "page_count">>,
+    Partial<
+      Pick<SessionRow, "started_at" | "duration_ms" | "clicks" | "errors" | "rages" | "page_count">
+    >,
   sort: SessionSort = "newest",
 ): string {
   if (sort === "pages") {
@@ -357,7 +374,20 @@ export function encodeSessionCursor(
     return `pages:${session.page_count === null ? "null" : session.page_count}:${session.session_id}`;
   }
 
-  const sortValue = session[sessionSortSql[sort].column];
+  if (sort === "friction") {
+    if (
+      typeof session.errors !== "number" ||
+      typeof session.rages !== "number" ||
+      typeof session.clicks !== "number"
+    ) {
+      throw new Error("Missing friction values for the sessions cursor");
+    }
+    const score = session.errors * 1000 + session.rages * 100 + session.clicks;
+    return `friction:${score}:${session.session_id}`;
+  }
+
+  const sortColumn = sessionSortSql[sort].column;
+  const sortValue = sortColumn === null ? undefined : session[sortColumn];
   if (typeof sortValue !== "number") {
     throw new Error(`Missing ${sort} value for the sessions cursor`);
   }

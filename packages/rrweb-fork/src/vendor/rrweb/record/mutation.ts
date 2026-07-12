@@ -27,12 +27,15 @@ import {
   isSerialized,
   hasShadowRoot,
   isSerializedIframe,
-  isSerializedStylesheet,
   inDom,
   getShadowHost,
   closestElementOfNode,
 } from "../utils";
 import dom from "../../rrweb-utils/index.ts";
+
+declare const __ORANGE_REPLAY_SDK_PROFILE__: boolean | undefined;
+const isOrangeReplaySdk =
+  typeof __ORANGE_REPLAY_SDK_PROFILE__ !== "undefined" && __ORANGE_REPLAY_SDK_PROFILE__;
 
 type DoubleLinkedListNode = {
   previous: DoubleLinkedListNode | null;
@@ -135,7 +138,7 @@ const moveKey = (id: number, parentId: number) => `${id}@${parentId}`;
  */
 export default class MutationBuffer {
   private frozen = false;
-  private locked = false;
+  private observer?: MutationObserver;
 
   private texts: textCursor[] = [];
   private attributes: attributeCursor[] = [];
@@ -187,6 +190,9 @@ export default class MutationBuffer {
   private stylesheetManager: observerParam["stylesheetManager"];
   private shadowDomManager: observerParam["shadowDomManager"];
   private canvasManager: observerParam["canvasManager"];
+  private imageManager: observerParam["imageManager"];
+  private mutationObservedCb: observerParam["mutationObservedCb"];
+  private largeMutationCb: observerParam["largeMutationCb"];
   private processedNodeManager: observerParam["processedNodeManager"];
   private unattachedDoc: HTMLDocument;
 
@@ -213,6 +219,9 @@ export default class MutationBuffer {
         "stylesheetManager",
         "shadowDomManager",
         "canvasManager",
+        "imageManager",
+        "mutationObservedCb",
+        "largeMutationCb",
         "processedNodeManager",
       ] as const
     ).forEach((key) => {
@@ -222,29 +231,30 @@ export default class MutationBuffer {
   }
 
   public freeze() {
-    this.frozen = true;
-    this.canvasManager.freeze();
+    if (!isOrangeReplaySdk) {
+      this.frozen = true;
+      this.canvasManager.freeze();
+    }
   }
 
   public unfreeze() {
-    this.frozen = false;
-    this.canvasManager.unfreeze();
-    this.emit();
+    if (!isOrangeReplaySdk) {
+      this.frozen = false;
+      this.canvasManager.unfreeze();
+      this.emit();
+    }
   }
 
   public isFrozen() {
-    return this.frozen;
+    return !isOrangeReplaySdk && this.frozen;
   }
 
-  public lock() {
-    this.locked = true;
-    this.canvasManager.lock();
+  public setObserver(observer: MutationObserver) {
+    this.observer = observer;
   }
 
-  public unlock() {
-    this.locked = false;
-    this.canvasManager.unlock();
-    this.emit();
+  public discardPendingRecords() {
+    this.observer?.takeRecords();
   }
 
   public reset() {
@@ -253,12 +263,17 @@ export default class MutationBuffer {
   }
 
   public processMutations = (mutations: mutationRecord[]) => {
+    if (this.largeMutationCb !== undefined && hasLargeMutationTree(mutations)) {
+      this.largeMutationCb();
+      return;
+    }
+    if (mutations.length > 0) this.mutationObservedCb?.(mutations);
     mutations.forEach(this.processMutation); // adds mutations to the buffer
     this.emit(); // clears buffer if not locked/frozen
   };
 
   public emit = () => {
-    if (this.frozen || this.locked) {
+    if (!isOrangeReplaySdk && this.frozen) {
       return;
     }
 
@@ -325,12 +340,15 @@ export default class MutationBuffer {
         dataURLOptions: this.dataURLOptions,
         recordCanvas: this.recordCanvas,
         inlineImages: this.inlineImages,
+        deferInlineImages: true,
         onSerialize: (currentN) => {
-          if (isSerializedIframe(currentN, this.mirror)) {
+          this.canvasManager.trackCanvas(currentN);
+          this.imageManager.trackImage(currentN);
+          if (
+            isSerializedIframe(currentN, this.mirror) &&
+            !isBlocked(currentN, this.blockClass, this.blockSelector, true)
+          ) {
             this.iframeManager.addIframe(currentN as HTMLIFrameElement);
-          }
-          if (isSerializedStylesheet(currentN, this.mirror)) {
-            this.stylesheetManager.trackLinkElement(currentN as HTMLLinkElement);
           }
           if (hasShadowRoot(n)) {
             // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
@@ -341,6 +359,7 @@ export default class MutationBuffer {
           this.iframeManager.attachIframe(iframe, childSn);
           this.shadowDomManager.observeAttachShadow(iframe);
         },
+        onIframeReady: (iframeDocument) => this.iframeManager.snapshotLoadedIframe(iframeDocument),
         onStylesheetLoad: (link, childSn) => {
           this.stylesheetManager.attachLinkElement(link, childSn);
         },
@@ -356,9 +375,15 @@ export default class MutationBuffer {
       }
     };
 
+    const detachedRoots: Node[] = [];
     while (this.mapRemoves.length) {
-      this.mirror.removeNodeFromMap(this.mapRemoves.shift()!);
+      const removedRoot = this.mapRemoves.shift()!;
+      if (!inDom(removedRoot)) detachedRoots.push(removedRoot);
+      this.mirror.removeNodeFromMap(removedRoot);
     }
+    this.shadowDomManager.removeContainedRoots(detachedRoots);
+    this.iframeManager.removeContainedIframes(detachedRoots);
+    this.imageManager.removeContainedImages(detachedRoots);
 
     for (const n of this.movedSet) {
       if (
@@ -444,6 +469,7 @@ export default class MutationBuffer {
 
     const payload = {
       texts: this.texts
+        .filter((text) => this.mirror.isActiveNode(text.node))
         .map((text) => {
           const n = text.node;
           const parent = dom.parentNode(n);
@@ -457,10 +483,9 @@ export default class MutationBuffer {
           };
         })
         // no need to include them on added elements, as they have just been serialized with up to date attribubtes
-        .filter((text) => !addedIds.has(text.id))
-        // text mutation's id was not in the mirror map means the target node has been removed
-        .filter((text) => this.mirror.has(text.id)),
+        .filter((text) => !addedIds.has(text.id)),
       attributes: this.attributes
+        .filter((attribute) => this.mirror.isActiveNode(attribute.node))
         .map((attribute) => {
           const { attributes } = attribute;
           if (typeof attributes.style === "string") {
@@ -485,23 +510,13 @@ export default class MutationBuffer {
           };
         })
         // no need to include them on added elements, as they have just been serialized with up to date attribubtes
-        .filter((attribute) => !addedIds.has(attribute.id))
-        // attribute mutation's id was not in the mirror map means the target node has been removed
-        .filter((attribute) => this.mirror.has(attribute.id)),
+        .filter((attribute) => !addedIds.has(attribute.id)),
       removes: this.removes,
       adds,
     };
-    // payload may be empty if the mutations happened in some blocked elements
-    if (
-      !payload.texts.length &&
-      !payload.attributes.length &&
-      !payload.removes.length &&
-      !payload.adds.length
-    ) {
-      return;
-    }
-
-    // reset
+    // Cursors filtered before their nodes became active are represented by the
+    // current baseline or by a serialized add. Never retain them for a later,
+    // unrelated mutation flush.
     this.texts = [];
     this.attributes = [];
     this.attributeMap = new WeakMap<Node, attributeCursor>();
@@ -511,6 +526,15 @@ export default class MutationBuffer {
     this.droppedSet = new Set<Node>();
     this.removesSubTreeCache = new Set<Node>();
     this.movedMap = {};
+    // payload may be empty if the mutations happened in some blocked elements
+    if (
+      !payload.texts.length &&
+      !payload.attributes.length &&
+      !payload.removes.length &&
+      !payload.adds.length
+    ) {
+      return;
+    }
 
     this.mutationCb(payload);
   };
@@ -547,7 +571,7 @@ export default class MutationBuffer {
         const value = dom.textContent(m.target);
 
         if (
-          !isBlocked(m.target, this.blockClass, this.blockSelector, false) &&
+          !isBlocked(m.target, this.blockClass, this.blockSelector, true) &&
           value !== m.oldValue
         ) {
           this.texts.push({
@@ -558,7 +582,7 @@ export default class MutationBuffer {
                 this.maskTextSelector,
                 true, // checkAncestors
               ) && value
-                ? this.maskTextFn
+                ? !isOrangeReplaySdk && this.maskTextFn
                   ? this.maskTextFn(value, closestElementOfNode(m.target))
                   : value.replace(/[\S]/g, "*")
                 : value,
@@ -585,10 +609,21 @@ export default class MutationBuffer {
           });
         }
         if (
-          isBlocked(m.target, this.blockClass, this.blockSelector, false) ||
+          isBlocked(m.target, this.blockClass, this.blockSelector, true) ||
           value === m.oldValue
         ) {
           return;
+        }
+
+        if (
+          this.inlineImages &&
+          target.tagName === "IMG" &&
+          (attributeName === "src" || attributeName === "srcset")
+        ) {
+          this.imageManager.trackImage(target);
+          // ImageManager will send a sealed data URL. Remove the network URL
+          // immediately so replay never requests the recorded website.
+          value = null;
         }
 
         let item = this.attributeMap.get(m.target);
@@ -786,6 +821,41 @@ export default class MutationBuffer {
   };
 }
 
+const LARGE_MUTATION_TREE_NODES = 1_000;
+
+function hasLargeMutationTree(mutations: readonly mutationRecord[]): boolean {
+  if (mutations.length > LARGE_MUTATION_TREE_NODES) return true;
+  const pending: Node[] = [];
+  for (const mutation of mutations) {
+    if (mutation.type !== "childList") continue;
+    if (
+      mutation.addedNodes.length + mutation.removedNodes.length + pending.length >
+      LARGE_MUTATION_TREE_NODES
+    )
+      return true;
+    for (const node of mutation.addedNodes) pending.push(node);
+    for (const node of mutation.removedNodes) pending.push(node);
+  }
+
+  let visited = 0;
+  while (pending.length > 0) {
+    const node = pending.pop()!;
+    visited += 1;
+    if (visited > LARGE_MUTATION_TREE_NODES) return true;
+    const children = dom.childNodes(node);
+    const shadowRoot = hasShadowRoot(node) ? dom.shadowRoot(node) : null;
+    const shadowChildren = shadowRoot === null ? [] : dom.childNodes(shadowRoot);
+    if (
+      children.length + shadowChildren.length + visited + pending.length >
+      LARGE_MUTATION_TREE_NODES
+    )
+      return true;
+    for (const child of children) pending.push(child);
+    for (const child of shadowChildren) pending.push(child);
+  }
+  return false;
+}
+
 /**
  * Some utils to handle the mutation observer DOM records.
  * It should be more clear to extend the native data structure
@@ -793,8 +863,12 @@ export default class MutationBuffer {
  * that.
  */
 function deepDelete(addsSet: Set<Node>, n: Node) {
-  addsSet.delete(n);
-  dom.childNodes(n).forEach((childN) => deepDelete(addsSet, childN));
+  const pending = [n];
+  while (pending.length > 0) {
+    const current = pending.pop()!;
+    addsSet.delete(current);
+    for (const child of dom.childNodes(current)) pending.push(child);
+  }
 }
 
 function processRemoves(n: Node, cache: Set<Node>) {

@@ -7,7 +7,14 @@ export {
 } from "./api.ts";
 export { PlayerEmitter } from "./emitter.ts";
 export { bucketActivity, detectDeadClicks } from "./friction.ts";
-export { acceptLiveFrame, createLiveFrameState, decodeLiveFrame, liveFrameKey } from "./live.ts";
+export {
+  acceptLiveFrame,
+  createLiveFrameState,
+  decodeLiveFrame,
+  liveFrameKey,
+  parseLiveHelloMessage,
+} from "./live.ts";
+export { applyLiveIndexToSnapshot } from "./live-metadata.ts";
 export { ReplayOverlay } from "./overlay.ts";
 export { OrangePlayer } from "./player.ts";
 export {

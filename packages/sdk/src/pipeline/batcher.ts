@@ -1,6 +1,6 @@
 import { SDK_FLUSH_DEFAULT_MS, SDK_FLUSH_LIVE_MS } from "@orange-replay/shared/constants";
 import type { IngestAck } from "@orange-replay/shared/types";
-import { EventType, IncrementalSource, type eventWithTime } from "@orange-replay/rrweb-fork";
+import { estimateEventBytes } from "@orange-replay/rrweb-fork";
 
 export const BATCH_RAW_FLUSH_BYTES = 128 * 1024;
 export const PAGEHIDE_RAW_FLUSH_BYTES = 60 * 1024;
@@ -15,29 +15,18 @@ export interface TakenBatch {
   rawBytes: number;
 }
 
-export interface PagehideTakenBatch extends TakenBatch {
-  startIndex: number;
-  droppedCount: number;
-  droppedRawBytes: number;
-  totalRawBytes: number;
-}
-
 export interface BatcherOptions {
   flushMs?: number;
   rawFlushBytes?: number;
   pagehideRawFlushBytes?: number;
-  now?: () => number;
 }
 
 export class Batcher {
   private readonly rawFlushBytes: number;
   private readonly pagehideRawFlushBytes: number;
-  private readonly now: () => number;
   private readonly eventRawBytes: number[] = [];
   private totalRawBytes = 0;
   private flushMs: number;
-  private lastFlushAt: number;
-  private compressionRatio = 1;
 
   constructor(options: BatcherOptions = {}) {
     this.flushMs = cleanPositiveNumber(options.flushMs, SDK_FLUSH_DEFAULT_MS);
@@ -46,12 +35,6 @@ export class Batcher {
       options.pagehideRawFlushBytes,
       PAGEHIDE_RAW_FLUSH_BYTES,
     );
-    this.now = options.now ?? Date.now;
-    this.lastFlushAt = this.now();
-  }
-
-  addEvent(event: eventWithTime): BatchDecision {
-    return this.addEstimatedBytes(estimateRrwebEventBytes(event));
   }
 
   addEstimatedBytes(rawBytes: number): BatchDecision {
@@ -65,43 +48,12 @@ export class Batcher {
     };
   }
 
-  shouldTimerFlush(): boolean {
-    return this.now() - this.lastFlushAt >= this.flushMs;
-  }
-
   retuneFromAck(ack: IngestAck): void {
     const nextFlushMs = cleanPositiveNumber(
       ack.live ? Math.min(ack.flushMs, SDK_FLUSH_LIVE_MS) : ack.flushMs,
       ack.live ? SDK_FLUSH_LIVE_MS : SDK_FLUSH_DEFAULT_MS,
     );
     this.flushMs = nextFlushMs;
-  }
-
-  pagehideChunkCounts(): number[] {
-    if (this.eventRawBytes.length === 0) {
-      return [];
-    }
-
-    const chunks: number[] = [];
-    let currentBytes = 0;
-    let currentCount = 0;
-
-    for (const bytes of this.eventRawBytes) {
-      if (currentCount > 0 && currentBytes + bytes > this.pagehideRawFlushBytes) {
-        chunks.push(currentCount);
-        currentBytes = 0;
-        currentCount = 0;
-      }
-
-      currentBytes += bytes;
-      currentCount += 1;
-    }
-
-    if (currentCount > 0) {
-      chunks.push(currentCount);
-    }
-
-    return chunks;
   }
 
   takeBatch(eventCount?: number): TakenBatch {
@@ -112,64 +64,14 @@ export class Batcher {
     const bytes = this.eventRawBytes.splice(0, take);
     const rawBytes = sum(bytes);
     this.totalRawBytes -= rawBytes;
-    this.lastFlushAt = this.now();
-
     return {
       eventCount: take,
       rawBytes,
     };
   }
 
-  takeNewestPagehideBatch(): PagehideTakenBatch {
-    const totalRawBytes = this.totalRawBytes;
-    let startIndex = this.eventRawBytes.length;
-    let rawBytes = 0;
-
-    for (let index = this.eventRawBytes.length - 1; index >= 0; index -= 1) {
-      const bytes = this.eventRawBytes[index] ?? 0;
-      if (rawBytes + bytes > this.pagehideRawFlushBytes) {
-        break;
-      }
-
-      rawBytes += bytes;
-      startIndex = index;
-    }
-
-    const droppedBytes = this.eventRawBytes.slice(0, startIndex);
-    const eventCount = this.eventRawBytes.length - startIndex;
-    this.eventRawBytes.splice(0);
-    this.totalRawBytes = 0;
-    this.lastFlushAt = this.now();
-
-    return {
-      startIndex,
-      eventCount,
-      rawBytes,
-      droppedCount: startIndex,
-      droppedRawBytes: sum(droppedBytes),
-      totalRawBytes,
-    };
-  }
-
-  recordCompressedSize(rawBytes: number, compressedBytes: number): void {
-    if (rawBytes <= 0 || compressedBytes <= 0) {
-      return;
-    }
-
-    const nextRatio = Math.min(1, compressedBytes / rawBytes);
-    this.compressionRatio = this.compressionRatio * 0.7 + nextRatio * 0.3;
-  }
-
-  estimatedCompressedBytes(): number {
-    return Math.ceil(this.currentRawBytes() * this.compressionRatio);
-  }
-
   currentRawBytes(): number {
     return this.totalRawBytes;
-  }
-
-  eventCount(): number {
-    return this.eventRawBytes.length;
   }
 
   getFlushMs(): number {
@@ -183,53 +85,10 @@ export class Batcher {
   reset(): void {
     this.eventRawBytes.splice(0);
     this.totalRawBytes = 0;
-    this.lastFlushAt = this.now();
   }
 }
 
-export function estimateRrwebEventBytes(event: eventWithTime): number {
-  if (event.type === EventType.FullSnapshot) {
-    // Full snapshots can now contain sealed image bytes. This runs only at the
-    // initial snapshot and periodic checkpoints, and prevents large pages from
-    // being counted as a fixed 16KB.
-    return Math.max(16 * 1024, JSON.stringify(event).length * 2);
-  }
-
-  if (event.type !== EventType.IncrementalSnapshot) {
-    return 512;
-  }
-
-  switch (event.data.source) {
-    case IncrementalSource.Mutation:
-      return 4 * 1024;
-    case IncrementalSource.MouseMove:
-    case IncrementalSource.TouchMove:
-    case IncrementalSource.Drag:
-      return 256;
-    case IncrementalSource.Scroll:
-    case IncrementalSource.MouseInteraction:
-    case IncrementalSource.Input:
-      return 512;
-    case IncrementalSource.CanvasMutation:
-      return estimateCanvasFrameBytes(event.data);
-    default:
-      return 1024;
-  }
-}
-
-function estimateCanvasFrameBytes(data: unknown): number {
-  if (typeof data !== "object" || data === null) return 1024;
-  const commands = (data as { commands?: unknown }).commands;
-  if (!Array.isArray(commands)) return 1024;
-  const draw = commands[1];
-  if (typeof draw !== "object" || draw === null) return 1024;
-  const args = (draw as { args?: unknown }).args;
-  if (!Array.isArray(args)) return 1024;
-
-  const image = args[0] as { args?: Array<{ data?: Array<{ base64?: unknown }> }> } | undefined;
-  const base64 = image?.args?.[0]?.data?.[0]?.base64;
-  return typeof base64 === "string" ? base64.length + 1024 : 1024;
-}
+export const estimateRrwebEventBytes = estimateEventBytes;
 
 function cleanPositiveNumber(value: number | undefined, fallback: number): number {
   if (value === undefined || !Number.isFinite(value) || value <= 0) {

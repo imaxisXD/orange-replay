@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { SessionManifest } from "@orange-replay/shared/types";
@@ -6,6 +6,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   Empty,
+  EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
@@ -15,8 +16,17 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip } from "@/components/ui/tooltip";
 import { ApiError } from "@/lib/api";
 import { formatDuration } from "@/lib/format";
-import { AlertCircle, ArrowLeft, ChevronRight, EyeOff, Inbox } from "@/lib/icon-map";
-import { markSessionWatched } from "@/lib/watched";
+import { IconSwap } from "@/components/ui/icon-swap";
+import {
+  AlertCircle,
+  ArrowLeft,
+  Check,
+  ChevronRight,
+  Clock,
+  Copy,
+  EyeOff,
+  Inbox,
+} from "@/lib/icon-map";
 import { ReplayWorkspace } from "../session-detail/replay-playback";
 import { loadSessionManifest } from "../session-detail/session-detail-data";
 import { entryPath } from "./session-card";
@@ -29,6 +39,10 @@ export function SessionStage({
   hasNext,
   hasPrev,
   isDemo,
+  isWatched,
+  onBack,
+  onMarkUnwatched,
+  onPlaybackStarted,
   onStep,
   projectId,
   railEmpty,
@@ -37,6 +51,10 @@ export function SessionStage({
   hasNext: boolean;
   hasPrev: boolean;
   isDemo: boolean;
+  isWatched: boolean;
+  onBack: () => void;
+  onMarkUnwatched: () => void;
+  onPlaybackStarted: () => void;
   onStep: (delta: 1 | -1) => void;
   projectId: string;
   railEmpty: boolean;
@@ -68,6 +86,10 @@ export function SessionStage({
         hasNext={hasNext}
         hasPrev={hasPrev}
         isDemo={isDemo}
+        isWatched={isWatched}
+        onBack={onBack}
+        onMarkUnwatched={onMarkUnwatched}
+        onPlaybackStarted={onPlaybackStarted}
         onStep={onStep}
         projectId={projectId}
         sessionId={sessionId}
@@ -80,6 +102,10 @@ function SelectedSession({
   hasNext,
   hasPrev,
   isDemo,
+  isWatched,
+  onBack,
+  onMarkUnwatched,
+  onPlaybackStarted,
   onStep,
   projectId,
   sessionId,
@@ -87,6 +113,10 @@ function SelectedSession({
   hasNext: boolean;
   hasPrev: boolean;
   isDemo: boolean;
+  isWatched: boolean;
+  onBack: () => void;
+  onMarkUnwatched: () => void;
+  onPlaybackStarted: () => void;
   onStep: (delta: 1 | -1) => void;
   projectId: string;
   sessionId: string;
@@ -95,13 +125,6 @@ function SelectedSession({
     queryKey: ["session-manifest", isDemo ? "demo" : "private", projectId, sessionId],
     queryFn: ({ signal }) => loadSessionManifest(projectId, sessionId, signal),
   });
-
-  // Deep-linked selections count as watched too, once the session actually loads.
-  useEffect(() => {
-    if (manifestQuery.data?.manifest !== undefined && manifestQuery.data.manifest !== null) {
-      markSessionWatched(projectId, sessionId);
-    }
-  }, [manifestQuery.data, projectId, sessionId]);
 
   const manifest = manifestQuery.data?.manifest ?? null;
   const mode = manifestQuery.data?.mode ?? "recorded";
@@ -123,7 +146,26 @@ function SelectedSession({
         <AlertCircle aria-hidden />
         <AlertTitle>{notFound ? "Session not found" : "Could not load session"}</AlertTitle>
         <AlertDescription>
-          {notFound ? "This session is not available." : error || "The API request failed."}
+          <p>
+            {notFound
+              ? "This session is not available."
+              : error || "The request failed. Try again in a moment."}
+          </p>
+          <div className="flex flex-wrap gap-2 pt-1">
+            {!notFound && (
+              <Button onClick={() => void manifestQuery.refetch()} size="sm" variant="secondary">
+                Try again
+              </Button>
+            )}
+            {hasNext && (
+              <Button onClick={() => onStep(1)} size="sm" variant="secondary">
+                Next session
+              </Button>
+            )}
+            <Button onClick={onBack} size="sm" variant="ghost">
+              Back to sessions
+            </Button>
+          </div>
         </AlertDescription>
       </Alert>
     );
@@ -137,7 +179,9 @@ function SelectedSession({
         hasNext={hasNext}
         hasPrev={hasPrev}
         isDemo={isDemo}
+        isWatched={isWatched}
         manifest={manifest}
+        onMarkUnwatched={onMarkUnwatched}
         onStep={onStep}
         projectId={projectId}
         sessionId={sessionId}
@@ -147,6 +191,7 @@ function SelectedSession({
           isDemo={isDemo}
           manifest={manifest}
           mode={mode}
+          onPlaybackStarted={onPlaybackStarted}
           projectId={projectId}
           sessionId={sessionId}
         />
@@ -162,6 +207,18 @@ function SelectedSession({
               watch here.
             </EmptyDescription>
           </EmptyHeader>
+          <EmptyContent>
+            <div className="flex flex-wrap justify-center gap-2">
+              {hasNext && (
+                <Button onClick={() => onStep(1)} variant="secondary">
+                  Try next session
+                </Button>
+              )}
+              <Button onClick={onBack} variant="ghost">
+                Back to sessions
+              </Button>
+            </div>
+          </EmptyContent>
         </Empty>
       )}
     </div>
@@ -172,7 +229,9 @@ function StageHeader({
   hasNext,
   hasPrev,
   isDemo,
+  isWatched,
   manifest,
+  onMarkUnwatched,
   onStep,
   projectId,
   sessionId,
@@ -180,28 +239,65 @@ function StageHeader({
   hasNext: boolean;
   hasPrev: boolean;
   isDemo: boolean;
+  isWatched: boolean;
   manifest: SessionManifest;
+  onMarkUnwatched: () => void;
   onStep: (delta: 1 | -1) => void;
   projectId: string;
   sessionId: string;
 }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copySessionId(): Promise<void> {
+    if (copied) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(sessionId);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1_500);
+    } catch {
+      setCopied(false);
+    }
+  }
+
   return (
-    <div className="flex items-center justify-between gap-3">
-      <div className="flex min-w-0 items-baseline gap-2.5">
+    <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-3.5 gap-y-1">
         <span className="truncate text-[13px] font-medium text-foreground">
           {entryPath(manifest.attrs.entryUrl ?? null)}
         </span>
-        <span className="shrink-0 font-mono text-[12px] text-muted-foreground">
-          {formatDuration(manifest.durationMs)}
+        <span className="flex shrink-0 items-center gap-1.5" title="Session duration">
+          <Clock aria-hidden className="size-3.5 shrink-0 text-amber" />
+          <span className="text-[11px] text-dim">Duration</span>
+          <span className="font-mono text-[12px] tabular-nums text-foreground">
+            {formatDuration(manifest.durationMs)}
+          </span>
         </span>
-        <span
-          className="hidden shrink-0 font-mono text-[11px] text-dim lg:inline"
-          title={sessionId}
-        >
-          {sessionId.slice(0, 8)}…
-        </span>
+        <Tooltip content={copied ? "Copied session ID" : "Copy session ID"}>
+          <Button
+            aria-label={copied ? "Session ID copied" : "Copy session ID"}
+            className="hidden h-6 shrink-0 gap-1.5 px-2 font-mono text-[11px] text-muted-foreground lg:inline-flex"
+            onClick={() => void copySessionId()}
+            size="sm"
+            variant="secondary"
+          >
+            <span className="flex items-center gap-1.5">
+              <span className="font-sans text-[11px] text-dim">Session ID</span>
+              <span>{sessionId.slice(0, 8)}…</span>
+              <IconSwap className="size-3 shrink-0" swapKey={copied ? "check" : "copy"}>
+                {copied ? (
+                  <Check aria-hidden className="size-3 text-success" />
+                ) : (
+                  <Copy aria-hidden className="size-3 opacity-70" />
+                )}
+              </IconSwap>
+            </span>
+          </Button>
+        </Tooltip>
       </div>
-      <div className="flex shrink-0 items-center gap-1">
+      <div className="flex w-full shrink-0 items-center justify-between gap-1 sm:w-auto sm:justify-start">
         <Tooltip content="Previous session (↑ or k in the list)">
           <Button
             aria-label="Previous session"
@@ -209,7 +305,7 @@ function StageHeader({
             disabled={!hasPrev}
             onClick={() => onStep(-1)}
             size="icon-sm"
-            variant="ghost"
+            variant="secondary"
           >
             <ChevronRight aria-hidden className="size-4 rotate-180" />
           </Button>
@@ -221,12 +317,22 @@ function StageHeader({
             disabled={!hasNext}
             onClick={() => onStep(1)}
             size="icon-sm"
-            variant="ghost"
+            variant="secondary"
           >
             <ChevronRight aria-hidden className="size-4" />
           </Button>
         </Tooltip>
-        <Button asChild size="sm" variant="ghost">
+        {isWatched && (
+          <Button
+            className="hidden text-muted-foreground hover:text-foreground sm:inline-flex"
+            onClick={onMarkUnwatched}
+            size="sm"
+            variant="secondary"
+          >
+            Mark unwatched
+          </Button>
+        )}
+        <Button asChild size="sm" variant="secondary">
           {isDemo ? (
             <Link params={{ sessionId }} to="/demo/sessions/$sessionId">
               Open full view
@@ -243,7 +349,11 @@ function StageHeader({
 }
 
 function readErrorMessage(error: unknown): string {
-  if (error instanceof ApiError) return error.code ?? error.message;
+  if (error instanceof ApiError) {
+    if (error.code === "network_error") return error.message;
+    if (error.status >= 500) return "The replay service is unavailable. Try again in a moment.";
+    return error.message.replaceAll("_", " ");
+  }
   if (error instanceof Error) return error.message;
-  return "The API request failed.";
+  return "The request failed. Try again in a moment.";
 }

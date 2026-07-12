@@ -14,6 +14,7 @@ export interface Sink {
   addIndexEvent(event: IndexEvent): void;
   onNavigation(url: string): void;
   flush(reason: FlushReason): Promise<void>;
+  prepareForSnapshotPart(nextBytes?: number): Promise<void>;
   prepareForSessionRotation(): Promise<void>;
   resetAfterSessionRotation(): void;
   stop(): Promise<void>;
@@ -25,10 +26,11 @@ export interface InlineSinkOptions {
   window: Window;
   fetch?: typeof fetch;
   onSessionClosed?: () => void;
-  onCheckpointRequested?: () => void;
+  onCheckpointRequested?: (required?: boolean) => void;
 }
 
 export interface WorkerSinkOptions extends InlineSinkOptions {
   workerHost?: WorkerHost;
   transport?: Transport;
+  onWorkerUnavailable?: () => void;
 }

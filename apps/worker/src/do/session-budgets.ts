@@ -159,7 +159,12 @@ export function shouldDropForSessionCap(input: {
 }
 
 function isNotableTimelineEvent(event: IndexEvent): boolean {
-  return event.k === "error" || event.k === "rage" || event.k === "nav";
+  return (
+    event.k === "error" ||
+    event.k === "rage" ||
+    event.k === "nav" ||
+    (event.k === "vital" && event.d === "navigation" && typeof event.m?.["url"] === "string")
+  );
 }
 
 function copyFinalizeEvents(

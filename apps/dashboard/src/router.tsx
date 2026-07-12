@@ -19,6 +19,7 @@ import { RouteError } from "@/routes/route-error";
 import { SessionDetailPage } from "@/routes/session-detail";
 import { SessionsPage } from "@/routes/sessions";
 import { SettingsPage } from "@/routes/settings";
+import { ToastLabPage } from "@/routes/toast-lab";
 import { validateSessionSearch } from "@/lib/session-filters";
 import { validateSessionsViewSearch } from "@/lib/sessions-view-search";
 
@@ -116,6 +117,12 @@ const installRoute = createRoute({
   component: InstallPage,
 });
 
+const toastLabRoute = createRoute({
+  getParentRoute: () => projectRoute,
+  path: "toast-lab",
+  component: ToastLabPage,
+});
+
 const demoRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/demo",
@@ -179,6 +186,7 @@ const routeTree = rootRoute.addChildren([
     liveRoute,
     settingsRoute,
     installRoute,
+    toastLabRoute,
   ]),
 ]);
 

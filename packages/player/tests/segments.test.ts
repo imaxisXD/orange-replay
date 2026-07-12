@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import type { SegmentRef } from "@orange-replay/shared/types";
 import { buildSegment } from "@orange-replay/shared/wire";
-import { EventType } from "rrweb";
+import { EventType, IncrementalSource } from "rrweb";
 import {
   chooseSegmentWindow,
   eventsFromCheckpoint,
@@ -95,6 +95,16 @@ describe("segment logic", () => {
       timestamp: 1_100,
       data: { node: { id: 1, type: 0 }, initialOffset: { left: 0, top: 0 } },
     } as ReplayEvent;
+    const meta = {
+      type: EventType.Meta,
+      timestamp: 1_000,
+      data: { href: "https://example.com", width: 1280, height: 720 },
+    } as ReplayEvent;
+    const viewportResize = {
+      type: EventType.IncrementalSnapshot,
+      timestamp: 1_050,
+      data: { source: IncrementalSource.ViewportResize, width: 1440, height: 900 },
+    } as ReplayEvent;
     const later = { type: EventType.Load, timestamp: 1_200, data: {} } as ReplayEvent;
     const batches = [
       {
@@ -116,7 +126,8 @@ describe("segment logic", () => {
 
     expect(findPrimaryReplayTab([checkpointSegment])).toBe("tab-a");
     expect(() => validateSegmentCheckpoints(checkpointSegment, batches)).not.toThrow();
-    expect(eventsFromCheckpoint([later, fullSnapshot, later], 1_100)).toEqual([
+    expect(eventsFromCheckpoint([meta, viewportResize, fullSnapshot, later], 1_100)).toEqual([
+      viewportResize,
       fullSnapshot,
       later,
     ]);

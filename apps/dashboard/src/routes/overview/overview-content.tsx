@@ -65,7 +65,7 @@ export function OverviewContent({
           label="Live now"
           projectId={projectId}
           value={numberFormatter.format(stats.liveNow.value)}
-          detail="Read from presence now"
+          detail="Counted from live presence"
         />
       </section>
 

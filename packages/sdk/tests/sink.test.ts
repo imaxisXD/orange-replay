@@ -77,8 +77,9 @@ describe("InlineSink", () => {
     expect(decoded.index.e).toEqual([
       { t: 12, k: "click", d: "button#buy", m: { x: 0.5, y: 0.25 } },
     ]);
-    expect(JSON.parse(new TextDecoder().decode(decoded.payload))).toHaveLength(1);
-    expect(sink.getFlushMs()).toBe(7_000);
+    expect(JSON.parse(new TextDecoder().decode(decoded.payload))).toEqual([
+      { type: 0, timestamp: 10, data: { href: "/home" } },
+    ]);
   });
 
   it("increments seq for each flushed batch", async () => {

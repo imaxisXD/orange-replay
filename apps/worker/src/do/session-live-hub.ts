@@ -5,7 +5,7 @@ import {
   startWideEvent,
   uuidv7,
 } from "@orange-replay/shared";
-import type { SegmentRef, WideEventOutcome } from "@orange-replay/shared";
+import type { LiveSessionSnapshot, SegmentRef, WideEventOutcome } from "@orange-replay/shared";
 import type { AppendArgs } from "./contract.ts";
 import type { SessionState } from "./session-logic.ts";
 
@@ -14,6 +14,7 @@ export interface SessionLiveHubDependencies {
   getSessionState: () => SessionState | null;
   getSegmentRefs: () => SegmentRef[];
   getPendingBatchCount: () => number;
+  getLiveSnapshot: () => LiveSessionSnapshot | null;
   requestCheckpointOnNextAppend: () => void;
 }
 
@@ -86,6 +87,13 @@ export class SessionLiveHub {
         outcome = "rate_limited";
         return response;
       }
+      const snapshot = this.dependencies.getLiveSnapshot();
+      if (snapshot === null) {
+        const response = Response.json({ error: "not_found" }, { status: 404 });
+        statusCode = response.status;
+        outcome = "client_error";
+        return response;
+      }
       const pair = new WebSocketPair();
       const client = pair[0];
       const server = pair[1];
@@ -104,6 +112,7 @@ export class SessionLiveHub {
           startedAt: state.startedAt,
           segments: this.dependencies.getSegmentRefs(),
           pendingBatches: this.dependencies.getPendingBatchCount(),
+          snapshot,
         }),
       );
 

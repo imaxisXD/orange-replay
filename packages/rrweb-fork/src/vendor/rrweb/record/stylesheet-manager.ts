@@ -10,7 +10,6 @@ import type {
 import { StyleSheetMirror } from "../utils";
 
 export class StylesheetManager {
-  private trackedLinkElements: WeakSet<HTMLLinkElement> = new WeakSet();
   private mutationCb: mutationCallBack;
   private adoptedStyleSheetCb: adoptedStyleSheetCallback;
   public styleMirror = new StyleSheetMirror();
@@ -23,7 +22,7 @@ export class StylesheetManager {
     this.adoptedStyleSheetCb = options.adoptedStyleSheetCb;
   }
 
-  public attachLinkElement(linkEl: HTMLLinkElement, childSn: serializedNodeWithId) {
+  public attachLinkElement(_linkElement: HTMLLinkElement, childSn: serializedNodeWithId) {
     if ("_cssText" in (childSn as elementNode).attributes)
       this.mutationCb({
         adds: [],
@@ -36,15 +35,6 @@ export class StylesheetManager {
           },
         ],
       });
-
-    this.trackLinkElement(linkEl);
-  }
-
-  public trackLinkElement(linkEl: HTMLLinkElement) {
-    if (this.trackedLinkElements.has(linkEl)) return;
-
-    this.trackedLinkElements.add(linkEl);
-    this.trackStylesheetInLinkElement(linkEl);
   }
 
   public adoptStyleSheets(sheets: CSSStyleSheet[] | readonly CSSStyleSheet[], hostId: number) {
@@ -74,13 +64,5 @@ export class StylesheetManager {
 
   public reset() {
     this.styleMirror.reset();
-    this.trackedLinkElements = new WeakSet();
-  }
-
-  // TODO: take snapshot on stylesheet reload by applying event listener
-  private trackStylesheetInLinkElement(_linkEl: HTMLLinkElement) {
-    // linkEl.addEventListener('load', () => {
-    //   // re-loaded, maybe take another snapshot?
-    // });
   }
 }

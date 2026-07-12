@@ -26,6 +26,7 @@ export {
   cleanupSnapshot,
   classMatchesRegex,
   genId,
+  getSnapshotEstimatedBytes,
   ignoreAttribute,
   IGNORED_NODE,
   needMaskingText,
@@ -34,6 +35,7 @@ export {
   snapshot,
   transformAttribute,
   visitSnapshot,
+  yieldForPaint,
 } from "./vendor/rrweb-snapshot/index.ts";
 export type {
   MaskInputFn,
@@ -42,3 +44,4 @@ export type {
   SlimDOMOptions,
 } from "./vendor/rrweb-snapshot/index.ts";
 export { createMirror, maskInputValue, Mirror } from "./vendor/rrweb-snapshot/index.ts";
+export { estimateEventBytes } from "./vendor/rrweb/record/event-size.ts";

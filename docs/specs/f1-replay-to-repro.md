@@ -40,7 +40,7 @@ Maintains `id → SerializedNode` from the rrweb stream so interaction events (w
 `buildLocator(node, index): { locator: string; strategy: string; ambiguous: boolean }` — emits a **Playwright locator expression** using this preference ladder (first match wins):
 
 1. `data-testid` → `page.getByTestId("...")`
-2. Stable `id` → `page.locator("#id")` — REJECT generated-looking ids (regex: contains ≥4 consecutive digits, or matches `/^(ember|radix|react|:r)/i`, or length > 24)
+2. Stable `id` → `page.locator("#id")` — REJECT generated-looking ids (regex: contains ≥4 consecutive digits, or matches `/^(ember|react|:r|[a-z]+-:r)/i`, or length > 24)
 3. `aria-label` → `page.getByLabel("...")`
 4. `role` + short accessible text (≤30 chars, from textContent) → `page.getByRole("button", { name: "..." })` (role from explicit attr, else tag→role map for button/a/input/select/textarea only)
 5. Short unique-ish text (≤30 chars, element is a/button/label/summary) → `page.getByText("...", { exact: true })`

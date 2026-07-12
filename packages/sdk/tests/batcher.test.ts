@@ -1,7 +1,19 @@
-import { describe, expect, it } from "vite-plus/test";
+// @vitest-environment jsdom
+import { describe, expect, it, vi } from "vite-plus/test";
 import { SDK_FLUSH_LIVE_MS } from "@orange-replay/shared/constants";
-import { EventType, IncrementalSource, type eventWithTime } from "@orange-replay/rrweb-fork";
-import { Batcher, estimateRrwebEventBytes } from "../src/pipeline/batcher.ts";
+import {
+  EventType,
+  getSnapshotEstimatedBytes,
+  IncrementalSource,
+  Mirror,
+  type eventWithTime,
+} from "@orange-replay/rrweb-fork";
+import { snapshotInChunks } from "../../rrweb-fork/src/vendor/rrweb-snapshot/index.ts";
+import {
+  BATCH_RAW_FLUSH_BYTES,
+  Batcher,
+  estimateRrwebEventBytes,
+} from "../src/pipeline/batcher.ts";
 
 describe("Batcher", () => {
   it("retunes the timer from ingest ack flushMs and tightens for live sessions", () => {
@@ -35,31 +47,9 @@ describe("Batcher", () => {
     expect(batcher.currentRawBytes()).toBe(0);
   });
 
-  it("splits pagehide batches under the keepalive raw byte target", () => {
+  it("keeps the configured pagehide byte target", () => {
     const batcher = new Batcher({ pagehideRawFlushBytes: 60 });
-    batcher.addEstimatedBytes(30);
-    batcher.addEstimatedBytes(25);
-    batcher.addEstimatedBytes(20);
-    batcher.addEstimatedBytes(50);
-
-    expect(batcher.pagehideChunkCounts()).toEqual([2, 1, 1]);
-  });
-
-  it("takes the newest pagehide slice that fits and drops older events", () => {
-    const batcher = new Batcher({ pagehideRawFlushBytes: 60 });
-    batcher.addEstimatedBytes(50);
-    batcher.addEstimatedBytes(25);
-    batcher.addEstimatedBytes(20);
-
-    expect(batcher.takeNewestPagehideBatch()).toEqual({
-      startIndex: 1,
-      eventCount: 2,
-      rawBytes: 45,
-      droppedCount: 1,
-      droppedRawBytes: 50,
-      totalRawBytes: 95,
-    });
-    expect(batcher.eventCount()).toBe(0);
+    expect(batcher.getPagehideRawFlushBytes()).toBe(60);
   });
 
   it("counts sealed image bytes in canvas frames", () => {
@@ -78,6 +68,74 @@ describe("Batcher", () => {
       },
     } as unknown as eventWithTime;
 
-    expect(estimateRrwebEventBytes(event)).toBe(9_024);
+    expect(estimateRrwebEventBytes(event)).toBe(17_026);
+  });
+
+  it("counts sealed image bytes in normal mutation attributes", () => {
+    const source = `data:image/webp;base64,${"A".repeat(200_000)}`;
+    const event = {
+      type: EventType.IncrementalSnapshot,
+      timestamp: 1,
+      data: {
+        source: IncrementalSource.Mutation,
+        adds: [],
+        removes: [],
+        texts: [],
+        attributes: [{ id: 8, attributes: { src: source, srcset: null } }],
+      },
+    } as eventWithTime;
+
+    expect(estimateRrwebEventBytes(event)).toBeGreaterThan(source.length);
+  });
+
+  it("estimates full snapshots without stringifying the DOM tree", () => {
+    const event = {
+      type: EventType.FullSnapshot,
+      timestamp: 1,
+      data: {
+        node: { type: 0, id: 1, childNodes: [] },
+        initialOffset: { top: 0, left: 0 },
+      },
+    } as eventWithTime;
+    const stringify = vi.spyOn(JSON, "stringify");
+
+    const bytes = estimateRrwebEventBytes(event);
+
+    expect(bytes).toBe(BATCH_RAW_FLUSH_BYTES);
+    expect(stringify).not.toHaveBeenCalled();
+  });
+
+  it("uses the recorder's incremental estimate for full and iframe snapshots", async () => {
+    document.body.innerHTML = "<main><p>small snapshot</p></main>";
+    const node = await snapshotInChunks(
+      document,
+      { mirror: new Mirror() },
+      { skipPreparation: true },
+    );
+    expect(node).not.toBeNull();
+    const estimatedBytes = getSnapshotEstimatedBytes(node!);
+    expect(estimatedBytes).toBeGreaterThan(0);
+    expect(estimatedBytes).toBeLessThan(BATCH_RAW_FLUSH_BYTES);
+
+    const fullSnapshot = {
+      type: EventType.FullSnapshot,
+      timestamp: 1,
+      data: { node, initialOffset: { top: 0, left: 0 } },
+    } as eventWithTime;
+    const iframeSnapshot = {
+      type: EventType.IncrementalSnapshot,
+      timestamp: 2,
+      data: {
+        source: IncrementalSource.Mutation,
+        adds: [{ parentId: 9, nextId: null, node }],
+        removes: [],
+        texts: [],
+        attributes: [],
+        isAttachIframe: true,
+      },
+    } as eventWithTime;
+
+    expect(estimateRrwebEventBytes(fullSnapshot)).toBe(estimatedBytes);
+    expect(estimateRrwebEventBytes(iframeSnapshot)).toBe(estimatedBytes);
   });
 });

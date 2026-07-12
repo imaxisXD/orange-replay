@@ -9,7 +9,7 @@
     <title>Orange Replay — watch what your users actually did</title>
     <meta
       name="description"
-      content="Record real sessions, see errors and rage clicks, and replay the moments that block your customers. Stop guessing and fix the right issue faster."
+      content="Record real sessions, see errors and rage clicks, and replay the moment your customer got stuck. Stop guessing."
     />
     <meta name="theme-color" content="#0a0a0c" />
     <meta name="application-name" content="Orange Replay" />
@@ -87,6 +87,7 @@
 
         /* quiver-inspired: framed column + gutter texture */
         --rule: #1e1e22;
+        --ease-out-strong: cubic-bezier(0.22, 1, 0.36, 1);
 
         --sans: "Uncut Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
         --mono: "Uncut Plan8", ui-monospace, "SF Mono", Menlo, monospace;
@@ -261,13 +262,20 @@
         font-size: 14px;
         font-weight: 550;
         letter-spacing: -0.01em;
-        transition:
-          transform 140ms ease,
-          box-shadow 140ms ease;
+        transition: box-shadow 140ms ease;
       }
       .cta-pill:hover {
-        transform: translateY(-1px);
         box-shadow: 0 8px 24px rgba(255, 255, 255, 0.12);
+      }
+      /* Hover feedback: the ↗ arrow rotates to → (matches the dashboard
+         demo-banner CTA). */
+      .cta-pill .circ .huge-icon {
+        transition: transform 200ms ease-out;
+      }
+      @media (hover: hover) and (pointer: fine) {
+        .cta-pill:hover .circ .huge-icon {
+          transform: rotate(45deg);
+        }
       }
       .cta-pill .circ {
         width: 24px;
@@ -1730,10 +1738,10 @@
         }
       }
       .lv-page.roll-out {
-        animation: lv-rollout 200ms ease-in forwards;
+        animation: lv-rollout 200ms ease-out forwards;
       }
       .lv-page.roll-in {
-        animation: lv-rollin 260ms cubic-bezier(0.22, 1, 0.36, 1);
+        animation: lv-rollin 260ms var(--ease-out-strong);
       }
       .lv-meta {
         font-size: 11.5px;
@@ -1764,7 +1772,7 @@
       }
       .lv-odo .reel.min-tens {
         max-width: 0;
-        transition: max-width 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+        transition: max-width 0.32s var(--ease-out-strong);
       }
       .lv-odo .reel.min-tens.show {
         max-width: 0.62em;
@@ -2201,12 +2209,17 @@
         justify-content: center;
         margin-top: 38px;
       }
-      .cta-band .demo-disclosure {
+      .demo-disclosure {
         max-width: 66ch;
-        margin: 16px auto 0;
         color: var(--faint);
         font-size: 12px;
         line-height: 1.5;
+      }
+      .cta-band .demo-disclosure {
+        margin: 16px auto 0;
+      }
+      .hero .demo-disclosure {
+        margin: 18px 0 0;
       }
       .bigline {
         font-size: clamp(1.9rem, 4.4vw, 3.45rem);
@@ -2319,8 +2332,8 @@
         opacity: 0;
         transform: translateY(20px);
         transition:
-          opacity 0.8s cubic-bezier(0.22, 1, 0.36, 1),
-          transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+          opacity 0.8s var(--ease-out-strong),
+          transform 0.8s var(--ease-out-strong);
       }
       .reveal.in {
         opacity: 1;
@@ -2536,8 +2549,8 @@
           <div class="inner">
             <h1>Watch what your users actually did.</h1>
             <p class="sub">
-              Orange Replay records every session, shows you the errors and rage clicks that matter,
-              and replays the moment your customer got stuck. Stop guessing. Press play.
+              Orange Replay records every session, surfaces the errors and rage clicks, and replays
+              the moment your customer got stuck. Stop guessing. Press play.
             </p>
 
             <div class="works">
@@ -2616,6 +2629,9 @@
                 Live demo
               </a>
             </div>
+            <p class="demo-disclosure">
+              We record this page with Orange Replay — open the demo and you might spot yourself.
+            </p>
           </div>
         </div>
       </header>
@@ -3352,7 +3368,9 @@
         <div class="wrap">
           <div class="sec-kicker reveal" style="display: block">
             <h2 class="sec-head" style="max-width: 22ch">
-              <span class="text-strong">More than a replay button.</span>
+              <span class="text-strong"
+                >Watch it live, jump to the error, keep the data yours.</span
+              >
               <span class="text-faint"
                 >Watch users live, jump to the exact problem, keep customer details hidden, and run
                 it in your own account when you need control.</span
@@ -3792,11 +3810,8 @@
           <div class="sec-kicker reveal" style="display: block">
             <span class="rm-kicker">On the roadmap</span>
             <h2 class="sec-head" style="max-width: 24ch">
-              <span class="text-strong">Already useful, with more ways to act coming.</span>
-              <span class="text-faint"
-                >These features are planned. Each one helps your team turn a replay into a faster
-                fix.</span
-              >
+              <span class="text-strong">What we're building next.</span>
+              <span class="text-faint">Planned, in order of how loudly people ask.</span>
             </h2>
           </div>
           <div class="rm-grid reveal">
@@ -3951,8 +3966,8 @@
               </a>
             </div>
             <p class="demo-disclosure reveal">
-              This page records anonymized, masked sessions to power the live demo — your visit may
-              show up there.
+              We record this page with Orange Replay — open the demo and you might spot yourself.
+              Sessions are anonymized and masked.
             </p>
           </div>
         </div>
@@ -3974,8 +3989,7 @@
                 /><b>orange replay</b></a
               >
               <p>
-                Session replay for teams that need to see what happened. Record it, watch it live,
-                and fix it before it becomes a support ticket.
+                Session replay for teams that need to see what happened, exactly as it happened.
               </p>
             </div>
             <div class="footcols reveal">

@@ -54,6 +54,10 @@ import MutationBuffer from "./mutation";
 import { callbackWrapper } from "./error-handler";
 import dom, { mutationObserverCtor } from "../../rrweb-utils/index.ts";
 
+declare const __ORANGE_REPLAY_SDK_PROFILE__: boolean | undefined;
+const isOrangeReplaySdk =
+  typeof __ORANGE_REPLAY_SDK_PROFILE__ !== "undefined" && __ORANGE_REPLAY_SDK_PROFILE__;
+
 export const mutationBuffers: MutationBuffer[] = [];
 
 // Event.path is non-standard and used in some older browsers
@@ -81,7 +85,7 @@ function getEventTarget(event: Event | NonStandardEvent): EventTarget | null {
 export function initMutationObserver(
   options: MutationBufferParam,
   rootEl: Node,
-): [MutationObserver, () => void] {
+): [MutationObserver, () => void, MutationBuffer] {
   const mutationBuffer = new MutationBuffer();
   mutationBuffers.push(mutationBuffer);
   // see mutation.ts for details
@@ -90,6 +94,7 @@ export function initMutationObserver(
   const observer = new (ObserverCtor as new (callback: MutationCallback) => MutationObserver)(
     callbackWrapper(mutationBuffer.processMutations.bind(mutationBuffer)),
   );
+  mutationBuffer.setObserver(observer);
   observer.observe(rootEl, {
     attributes: true,
     attributeOldValue: true,
@@ -98,19 +103,31 @@ export function initMutationObserver(
     childList: true,
     subtree: true,
   });
-  return [observer, iframeCleanup];
+  let cleaned = false;
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    observer.disconnect();
+    iframeCleanup();
+    const bufferIndex = mutationBuffers.indexOf(mutationBuffer);
+    if (bufferIndex !== -1) mutationBuffers.splice(bufferIndex, 1);
+  };
+  return [observer, cleanup, mutationBuffer] as const;
 }
 
 function initMoveObserver({ mousemoveCb, sampling, doc, mirror }: observerParam): listenerHandler {
-  if (sampling.mousemove === false) {
+  if (!isOrangeReplaySdk && sampling.mousemove === false) {
     return () => {
       //
     };
   }
 
-  const threshold = typeof sampling.mousemove === "number" ? sampling.mousemove : 50;
+  const threshold =
+    !isOrangeReplaySdk && typeof sampling.mousemove === "number" ? sampling.mousemove : 50;
   const callbackThreshold =
-    typeof sampling.mousemoveCallback === "number" ? sampling.mousemoveCallback : 500;
+    !isOrangeReplaySdk && typeof sampling.mousemoveCallback === "number"
+      ? sampling.mousemoveCallback
+      : 500;
 
   let positions: mousePosition[] = [];
   let timeBaseline: number | null;
@@ -182,13 +199,15 @@ function initMouseInteractionObserver({
   blockSelector,
   sampling,
 }: observerParam): listenerHandler {
-  if (sampling.mouseInteraction === false) {
+  if (!isOrangeReplaySdk && sampling.mouseInteraction === false) {
     return () => {
       //
     };
   }
   const disableMap: Record<string, boolean | undefined> =
-    sampling.mouseInteraction === true || sampling.mouseInteraction === undefined
+    isOrangeReplaySdk ||
+    sampling.mouseInteraction === true ||
+    sampling.mouseInteraction === undefined
       ? {}
       : sampling.mouseInteraction;
 
@@ -316,7 +335,7 @@ export function initScrollObserver({
           });
         }
       }),
-      sampling.scroll || 100,
+      isOrangeReplaySdk ? 100 : sampling.scroll || 100,
     ),
   );
   return on("scroll", updatePosition, doc);
@@ -365,7 +384,7 @@ function initInputObserver({
 }: observerParam): listenerHandler {
   function eventHandler(event: Event) {
     let target = getEventTarget(event) as HTMLElement | null;
-    const userTriggered = event.isTrusted;
+    const userTriggered = !isOrangeReplaySdk && event.isTrusted;
     const tagName = target && target.tagName;
 
     /**
@@ -396,9 +415,14 @@ function initInputObserver({
 
     if (type === "radio" || type === "checkbox") {
       isChecked = (target as HTMLInputElement).checked;
+    }
+    if (isOrangeReplaySdk) {
+      text = "*".repeat(text.length);
     } else if (
-      maskInputOptions[tagName.toLowerCase() as keyof MaskInputOptions] ||
-      maskInputOptions[type as keyof MaskInputOptions]
+      type !== "radio" &&
+      type !== "checkbox" &&
+      (maskInputOptions[tagName.toLowerCase() as keyof MaskInputOptions] ||
+        maskInputOptions[type as keyof MaskInputOptions])
     ) {
       text = maskInputValue({
         element: target,
@@ -411,7 +435,9 @@ function initInputObserver({
     }
     cbWithDedup(
       target,
-      userTriggeredOnInput ? { text, isChecked, userTriggered } : { text, isChecked },
+      !isOrangeReplaySdk && userTriggeredOnInput
+        ? { text, isChecked, userTriggered }
+        : { text, isChecked },
     );
     // if a radio was checked
     // the other radios with the same name attribute will be unchecked.
@@ -419,10 +445,11 @@ function initInputObserver({
     if (type === "radio" && name && isChecked) {
       doc.querySelectorAll(`input[type="radio"][name="${name}"]`).forEach((el) => {
         if (el !== target) {
-          const text = (el as HTMLInputElement).value;
+          const value = (el as HTMLInputElement).value;
+          const text = isOrangeReplaySdk ? "*".repeat(value.length) : value;
           cbWithDedup(
             el,
-            userTriggeredOnInput
+            !isOrangeReplaySdk && userTriggeredOnInput
               ? { text, isChecked: !isChecked, userTriggered: false }
               : { text, isChecked: !isChecked },
           );
@@ -445,7 +472,7 @@ function initInputObserver({
       });
     }
   }
-  const events = sampling.input === "last" ? ["change"] : ["input", "change"];
+  const events = !isOrangeReplaySdk && sampling.input === "last" ? ["change"] : ["input", "change"];
   const handlers: Array<listenerHandler | hookResetter> = events.map((eventName) =>
     on(eventName, callbackWrapper(eventHandler), doc),
   );
@@ -778,12 +805,9 @@ function initStyleSheetObserver(
 export function initAdoptedStyleSheetObserver(
   { mirror, stylesheetManager }: Pick<observerParam, "mirror" | "stylesheetManager">,
   host: Document | ShadowRoot,
+  shouldRecord: () => boolean = () => true,
 ): listenerHandler {
-  let hostId: number | null = null;
-  // host of adoptedStyleSheets is outermost document or IFrame's document
-  if (host.nodeName === "#document") hostId = mirror.getId(host);
-  // The host is a ShadowRoot.
-  else hostId = mirror.getId(dom.host(host as ShadowRoot));
+  const mirrorHost = host.nodeName === "#document" ? host : dom.host(host as ShadowRoot);
 
   const patchTarget =
     host.nodeName === "#document"
@@ -792,7 +816,7 @@ export function initAdoptedStyleSheetObserver(
   const originalPropertyDescriptor = patchTarget?.prototype
     ? Object.getOwnPropertyDescriptor(patchTarget?.prototype, "adoptedStyleSheets")
     : undefined;
-  if (hostId === null || hostId === -1 || !patchTarget || !originalPropertyDescriptor)
+  if (mirrorHost === null || !patchTarget || !originalPropertyDescriptor)
     return () => {
       //
     };
@@ -806,7 +830,8 @@ export function initAdoptedStyleSheetObserver(
     },
     set(sheets: CSSStyleSheet[]) {
       const result = originalPropertyDescriptor.set?.call(this, sheets);
-      if (hostId !== null && hostId !== -1) {
+      const hostId = mirror.getId(mirrorHost);
+      if (hostId > 0 && shouldRecord()) {
         try {
           stylesheetManager.adoptStyleSheets(sheets, hostId);
         } catch (e) {
@@ -845,7 +870,7 @@ function initStyleDeclarationObserver(
         const [property, value, priority] = argumentsList;
 
         // ignore this mutation if we do not care about this css attribute
-        if (ignoreCSSAttributes.has(property)) {
+        if (!isOrangeReplaySdk && ignoreCSSAttributes.has(property)) {
           return setProperty.apply(thisArg, [property, value, priority]);
         }
         const { id, styleId } = getIdAndStyleId(
@@ -879,7 +904,7 @@ function initStyleDeclarationObserver(
         const [property] = argumentsList;
 
         // ignore this mutation if we do not care about this css attribute
-        if (ignoreCSSAttributes.has(property)) {
+        if (!isOrangeReplaySdk && ignoreCSSAttributes.has(property)) {
           return removeProperty.apply(thisArg, [property]);
         }
         const { id, styleId } = getIdAndStyleId(
@@ -935,7 +960,7 @@ function initMediaInteractionObserver({
           loop,
         });
       }),
-      sampling.media || 500,
+      isOrangeReplaySdk ? 500 : sampling.media || 500,
     ),
   );
   const handlers = [
@@ -1185,7 +1210,7 @@ export function initObservers(o: observerParam, hooks: hooksParam = {}): listene
     };
   }
 
-  mergeHooks(o, hooks);
+  if (!isOrangeReplaySdk) mergeHooks(o, hooks);
   let mutationObserver: MutationObserver | undefined;
   // eslint-disable-next-line @typescript-eslint/no-empty-function
   let cleanupMutationIframe: () => void = () => {};
@@ -1211,25 +1236,26 @@ export function initObservers(o: observerParam, hooks: hooksParam = {}): listene
   let fontObserver = () => {};
   if (o.recordDOM) {
     styleSheetObserver = initStyleSheetObserver(o, { win: currentWindow });
-    adoptedStyleSheetObserver = initAdoptedStyleSheetObserver(o, o.doc);
+    adoptedStyleSheetObserver = initAdoptedStyleSheetObserver(o, o.doc, o.shouldRecord);
     styleDeclarationObserver = initStyleDeclarationObserver(o, {
       win: currentWindow,
     });
-    if (o.collectFonts) {
+    if (!isOrangeReplaySdk && o.collectFonts) {
       fontObserver = initFontObserver(o);
     }
   }
-  const selectionObserver = initSelectionObserver(o);
-  const customElementObserver = initCustomElementObserver(o);
+  const selectionObserver = isOrangeReplaySdk ? undefined : initSelectionObserver(o);
+  const customElementObserver = isOrangeReplaySdk ? undefined : initCustomElementObserver(o);
 
   // plugins
   const pluginHandlers: listenerHandler[] = [];
-  for (const plugin of o.plugins) {
-    pluginHandlers.push(plugin.observer(plugin.callback, currentWindow, plugin.options));
+  if (!isOrangeReplaySdk) {
+    for (const plugin of o.plugins) {
+      pluginHandlers.push(plugin.observer(plugin.callback, currentWindow, plugin.options));
+    }
   }
 
   return callbackWrapper(() => {
-    mutationBuffers.forEach((b) => b.reset());
     mutationObserver?.disconnect();
     cleanupMutationIframe();
     mousemoveHandler();
@@ -1242,9 +1268,9 @@ export function initObservers(o: observerParam, hooks: hooksParam = {}): listene
     adoptedStyleSheetObserver();
     styleDeclarationObserver();
     fontObserver();
-    selectionObserver();
-    customElementObserver();
-    pluginHandlers.forEach((h) => h());
+    selectionObserver?.();
+    customElementObserver?.();
+    if (!isOrangeReplaySdk) pluginHandlers.forEach((h) => h());
   });
 }
 

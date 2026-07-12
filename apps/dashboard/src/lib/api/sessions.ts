@@ -38,7 +38,7 @@ export interface SessionListItem {
 export type ListSessionsParams = SessionFilter & {
   before?: string | null;
   limit?: number;
-  sort?: "newest" | "duration" | "clicks" | "pages";
+  sort?: "newest" | "friction" | "duration" | "clicks" | "pages";
 };
 
 export interface ListSessionsResponse {

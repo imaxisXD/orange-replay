@@ -33,6 +33,7 @@ export interface TransportOptions {
 const BASE_RETRY_MS = 2_000;
 const MAX_RETRY_MS = 60_000;
 const MAX_ATTEMPTS = 5;
+const REQUEST_TIMEOUT_MS = 10_000;
 
 export class Transport {
   private readonly config: RecorderConfig;
@@ -52,6 +53,8 @@ export class Transport {
 
     while (attempts < MAX_ATTEMPTS) {
       attempts += 1;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
       try {
         const response = await this.fetchFn(`${this.config.ingestUrl}/v1/ingest`, {
@@ -66,6 +69,7 @@ export class Transport {
           },
           body: batch.body as unknown as BodyInit,
           keepalive: batch.keepalive,
+          signal: controller.signal,
         });
 
         if (response.status === 429 || response.status >= 500) {
@@ -92,13 +96,15 @@ export class Transport {
         }
 
         await this.wait(retryDelayMs(attempts));
+      } finally {
+        clearTimeout(timeout);
       }
     }
 
     return { sent: false, dropped: true, attempts };
   }
 
-  queueBatchSync(batch: TransportBatch, onFailure?: () => void): boolean {
+  queueBatchSync(batch: TransportBatch, onFailure?: () => void, onSuccess?: () => void): boolean {
     try {
       const response = this.fetchFn(`${this.config.ingestUrl}/v1/ingest`, {
         method: "POST",
@@ -122,6 +128,7 @@ export class Transport {
           }
 
           const ack = await readAck(result);
+          onSuccess?.();
           if (ack.closed === true) {
             this.onClosed?.();
           }

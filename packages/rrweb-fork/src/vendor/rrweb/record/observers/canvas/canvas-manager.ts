@@ -7,11 +7,15 @@ import type {
 } from "../../../../rrweb-types/index.ts";
 import { isBlocked } from "../../../utils.ts";
 
+declare const __ORANGE_REPLAY_SDK_PROFILE__: boolean | undefined;
+const isOrangeReplaySdk =
+  typeof __ORANGE_REPLAY_SDK_PROFILE__ !== "undefined" && __ORANGE_REPLAY_SDK_PROFILE__;
+import { blobToBase64 } from "../blob-to-base64.ts";
+
 const DEFAULT_CANVAS_FRAMES_PER_SECOND = 2;
 const MAX_CANVAS_CAPTURE_PIXELS = 2_000_000;
 const MAX_CANVAS_SIDE = 8_192;
 const MAX_CANVAS_FRAME_BYTES = 512 * 1_024;
-const BASE64_CHUNK_BYTES = 32_768;
 
 interface CanvasManagerOptions {
   recordCanvas: boolean;
@@ -37,10 +41,13 @@ export class CanvasManager {
   private readonly blockSelector: string | null;
   private readonly dataURLOptions: DataURLOptions;
   private readonly pendingCanvasIds = new Set<number>();
-  private readonly lastFrameByCanvasId = new Map<number, string>();
+  private lastFrameHashByCanvas = new WeakMap<HTMLCanvasElement, string>();
+  private readonly trackedCanvases = new Set<HTMLCanvasElement>();
+  private trackedCanvasQueue: HTMLCanvasElement[] = [];
+  private trackedCanvasCursor = 0;
+  private snapshotGeneration = 0;
   private frozen = false;
-  private locked = false;
-  private stopped = false;
+  private stopped = true;
   private animationFrameId: number | undefined;
   private lastCaptureTime = 0;
   private readonly captureIntervalMs: number;
@@ -60,30 +67,43 @@ export class CanvasManager {
     this.captureIntervalMs = 1_000 / framesPerSecond;
 
     if (options.recordCanvas) {
+      this.stopped = false;
       this.start();
     }
   }
 
   public reset(): void {
     this.pendingCanvasIds.clear();
-    this.lastFrameByCanvasId.clear();
+    this.lastFrameHashByCanvas = new WeakMap();
+    this.trackedCanvases.clear();
+    this.trackedCanvasQueue = [];
+    this.trackedCanvasCursor = 0;
     this.resetObservers?.();
   }
 
+  public prepareForFullSnapshot(): void {
+    this.snapshotGeneration += 1;
+    this.lastFrameHashByCanvas = new WeakMap();
+    this.trackedCanvases.clear();
+    this.trackedCanvasQueue = [];
+    this.trackedCanvasCursor = 0;
+  }
+
+  public trackCanvas(node: Node): void {
+    if (!this.stopped && node.nodeName === "CANVAS") {
+      const canvas = node as HTMLCanvasElement;
+      if (this.trackedCanvases.has(canvas)) return;
+      this.trackedCanvases.add(canvas);
+      this.trackedCanvasQueue.push(canvas);
+    }
+  }
+
   public freeze(): void {
-    this.frozen = true;
+    if (!isOrangeReplaySdk) this.frozen = true;
   }
 
   public unfreeze(): void {
-    this.frozen = false;
-  }
-
-  public lock(): void {
-    this.locked = true;
-  }
-
-  public unlock(): void {
-    this.locked = false;
+    if (!isOrangeReplaySdk) this.frozen = false;
   }
 
   private start(): void {
@@ -91,12 +111,11 @@ export class CanvasManager {
       if (this.stopped) return;
 
       if (
-        !this.frozen &&
-        !this.locked &&
+        (isOrangeReplaySdk || !this.frozen) &&
         (this.lastCaptureTime === 0 || timestamp - this.lastCaptureTime >= this.captureIntervalMs)
       ) {
         this.lastCaptureTime = timestamp;
-        this.captureVisibleCanvases();
+        this.captureNextCanvas();
       }
 
       this.animationFrameId = this.win.requestAnimationFrame(capture);
@@ -112,8 +131,24 @@ export class CanvasManager {
     };
   }
 
-  private captureVisibleCanvases(): void {
-    for (const canvas of this.win.document.querySelectorAll("canvas")) {
+  private captureNextCanvas(): void {
+    // Check only a small number and start at most one encoder per tick. This
+    // keeps pages with many canvases from creating an unbounded burst of work.
+    for (let checked = 0; checked < 8 && this.trackedCanvasQueue.length > 0; checked += 1) {
+      if (this.trackedCanvasCursor >= this.trackedCanvasQueue.length) {
+        this.trackedCanvasCursor = 0;
+      }
+      const index = this.trackedCanvasCursor;
+      const canvas = this.trackedCanvasQueue[index]!;
+      if (!canvas.isConnected) {
+        this.trackedCanvases.delete(canvas);
+        const lastCanvas = this.trackedCanvasQueue.pop();
+        if (lastCanvas !== undefined && index < this.trackedCanvasQueue.length) {
+          this.trackedCanvasQueue[index] = lastCanvas;
+        }
+        continue;
+      }
+      this.trackedCanvasCursor = index + 1;
       if (
         isBlocked(canvas, this.blockClass, this.blockSelector, true) ||
         canvas.width <= 0 ||
@@ -131,11 +166,19 @@ export class CanvasManager {
       }
 
       this.pendingCanvasIds.add(id);
-      void this.captureCanvas(canvas, id).finally(() => this.pendingCanvasIds.delete(id));
+      const generation = this.snapshotGeneration;
+      void this.captureCanvas(canvas, id, generation).finally(() =>
+        this.pendingCanvasIds.delete(id),
+      );
+      return;
     }
   }
 
-  private async captureCanvas(canvas: HTMLCanvasElement, id: number): Promise<void> {
+  private async captureCanvas(
+    canvas: HTMLCanvasElement,
+    id: number,
+    generation: number,
+  ): Promise<void> {
     const sourceWidth = canvas.width;
     const sourceHeight = canvas.height;
     const captureCanvas = makeCaptureCanvas(canvas, MAX_CANVAS_CAPTURE_PIXELS);
@@ -157,9 +200,21 @@ export class CanvasManager {
     if (blob === null || blob.size === 0 || blob.size > MAX_CANVAS_FRAME_BYTES) return;
     if (!isSupportedCanvasImageType(blob.type)) return;
 
-    const base64 = arrayBufferToBase64(await blob.arrayBuffer());
-    if (base64 === this.lastFrameByCanvasId.get(id)) return;
-    this.lastFrameByCanvasId.set(id, base64);
+    const base64 = await blobToBase64(blob, this.win);
+    if (
+      this.stopped ||
+      generation !== this.snapshotGeneration ||
+      !canvas.isConnected ||
+      !this.mirror.isActiveNode(canvas) ||
+      this.mirror.getId(canvas) !== id ||
+      canvas.width !== sourceWidth ||
+      canvas.height !== sourceHeight ||
+      isBlocked(canvas, this.blockClass, this.blockSelector, true)
+    )
+      return;
+    const frameHash = `${base64.length}:${hashString(base64)}`;
+    if (frameHash === this.lastFrameHashByCanvas.get(canvas)) return;
+    this.lastFrameHashByCanvas.set(canvas, frameHash);
 
     this.mutationCb({
       id,
@@ -188,6 +243,15 @@ export class CanvasManager {
       ],
     });
   }
+}
+
+function hashString(value: string): number {
+  let hash = 2_166_136_261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16_777_619);
+  }
+  return hash >>> 0;
 }
 
 function makeCaptureCanvas(source: HTMLCanvasElement, maxPixels: number): HTMLCanvasElement | null {
@@ -222,15 +286,6 @@ function canvasToBlob(
       reject(error instanceof Error ? error : new Error("Canvas image capture failed."));
     }
   });
-}
-
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  for (let index = 0; index < bytes.length; index += BASE64_CHUNK_BYTES) {
-    binary += String.fromCharCode(...bytes.subarray(index, index + BASE64_CHUNK_BYTES));
-  }
-  return btoa(binary);
 }
 
 function isSupportedCanvasImageType(type: string): boolean {

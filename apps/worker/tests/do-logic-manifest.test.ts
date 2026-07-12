@@ -205,6 +205,24 @@ describe("SessionRecorder pure logic", () => {
     expect(capped.at(-1)).toEqual({ t: 100, k: "rage", d: "Rage click burst" });
   });
 
+  it("keeps a page-load marker when ordinary timeline events are capped", () => {
+    const pageLoad = {
+      t: 100,
+      k: "vital" as const,
+      d: "navigation",
+      m: { start: 90, url: "/orders" },
+    };
+    const events = [
+      ...Array.from({ length: 20 }, (_, index) => ({ t: index, k: "scroll" as const })),
+      pageLoad,
+    ];
+
+    const capped = capTimelineEventsToBudget(events, 5, 10_000);
+
+    expect(capped).toHaveLength(5);
+    expect(capped.at(-1)).toEqual(pageLoad);
+  });
+
   it("caps timeline events by serialized bytes", () => {
     const events = Array.from({ length: 10 }, (_, index) => ({
       t: index,

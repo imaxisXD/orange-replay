@@ -1,5 +1,6 @@
 import type { KeyboardEvent, RefObject } from "react";
 import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Empty,
   EmptyContent,
@@ -20,10 +21,12 @@ import { Switch } from "@/components/ui/switch";
 import type { SessionListItem } from "@/lib/api";
 import { Check, Inbox, Search } from "@/lib/icon-map";
 import type { SessionSort } from "@/lib/sessions-view-search";
+import { cn } from "@/lib/utils";
 import { SessionCard } from "./session-card";
 
 const sortOptions: { label: string; value: SessionSort }[] = [
   { label: "Newest", value: "newest" },
+  { label: "Most friction", value: "friction" },
   { label: "Longest", value: "duration" },
   { label: "Most clicks", value: "clicks" },
   { label: "Most pages", value: "pages" },
@@ -32,6 +35,7 @@ const sortOptions: { label: string; value: SessionSort }[] = [
 export type SessionListLoadState = "loading" | "loading_more" | "idle";
 
 export function SessionListPane({
+  className,
   chipsCount,
   error,
   hasMore,
@@ -51,6 +55,7 @@ export function SessionListPane({
   visibleSessions,
   watched,
 }: {
+  className?: string;
   chipsCount: number;
   error: string;
   hasMore: boolean;
@@ -70,8 +75,15 @@ export function SessionListPane({
   visibleSessions: readonly SessionListItem[];
   watched: ReadonlySet<string>;
 }) {
+  const selectedIsVisible = visibleSessions.some((session) => session.session_id === selected);
+
   return (
-    <section className="lit flex w-80 shrink-0 flex-col overflow-hidden rounded-lg">
+    <section
+      className={cn(
+        "lit w-full min-w-0 shrink-0 flex-col overflow-hidden rounded-lg lg:w-80",
+        className,
+      )}
+    >
       <div className="flex items-center gap-2 border-b border-dashed border-dash px-4 py-2.5">
         <span className="text-[11px] font-medium tracking-[0.06em] text-dim uppercase">Sort</span>
         <Select onValueChange={(value) => onSortChange(value as SessionSort)} value={sort}>
@@ -95,24 +107,27 @@ export function SessionListPane({
 
         <Switch
           checked={unwatchedOnly}
-          className="px-0 py-0"
+          className="min-h-11 px-0 py-0 lg:min-h-0"
           label="Unwatched"
           onToggle={onToggleUnwatched}
         />
       </div>
 
-      <div
-        className="min-h-40 flex-1 overflow-y-auto"
+      <ScrollArea
+        aria-label="Sessions"
+        className="h-[calc(100dvh-390px)] min-h-80 lg:h-[calc(100vh-370px)] lg:min-h-40"
         onKeyDown={onRailKeyDown}
         ref={railRef}
-        style={{ maxHeight: "calc(100vh - 300px)" }}
+        role="listbox"
+        viewportClassName="scroll-fade"
       >
         {loadState === "loading" ? (
           <LoadingCards />
         ) : (
-          visibleSessions.map((session) => (
+          visibleSessions.map((session, index) => (
             <SessionCard
               isSelected={session.session_id === selected}
+              isTabStop={session.session_id === selected || (!selectedIsVisible && index === 0)}
               isWatched={watched.has(session.session_id)}
               key={session.session_id}
               onSelect={() => onSelect(session)}
@@ -134,7 +149,7 @@ export function SessionListPane({
         {loadState !== "loading" && sessions.length > 0 && visibleSessions.length === 0 && (
           <AllWatchedState onShowAll={onShowAll} total={sessions.length} />
         )}
-      </div>
+      </ScrollArea>
 
       {hasMore && (
         <div className="flex justify-center border-t border-dashed border-dash px-4 py-2.5">
@@ -223,7 +238,7 @@ function SessionsEmptyState() {
         </EmptyMedia>
         <EmptyTitle>No sessions yet</EmptyTitle>
         <EmptyDescription>
-          Captured sessions will appear here when your app sends data.
+          Install the snippet and sessions appear here on their own.
         </EmptyDescription>
       </EmptyHeader>
       <EmptyContent />

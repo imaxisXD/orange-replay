@@ -1,7 +1,7 @@
 import type { SessionFilter } from "@orange-replay/shared";
 import { validateSessionSearch } from "./session-filters";
 
-export const sessionSortValues = ["newest", "duration", "clicks", "pages"] as const;
+export const sessionSortValues = ["newest", "friction", "duration", "clicks", "pages"] as const;
 export type SessionSort = (typeof sessionSortValues)[number];
 
 /**
@@ -27,7 +27,7 @@ export function validateSessionsViewSearch(search: Record<string, unknown>): Ses
   }
 
   const sort = search["sort"];
-  if (sort === "duration" || sort === "clicks" || sort === "pages") {
+  if (sort === "friction" || sort === "duration" || sort === "clicks" || sort === "pages") {
     view.sort = sort;
   }
 

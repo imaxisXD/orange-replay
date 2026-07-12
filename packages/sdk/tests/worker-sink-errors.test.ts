@@ -1,10 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
-import { decodeIngestBody } from "@orange-replay/shared/wire";
 import { WorkerSink } from "../src/sink.ts";
 import {
   config,
-  decoder,
+  droppedEventCount,
   installSendBeacon,
   makeEvent,
   makeFailingWorkerHost,
@@ -17,7 +16,8 @@ import {
 afterEach(resetSinkTestState);
 
 describe("WorkerSink worker failures", () => {
-  it("retries a rejected worker flush through the inline fallback path", async () => {
+  it("does not retry a rejected worker flush on the main thread", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const event = makeEvent(10, "retry");
     const fetchMock = vi.fn<typeof fetch>(async () => {
       return new Response(JSON.stringify({ ok: true, live: false, flushMs: 15_000 }));
@@ -29,11 +29,12 @@ describe("WorkerSink worker failures", () => {
     sink.addRrwebEvent(event);
     await sink.flush("manual");
 
-    expect(workerHost.reset).toHaveBeenCalledTimes(1);
-    expect(workerHost.addEvents).toHaveBeenCalledTimes(2);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const decoded = decodeIngestBody(fetchMock.mock.calls[0]?.[1]?.body as Uint8Array);
-    expect(JSON.parse(decoder.decode(decoded.payload))).toEqual([event]);
+    expect(workerHost.reset).not.toHaveBeenCalled();
+    expect(workerHost.addEvents).toHaveBeenCalledTimes(1);
+    expect(workerHost.stop).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(droppedEventCount(sink)).toBe(1);
   });
 
   it("catches unrecoverable worker flush errors and disables the sink once", async () => {
@@ -41,7 +42,15 @@ describe("WorkerSink worker failures", () => {
     const fetchMock = vi.fn<typeof fetch>();
     const workerHost = makeFailingWorkerHost();
     const session = makeSession(["session-one", "tab-one"]);
-    const sink = new WorkerSink({ config, session, window, fetch: fetchMock, workerHost });
+    const onWorkerUnavailable = vi.fn();
+    const sink = new WorkerSink({
+      config,
+      session,
+      window,
+      fetch: fetchMock,
+      workerHost,
+      onWorkerUnavailable,
+    });
 
     sink.addRrwebEvent(makeEvent(10, "bad"));
     await expect(sink.flush("manual")).resolves.toBeUndefined();
@@ -51,7 +60,8 @@ describe("WorkerSink worker failures", () => {
     expect(warn).toHaveBeenCalledTimes(1);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(workerHost.stop).toHaveBeenCalledTimes(1);
-    expect(sink.droppedEventCount()).toBe(1);
+    expect(onWorkerUnavailable).toHaveBeenCalledOnce();
+    expect(droppedEventCount(sink)).toBe(1);
   });
 });
 

@@ -1,14 +1,21 @@
 import snapshot, {
+  type ChunkedSnapshotControl,
   cleanupSnapshot,
   classMatchesRegex,
+  closestPrivacyElement,
   genId,
+  getSnapshotEstimatedBytes,
   ignoreAttribute,
   IGNORED_NODE,
   needMaskingText,
+  privacyParentElement,
   serializeNodeWithId,
+  type SnapshotOptions,
+  snapshotInChunks,
   slimDOMDefaults,
   transformAttribute,
   visitSnapshot,
+  yieldForPaint,
 } from "./snapshot.ts";
 
 export * from "./types.ts";
@@ -26,16 +33,23 @@ export {
   toLowerCase,
 } from "./utils.ts";
 export {
+  type ChunkedSnapshotControl,
   cleanupSnapshot,
   classMatchesRegex,
+  closestPrivacyElement,
   genId,
+  getSnapshotEstimatedBytes,
   ignoreAttribute,
   IGNORED_NODE,
   needMaskingText,
+  privacyParentElement,
   serializeNodeWithId,
+  type SnapshotOptions,
   slimDOMDefaults,
   snapshot,
+  snapshotInChunks,
   transformAttribute,
   visitSnapshot,
+  yieldForPaint,
 };
 export default snapshot;

@@ -2,7 +2,7 @@ import { EventType, IncrementalSource, type eventWithTime } from "@orange-replay
 
 export const SDK_BUFFER_CAP_BYTES = 4 * 1024 * 1024;
 
-export type DropTier = "mouse" | "canvas" | "scroll" | "keep";
+export type DropTier = "mouse" | "canvas" | "image" | "scroll" | "keep";
 
 export interface BufferedEvent<T> {
   value: T;
@@ -19,7 +19,6 @@ export interface TrimResult<T> {
 export interface BackpressureDecision {
   accept: boolean;
   tier: DropTier;
-  bufferedBytes: number;
 }
 
 export class BackpressureController {
@@ -32,16 +31,24 @@ export class BackpressureController {
     this.capBytes = capBytes;
   }
 
-  canAccept(event: eventWithTime, bytes: number): BackpressureDecision {
+  canAccept(
+    event: eventWithTime,
+    bytes: number,
+    maxBufferedBytes = this.capBytes,
+  ): BackpressureDecision {
     const tier = eventDropTier(event);
     const bufferedBytes = this.bufferedBytes();
 
-    if (bufferedBytes + bytes <= this.capBytes || tier === "keep") {
-      return { accept: true, tier, bufferedBytes };
+    if (bufferedBytes + bytes <= maxBufferedBytes) {
+      return { accept: true, tier };
+    }
+
+    if (tier === "keep") {
+      return { accept: false, tier };
     }
 
     this.dropped += 1;
-    return { accept: false, tier, bufferedBytes };
+    return { accept: false, tier };
   }
 
   addCurrentBytes(bytes: number): void {
@@ -84,7 +91,7 @@ export function trimBufferedEvents<T>(
   let bytes = totalBytes(events);
   const dropped = new Set<number>();
 
-  for (const tier of ["mouse", "canvas", "scroll"] satisfies DropTier[]) {
+  for (const tier of ["mouse", "canvas", "image", "scroll"] satisfies DropTier[]) {
     for (let i = 0; i < events.length && bytes > capBytes; i += 1) {
       const event = events[i];
       if (event === undefined || event.tier !== tier || dropped.has(i)) {
@@ -117,7 +124,7 @@ export function trimBufferedEvents<T>(
 
 export function eventDropTier(event: eventWithTime): DropTier {
   if (event.type !== EventType.IncrementalSnapshot) {
-    return event.type === EventType.FullSnapshot ? "keep" : "keep";
+    return "keep";
   }
 
   const source = event.data.source;
@@ -137,6 +144,20 @@ export function eventDropTier(event: eventWithTime): DropTier {
 
   if (source === IncrementalSource.CanvasMutation) {
     return "canvas";
+  }
+
+  if (
+    source === IncrementalSource.Mutation &&
+    event.data.texts.length === 0 &&
+    event.data.adds.length === 0 &&
+    event.data.removes.length === 0 &&
+    event.data.attributes.length > 0 &&
+    event.data.attributes.every((attribute) => {
+      const sourceValue = attribute.attributes.src;
+      return typeof sourceValue === "string" && sourceValue.startsWith("data:image/");
+    })
+  ) {
+    return "image";
   }
 
   return "keep";

@@ -1,8 +1,8 @@
 "use client";
 
 import { forwardRef, useRef, useState, useEffect, useId, type HTMLAttributes } from "react";
-import { animate, m, useMotionValue, type Transition } from "@/lib/motion";
-import * as SwitchPrimitive from "@radix-ui/react-switch";
+import { animate, m, useMotionValue, useReducedMotion, type Transition } from "@/lib/motion";
+import { Switch as SwitchPrimitive } from "@base-ui/react/switch";
 import { cn } from "@/lib/utils";
 import { spring } from "@/lib/springs";
 
@@ -27,6 +27,10 @@ const DRAG_DEAD_ZONE = 2;
 const Switch = forwardRef<HTMLDivElement, SwitchProps>(
   ({ label, checked, onToggle, disabled = false, thumbTransition, className, ...props }, ref) => {
     const labelId = useId();
+    const reduceMotion = useReducedMotion();
+    const thumbSpring: Transition = reduceMotion
+      ? { duration: 0 }
+      : (thumbTransition ?? spring.moderate);
     const hasMounted = useRef(false);
     const [hovered, setHovered] = useState(false);
     const [pressed, setPressed] = useState(false);
@@ -63,9 +67,9 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
       if (!hasMounted.current) {
         motionX.set(thumbX);
       } else {
-        animate(motionX, thumbX, thumbTransition ?? spring.moderate);
+        animate(motionX, thumbX, thumbSpring);
       }
-    }, [thumbX, motionX, thumbTransition]);
+    }, [thumbX, motionX, thumbSpring]);
 
     // --- Pointer handlers ---
 
@@ -119,7 +123,7 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
         } else {
           // Snap back to current resting position (un-pressed)
           const snapTarget = checked ? THUMB_OFFSET + THUMB_TRAVEL : THUMB_OFFSET;
-          animate(motionX, snapTarget, thumbTransition ?? spring.moderate);
+          animate(motionX, snapTarget, thumbSpring);
         }
 
         requestAnimationFrame(() => {
@@ -138,7 +142,7 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
         dragging.current = false;
         // Gesture cancelled by the system — snap back without toggling
         const snapTarget = checked ? THUMB_OFFSET + THUMB_TRAVEL : THUMB_OFFSET;
-        animate(motionX, snapTarget, thumbTransition ?? spring.moderate);
+        animate(motionX, snapTarget, thumbSpring);
       }
 
       pointerStart.current = null;
@@ -196,19 +200,38 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
           }}
           onClick={(e) => e.stopPropagation()}
         >
-          <SwitchPrimitive.Thumb asChild>
-            <m.span
-              className="absolute top-0 left-0 block rounded-full bg-white shadow-sm"
-              initial={false}
-              style={{ height: thumbHeight, width: thumbWidth, x: motionX }}
-              animate={{
-                y: thumbY,
-              }}
-              transition={
-                hasMounted.current ? (thumbTransition ?? spring.moderate) : { duration: 0 }
-              }
-            />
-          </SwitchPrimitive.Thumb>
+          <SwitchPrimitive.Thumb
+            render={(baseProps) => {
+              const {
+                style: baseStyle,
+                // DOM drag/animation handlers have different signatures from
+                // Motion's gesture handlers, so do not pass those through.
+                onDrag: _onDrag,
+                onDragStart: _onDragStart,
+                onDragEnd: _onDragEnd,
+                onAnimationStart: _onAnimationStart,
+                onAnimationEnd: _onAnimationEnd,
+                onAnimationIteration: _onAnimationIteration,
+                ...thumbProps
+              } = baseProps as React.HTMLAttributes<HTMLSpanElement>;
+
+              return (
+                <m.span
+                  {...thumbProps}
+                  className="absolute top-0 left-0 block rounded-full bg-white shadow-sm"
+                  initial={false}
+                  style={{
+                    ...(baseStyle as React.CSSProperties | undefined),
+                    height: thumbHeight,
+                    width: thumbWidth,
+                    x: motionX,
+                  }}
+                  animate={{ y: thumbY }}
+                  transition={hasMounted.current ? thumbSpring : { duration: 0 }}
+                />
+              );
+            }}
+          />
         </SwitchPrimitive.Root>
 
         {/* Label */}

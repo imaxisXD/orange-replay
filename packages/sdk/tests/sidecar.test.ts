@@ -20,6 +20,7 @@ const config: RecorderConfig = {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  window.history.replaceState(null, "", "/");
 });
 
 describe("Sidecar internal error filtering", () => {
@@ -36,11 +37,50 @@ describe("Sidecar internal error filtering", () => {
     window.dispatchEvent(event);
     sidecar.stop();
 
-    expect(addIndexEvent).not.toHaveBeenCalled();
+    expect(addIndexEvent.mock.calls.map(([recorded]) => recorded.k)).not.toContain("error");
   });
 });
 
 describe("Sidecar privacy scrubbing", () => {
+  it("adds one scrubbed page-load event when the SDK starts directly", () => {
+    const addIndexEvent = vi.fn<(event: IndexEvent) => void>();
+    const sink = makeSink(addIndexEvent);
+    window.history.replaceState(null, "", "/orders?token=hidden#private");
+
+    const sidecar = new Sidecar({ config, sink, now: () => 10, window });
+    sidecar.start();
+    sidecar.stop();
+
+    expect(addIndexEvent).toHaveBeenCalledWith({
+      t: 10,
+      k: "vital",
+      d: "navigation",
+      m: { start: expect.any(Number), url: "/orders" },
+    });
+  });
+
+  it("keeps one scrubbed page-load event from the loader queue", () => {
+    const addIndexEvent = vi.fn<(event: IndexEvent) => void>();
+    const sink = makeSink(addIndexEvent);
+    (window as Window & { __orq?: unknown[] }).__orq = [
+      {
+        k: "vital",
+        n: "navigation",
+        t: 5,
+        start: 1,
+        u: "/checkout?token=hidden#private",
+      },
+    ];
+
+    const sidecar = new Sidecar({ config, sink, now: () => 10, window });
+    sidecar.start();
+    sidecar.stop();
+
+    expect(
+      addIndexEvent.mock.calls.map(([event]) => event).filter((event) => event.d === "navigation"),
+    ).toEqual([{ t: 5, k: "vital", d: "navigation", m: { start: 1, url: "/checkout" } }]);
+  });
+
   it("redacts click details inside blocked subtrees", () => {
     const addIndexEvent = vi.fn<(event: IndexEvent) => void>();
     const sink = makeSink(addIndexEvent);
@@ -100,7 +140,7 @@ describe("Sidecar privacy scrubbing", () => {
       ]),
     );
 
-    sidecar.addCustomEvent("checkout", meta);
+    const returnedMeta = sidecar.addCustomEvent("checkout", meta);
 
     const event = addIndexEvent.mock.calls[0]?.[0];
     const cleanMeta = event?.m ?? {};
@@ -110,6 +150,7 @@ describe("Sidecar privacy scrubbing", () => {
     expect(new TextEncoder().encode(JSON.stringify(cleanMeta)).byteLength).toBeLessThanOrEqual(
       2 * 1024,
     );
+    expect(returnedMeta).toEqual(cleanMeta);
   });
 });
 
@@ -119,6 +160,7 @@ function makeSink(addIndexEvent: (event: IndexEvent) => void): Sink {
     addIndexEvent,
     onNavigation: vi.fn(),
     flush: vi.fn(async () => undefined),
+    prepareForSnapshotPart: vi.fn(async () => undefined),
     prepareForSessionRotation: vi.fn(async () => undefined),
     resetAfterSessionRotation: vi.fn(),
     stop: vi.fn(async () => undefined),

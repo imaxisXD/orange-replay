@@ -23,8 +23,4 @@ export default class ProcessedNodeManager {
     }
     this.nodeMap.set(node, (this.nodeMap.get(node) || new Set()).add(buffer));
   }
-
-  public destroy() {
-    // cleanup no longer needed
-  }
 }

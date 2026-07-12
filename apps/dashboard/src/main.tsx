@@ -5,6 +5,7 @@ import { RouterProvider } from "@tanstack/react-router";
 import { MotionProvider } from "@/lib/motion-provider";
 import { queryClient } from "@/lib/query";
 import { ShapeProvider } from "@/lib/shape-context";
+import { OrangeToastProvider } from "@/components/ui/orange-toast";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { router } from "@/router";
 import "@/index.css";
@@ -20,9 +21,11 @@ createRoot(root).render(
     <MotionProvider>
       <QueryClientProvider client={queryClient}>
         <ShapeProvider defaultShape="rounded">
-          <TooltipProvider>
-            <RouterProvider router={router} />
-          </TooltipProvider>
+          <OrangeToastProvider>
+            <TooltipProvider>
+              <RouterProvider router={router} />
+            </TooltipProvider>
+          </OrangeToastProvider>
         </ShapeProvider>
       </QueryClientProvider>
     </MotionProvider>

@@ -20,6 +20,7 @@ catalog:
   css-tree: 3.2.1
   drizzle-kit: 1.0.0-rc.4
   drizzle-orm: 1.0.0-rc.4
+  terser: ^5.49.0
   typescript: ^5
   vite: npm:@voidzero-dev/vite-plus-core@0.2.2
   vite-plus: 0.2.2

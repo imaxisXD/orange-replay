@@ -106,6 +106,32 @@ describe("journey breadcrumbs", () => {
       { id: "nav-7000-1", path: "/complete", offsetMs: 6_000 },
     ]);
   });
+
+  it("maps full page loads without repeating the entry page", () => {
+    expect(
+      buildJourneyBreadcrumbs(
+        "https://example.com/start?plan=pro",
+        [
+          {
+            t: 900,
+            k: "vital",
+            d: "navigation",
+            m: { start: 800, url: "/start?plan=pro" },
+          },
+          {
+            t: 5_000,
+            k: "vital",
+            d: "navigation",
+            m: { start: 4_900, url: "/page2.html" },
+          },
+        ],
+        { startedAt: 1_000, durationMs: 10_000 },
+      ),
+    ).toEqual([
+      { id: "entry", path: "/start?plan=pro", offsetMs: 0 },
+      { id: "load-5000-1", path: "/page2.html", offsetMs: 4_000 },
+    ]);
+  });
 });
 
 describe("keyboard controls", () => {

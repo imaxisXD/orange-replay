@@ -6,6 +6,9 @@ export interface EventMeta {
   timestamp: number;
   rawBytes: number;
   fullSnapshot?: boolean;
+  requiredSnapshot?: boolean;
+  pagehideRequiredOversized?: boolean;
+  pagehideEstimateUnknown?: boolean;
 }
 
 interface TimestampedEvent {

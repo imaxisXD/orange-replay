@@ -2,7 +2,7 @@ import type { IndexEvent } from "@orange-replay/shared/types";
 import type { eventWithTime } from "@orange-replay/rrweb-fork";
 import { CheckpointSnapshotLimiter } from "./checkpoint.ts";
 import { markSdkInternalError } from "./internal-error.ts";
-import { loadRecorderProjectConfig } from "./project-config.ts";
+import { assertSafePrivacySelectors, loadRecorderProjectConfig } from "./project-config.ts";
 import { Recorder } from "./recorder.ts";
 import { shouldSampleSession } from "./sampling.ts";
 import { SessionManager } from "./session.ts";
@@ -41,6 +41,7 @@ export function init(options: InitOptions): OrangeReplayHandle {
     });
     let stopRequested = false;
     let runtime: RecorderRuntime | undefined;
+    let handle: OrangeReplayHandle;
     const pendingCustomEvents: Array<{ name: string; meta?: Record<string, unknown> }> = [];
     const startPromise = session.ready
       .then(async () => {
@@ -54,12 +55,20 @@ export function init(options: InitOptions): OrangeReplayHandle {
           session.stop();
           return;
         }
+        assertSafePrivacySelectors(config, document);
 
         let rotationPromise: Promise<void> | undefined;
         let checkpointSnapshots: CheckpointSnapshotLimiter | undefined;
+        let workerFailedBeforeStart = false;
+        let stopForWorkerFailure = () => {
+          workerFailedBeforeStart = true;
+        };
         let sink: InlineSink | WorkerSink;
         let recorder: Recorder;
-        const requestCheckpointSnapshot = () => checkpointSnapshots?.requestSnapshot();
+        const requestCheckpointSnapshot = (required = false) => {
+          if (required) recorder.takeFullSnapshot();
+          else checkpointSnapshots?.requestSnapshot();
+        };
         const rotateSession = () => {
           if (rotationPromise !== undefined) return rotationPromise;
 
@@ -89,7 +98,14 @@ export function init(options: InitOptions): OrangeReplayHandle {
                 window,
                 onSessionClosed: () => void rotateSession(),
                 onCheckpointRequested: requestCheckpointSnapshot,
+                onWorkerUnavailable: () => stopForWorkerFailure(),
               });
+        if (!sink.isAvailable()) {
+          discardLoaderPreBuffer(window);
+          session.stop();
+          if (activeHandle === handle) activeHandle = undefined;
+          return;
+        }
         const sidecar = new Sidecar({ config, sink, now: () => Date.now(), window });
         recorder = new Recorder({ config, sink });
         checkpointSnapshots = new CheckpointSnapshotLimiter({ recorder });
@@ -106,13 +122,26 @@ export function init(options: InitOptions): OrangeReplayHandle {
           void rotateSession();
         });
         runtime = { sink, sidecar, recorder, stopTouchListeners };
+        stopForWorkerFailure = () => {
+          discardLoaderPreBuffer(window);
+          runtime?.sidecar.stop();
+          runtime?.recorder.stop();
+          runtime?.stopTouchListeners();
+          session.stop();
+          runtime = undefined;
+          if (activeHandle === handle) activeHandle = undefined;
+        };
+        if (workerFailedBeforeStart) {
+          stopForWorkerFailure();
+          return;
+        }
 
+        recorder.start();
         sink.start();
         sidecar.start();
-        recorder.start();
         for (const event of pendingCustomEvents.splice(0)) {
-          sidecar.addCustomEvent(event.name, event.meta);
-          recorder.addCustomEvent(event.name, event.meta ?? {});
+          const meta = sidecar.addCustomEvent(event.name, event.meta);
+          recorder.addCustomEvent(event.name, meta);
         }
       })
       .catch(async (error) => {
@@ -124,9 +153,10 @@ export function init(options: InitOptions): OrangeReplayHandle {
         await runtime?.sink.stop();
         session.stop();
         runtime = undefined;
+        if (activeHandle === handle) activeHandle = undefined;
       });
 
-    activeHandle = {
+    handle = {
       async stop() {
         try {
           stopRequested = true;
@@ -139,7 +169,7 @@ export function init(options: InitOptions): OrangeReplayHandle {
         } catch (error) {
           console.warn("Orange Replay stop failed.", error);
         } finally {
-          activeHandle = undefined;
+          if (activeHandle === handle) activeHandle = undefined;
         }
       },
       addCustomEvent(name: string, meta?: Record<string, unknown>) {
@@ -150,8 +180,8 @@ export function init(options: InitOptions): OrangeReplayHandle {
             }
             return;
           }
-          runtime.sidecar.addCustomEvent(name, meta);
-          runtime.recorder.addCustomEvent(name, meta ?? {});
+          const cleanMeta = runtime.sidecar.addCustomEvent(name, meta);
+          runtime.recorder.addCustomEvent(name, cleanMeta);
         } catch (error) {
           console.warn("Orange Replay custom event failed.", error);
         }
@@ -164,8 +194,9 @@ export function init(options: InitOptions): OrangeReplayHandle {
         }
       },
     };
+    activeHandle = handle;
 
-    return activeHandle;
+    return handle;
   } catch (error) {
     console.warn("Orange Replay init failed.", error);
     return noopHandle();
@@ -221,65 +252,3 @@ function startSessionTouchListeners(
 }
 
 export type { IndexEvent, eventWithTime };
-
-type LoaderWindow = Window & {
-  __orInit?: InitOptions;
-  __orq?: unknown[];
-};
-
-function readLoaderInit(win: LoaderWindow): InitOptions | undefined {
-  if (isInitOptions(win.__orInit)) {
-    return win.__orInit;
-  }
-
-  if (!Array.isArray(win.__orq)) {
-    return undefined;
-  }
-
-  for (const item of win.__orq) {
-    if (typeof item !== "object" || item === null) {
-      continue;
-    }
-
-    const record = item as { k?: unknown; o?: unknown };
-    if (record.k === "init" && isInitOptions(record.o)) {
-      return record.o;
-    }
-  }
-
-  return undefined;
-}
-
-function isInitOptions(value: unknown): value is InitOptions {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const options = value as Partial<InitOptions>;
-  return typeof options.key === "string" && typeof options.ingestUrl === "string";
-}
-
-declare const __ORANGE_REPLAY_AUTO_INIT__: boolean | undefined;
-
-if (
-  typeof __ORANGE_REPLAY_AUTO_INIT__ !== "undefined" &&
-  __ORANGE_REPLAY_AUTO_INIT__ &&
-  typeof window !== "undefined"
-) {
-  const startFromLoader = () => {
-    if (activeHandle !== undefined) {
-      return;
-    }
-
-    const options = readLoaderInit(window as LoaderWindow);
-    if (options !== undefined) {
-      init(options);
-    }
-  };
-
-  if (typeof window.queueMicrotask === "function") {
-    window.queueMicrotask(startFromLoader);
-  } else {
-    void Promise.resolve().then(startFromLoader);
-  }
-}

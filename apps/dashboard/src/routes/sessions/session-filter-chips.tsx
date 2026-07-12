@@ -22,7 +22,7 @@ export function SessionFilterChips({
       {chips.map((chip) => (
         <button
           aria-label={`Remove filter: ${chip.label}`}
-          className="group/chip inline-flex cursor-pointer items-center"
+          className="group/chip inline-flex min-h-11 cursor-pointer items-center sm:min-h-0"
           key={chip.key}
           onClick={() => onRemove(chip.key)}
           type="button"

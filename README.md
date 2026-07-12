@@ -21,11 +21,13 @@ vp install
 vp run dev
 ```
 
-This starts the Worker on `http://localhost:8787` and the dashboard on
-`http://localhost:5200`. Set `CLEAR_DEV_PORTS=1` only when you want the dev
-script to stop existing listeners on those ports first. It uses
-`apps/worker/.env` when present, otherwise it uses
-`apps/worker/.env.example`.
+This builds the local website assets, then starts the combined Worker on
+`http://localhost:8787` and the dashboard development server on
+`http://localhost:5200`. Use port `8787` to test the real landing page and its
+public `/demo` workspace together. Port `5200` keeps dashboard hot reload for
+normal dashboard work. Set `CLEAR_DEV_PORTS=1` only when you want the dev script
+to stop existing listeners on those ports first. It uses `apps/worker/.env`
+when present, otherwise it uses `apps/worker/.env.example`.
 
 To run the dashboard only:
 

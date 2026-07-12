@@ -27,8 +27,8 @@ const repoDir = resolve(demoDir, "../..");
 const workerDir = resolve(repoDir, "apps/worker");
 const dashboardDir = resolve(repoDir, "apps/dashboard");
 const stateFile = fileURLToPath(new URL("../.playwright-state.json", import.meta.url));
-const apiToken = "demo-e2e-token";
-const ingestKey = "or_demo_e2e_key";
+const apiToken = "demo-e2e-token-000000000000000000";
+const ingestKey = `or_live_${"a".repeat(32)}`;
 const timings = {
   segmentFlushMs: 700,
   segmentFlushBytes: 2048,
@@ -53,6 +53,8 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     vars: {
       DEV_TEST_ROUTES: "1",
       DEV_API_TOKEN: apiToken,
+      DEV_API_PROJECT_IDS: "demo-e2e-project",
+      LIVE_TICKET_SECRET: "demo-e2e-live-ticket-000000000000",
       TEST_TIMINGS: JSON.stringify(timings),
     },
     persist: false,

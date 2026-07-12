@@ -25,7 +25,10 @@ const budgets = [
     name: "script-tag IIFE bundle",
     kind: "file",
     file: "dist/orange-replay.iife.js",
-    limitBytes: 32 * 1024,
+    // This is the customer-loaded recorder. Keep the documented architecture
+    // ceiling as the hard gate; 32KB remains the product target.
+    limitBytes: 35 * 1024,
+    warnBytes: 32 * 1024,
   },
   {
     name: "loader snippet",

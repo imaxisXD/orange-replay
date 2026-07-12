@@ -5,6 +5,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { IconSwap } from "@/components/ui/icon-swap";
 import { InputField, InputGroup } from "@/components/ui/input-group";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip } from "@/components/ui/tooltip";
 import { fetchProjectKeys } from "@/lib/api";
 import { AlertCircle, Check, Code2, Copy, RotateCcw } from "@/lib/icon-map";
@@ -174,13 +175,11 @@ export function InstallSnippetBuilder({ projectId }: { projectId: string }) {
             </IconSwap>
           </Button>
         </Tooltip>
-        <pre
-          className={`overflow-auto whitespace-pre-wrap break-words font-mono text-[11.5px] leading-relaxed text-muted-foreground ${
-            showFullCode ? "max-h-105" : "max-h-24"
-          }`}
-        >
-          {shownSnippet}
-        </pre>
+        <ScrollArea className={showFullCode ? "h-105" : "h-24"} viewportClassName="scroll-fade">
+          <pre className="whitespace-pre-wrap break-words font-mono text-[11.5px] leading-relaxed text-muted-foreground">
+            {shownSnippet}
+          </pre>
+        </ScrollArea>
       </div>
       <div className="mt-3 flex justify-end">
         <Button

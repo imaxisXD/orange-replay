@@ -1,8 +1,8 @@
 "use client";
 
 import { createContext, useContext, useState, type ReactNode } from "react";
-import * as TooltipPrimitive from "@radix-ui/react-tooltip";
-import { AnimatePresence, m } from "@/lib/motion";
+import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip";
+import { m, useReducedMotion } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { spring } from "@/lib/springs";
 import { fontWeights } from "@/lib/font-weight";
@@ -37,8 +37,7 @@ const DEFAULT_DELAY = 200;
 // Tracks whether an app-level <TooltipProvider> is above us. Each Tooltip
 // only wraps itself in a local primitive Provider when there isn't one —
 // a per-instance Provider would defeat cross-tooltip skip-delay grouping
-// (moving between adjacent tooltips would re-wait the full delay). Radix's
-// Root throws without a Provider, so the local fallback can't be dropped.
+// (moving between adjacent tooltips would re-wait the full delay).
 const TooltipGroupContext = createContext(false);
 
 interface TooltipProviderProps {
@@ -61,10 +60,7 @@ function TooltipProvider({
 }: TooltipProviderProps) {
   return (
     <TooltipGroupContext.Provider value={true}>
-      <TooltipPrimitive.Provider
-        delayDuration={delayDuration}
-        skipDelayDuration={skipDelayDuration}
-      >
+      <TooltipPrimitive.Provider delay={delayDuration} timeout={skipDelayDuration}>
         {children}
       </TooltipPrimitive.Provider>
     </TooltipGroupContext.Provider>
@@ -99,13 +95,13 @@ interface TooltipProps {
 function getSlideOffset(side: TooltipSide) {
   switch (side) {
     case "top":
-      return { y: 4 };
+      return { from: "translateY(4px)", to: "translateY(0px)" };
     case "bottom":
-      return { y: -4 };
+      return { from: "translateY(-4px)", to: "translateY(0px)" };
     case "left":
-      return { x: 4 };
+      return { from: "translateX(4px)", to: "translateX(0px)" };
     case "right":
-      return { x: -4 };
+      return { from: "translateX(-4px)", to: "translateX(0px)" };
   }
 }
 
@@ -126,65 +122,85 @@ function Tooltip({
   const [internalOpen, setInternalOpen] = useState(false);
   const open = forceOpen !== undefined ? forceOpen : internalOpen;
   const shape = useShape();
+  const reduce = useReducedMotion();
   const portalContainer = useContext(TooltipPortalContainerContext);
   const hasAmbientProvider = useContext(TooltipGroupContext);
 
   const slideOffset = getSlideOffset(side);
 
-  // An explicit delayDuration overrides the ambient provider's delay; left
-  // undefined, the Root inherits it from the nearest provider.
   const tooltip = (
     <TooltipPrimitive.Root
-      delayDuration={delayDuration}
       open={open}
       onOpenChange={(v) => {
         setInternalOpen(v);
         onOpenChangeProp?.(v);
       }}
     >
-      <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
-      <TooltipPrimitive.Portal forceMount container={portalContainer ?? undefined}>
-        <AnimatePresence>
-          {open && (
-            <TooltipPrimitive.Content
-              side={side}
-              sideOffset={sideOffset}
-              forceMount
-              className="z-50"
-            >
-              <m.div
-                className={cn(
-                  // Trim recenters the label; the padding bump only applies
-                  // where text-box is supported, keeping the same overall
-                  // height (~26px) as untrimmed browsers.
-                  "border border-border bg-popover px-2 py-1 text-[11.5px] text-foreground",
-                  "[text-box:trim-both_cap_alphabetic] supports-[text-box:trim-both]:py-2",
-                  shape.bg,
-                  className,
-                )}
-                style={{ fontVariationSettings: fontWeights.medium }}
-                initial={{ opacity: 0, ...slideOffset }}
-                animate={{ opacity: 1, x: 0, y: 0 }}
-                exit={{ opacity: 0, ...slideOffset }}
-                transition={open ? spring.fast : spring.fast.exit}
-              >
-                {content}
-              </m.div>
-            </TooltipPrimitive.Content>
-          )}
-        </AnimatePresence>
+      {/* An explicit delay overrides the ambient provider; otherwise the
+          trigger inherits the provider's delay. */}
+      <TooltipPrimitive.Trigger render={children} delay={delayDuration} />
+      <TooltipPrimitive.Portal container={portalContainer ?? undefined}>
+        <TooltipPrimitive.Positioner side={side} sideOffset={sideOffset} className="z-50">
+          <TooltipPrimitive.Popup
+            render={(baseProps, state) => {
+              const exiting = state.transitionStatus === "ending";
+              const {
+                style: baseStyle,
+                // DOM drag/animation handlers have different signatures from
+                // Motion's gesture handlers, so do not pass those through.
+                onDrag: _onDrag,
+                onDragStart: _onDragStart,
+                onDragEnd: _onDragEnd,
+                onAnimationStart: _onAnimationStart,
+                onAnimationEnd: _onAnimationEnd,
+                onAnimationIteration: _onAnimationIteration,
+                ...popupProps
+              } = baseProps as React.HTMLAttributes<HTMLDivElement>;
+
+              return (
+                <m.div
+                  {...popupProps}
+                  className={cn(
+                    // Trim recenters the label; the padding bump only applies
+                    // where text-box is supported, keeping the same overall
+                    // height (~26px) as untrimmed browsers.
+                    "border border-border bg-popover px-2 py-1 text-[11.5px] text-foreground",
+                    "[text-box:trim-both_cap_alphabetic] supports-[text-box:trim-both]:py-2",
+                    shape.bg,
+                    className,
+                  )}
+                  style={{
+                    ...(baseStyle as React.CSSProperties | undefined),
+                    fontVariationSettings: fontWeights.medium,
+                  }}
+                  initial={reduce ? { opacity: 0 } : { opacity: 0, transform: slideOffset.from }}
+                  animate={
+                    exiting
+                      ? reduce
+                        ? { opacity: 0 }
+                        : { opacity: 0, transform: slideOffset.from }
+                      : reduce
+                        ? { opacity: 1 }
+                        : { opacity: 1, transform: slideOffset.to }
+                  }
+                  transition={reduce ? { duration: 0 } : exiting ? spring.fast.exit : spring.fast}
+                />
+              );
+            }}
+          >
+            {content}
+          </TooltipPrimitive.Popup>
+        </TooltipPrimitive.Positioner>
       </TooltipPrimitive.Portal>
     </TooltipPrimitive.Root>
   );
 
-  // Fallback: Radix's Root requires a Provider above it, so without an
-  // ambient TooltipProvider each instance carries its own with the library's
-  // default delay. Grouped skip-delay needs the shared app-level
-  // TooltipProvider.
+  // Without an ambient provider, give this tooltip its own default delay.
+  // Grouped skip-delay still needs the shared app-level TooltipProvider.
   if (hasAmbientProvider) return tooltip;
 
   return (
-    <TooltipPrimitive.Provider delayDuration={delayDuration ?? DEFAULT_DELAY}>
+    <TooltipPrimitive.Provider delay={delayDuration ?? DEFAULT_DELAY}>
       {tooltip}
     </TooltipPrimitive.Provider>
   );

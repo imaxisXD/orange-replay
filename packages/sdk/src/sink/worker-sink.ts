@@ -1,12 +1,17 @@
 import { FLAG_UNCOMPRESSED, SDK_FLUSH_DEFAULT_MS } from "@orange-replay/shared/constants";
 import type { BatchIndex, IndexEvent } from "@orange-replay/shared/types";
 import { encodeIngestBody } from "@orange-replay/shared/wire";
-import { EventType, type eventWithTime } from "@orange-replay/rrweb-fork";
+import {
+  EventType,
+  getSnapshotEstimatedBytes,
+  IncrementalSource,
+  type eventWithTime,
+} from "@orange-replay/rrweb-fork";
 import { markSdkInternalError } from "../internal-error.ts";
-import { BackpressureController } from "../pipeline/backpressure.ts";
+import { BackpressureController, SDK_BUFFER_CAP_BYTES } from "../pipeline/backpressure.ts";
 import { BATCH_RAW_FLUSH_BYTES, Batcher, estimateRrwebEventBytes } from "../pipeline/batcher.ts";
 import { Transport } from "../pipeline/transport.ts";
-import { WorkerHost } from "../pipeline/worker-host.ts";
+import { WorkerHost, type WorkerEvent } from "../pipeline/worker-host.ts";
 import { scrubUrl } from "../scrub.ts";
 import type { SessionManager } from "../session.ts";
 import { IndexEventBuffer } from "../sidecar.ts";
@@ -26,6 +31,8 @@ interface InFlightBatch {
   finalQueued: boolean;
 }
 
+const OVERSIZED_CATCH_UP_BYTES = SDK_BUFFER_CAP_BYTES / 32;
+
 export class WorkerSink implements Sink {
   private readonly config: RecorderConfig;
   private readonly session: SessionManager;
@@ -33,13 +40,14 @@ export class WorkerSink implements Sink {
   private readonly workerHost: WorkerHost;
   private readonly transport: Transport;
   private readonly onSessionClosed?: () => void;
-  private readonly onCheckpointRequested?: () => void;
+  private readonly onCheckpointRequested?: (required?: boolean) => void;
+  private readonly onWorkerUnavailable?: () => void;
   private readonly encoder = new TextEncoder();
   private readonly indexEvents = new IndexEventBuffer();
   private readonly batcher: Batcher;
   private readonly backpressure = new BackpressureController();
   private rrwebEvents: eventWithTime[] = [];
-  private pendingWorkerEvents: eventWithTime[] = [];
+  private pendingWorkerEvents: WorkerEvent[] = [];
   private eventMetas: EventMeta[] = [];
   private inFlightBatches: InFlightBatch[] = [];
   private currentUrl: string;
@@ -49,6 +57,13 @@ export class WorkerSink implements Sink {
   private warnedAboutInternalError = false;
   private needsFollowUpFlush = false;
   private workerPostScheduled = false;
+  private pagehideResetPending = false;
+  private oversizedSnapshotBytes: number | undefined;
+  private needsRequiredCheckpoint = false;
+  private requiredCheckpointRequested = false;
+  private requiredBaselineMissing = false;
+  private readonly pendingRequiredFinalBatches = new Set<object>();
+  private pageHidden = false;
 
   constructor(options: WorkerSinkOptions) {
     this.config = options.config;
@@ -56,15 +71,29 @@ export class WorkerSink implements Sink {
     this.window = options.window;
     this.onSessionClosed = options.onSessionClosed;
     this.onCheckpointRequested = options.onCheckpointRequested;
+    this.onWorkerUnavailable = options.onWorkerUnavailable;
     this.currentUrl = scrubUrl(options.window.location.href, options.config.allowUrlParams);
     this.batcher = new Batcher({ flushMs: options.config.flushMs || SDK_FLUSH_DEFAULT_MS });
+    let workerHostReady = false;
+    let workerUnavailable = false;
+    const handleWorkerUnavailable = () => {
+      workerUnavailable = true;
+      if (!workerHostReady || this.stopped) return;
+      this.stopped = true;
+      this.discardPipeline();
+      this.onWorkerUnavailable?.();
+    };
     this.workerHost =
       options.workerHost ??
       new WorkerHost({
+        window: options.window,
+        onUnavailable: handleWorkerUnavailable,
         warn(message) {
           console.warn(message);
         },
       });
+    workerHostReady = true;
+    if (workerUnavailable || !this.isAvailable()) this.stopped = true;
     this.transport =
       options.transport ??
       new Transport({
@@ -74,9 +103,11 @@ export class WorkerSink implements Sink {
   }
 
   start(): void {
+    if (this.stopped) return;
     this.scheduleTimer();
     this.window.document.addEventListener("visibilitychange", this.onVisibilityChange, true);
     this.window.addEventListener("pagehide", this.onPageHide, true);
+    this.window.addEventListener("pageshow", this.onPageShow, true);
   }
 
   addRrwebEvent(event: eventWithTime): void {
@@ -84,19 +115,73 @@ export class WorkerSink implements Sink {
       return;
     }
 
-    const rawBytes = estimateRrwebEventBytes(event);
-    const pressure = this.backpressure.canAccept(event, rawBytes);
-    if (!pressure.accept) {
+    const isFullSnapshot = event.type === EventType.FullSnapshot;
+    if (
+      this.needsRequiredCheckpoint &&
+      (!this.requiredCheckpointRequested || (event.type !== EventType.Meta && !isFullSnapshot))
+    ) {
+      this.backpressure.recordDropped(1);
       return;
+    }
+
+    const rawBytes = estimateRrwebEventBytes(event);
+    const iframeSnapshotNode =
+      event.type === EventType.IncrementalSnapshot &&
+      event.data.source === IncrementalSource.Mutation &&
+      event.data.isAttachIframe === true &&
+      event.data.adds.length === 1
+        ? event.data.adds[0]!.node
+        : undefined;
+    const requiredSnapshotNode = isFullSnapshot ? event.data.node : iframeSnapshotNode;
+    const bufferedBytes = this.backpressure.bufferedBytes();
+    const startsOversizedSnapshot =
+      requiredSnapshotNode !== undefined &&
+      rawBytes > SDK_BUFFER_CAP_BYTES &&
+      this.oversizedSnapshotBytes === undefined &&
+      bufferedBytes <= OVERSIZED_CATCH_UP_BYTES;
+    const maxBufferedBytes = startsOversizedSnapshot
+      ? rawBytes + OVERSIZED_CATCH_UP_BYTES
+      : this.oversizedSnapshotBytes === undefined
+        ? undefined
+        : Math.max(SDK_BUFFER_CAP_BYTES, this.oversizedSnapshotBytes + OVERSIZED_CATCH_UP_BYTES);
+    const pressure = this.backpressure.canAccept(event, rawBytes, maxBufferedBytes);
+    if (!pressure.accept) {
+      if (pressure.tier === "keep") {
+        if (this.oversizedSnapshotBytes !== undefined) {
+          this.backpressure.recordDropped(1);
+          this.needsRequiredCheckpoint = true;
+        } else {
+          this.disableAfterInternalError(new Error("Orange Replay reached its 4 MB memory limit."));
+        }
+      }
+      return;
+    }
+
+    if (startsOversizedSnapshot) this.oversizedSnapshotBytes = rawBytes;
+    if (isFullSnapshot && this.requiredCheckpointRequested) {
+      this.needsRequiredCheckpoint = false;
+      this.requiredCheckpointRequested = false;
     }
 
     const decision = this.batcher.addEstimatedBytes(rawBytes);
     this.rrwebEvents.push(event);
-    this.queueWorkerEvent(event);
+    this.queueWorkerEvent(event, rawBytes);
+    const requiredSnapshotBytes =
+      requiredSnapshotNode === undefined
+        ? undefined
+        : getSnapshotEstimatedBytes(requiredSnapshotNode);
     this.eventMetas.push({
       timestamp: event.timestamp,
       rawBytes,
-      ...(event.type === EventType.FullSnapshot ? { fullSnapshot: true } : {}),
+      ...(isFullSnapshot ? { fullSnapshot: true } : {}),
+      ...(requiredSnapshotNode !== undefined ? { requiredSnapshot: true } : {}),
+      ...(requiredSnapshotBytes !== undefined &&
+      requiredSnapshotBytes > this.batcher.getPagehideRawFlushBytes()
+        ? { pagehideRequiredOversized: true }
+        : {}),
+      ...(requiredSnapshotNode !== undefined && requiredSnapshotBytes === undefined
+        ? { pagehideEstimateUnknown: true }
+        : {}),
     });
     this.backpressure.addCurrentBytes(rawBytes);
 
@@ -119,6 +204,30 @@ export class WorkerSink implements Sink {
 
   flush(reason: FlushReason): Promise<void> {
     return this.flushInternal(reason);
+  }
+
+  async prepareForSnapshotPart(nextBytes?: number): Promise<void> {
+    const safeNextBytes =
+      nextBytes === undefined || !Number.isFinite(nextBytes)
+        ? undefined
+        : Math.max(0, Math.floor(nextBytes));
+    while (!this.stopped) {
+      if (this.flushing !== undefined) {
+        await this.flushing;
+        continue;
+      }
+      const bufferedBytes = this.backpressure.bufferedBytes();
+      const nextPartIsOversized =
+        safeNextBytes !== undefined && safeNextBytes > SDK_BUFFER_CAP_BYTES;
+      const shouldDrain =
+        this.oversizedSnapshotBytes !== undefined ||
+        this.batcher.currentRawBytes() >= BATCH_RAW_FLUSH_BYTES ||
+        (safeNextBytes !== undefined &&
+          ((!nextPartIsOversized && bufferedBytes + safeNextBytes > SDK_BUFFER_CAP_BYTES) ||
+            (nextPartIsOversized && bufferedBytes > OVERSIZED_CATCH_UP_BYTES)));
+      if (!shouldDrain || this.eventMetas.length === 0) return;
+      await this.flushInternal("manual");
+    }
   }
 
   async prepareForSessionRotation(): Promise<void> {
@@ -146,20 +255,19 @@ export class WorkerSink implements Sink {
     this.clearTimer();
     this.window.document.removeEventListener("visibilitychange", this.onVisibilityChange, true);
     this.window.removeEventListener("pagehide", this.onPageHide, true);
+    this.window.removeEventListener("pageshow", this.onPageShow, true);
     await this.flushInternal("manual");
     this.workerHost.stop();
   }
 
-  getFlushMs(): number {
-    return this.batcher.getFlushMs();
-  }
-
-  droppedEventCount(): number {
-    return this.backpressure.droppedCount() + this.indexEvents.droppedCount();
+  isAvailable(): boolean {
+    const check = (this.workerHost as WorkerHost & { isAvailable?: () => boolean }).isAvailable;
+    return typeof check !== "function" || check.call(this.workerHost);
   }
 
   private flushInternal(reason: InternalFlushReason): Promise<void> {
     if (reason === "pagehide") {
+      this.pageHidden = true;
       this.clearTimer();
       try {
         this.flushFinalBatchesSync();
@@ -179,9 +287,14 @@ export class WorkerSink implements Sink {
     this.clearTimer();
     this.flushing = this.flushNow(reason)
       .catch((error) => {
-        this.disableAfterInternalError(error);
+        const expectedPagehideReset =
+          this.pagehideResetPending &&
+          error instanceof Error &&
+          error.message === "Orange Replay worker reset before flush.";
+        if (!this.stopped && !expectedPagehideReset) this.disableAfterInternalError(error);
       })
       .finally(() => {
+        this.pagehideResetPending = false;
         const shouldFlushAgain =
           !this.stopped &&
           (this.needsFollowUpFlush || this.batcher.currentRawBytes() > 0) &&
@@ -189,6 +302,8 @@ export class WorkerSink implements Sink {
 
         this.needsFollowUpFlush = false;
         this.flushing = undefined;
+
+        if (this.continueRequiredCheckpointRecovery()) return;
 
         if (shouldFlushAgain) {
           void this.flushInternal("threshold");
@@ -220,12 +335,14 @@ export class WorkerSink implements Sink {
     const taken = this.batcher.takeBatch(eventCount);
     const rrwebEvents = this.rrwebEvents.splice(0, taken.eventCount);
     const eventMetas = this.eventMetas.splice(0, taken.eventCount);
+    const hasOversizedSnapshot = containsOversizedSnapshot(eventMetas);
+    const hasRequiredSnapshot = eventMetas.some((event) => event.requiredSnapshot === true);
+    const hasFullSnapshot = eventMetas.some((event) => event.fullSnapshot === true);
+    let chargedRawBytes = taken.rawBytes;
 
     if (eventMetas.length === 0 && indexEvents.length === 0) {
       return false;
     }
-
-    this.backpressure.removeCurrentBytes(taken.rawBytes);
 
     const seq = this.session.nextSeq();
     const index = buildBatchIndex({
@@ -246,12 +363,20 @@ export class WorkerSink implements Sink {
     this.inFlightBatches.push(inFlight);
 
     try {
-      const batch = await this.flushWorkerBatch(taken.eventCount, rrwebEvents, eventMetas);
+      const batch = await this.flushWorkerBatch(taken.eventCount);
       this.recordDroppedFromWorker(batch.droppedEventCount, eventMetas.length);
+      if (this.requiredBaselineMissing && !hasFullSnapshot) {
+        this.backpressure.recordDropped(eventMetas.length);
+        return false;
+      }
       const flags = batch.uncompressed ? FLAG_UNCOMPRESSED : 0;
       const body = encodeIngestBody(index, batch.payload);
       inFlight.body = body;
       inFlight.flags = flags;
+      rrwebEvents.splice(0);
+      this.backpressure.removeCurrentBytes(chargedRawBytes);
+      chargedRawBytes = 0;
+      if (hasOversizedSnapshot) this.oversizedSnapshotBytes = 0;
 
       this.backpressure.addPendingBytes(body.byteLength);
       const result = await this.transport
@@ -264,10 +389,9 @@ export class WorkerSink implements Sink {
         .finally(() => {
           this.backpressure.removePendingBytes(body.byteLength);
         });
-      this.batcher.recordCompressedSize(taken.rawBytes, batch.payload.byteLength);
-
       if (result.dropped) {
         this.backpressure.recordDropped(eventMetas.length);
+        if (hasRequiredSnapshot) this.markRequiredBaselineMissing();
         return false;
       }
 
@@ -290,30 +414,64 @@ export class WorkerSink implements Sink {
       }
 
       return false;
+    } catch (error) {
+      this.backpressure.recordDropped(eventMetas.length);
+      throw error;
     } finally {
+      this.backpressure.removeCurrentBytes(chargedRawBytes);
       this.inFlightBatches = this.inFlightBatches.filter((batch) => batch !== inFlight);
+      if (hasOversizedSnapshot) this.oversizedSnapshotBytes = undefined;
     }
   }
 
   private flushFinalBatchesSync(): void {
     let remainingBytes = this.batcher.getPagehideRawFlushBytes();
+    let requiredBaselineMissing = false;
 
     for (const batch of this.inFlightBatches) {
       if (batch.finalQueued) {
         continue;
       }
 
+      let queued = false;
       if (batch.body !== undefined && batch.body.byteLength <= remainingBytes) {
-        const queued = this.queueSyncFinalBatch({
+        queued = this.queueSyncFinalBatch({
           body: batch.body,
           index: batch.index,
           flags: batch.flags ?? 0,
           queuedEventCount: batch.eventMetas.length,
           droppedEventCount: 0,
+          containsRequiredSnapshot: batch.eventMetas.some(
+            (event) => event.requiredSnapshot === true,
+          ),
         });
         if (queued) {
           remainingBytes -= batch.body.byteLength;
         }
+      } else if (batch.body === undefined && remainingBytes > 0) {
+        // The worker may still be serializing when the page closes. The raw
+        // events remain available here, so build one bounded keepalive body
+        // instead of silently losing the in-flight baseline.
+        const finalBatch = buildPagehideBatch({
+          encoder: this.encoder,
+          session: this.session,
+          currentUrl: this.currentUrl,
+          seq: batch.seq,
+          rrwebEvents: batch.rrwebEvents,
+          eventMetas: batch.eventMetas,
+          indexEvents: batch.indexEvents,
+          maxBodyBytes: remainingBytes,
+        });
+        this.backpressure.recordDropped(finalBatch.droppedEventCount);
+        if (finalBatch.batch !== null) {
+          queued = this.queueSyncFinalBatch(finalBatch.batch);
+          if (queued) remainingBytes -= finalBatch.batch.body.byteLength;
+        }
+      }
+
+      if (!queued && batch.eventMetas.some((event) => event.requiredSnapshot === true)) {
+        requiredBaselineMissing = true;
+        this.markRequiredBaselineMissing();
       }
 
       batch.finalQueued = true;
@@ -321,10 +479,11 @@ export class WorkerSink implements Sink {
 
     const hasCurrentBatch = this.eventMetas.length > 0 || this.indexEvents.count() > 0;
     const currentBatch =
-      remainingBytes > 0
+      !requiredBaselineMissing && remainingBytes > 0
         ? this.takeCurrentFinalBatch(remainingBytes)
         : this.dropCurrentFinalBatch();
     if (hasCurrentBatch) {
+      this.pagehideResetPending = this.flushing !== undefined;
       this.workerHost.reset();
     }
 
@@ -338,6 +497,7 @@ export class WorkerSink implements Sink {
     const taken = this.batcher.takeBatch(this.eventMetas.length);
     const eventMetas = this.eventMetas;
     const rrwebEvents = this.rrwebEvents;
+    const hasRequiredSnapshot = eventMetas.some((event) => event.requiredSnapshot === true);
 
     this.eventMetas = [];
     this.rrwebEvents = [];
@@ -361,11 +521,19 @@ export class WorkerSink implements Sink {
       maxBodyBytes,
     });
     this.backpressure.recordDropped(finalBatch.droppedEventCount);
+    if (containsOversizedSnapshot(eventMetas)) {
+      this.oversizedSnapshotBytes = undefined;
+    }
+    if (hasRequiredSnapshot && finalBatch.batch === null) this.markRequiredBaselineMissing();
     return finalBatch.batch;
   }
 
   private dropCurrentFinalBatch(): null {
     const droppedCount = this.eventMetas.length;
+    const droppedOversizedSnapshot = containsOversizedSnapshot(this.eventMetas);
+    const droppedRequiredSnapshot = this.eventMetas.some(
+      (event) => event.requiredSnapshot === true,
+    );
     const taken = this.batcher.takeBatch(droppedCount);
     this.eventMetas = [];
     this.rrwebEvents = [];
@@ -374,10 +542,27 @@ export class WorkerSink implements Sink {
     this.indexEvents.drain();
     this.backpressure.removeCurrentBytes(taken.rawBytes);
     this.backpressure.recordDropped(droppedCount);
+    if (droppedOversizedSnapshot) {
+      this.oversizedSnapshotBytes = undefined;
+    }
+    if (droppedRequiredSnapshot) this.markRequiredBaselineMissing();
     return null;
   }
 
   private queueSyncFinalBatch(batch: PagehideBatch): boolean {
+    const requiredBatchToken = batch.containsRequiredSnapshot ? {} : undefined;
+    if (requiredBatchToken !== undefined) {
+      this.pendingRequiredFinalBatches.add(requiredBatchToken);
+    }
+    const finishRequiredBatch = (delivered: boolean): void => {
+      if (
+        requiredBatchToken !== undefined &&
+        this.pendingRequiredFinalBatches.delete(requiredBatchToken) &&
+        !delivered
+      ) {
+        this.markRequiredBaselineMissing();
+      }
+    };
     this.backpressure.addPendingBytes(batch.body.byteLength);
     // Unload transport is keepalive-only because sendBeacon cannot carry the
     // auth/session headers required by ingest.
@@ -390,35 +575,21 @@ export class WorkerSink implements Sink {
       },
       () => {
         this.backpressure.recordDropped(batch.queuedEventCount);
+        finishRequiredBatch(false);
       },
+      () => finishRequiredBatch(true),
     );
     this.backpressure.removePendingBytes(batch.body.byteLength);
     if (!queued) {
       this.backpressure.recordDropped(batch.queuedEventCount);
+      finishRequiredBatch(false);
     }
     return queued;
   }
 
-  private async flushWorkerBatch(
-    eventCount: number,
-    rrwebEvents: readonly eventWithTime[],
-    eventMetas: readonly EventMeta[],
-  ) {
+  private async flushWorkerBatch(eventCount: number) {
     this.flushPendingWorkerEvents();
-    try {
-      return await this.workerHost.flushBatch({ eventCount });
-    } catch (error) {
-      this.workerHost.reset();
-      this.workerHost.addEvents(rrwebEvents);
-
-      try {
-        return await this.workerHost.flushBatch({ eventCount: rrwebEvents.length });
-      } catch (retryError) {
-        this.backpressure.recordDropped(eventMetas.length);
-        this.workerHost.reset();
-        throw markSdkInternalError(retryError || error);
-      }
-    }
+    return this.workerHost.flushBatch({ eventCount });
   }
 
   private recordDroppedFromWorker(
@@ -433,6 +604,11 @@ export class WorkerSink implements Sink {
   }
 
   private resetPipeline(): void {
+    this.clearPipelineBuffers();
+    this.workerHost.reset();
+  }
+
+  private clearPipelineBuffers(): void {
     this.rrwebEvents = [];
     this.pendingWorkerEvents = [];
     this.workerPostScheduled = false;
@@ -441,40 +617,80 @@ export class WorkerSink implements Sink {
     this.indexEvents.drain();
     this.batcher.reset();
     this.backpressure.resetCurrentBytes();
-    this.workerHost.reset();
+    this.oversizedSnapshotBytes = undefined;
+    this.needsRequiredCheckpoint = false;
+    this.requiredCheckpointRequested = false;
+    this.requiredBaselineMissing = false;
+    this.pendingRequiredFinalBatches.clear();
   }
 
   private stopAfterServerDrop(): void {
     this.stopped = true;
-    this.clearTimer();
-    this.window.document.removeEventListener("visibilitychange", this.onVisibilityChange, true);
-    this.window.removeEventListener("pagehide", this.onPageHide, true);
-    this.resetPipeline();
+    this.discardPipeline();
     this.workerHost.stop();
+    this.onWorkerUnavailable?.();
   }
 
   private disableAfterInternalError(error: unknown): void {
     if (!this.warnedAboutInternalError) {
       this.warnedAboutInternalError = true;
       console.warn(
-        "Orange Replay recorder stopped after an internal pipeline error.",
+        "Orange Replay pipeline failed; recording stopped.",
         markSdkInternalError(error),
       );
     }
 
     this.stopped = true;
+    this.discardPipeline();
+    this.workerHost.stop();
+    this.onWorkerUnavailable?.();
+  }
+
+  private discardPipeline(): void {
     this.clearTimer();
     this.window.document.removeEventListener("visibilitychange", this.onVisibilityChange, true);
     this.window.removeEventListener("pagehide", this.onPageHide, true);
+    this.window.removeEventListener("pageshow", this.onPageShow, true);
+    this.clearPipelineBuffers();
+  }
+
+  private continueRequiredCheckpointRecovery(): boolean {
+    if (this.stopped || !this.needsRequiredCheckpoint) return false;
+    if (this.requiredBaselineMissing) {
+      this.discardEventsAfterMissingBaseline();
+      this.requiredBaselineMissing = false;
+    }
+    if (!this.requiredCheckpointRequested && this.eventMetas.length > 0) {
+      void this.flushInternal("threshold");
+      return true;
+    }
+    if (!this.requiredCheckpointRequested && !this.pageHidden) {
+      this.requiredCheckpointRequested = true;
+      this.onCheckpointRequested?.(true);
+    }
+    if (!this.pageHidden && this.flushing === undefined) this.scheduleTimer();
+    return true;
+  }
+
+  private markRequiredBaselineMissing(): void {
+    this.needsRequiredCheckpoint = true;
+    this.requiredBaselineMissing = true;
+    this.requiredCheckpointRequested = false;
+    if (!this.pageHidden && this.flushing === undefined) {
+      this.continueRequiredCheckpointRecovery();
+    }
+  }
+
+  private discardEventsAfterMissingBaseline(): void {
+    const droppedCount = this.eventMetas.length;
+    const taken = this.batcher.takeBatch(droppedCount);
+    this.eventMetas = [];
     this.rrwebEvents = [];
     this.pendingWorkerEvents = [];
     this.workerPostScheduled = false;
-    this.eventMetas = [];
-    this.inFlightBatches = [];
-    this.indexEvents.drain();
-    this.batcher.reset();
-    this.backpressure.resetCurrentBytes();
-    this.workerHost.stop();
+    this.backpressure.removeCurrentBytes(taken.rawBytes);
+    this.backpressure.recordDropped(droppedCount);
+    this.workerHost.reset();
   }
 
   private handleSessionClosed(): void {
@@ -487,8 +703,8 @@ export class WorkerSink implements Sink {
     this.resetPipeline();
   }
 
-  private queueWorkerEvent(event: eventWithTime): void {
-    this.pendingWorkerEvents.push(event);
+  private queueWorkerEvent(event: eventWithTime, bytes: number): void {
+    this.pendingWorkerEvents.push([event, bytes]);
 
     if (this.workerPostScheduled) {
       return;
@@ -540,6 +756,25 @@ export class WorkerSink implements Sink {
   };
 
   private readonly onPageHide = (): void => {
+    this.pageHidden = true;
     void this.flushInternal("pagehide");
   };
+
+  private readonly onPageShow = (event: PageTransitionEvent): void => {
+    if (!event.persisted || this.stopped) return;
+    this.pageHidden = false;
+    if (this.pendingRequiredFinalBatches.size > 0) {
+      this.pendingRequiredFinalBatches.clear();
+      this.markRequiredBaselineMissing();
+    }
+    if (this.flushing === undefined && !this.continueRequiredCheckpointRecovery()) {
+      this.scheduleTimer();
+    }
+  };
+}
+
+function containsOversizedSnapshot(events: readonly EventMeta[]): boolean {
+  return events.some(
+    (event) => event.requiredSnapshot === true && event.rawBytes > SDK_BUFFER_CAP_BYTES,
+  );
 }

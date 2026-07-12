@@ -159,9 +159,130 @@
   }
 }
 
+/* Vendored from shadcn's scroll-fade utility, as required by Fluid
+   Functionalism's ScrollArea. The mask hints that more content exists, while
+   scroll-driven animations keep the true start and end edges crisp. */
+@property --sf-start {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 1;
+}
+
+@property --sf-end {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 1;
+}
+
+@keyframes sf-reveal-start {
+  from {
+    --sf-start: 1;
+  }
+  to {
+    --sf-start: 0;
+  }
+}
+
+@keyframes sf-reveal-end {
+  from {
+    --sf-end: 0;
+  }
+  to {
+    --sf-end: 1;
+  }
+}
+
+.scroll-fade,
+.scroll-fade-x {
+  --scroll-fade-size: 48px;
+}
+
+.scroll-fade {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--scroll-fade-size),
+    #000 calc(100% - var(--scroll-fade-size)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--scroll-fade-size),
+    #000 calc(100% - var(--scroll-fade-size)),
+    transparent 100%
+  );
+}
+
+.scroll-fade-x {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 var(--scroll-fade-size),
+    #000 calc(100% - var(--scroll-fade-size)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 var(--scroll-fade-size),
+    #000 calc(100% - var(--scroll-fade-size)),
+    transparent 100%
+  );
+}
+
+@supports (animation-timeline: scroll()) {
+  .scroll-fade {
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      rgb(0 0 0 / var(--sf-start)) 0,
+      #000 var(--scroll-fade-size),
+      #000 calc(100% - var(--scroll-fade-size)),
+      rgb(0 0 0 / var(--sf-end)) 100%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      rgb(0 0 0 / var(--sf-start)) 0,
+      #000 var(--scroll-fade-size),
+      #000 calc(100% - var(--scroll-fade-size)),
+      rgb(0 0 0 / var(--sf-end)) 100%
+    );
+    animation:
+      sf-reveal-start linear both,
+      sf-reveal-end linear both;
+    animation-timeline: scroll(self), scroll(self);
+    animation-range-start: 0, calc(100% - var(--scroll-fade-size));
+    animation-range-end: var(--scroll-fade-size), 100%;
+  }
+
+  .scroll-fade-x {
+    -webkit-mask-image: linear-gradient(
+      to right,
+      rgb(0 0 0 / var(--sf-start)) 0,
+      #000 var(--scroll-fade-size),
+      #000 calc(100% - var(--scroll-fade-size)),
+      rgb(0 0 0 / var(--sf-end)) 100%
+    );
+    mask-image: linear-gradient(
+      to right,
+      rgb(0 0 0 / var(--sf-start)) 0,
+      #000 var(--scroll-fade-size),
+      #000 calc(100% - var(--scroll-fade-size)),
+      rgb(0 0 0 / var(--sf-end)) 100%
+    );
+    animation:
+      sf-reveal-start linear both,
+      sf-reveal-end linear both;
+    animation-timeline: scroll(self inline), scroll(self inline);
+    animation-range-start: 0, calc(100% - var(--scroll-fade-size));
+    animation-range-end: var(--scroll-fade-size), 100%;
+  }
+}
+
 @theme inline {
   --font-sans: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Uncut Plan8", ui-monospace, "SF Mono", Menlo, monospace;
+  --ease-out-strong: cubic-bezier(0.22, 1, 0.36, 1);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -282,7 +403,7 @@
     oklch(0 0 0 / 0.07) 100%
   );
   opacity: 0.85;
-  transition: opacity 140ms ease;
+  transition: opacity 150ms ease;
 }
 .lit::before {
   content: "";
@@ -302,6 +423,79 @@
 }
 .lit:hover::after {
   opacity: 1;
+}
+
+/* Demo banner — the bridge from the landing page into the dashboard. The
+   system's own vocabulary, warmed up: grain over a dark strip with one amber
+   corner bloom, a dashed-amber status pill, and a bottom edge that reads as
+   a replay timeline — a dashed track swept by a playhead beam. */
+.demo-banner {
+  position: relative;
+  background:
+    radial-gradient(480px 130% at 10% 0%, oklch(0.784 0.159 72.991 / 0.07), transparent 60%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.035 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E"),
+    oklch(0.165 0.008 285.8);
+}
+.demo-scan-dot {
+  position: relative;
+  width: 5px;
+  height: 5px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--amber);
+  box-shadow: 0 0 8px var(--amber-shadow);
+}
+.demo-scan-dot::before {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  background: radial-gradient(circle, oklch(0.784 0.159 72.991 / 0.5), transparent 62%);
+}
+.demo-beam {
+  position: absolute;
+  bottom: -1px;
+  left: -140px;
+  width: 140px;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, oklch(0.92 0.07 85 / 0.95), transparent);
+  box-shadow: 0 0 12px 1px oklch(0.784 0.159 72.991 / 0.5);
+}
+/* Mirrors the landing page's .cta-pill (nav size) so the demo → signup
+   hand-off uses the identical button. Hover feedback is the arrow rotating
+   from ↗ to → (no lift). */
+.demo-cta {
+  transition: box-shadow 150ms ease;
+}
+.demo-cta:hover {
+  box-shadow: 0 8px 24px oklch(1 0 0 / 0.12);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .demo-scan-dot::before {
+    animation: demo-bloom 5.5s ease-in-out infinite;
+  }
+  .demo-beam {
+    animation: demo-beam-sweep 8s ease-in-out infinite;
+  }
+}
+@keyframes demo-beam-sweep {
+  0% {
+    transform: translateX(0);
+  }
+  55%,
+  100% {
+    transform: translateX(calc(100vw + 280px));
+  }
+}
+@keyframes demo-bloom {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.9;
+  }
 }
 
 @keyframes pulse {
@@ -327,7 +521,7 @@
 }
 
 .timeline-playhead-flash {
-  animation: timeline-playhead-flash 520ms ease-out;
+  animation: timeline-playhead-flash 240ms ease-out;
 }
 
 /* ─────────────────────────────────────────────────────────
@@ -349,13 +543,13 @@
 }
 
 .stage-in {
-  animation: stage-in 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  animation: stage-in 200ms var(--ease-out-strong);
 }
 
 .watched-dot {
   transition:
-    opacity 200ms cubic-bezier(0.22, 1, 0.36, 1),
-    transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+    opacity 200ms var(--ease-out-strong),
+    transform 200ms var(--ease-out-strong);
 }
 
 .watched-dot[data-watched="true"] {

@@ -1,6 +1,13 @@
-import type { eventWithTime } from "@orange-replay/rrweb-fork";
+import {
+  EventType,
+  IncrementalSource,
+  type eventWithTime,
+  type serializedNodeWithId,
+  yieldForPaint,
+} from "@orange-replay/rrweb-fork";
 import { markSdkInternalError } from "../internal-error.ts";
-import { serializeAndCompressBatch, type WorkerBatchResult } from "./worker-core.ts";
+import { SDK_BUFFER_CAP_BYTES } from "./backpressure.ts";
+import type { WorkerBatchResult } from "./worker-core.ts";
 import { makeWorkerEntrySource } from "./worker-entry.ts";
 
 interface WorkerHostOptions {
@@ -9,46 +16,61 @@ interface WorkerHostOptions {
   createObjectUrl?: (blob: Blob) => string;
   revokeObjectUrl?: (url: string) => void;
   flushTimeoutMs?: number;
+  window?: Window;
+  now?: () => number;
+  yieldToMain?: () => Promise<void>;
+  onUnavailable?: () => void;
 }
 
 interface PendingFlush {
   resolve: (result: WorkerBatchResult) => void;
   reject: (error: unknown) => void;
-  eventCount?: number;
+  version: number;
   timeoutId: ReturnType<typeof setTimeout>;
 }
 
-interface BatchMessage {
-  type: "batch";
-  id: number;
-  payload?: ArrayBuffer;
-  uncompressed?: boolean;
-  droppedEventCount?: number;
-  error?: string;
-}
+type BatchMessage = readonly [
+  type: "b",
+  id: number,
+  payload: ArrayBuffer | null,
+  uncompressed: boolean | null,
+  droppedEventCount?: number,
+  error?: string,
+];
 
 interface FlushOptions {
   eventCount?: number;
 }
 
-let warnedAboutDegradedMode = false;
+export type WorkerEvent = readonly [event: eventWithTime, bytes: number];
+
 const DEFAULT_FLUSH_TIMEOUT_MS = 10_000;
+const SNAPSHOT_CHUNK_NODES = 256;
+const WORKER_MESSAGE_TARGET_BYTES = SDK_BUFFER_CAP_BYTES / 16;
+const SNAPSHOT_TRANSFER_SLICE_MS = 4;
 
 export class WorkerHost {
   private readonly warn?: (message: string) => void;
   private readonly revokeObjectUrl: (url: string) => void;
   private readonly flushTimeoutMs: number;
+  private readonly now: () => number;
+  private readonly yieldToMain: () => Promise<void>;
+  private readonly onUnavailable?: () => void;
   private readonly pending = new Map<number, PendingFlush>();
-  private readonly inlineEvents: eventWithTime[] = [];
   private worker: Worker | undefined;
   private objectUrl: string | undefined;
   private nextId = 1;
-  private degraded = false;
+  private transferVersion = 0;
+  private transferQueue = Promise.resolve();
+  private unavailableReported = false;
 
   constructor(options: WorkerHostOptions = {}) {
     this.warn = options.warn ?? ((message) => console.warn(message));
     this.revokeObjectUrl = options.revokeObjectUrl ?? URL.revokeObjectURL.bind(URL);
     this.flushTimeoutMs = cleanTimeoutMs(options.flushTimeoutMs);
+    this.now = options.now ?? (() => options.window?.performance.now() ?? performance.now());
+    this.yieldToMain = options.yieldToMain ?? (() => yieldForPaint(options.window));
+    this.onUnavailable = options.onUnavailable;
 
     const WorkerCtor = options.WorkerCtor ?? safeWorkerCtor();
     const createObjectUrl = options.createObjectUrl ?? safeCreateObjectUrl();
@@ -59,7 +81,7 @@ export class WorkerHost {
     }
 
     try {
-      // CSP caveat: sites that block blob workers through worker-src use the degraded path.
+      // CSP caveat: sites that block Blob workers use the fail-safe disabled path.
       const workerSource = makeWorkerEntrySource();
       const blob = new Blob([workerSource], { type: "text/javascript" });
       this.objectUrl = createObjectUrl(blob);
@@ -79,32 +101,34 @@ export class WorkerHost {
     }
   }
 
-  isDegraded(): boolean {
-    return this.degraded;
-  }
-
-  addEvents(events: readonly eventWithTime[]): void {
+  addEvents(events: readonly WorkerEvent[]): void {
     if (events.length === 0) {
       return;
     }
 
-    if (this.worker === undefined) {
-      this.inlineEvents.push(...events);
-      return;
-    }
+    if (this.worker === undefined) return;
 
     const eventList = [...events];
-    this.inlineEvents.push(...eventList);
-    this.worker.postMessage({ type: "add", events: eventList });
+    const version = this.transferVersion;
+    this.transferQueue = this.transferQueue
+      .then(() => this.sendEvents(eventList, version))
+      .catch((error) => this.handleWorkerFailure(error));
+  }
+
+  isAvailable(): boolean {
+    return this.worker !== undefined;
   }
 
   async flushBatch(options: FlushOptions = {}): Promise<WorkerBatchResult> {
+    const version = this.transferVersion;
+    await this.transferQueue;
+    if (version !== this.transferVersion) {
+      throw markSdkInternalError(new Error("Orange Replay worker reset before flush."));
+    }
     const eventCount = cleanEventCount(options.eventCount);
 
     if (this.worker === undefined) {
-      const take = eventCount ?? this.inlineEvents.length;
-      const events = this.inlineEvents.splice(0, take);
-      return serializeAndCompressBatch(events);
+      throw markSdkInternalError(new Error("Orange Replay worker is unavailable."));
     }
 
     const id = this.nextId;
@@ -118,73 +142,215 @@ export class WorkerHost {
         }
 
         this.pending.delete(id);
-        this.moveToInlineMode();
-        pending.reject(markSdkInternalError(new Error("Orange Replay worker flush timed out.")));
+        this.disableWorker();
+        this.reportUnavailable(true);
+        pending.reject(markSdkInternalError(new Error("Orange Replay worker timed out.")));
       }, this.flushTimeoutMs);
-      this.pending.set(id, { resolve, reject, eventCount, timeoutId });
+      this.pending.set(id, { resolve, reject, version, timeoutId });
     });
 
-    this.worker.postMessage({ type: "flush", id, take: eventCount });
+    this.worker.postMessage(["f", id, eventCount]);
     return result;
   }
 
   reset(): void {
-    this.inlineEvents.splice(0);
-    this.worker?.postMessage({ type: "reset" });
+    this.transferVersion += 1;
+    this.transferQueue = Promise.resolve();
+    this.rejectPending(new Error("Orange Replay worker reset before flush."));
+    this.worker?.postMessage(["r"]);
   }
 
   stop(): void {
+    this.transferVersion += 1;
+    this.transferQueue = Promise.resolve();
     if (this.worker !== undefined) {
-      this.worker.postMessage({ type: "stop" });
+      this.worker.postMessage(["x"]);
       this.worker.terminate();
       this.worker = undefined;
     }
 
     this.rejectPending(new Error("Orange Replay worker stopped."));
-    this.inlineEvents.splice(0);
-
     this.revokeWorkerUrl();
   }
 
   private useDegradedMode(): void {
-    this.degraded = true;
-    warnDegraded(this.warn);
+    this.warn?.("or:disabled Worker blocked; recording stopped. Allow worker-src blob: in CSP.");
+    this.reportUnavailable();
+  }
+
+  private async sendEvents(events: readonly WorkerEvent[], version: number): Promise<void> {
+    if (this.worker === undefined || version !== this.transferVersion) return;
+    let regularEvents: eventWithTime[] = [];
+    let regularBytes = 0;
+    let sliceStartedAt = this.now();
+    const sendRegularEvents = async () => {
+      if (
+        regularEvents.length === 0 ||
+        this.worker === undefined ||
+        version !== this.transferVersion
+      )
+        return;
+      this.worker.postMessage(["a", regularEvents]);
+      regularEvents = [];
+      regularBytes = 0;
+      if (this.now() - sliceStartedAt >= SNAPSHOT_TRANSFER_SLICE_MS) {
+        await this.yieldToMain();
+        sliceStartedAt = this.now();
+      }
+    };
+
+    for (const [event, knownBytes] of events) {
+      let snapshotNode: serializedNodeWithId | undefined;
+      let eventWithoutSnapshot: eventWithTime | undefined;
+      if (event.type === EventType.FullSnapshot) {
+        snapshotNode = event.data.node;
+        eventWithoutSnapshot = {
+          type: event.type,
+          timestamp: event.timestamp,
+          data: { node: null, initialOffset: event.data.initialOffset },
+        } as unknown as eventWithTime;
+      } else if (
+        event.type === EventType.IncrementalSnapshot &&
+        event.data.source === IncrementalSource.Mutation &&
+        event.data.isAttachIframe === true &&
+        event.data.adds.length === 1
+      ) {
+        const { node, ...addWithoutNode } = event.data.adds[0]!;
+        snapshotNode = node;
+        eventWithoutSnapshot = {
+          ...event,
+          data: { ...event.data, adds: [{ ...addWithoutNode, node: null }] },
+        } as unknown as eventWithTime;
+      } else {
+        const eventBytes = knownBytes > 0 ? knownBytes : 0;
+        if (eventBytes > SDK_BUFFER_CAP_BYTES) {
+          throw new Error("Orange Replay worker exceeded the 4 MB limit.");
+        }
+        if (
+          regularEvents.length > 0 &&
+          (regularBytes + eventBytes > WORKER_MESSAGE_TARGET_BYTES ||
+            regularEvents.length >= SNAPSHOT_CHUNK_NODES)
+        ) {
+          await sendRegularEvents();
+        }
+        regularEvents.push(event);
+        regularBytes += eventBytes;
+        if (regularBytes >= WORKER_MESSAGE_TARGET_BYTES) await sendRegularEvents();
+        continue;
+      }
+
+      await sendRegularEvents();
+      await this.sendSnapshotTree(eventWithoutSnapshot!, snapshotNode!, version);
+      sliceStartedAt = this.now();
+    }
+    await sendRegularEvents();
+  }
+
+  private async sendSnapshotTree(
+    event: eventWithTime,
+    root: serializedNodeWithId,
+    version: number,
+  ): Promise<void> {
+    const worker = this.worker;
+    if (worker === undefined || version !== this.transferVersion) return;
+
+    let sliceStartedAt = this.now();
+    const pendingNodes: serializedNodeWithId[] = [root];
+    const pendingDepths: number[] = [0];
+    // -1 is a node task. A non-negative value continues that node's children.
+    const pendingChildIndexes: number[] = [-1];
+    worker.postMessage(["s", event]);
+
+    while (pendingNodes.length > 0) {
+      if (version !== this.transferVersion || this.worker === undefined) return;
+      const nodes: serializedNodeWithId[] = [];
+      const depths: number[] = [];
+      let messageBytes = 0;
+      while (pendingNodes.length > 0 && nodes.length < SNAPSHOT_CHUNK_NODES) {
+        const currentNode = pendingNodes.pop()!;
+        const currentDepth = pendingDepths.pop()!;
+        const childIndex = pendingChildIndexes.pop()!;
+        const children = "childNodes" in currentNode ? currentNode.childNodes : [];
+        if (childIndex >= 0) {
+          const child = children[childIndex];
+          if (child === undefined) continue;
+          if (childIndex + 1 < children.length) {
+            pendingNodes.push(currentNode);
+            pendingDepths.push(currentDepth);
+            pendingChildIndexes.push(childIndex + 1);
+          }
+          pendingNodes.push(child);
+          pendingDepths.push(currentDepth + 1);
+          pendingChildIndexes.push(-1);
+          continue;
+        }
+
+        const nodeBytes = estimateNodeBytes(currentNode);
+        if (nodeBytes > SDK_BUFFER_CAP_BYTES) {
+          throw new Error("Orange Replay worker exceeded the 4 MB limit.");
+        }
+        if (nodes.length > 0 && messageBytes + nodeBytes > WORKER_MESSAGE_TARGET_BYTES) {
+          pendingNodes.push(currentNode);
+          pendingDepths.push(currentDepth);
+          pendingChildIndexes.push(-1);
+          break;
+        }
+        nodes.push(withoutSnapshotChildren(currentNode));
+        depths.push(currentDepth);
+        messageBytes += nodeBytes;
+        if (children.length > 0) {
+          pendingNodes.push(currentNode);
+          pendingDepths.push(currentDepth);
+          pendingChildIndexes.push(0);
+        }
+      }
+
+      worker.postMessage(["n", nodes, depths]);
+      const activeSliceMs = this.now() - sliceStartedAt;
+      if (pendingNodes.length > 0 && activeSliceMs >= SNAPSHOT_TRANSFER_SLICE_MS) {
+        await this.yieldToMain();
+        sliceStartedAt = this.now();
+      }
+    }
+
+    if (version !== this.transferVersion || this.worker === undefined) return;
+    worker.postMessage(["e"]);
   }
 
   private handleWorkerMessage(message: BatchMessage): void {
-    if (message.type !== "batch") {
+    if (message[0] !== "b") {
       return;
     }
 
-    const pending = this.pending.get(message.id);
-    if (pending === undefined) {
+    const [, id, payload, uncompressed, droppedEventCount, error] = message;
+    const pending = this.pending.get(id);
+    if (pending === undefined || pending.version !== this.transferVersion) {
       return;
     }
 
-    this.pending.delete(message.id);
+    this.pending.delete(id);
     clearTimeout(pending.timeoutId);
 
-    if (message.error !== undefined) {
-      this.moveToInlineMode();
-      pending.reject(markSdkInternalError(new Error(message.error)));
+    if (error !== undefined) {
+      this.disableWorker();
+      this.reportUnavailable(true);
+      pending.reject(markSdkInternalError(new Error(error)));
       return;
     }
 
-    if (message.payload === undefined || message.uncompressed === undefined) {
-      this.moveToInlineMode();
-      pending.reject(
-        markSdkInternalError(new Error("Orange Replay worker returned an invalid batch.")),
-      );
+    if (payload === null || uncompressed === null) {
+      this.disableWorker();
+      this.reportUnavailable(true);
+      pending.reject(markSdkInternalError(new Error("Orange Replay worker returned bad data.")));
       return;
     }
 
-    const take = pending.eventCount ?? this.inlineEvents.length;
-    this.inlineEvents.splice(0, take);
-    pending.resolve({
-      payload: new Uint8Array(message.payload),
-      uncompressed: message.uncompressed,
-      droppedEventCount: message.droppedEventCount,
-    });
+    const result = {
+      payload: new Uint8Array(payload),
+      uncompressed,
+      droppedEventCount,
+    };
+    pending.resolve(result);
   }
 
   private rejectPending(error: unknown): void {
@@ -196,32 +362,33 @@ export class WorkerHost {
   }
 
   private handleWorkerFailure(error: unknown): void {
-    this.moveToInlineMode();
+    this.disableWorker();
     const pendingEntries = [...this.pending.values()];
     this.pending.clear();
 
     for (const pending of pendingEntries) {
       clearTimeout(pending.timeoutId);
-      this.flushInlineEvents(pending.eventCount).then(pending.resolve, (inlineError) => {
-        pending.reject(markSdkInternalError(inlineError ?? error));
-      });
+      pending.reject(markSdkInternalError(error));
     }
+    this.reportUnavailable(true);
   }
 
-  private async flushInlineEvents(eventCount: number | undefined): Promise<WorkerBatchResult> {
-    const take = eventCount ?? this.inlineEvents.length;
-    const events = this.inlineEvents.splice(0, take);
-    return serializeAndCompressBatch(events);
-  }
-
-  private moveToInlineMode(): void {
+  private disableWorker(): void {
     if (this.worker !== undefined) {
       this.worker.terminate();
       this.worker = undefined;
     }
 
     this.revokeWorkerUrl();
-    this.useDegradedMode();
+  }
+
+  private reportUnavailable(runtimeFailure = false): void {
+    if (this.unavailableReported) return;
+    this.unavailableReported = true;
+    if (runtimeFailure) {
+      this.warn?.("or:disabled Worker failed; recording stopped.");
+    }
+    this.onUnavailable?.();
   }
 
   private revokeWorkerUrl(): void {
@@ -232,17 +399,6 @@ export class WorkerHost {
     this.revokeObjectUrl(this.objectUrl);
     this.objectUrl = undefined;
   }
-}
-
-function warnDegraded(warn: ((message: string) => void) | undefined): void {
-  if (warnedAboutDegradedMode) {
-    return;
-  }
-
-  warnedAboutDegradedMode = true;
-  warn?.(
-    "or:degraded Worker creation failed; Orange Replay is running serialization and gzip on the main thread. If your CSP blocks blob workers, allow worker-src blob: or configure the inline transport.",
-  );
 }
 
 function safeWorkerCtor(): typeof Worker | undefined {
@@ -271,4 +427,23 @@ function cleanTimeoutMs(value: number | undefined): number {
   }
 
   return Math.floor(value);
+}
+
+function withoutSnapshotChildren(node: serializedNodeWithId): serializedNodeWithId {
+  if (!("childNodes" in node)) return node;
+  return { ...node, childNodes: [] };
+}
+
+function estimateNodeBytes(node: serializedNodeWithId): number {
+  let bytes = 64;
+  if ("textContent" in node) bytes += node.textContent.length * 2;
+  if ("name" in node) bytes += (node.name.length + node.publicId.length + node.systemId.length) * 2;
+  if ("attributes" in node) {
+    bytes += node.tagName.length * 2;
+    for (const name in node.attributes) {
+      const value = node.attributes[name];
+      bytes += name.length * 2 + (typeof value === "string" ? value.length * 2 : 16);
+    }
+  }
+  return bytes;
 }

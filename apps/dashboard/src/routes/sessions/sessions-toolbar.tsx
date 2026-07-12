@@ -29,6 +29,7 @@ export function SessionsToolbar({
   filter,
   hasMore,
   isLoading,
+  isRefreshing,
   onFilterChange,
   onRefresh,
   sessionCount,
@@ -39,6 +40,7 @@ export function SessionsToolbar({
   filter: SessionFilter;
   hasMore: boolean;
   isLoading: boolean;
+  isRefreshing: boolean;
   onFilterChange: (filter: SessionFilter) => void;
   onRefresh: () => void;
   sessionCount: number;
@@ -57,7 +59,7 @@ export function SessionsToolbar({
       ];
 
   return (
-    <div className="flex flex-wrap items-center gap-2.5">
+    <div className="grid grid-cols-2 items-center gap-2.5 sm:flex sm:flex-wrap">
       <CountryPicker
         countries={countries}
         onCommit={(country) =>
@@ -79,7 +81,7 @@ export function SessionsToolbar({
       >
         <SelectTrigger
           aria-label="Minimum duration"
-          className="h-8.5 min-w-40 rounded-[7px] border border-border bg-secondary px-3 text-[12px]"
+          className="h-9 w-full min-w-0 rounded-[7px] border border-border bg-secondary px-3 text-[13px] sm:h-8.5 sm:min-w-40 sm:text-[12px]"
           placeholder="Any duration"
         />
         <SelectContent className="rounded-lg border border-border bg-popover">
@@ -95,7 +97,7 @@ export function SessionsToolbar({
 
       <Switch
         checked={filter.has_errors === true}
-        className="px-0 py-0"
+        className="min-h-11 px-0 py-0 sm:min-h-0"
         label="Has errors"
         onToggle={() =>
           onFilterChange({
@@ -107,7 +109,7 @@ export function SessionsToolbar({
 
       <Switch
         checked={filter.has_rage === true}
-        className="px-0 py-0"
+        className="min-h-11 px-0 py-0 sm:min-h-0"
         label="Has rage"
         onToggle={() =>
           onFilterChange({
@@ -117,24 +119,27 @@ export function SessionsToolbar({
         }
       />
 
-      <div className="flex-1" />
+      <div className="hidden flex-1 sm:block" />
 
-      <span className="font-mono text-[11.5px] text-dim">
-        {formatSessionCount(sessionCount, hasMore)}
-        {rangeSuffix(filter)}
-      </span>
-      <Tooltip content="Refresh">
-        <Button
-          aria-label="Refresh"
-          className="text-muted-foreground hover:text-foreground"
-          disabled={isLoading}
-          onClick={onRefresh}
-          size="icon-sm"
-          variant="ghost"
-        >
-          <RotateCcw aria-hidden className="size-4" />
-        </Button>
-      </Tooltip>
+      <div className="col-span-2 flex items-center justify-end gap-2 sm:contents">
+        <span className="font-mono text-[12px] text-muted-foreground sm:text-[11.5px]">
+          {isRefreshing ? "Refreshing…" : formatSessionCount(sessionCount, hasMore)}
+          {!isRefreshing && rangeSuffix(filter)}
+        </span>
+        <Tooltip content={isRefreshing ? "Refreshing sessions" : "Refresh"}>
+          <Button
+            aria-label={isRefreshing ? "Refreshing sessions" : "Refresh sessions"}
+            className="text-muted-foreground hover:text-foreground"
+            disabled={isLoading}
+            loading={isRefreshing}
+            onClick={onRefresh}
+            size="icon-sm"
+            variant="ghost"
+          >
+            <RotateCcw aria-hidden className="size-4" />
+          </Button>
+        </Tooltip>
+      </div>
     </div>
   );
 }
@@ -168,7 +173,7 @@ function CountryPicker({
     >
       <SelectTrigger
         aria-label="Country"
-        className="h-8.5 min-w-36 rounded-[7px] border border-border bg-secondary px-3 text-[12px]"
+        className="h-9 w-full min-w-0 rounded-[7px] border border-border bg-secondary px-3 text-[13px] sm:h-8.5 sm:min-w-36 sm:text-[12px]"
         placeholder="All countries"
       />
       <SelectContent className="rounded-lg border border-border bg-popover">
@@ -209,7 +214,7 @@ function CountryFilter({
   }
 
   return (
-    <InputGroup className="w-40 gap-0">
+    <InputGroup className="w-full gap-0 sm:w-40">
       <InputField
         hideLabel
         icon={Search}

@@ -7,6 +7,7 @@ import type { AppendArgs, AppendResult } from "./contract.ts";
 import { sendPresenceSessionRequest } from "./presence-client.ts";
 import { resolvePresenceTiming, shouldSendPresencePing } from "./presence-logic.ts";
 import { createSessionFinalizeMetrics, SessionFinalizer } from "./session-finalizer.ts";
+import { buildFinalizeTimelineData } from "./session-finalize-data.ts";
 import { SessionLiveHub } from "./session-live-hub.ts";
 import {
   clampIndexForStorage,
@@ -72,6 +73,7 @@ export class SessionRecorder extends DurableObject<Env> {
       getSessionState: () => this.sessionState,
       getSegmentRefs: () => this.store.segmentRefs(),
       getPendingBatchCount: () => this.store.pendingBatchCount(),
+      getLiveSnapshot: () => this.buildLiveSnapshot(),
       requestCheckpointOnNextAppend: () => this.requestCheckpointOnNextAppend(),
     });
     this.finalizer = new SessionFinalizer({
@@ -105,6 +107,29 @@ export class SessionRecorder extends DurableObject<Env> {
 
   async ping(): Promise<string> {
     return "pong";
+  }
+
+  private buildLiveSnapshot() {
+    const state = this.sessionState;
+    if (state === null) {
+      return null;
+    }
+
+    const timelineData = buildFinalizeTimelineData(
+      this.store.storedEventRows(),
+      state.startedAt,
+      state.lastActivity,
+    );
+    return {
+      startedAt: state.startedAt,
+      endedAt: state.lastActivity,
+      durationMs: Math.max(0, state.lastActivity - state.startedAt),
+      timeline: timelineData.timeline,
+      counts: {
+        batches: state.batchCount,
+        ...timelineData.counts,
+      },
+    };
   }
 
   async appendBatch(args: AppendArgs): Promise<AppendResult> {
