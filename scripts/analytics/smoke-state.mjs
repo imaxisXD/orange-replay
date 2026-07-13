@@ -6,7 +6,10 @@ const KNOWN_ANALYTICS_STATES = new Set([
   "stale",
 ]);
 
-export const MAX_STATE_CHECKS = 6;
+// Cloudflare can take longer than ten seconds to move every location to a new
+// Worker version. Keep this bounded, but allow up to thirty seconds before the
+// deploy is reported as failed.
+export const MAX_STATE_CHECKS = 16;
 export const STATE_CHECK_WAIT_MS = 2_000;
 
 export async function readStatsAfterDeploy({

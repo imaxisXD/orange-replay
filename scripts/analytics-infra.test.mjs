@@ -235,7 +235,7 @@ describe("analytics production deploy safety", () => {
     expect(wait).toHaveBeenCalledOnce();
     expect(wait).toHaveBeenCalledWith(STATE_CHECK_WAIT_MS);
     expect(reportRetry).toHaveBeenCalledWith(
-      "Analytics state is still fresh; expected d1_rollback. Waiting 2 seconds for Cloudflare deployment (check 1 of 6).",
+      `Analytics state is still fresh; expected d1_rollback. Waiting 2 seconds for Cloudflare deployment (check 1 of ${MAX_STATE_CHECKS}).`,
     );
   });
 
