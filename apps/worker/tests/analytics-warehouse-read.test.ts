@@ -60,6 +60,11 @@ describe("analytics warehouse queries", () => {
     expect(count(query.sql, '"analytics_sessions"')).toBe(1);
     expect(count(query.sql, '"analytics_events"')).toBe(1);
     expect(count(query.sql, '"analytics_deletions"')).toBe(1);
+    // Pipeline sink SQL is the required-field gate. Repeating every null
+    // check here makes live R2 SQL exceed its expression-depth limit.
+    expect(query.sql).not.toContain("s.org_id IS NOT NULL");
+    expect(query.sql).not.toContain("e.event_index IS NOT NULL");
+    expect(query.sql).not.toContain("d.deleted_at IS NOT NULL");
     expect(query.sql).toContain("MEDIAN(s.duration_ms)");
     expect(query.sql).toContain("UNION ALL");
     expect(query.sql).not.toContain(";");

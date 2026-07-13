@@ -365,6 +365,9 @@ function buildWarehouseCtes(
   const sessionsTable = analyticsQualifiedTableNames.sessions;
   const deletionsTable = analyticsQualifiedTableNames.deletions;
 
+  // The Pipeline sink already rejects rows missing required fields. Repeating
+  // that full null-check list here makes Cloudflare R2 SQL exceed its current
+  // expression-depth limit before the query can run.
   const sessionCtes = `WITH scoped_session_exports AS (
   SELECT
     ${selectColumns("s", analyticsSessionColumns)},
@@ -375,22 +378,6 @@ function buildWarehouseCtes(
   FROM ${sessionsTable} s
   WHERE s.project_id = ${project}
     AND s.export_sequence <= ${version}
-    AND s.org_id IS NOT NULL
-    AND s.started_at IS NOT NULL
-    AND s.ended_at IS NOT NULL
-    AND s.duration_ms IS NOT NULL
-    AND s.url_count IS NOT NULL
-    AND s.analytics_version IS NOT NULL
-    AND s.clicks IS NOT NULL
-    AND s.event_count IS NOT NULL
-    AND s.errors IS NOT NULL
-    AND s.rages IS NOT NULL
-    AND s.navs IS NOT NULL
-    AND s.bytes IS NOT NULL
-    AND s.segment_count IS NOT NULL
-    AND s.flags IS NOT NULL
-    AND s.manifest_key IS NOT NULL
-    AND s.expires_at IS NOT NULL
     AND (${baseSessionFilter})
 ),
 one_session_export AS (
@@ -416,8 +403,6 @@ scoped_deletion_exports AS (
     ) AS export_retry_rank
   FROM ${deletionsTable} d
   WHERE d.project_id = ${project}
-    AND d.deleted_at IS NOT NULL
-    AND d.delete_reason IS NOT NULL
 ),
 deleted_sessions AS (
   SELECT DISTINCT d.project_id, d.session_id
@@ -452,8 +437,6 @@ scoped_event_exports AS (
   WHERE e.project_id = ${project}
     AND e.export_sequence <= ${version}
     AND e.event_kind = 'error'
-    AND e.event_index IS NOT NULL
-    AND e.event_time IS NOT NULL
 ),
 latest_events AS (
   SELECT ${selectColumns("e", analyticsEventColumns)}
