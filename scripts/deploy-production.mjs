@@ -36,7 +36,7 @@ const normalBuildSteps = Object.freeze([
     kind: "build",
     label: "Build the SDK and dashboard",
     command: process.execPath,
-    args: ["scripts/build-deploy.mjs"],
+    args: ["scripts/build-deploy.mjs", "--production"],
   }),
 ]);
 

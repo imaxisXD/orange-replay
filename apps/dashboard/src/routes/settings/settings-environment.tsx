@@ -50,7 +50,7 @@ export function SettingsEnvironmentCards() {
       <section className="lit flex flex-col gap-4 overflow-hidden rounded-lg p-5">
         <div className="flex items-start justify-between gap-3">
           <div className="flex flex-col gap-1">
-            <h2 className="text-[15px] font-medium">Dev token</h2>
+            <h2 className="text-[15px] font-medium">API token</h2>
             <p className="text-[13px] text-muted-foreground">Stored in this browser only.</p>
           </div>
           <KeyRound aria-hidden className="size-5 text-muted-foreground" />
@@ -64,7 +64,7 @@ export function SettingsEnvironmentCards() {
         <div className="flex items-start justify-between gap-3">
           <div className="flex flex-col gap-1">
             <h2 className="text-[15px] font-medium">Worker health</h2>
-            <p className="text-[13px] text-muted-foreground">Checks the local API worker.</p>
+            <p className="text-[13px] text-muted-foreground">Checks the connected API worker.</p>
           </div>
           <Server aria-hidden className="size-5 text-muted-foreground" />
         </div>
