@@ -17,6 +17,9 @@ describe("analytics warehouse visibility", () => {
     expect(query).toContain(") = s.event_count");
     expect(query).toContain("s.export_sequence <= 42");
     expect(query).toContain("e.session_id IN ('one')");
+    expect(query).not.toContain("s.org_id IS NOT NULL");
+    expect(query).not.toContain("e.event_index IS NOT NULL");
+    expect(query).not.toContain("d.deleted_at IS NOT NULL");
   });
 
   it("keeps quote and SQL comment text inside literals", () => {

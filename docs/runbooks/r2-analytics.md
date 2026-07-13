@@ -274,7 +274,7 @@ After comparison mode and the browser journeys pass, switch reads to R2 SQL:
 vp run deploy:prod:r2-sql
 ```
 
-This command runs a new full acceptance verifier immediately before Wrangler deploy. A missing token, expired unswept row, changed field, missing export identity, or any D1/R2 mismatch stops the deploy before the serving backend changes. The verifier accepts the same `ORANGE_REPLAY_PROD_R2_SQL_TOKEN` used for the Worker secret, or the separate `ORANGE_REPLAY_R2_SQL_READ_TOKEN` described above.
+Both compare and R2 SQL commands run a new full acceptance verifier immediately before any Worker version upload. A missing token, expired unswept row, changed field, missing export identity, or any D1/R2 mismatch stops the deploy before the serving backend or a live secret changes. The gate deliberately ignores alternate reader variables and uses the same `ORANGE_REPLAY_PROD_R2_SQL_TOKEN` value that the Worker version receives.
 
 If R2 SQL must be removed from the serving path, roll back reads to D1:
 
@@ -282,9 +282,19 @@ If R2 SQL must be removed from the serving path, roll back reads to D1:
 vp run deploy:prod:rollback
 ```
 
-Rolling back changes the analytics serving choice to D1. It does not stop warehouse export, remove R2 data, or reverse D1 migrations. Every command above is still a normal production deploy: it builds, applies pending D1 migrations, deploys with `--keep-vars`, runs the normal production API smoke check, and then runs the analytics smoke check. Keeping remote variables is required because the generated config does not repeat every existing production setting, such as demo values. The analytics smoke proves the expected state, checks the complete sessions doorway, and checks one reported count doorway when one exists. The API integration tests cover the full metric-doorway contract without turning every production deploy into dozens of live reads. In `r2_sql` mode the smoke requires a fresh warehouse response; a stale cached response fails the deploy command.
+Rolling back changes the analytics serving choice to D1. It does not stop warehouse export, remove R2 data, or reverse D1 migrations.
 
-The full acceptance gate runs only for `r2_sql`. Compare, D1, and rollback deploys skip it, so a failed acceptance check cannot block a D1 rollback.
+Every normal deployment prepares an inactive D1 version after its acceptance gate and before the selected backend is deployed. The version has the same reviewed code, assets, and versioned secrets, a unique `orange-replay-d1-fallback-...` tag, and zero production traffic. The primary rollback lists Cloudflare's ten newest `orange-replay` versions, chooses the newest valid fallback tag by creation time, and deploys that exact version ID at 100%. It passes the Worker name directly and runs Wrangler from the system temporary directory, so it does not read the current source, assets, generated config, migrations, or secret files. If no matching version is found, it fails before changing traffic. It then runs the production API and D1 analytics smoke checks.
+
+The explicit second choice is:
+
+```sh
+vp run deploy:prod:rollback:rebuild
+```
+
+That command generates a D1 config and deploys the current Worker source with the already-built dashboard assets. It still skips normal builds, migrations, the R2 gate, and secret uploads. Use it only after reviewing those local files. Missing assets or broken current source can block it, which is why it is not the primary emergency path.
+
+Normal D1, compare, and R2 SQL deploys still use the complete release path. Before step one, they validate the smoke API token, project ids, and clean HTTPS Worker origin. They build, apply pending migrations, and validate the needed secrets. Compare and R2 SQL run the full acceptance gate with the exact R2 SQL token that their versions receive. Only after that gate passes does Wrangler upload the inactive D1 fallback and then the selected version with `--strict --keep-vars`; no earlier `wrangler secret put` can change production first. The emergency rollback does not invoke the gate. Normal deploys then run the API and analytics smoke checks. The analytics smoke proves the expected state, checks the complete sessions doorway, and checks one reported count doorway when one exists. In `r2_sql` mode it requires a fresh warehouse response; a stale cached response fails the deploy command.
 
 The base `vp run deploy:prod` command deliberately fails unless `ORANGE_REPLAY_PROD_ANALYTICS_READ_BACKEND` is set to `d1`, `compare`, or `r2_sql`. For a no-upload check, choose the mode in the same command:
 
@@ -292,7 +302,7 @@ The base `vp run deploy:prod` command deliberately fails unless `ORANGE_REPLAY_P
 ORANGE_REPLAY_PROD_ANALYTICS_READ_BACKEND=compare vp run deploy:prod:dry-run
 ```
 
-Cloudflare Workers Builds must keep `ORANGE_REPLAY_PROD_ANALYTICS_READ_BACKEND` as an explicit build variable and run `vp run deploy:cloudflare-build`. When that value is `r2_sql`, store `ORANGE_REPLAY_PROD_R2_SQL_TOKEN` as a protected build secret so the pre-deploy acceptance gate can query R2 SQL. Change the backend only as part of a reviewed cutover or rollback. To repeat only the analytics smoke check after a deploy, use the same backend value:
+Cloudflare Workers Builds must keep `ORANGE_REPLAY_PROD_ANALYTICS_READ_BACKEND` as an explicit build variable and run `vp run deploy:cloudflare-build`. When that value is `compare` or `r2_sql`, store `ORANGE_REPLAY_PROD_R2_SQL_TOKEN` as a protected build secret so the pre-deploy acceptance gate and both version uploads use one exact value. Change the backend only as part of a reviewed cutover or rollback. To repeat only the analytics smoke check after a deploy, use the same backend value:
 
 ```sh
 ORANGE_REPLAY_PROD_ANALYTICS_READ_BACKEND=compare vp run analytics:smoke:prod
@@ -328,7 +338,7 @@ export ORANGE_REPLAY_PROD_ANALYTICS_PURGE_RUNNER_TOKEN="$(openssl rand -base64 4
 node scripts/check-prod-secret.mjs --validate-only
 ```
 
-The deploy script uploads it as the Worker secret `ANALYTICS_PURGE_RUNNER_TOKEN`, then checks the uploaded secret names with `wrangler secret list`. Wrangler's `secrets.required` setting helps local type generation and warnings; it is not a hosted deployment gate. Put the exact same value in the GitHub Actions secret `ANALYTICS_PURGE_RUNNER_TOKEN`.
+The deploy script uploads it with the Worker version as `ANALYTICS_PURGE_RUNNER_TOKEN`, then checks the uploaded secret names with `wrangler secret list`. Wrangler's `secrets.required` setting helps local type generation and warnings; it is not a hosted deployment gate. Put the exact same value in the GitHub Actions secret `ANALYTICS_PURGE_RUNNER_TOKEN`.
 
 Create a GitHub environment named `production-analytics` before enabling the scheduled workflow. Limit that environment to the production branch, then store all values below at environment scope. Do not add a required manual reviewer to the scheduled job: a run waiting for approval cannot meet the 24-hour deletion deadline.
 

@@ -3,6 +3,7 @@ dist/
 .wrangler/
 .impeccable/
 apps/worker/wrangler.cloudflare-build.jsonc
+apps/worker/wrangler.d1-fallback.jsonc
 apps/worker/wrangler.demo.jsonc
 apps/worker/wrangler.dev.jsonc
 apps/worker/wrangler.*.env

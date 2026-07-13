@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import process from "node:process";
 import { readAnalyticsDeployMode, readAnalyticsSmokeProjectId } from "./analytics/deploy-mode.mjs";
+import { readStatsAfterDeploy } from "./analytics/smoke-state.mjs";
 
 const MAX_PAGES = 100;
 
@@ -10,12 +11,11 @@ try {
   const projectId = readAnalyticsSmokeProjectId();
   const { expectedState } = readAnalyticsDeployMode();
 
-  const stats = await apiJson(baseUrl, token, `/api/v1/projects/${projectId}/stats`);
-  if (stats.analyticsState !== expectedState) {
-    throw new Error(
-      `Analytics state is ${String(stats.analyticsState)}; expected ${expectedState}.`,
-    );
-  }
+  const statsPath = `/api/v1/projects/${projectId}/stats`;
+  const stats = await readStatsAfterDeploy({
+    expectedState,
+    readStats: () => apiJson(baseUrl, token, statsPath),
+  });
   const warehouseVersion = optionalWholeNumber(stats.warehouseVersion, "warehouse version");
   if ((expectedState === "compare" || expectedState === "fresh") && warehouseVersion === null) {
     throw new Error("The analytics response did not include a warehouse version.");

@@ -83,7 +83,7 @@ async function routeRequest(
     const authError = projectAuthError(auth, projectId, "sessions_list");
     if (authError !== null) return authError;
     wideEvent.set({ project_id: projectId });
-    return listSessions(url, env, projectId, auth.mode, wideEvent, ctx);
+    return listSessions(url, env, projectId, auth.mode, requestId, wideEvent, ctx);
   }
 
   const statsMatch = /^\/api\/v1\/projects\/([^/]+)\/stats$/.exec(url.pathname);

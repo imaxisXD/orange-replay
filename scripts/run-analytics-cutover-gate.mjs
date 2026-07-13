@@ -4,10 +4,15 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import {
+  exactWorkerR2TokenEnvironment,
   needsAnalyticsCutoverCheck,
   productionAcceptanceArguments,
 } from "./analytics/cutover-gate.mjs";
 import { readAnalyticsDeployMode } from "./analytics/deploy-mode.mjs";
+import {
+  readProductionR2SqlToken,
+  withoutProductionSecrets,
+} from "./analytics/production-secrets.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const verifierPath = path.join(repoRoot, "scripts", "verify-analytics-backfill.mjs");
@@ -19,10 +24,11 @@ try {
     process.exit(0);
   }
 
+  const workerR2Token = readProductionR2SqlToken();
   console.log("Checking all production D1 analytics rows against R2 SQL before cutover.");
   const result = spawnSync(process.execPath, [verifierPath, ...productionAcceptanceArguments], {
     cwd: repoRoot,
-    env: process.env,
+    env: exactWorkerR2TokenEnvironment(withoutProductionSecrets(), workerR2Token),
     stdio: "inherit",
   });
   if (result.error !== undefined) throw result.error;

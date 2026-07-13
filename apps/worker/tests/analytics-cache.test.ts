@@ -49,6 +49,7 @@ describe("analytics last-good cache", () => {
       env,
       "project_1",
       "bearer",
+      "request_sessions",
       startWideEvent("test", "sessions"),
       ctx.value,
     );
@@ -304,6 +305,7 @@ describe("analytics last-good cache", () => {
       env,
       "project_1",
       "bearer",
+      "request_sessions_fresh",
       startWideEvent("test", "sessions"),
       ctx.value,
     );
@@ -332,6 +334,7 @@ describe("analytics last-good cache", () => {
       env,
       "project_1",
       "bearer",
+      "request_sessions_current",
       startWideEvent("test", "sessions"),
       ctx.value,
     );
@@ -345,6 +348,7 @@ describe("analytics last-good cache", () => {
       env,
       "project_1",
       "bearer",
+      "request_sessions_stale",
       startWideEvent("test", "sessions"),
       ctx.value,
     );
@@ -356,6 +360,7 @@ describe("analytics last-good cache", () => {
       env,
       "project_1",
       "bearer",
+      "request_sessions_pinned",
       startWideEvent("test", "sessions"),
       ctx.value,
     );
@@ -375,6 +380,7 @@ describe("analytics last-good cache", () => {
       env,
       "project_1",
       "bearer",
+      "request_sessions_wrong_project",
       startWideEvent("test", "sessions"),
       ctx.value,
     );
@@ -387,6 +393,7 @@ describe("analytics last-good cache", () => {
       env,
       "project_1",
       "bearer",
+      "request_sessions_deletion_pending",
       startWideEvent("test", "sessions"),
       ctx.value,
     );
@@ -400,6 +407,7 @@ describe("analytics last-good cache", () => {
       env,
       "project_1",
       "bearer",
+      "request_sessions_after_deletion",
       startWideEvent("test", "sessions"),
       ctx.value,
     );

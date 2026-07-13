@@ -7,7 +7,12 @@ import { listProjectPresence, readProjectInstallStatus } from "../do/presence-cl
 import { liveSessionsFromPresenceRows } from "../do/presence-logic.ts";
 import { shardDb, type Env } from "../env.ts";
 import { AnalyticsReadError } from "../analytics/r2-sql-client.ts";
-import { canCompareD1Exactly } from "../analytics/compare.ts";
+import {
+  ANALYTICS_COMPARE_QUERY_TIMEOUT_MS,
+  canCompareD1Exactly,
+  runAnalyticsCompareInBackground,
+  type AnalyticsCompareEvent,
+} from "../analytics/compare.ts";
 import { projectAnalyticsReadMode } from "../analytics/residency.ts";
 import { r2SqlSettingsFromEnv, readWarehouseSnapshot } from "../analytics/runtime.ts";
 import {
@@ -146,19 +151,53 @@ export async function getProjectStats(
   }
 
   if (backend === "compare") {
+    const snapshot = await readWarehouseSnapshot(
+      shardDb(env, 0),
+      projectId,
+      filter.warehouse_version,
+    );
+    if (!snapshot.ok && snapshot.error === "invalid_warehouse_version") {
+      return jsonError(snapshot.error, snapshot.status);
+    }
+    const compareFilter = snapshot.ok ? { ...filter, warehouse_version: snapshot.version } : filter;
     const [d1Stats, presence] = await Promise.all([
-      readFinalizedProjectStats(env, projectId, filter),
+      readFinalizedProjectStats(env, projectId, compareFilter),
       listProjectPresence(env, projectId, requestId, now),
     ]);
     if (presence === null) return jsonError("presence_unavailable", 503);
 
-    const warehouseVersion = await compareProjectStats(env, projectId, filter, d1Stats, wideEvent);
-    const liveNow = countFilteredLiveSessions(presence.sessions, filter, now);
+    runAnalyticsCompareInBackground(
+      ctx,
+      {
+        projectId,
+        requestId,
+        route: "project_stats",
+        ...(snapshot.ok ? { warehouseVersion: snapshot.version } : {}),
+      },
+      async (compareEvent) => {
+        if (!snapshot.ok) {
+          compareEvent.set({
+            analytics_compare_status: "unavailable",
+            analytics_compare_error: snapshot.error,
+          });
+          return "server_error";
+        }
+        await compareProjectStats(
+          env,
+          projectId,
+          snapshot.version,
+          compareFilter,
+          d1Stats,
+          compareEvent,
+        );
+      },
+    );
+    const liveNow = countFilteredLiveSessions(presence.sessions, compareFilter, now);
 
     return jsonResponse(
       {
         ...withLiveNow(d1Stats, liveNow),
-        ...(warehouseVersion === null ? {} : { warehouseVersion }),
+        ...(snapshot.ok ? { warehouseVersion: snapshot.version } : {}),
         analyticsState: "compare",
       },
       { headers: { "cache-control": "private, no-store" } },
@@ -242,80 +281,54 @@ export async function getProjectStats(
 async function compareProjectStats(
   env: Env,
   projectId: string,
+  warehouseVersion: number,
   filter: Parameters<typeof readFinalizedProjectStats>[2],
   d1Stats: FinalizedProjectStats,
-  wideEvent: ReturnType<typeof startWideEvent>,
-): Promise<number | null> {
-  try {
-    // Compare mode always checks the newest verified warehouse view. D1 stays
-    // the response source, so a warehouse problem cannot break the dashboard.
-    const snapshot = await readWarehouseSnapshot(
-      shardDb(env, 0),
-      projectId,
-      filter.warehouse_version,
-    );
-    if (!snapshot.ok) {
-      wideEvent.set({
-        analytics_compare_status: "unavailable",
-        analytics_compare_error: snapshot.error,
-      });
-      return null;
-    }
-
-    if (!canCompareD1Exactly(filter)) {
-      wideEvent.set({
-        analytics_compare_status: "not_comparable",
-        analytics_compare_reason: "d1_sparse_error_details",
-        warehouse_version: snapshot.version,
-      });
-      return snapshot.version;
-    }
-
-    const warehouse = await readWarehouseProjectStats(
-      r2SqlSettingsFromEnv(env),
-      projectId,
-      snapshot.version,
-      filter,
-    );
-    let matches = sameStatsWithoutErrors(d1Stats, warehouse.stats);
-    let bytesScanned = warehouse.metrics.bytesScanned;
-    let filesScanned = warehouse.metrics.filesScanned;
-
-    if (matches && d1Stats.errors.length === 0) {
-      matches = warehouse.stats.errors.length === 0;
-    } else if (matches) {
-      const evidence = await readWarehouseErrorEvidence(
-        r2SqlSettingsFromEnv(env),
-        projectId,
-        snapshot.version,
-        filter,
-        d1Stats.errors.map((error) => error.detail),
-      );
-      bytesScanned += evidence.metrics.bytesScanned;
-      filesScanned += evidence.metrics.filesScanned;
-      matches = warehouseIncludesD1Errors(d1Stats, evidence.errors);
-    }
-
-    wideEvent.set({
-      analytics_compare_status: matches ? "match" : "mismatch",
-      analytics_compare_match: matches,
-      analytics_bytes_scanned: bytesScanned,
-      analytics_files_scanned: filesScanned,
-      warehouse_version: snapshot.version,
+  compareEvent: AnalyticsCompareEvent,
+): Promise<void> {
+  if (!canCompareD1Exactly(filter)) {
+    compareEvent.set({
+      analytics_compare_status: "not_comparable",
+      analytics_compare_reason: "d1_sparse_error_details",
     });
-    return snapshot.version;
-  } catch (error) {
-    wideEvent.set({
-      analytics_compare_status: "unavailable",
-      analytics_compare_error: safeCompareError(error),
-    });
-    return null;
+    return;
   }
-}
 
-function safeCompareError(error: unknown): string {
-  const message = error instanceof Error ? error.message : "unknown analytics compare error";
-  return message.slice(0, 500);
+  const compareSettings = {
+    ...r2SqlSettingsFromEnv(env),
+    timeoutMs: ANALYTICS_COMPARE_QUERY_TIMEOUT_MS,
+  };
+  const warehouse = await readWarehouseProjectStats(
+    compareSettings,
+    projectId,
+    warehouseVersion,
+    filter,
+  );
+  let matches = sameStatsWithoutErrors(d1Stats, warehouse.stats);
+  let bytesScanned = warehouse.metrics.bytesScanned;
+  let filesScanned = warehouse.metrics.filesScanned;
+
+  if (matches && d1Stats.errors.length === 0) {
+    matches = warehouse.stats.errors.length === 0;
+  } else if (matches) {
+    const evidence = await readWarehouseErrorEvidence(
+      compareSettings,
+      projectId,
+      warehouseVersion,
+      filter,
+      d1Stats.errors.map((error) => error.detail),
+    );
+    bytesScanned += evidence.metrics.bytesScanned;
+    filesScanned += evidence.metrics.filesScanned;
+    matches = warehouseIncludesD1Errors(d1Stats, evidence.errors);
+  }
+
+  compareEvent.set({
+    analytics_compare_status: matches ? "match" : "mismatch",
+    analytics_compare_match: matches,
+    analytics_bytes_scanned: bytesScanned,
+    analytics_files_scanned: filesScanned,
+  });
 }
 
 export function sameStatsWithoutErrors(

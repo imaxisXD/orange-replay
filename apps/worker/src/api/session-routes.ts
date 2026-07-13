@@ -7,7 +7,11 @@ import {
 } from "@orange-replay/shared";
 import { shardDb, type Env } from "../env.ts";
 import { AnalyticsReadError } from "../analytics/r2-sql-client.ts";
-import { canCompareD1Exactly } from "../analytics/compare.ts";
+import {
+  ANALYTICS_COMPARE_QUERY_TIMEOUT_MS,
+  canCompareD1Exactly,
+  runAnalyticsCompareInBackground,
+} from "../analytics/compare.ts";
 import { projectAnalyticsReadMode } from "../analytics/residency.ts";
 import { r2SqlSettingsFromEnv, readWarehouseSnapshot } from "../analytics/runtime.ts";
 import { readWarehouseSessionPage } from "../analytics/warehouse-read.ts";
@@ -33,6 +37,7 @@ export async function listSessions(
   env: Env,
   projectId: string,
   authMode: ApiAuthMode,
+  requestId: string,
   wideEvent: ReturnType<typeof startWideEvent>,
   ctx: ExecutionContext,
 ): Promise<Response> {
@@ -56,57 +61,65 @@ export async function listSessions(
   }
 
   if (backend === "compare") {
-    const d1Page = await readD1SessionPage(env, projectId, options);
-    let warehouseVersion: number | null = null;
+    const snapshot = await readWarehouseSnapshot(
+      shardDb(env, 0),
+      projectId,
+      options.warehouse_version,
+    );
+    if (!snapshot.ok && snapshot.error === "invalid_warehouse_version") {
+      return jsonError(snapshot.error, snapshot.status);
+    }
+    const compareOptions = snapshot.ok
+      ? { ...options, warehouse_version: snapshot.version }
+      : options;
+    const d1Page = await readD1SessionPage(env, projectId, compareOptions);
 
-    try {
-      // This is a shadow read only. The user still receives the trustworthy
-      // D1 page when R2 SQL is slow, unavailable, or different.
-      const snapshot = await readWarehouseSnapshot(
-        shardDb(env, 0),
+    runAnalyticsCompareInBackground(
+      ctx,
+      {
         projectId,
-        options.warehouse_version,
-      );
-      if (!snapshot.ok) {
-        wideEvent.set({
-          analytics_compare_status: "unavailable",
-          analytics_compare_error: snapshot.error,
-        });
-      } else {
-        warehouseVersion = snapshot.version;
-        if (!canCompareD1Exactly(options)) {
-          wideEvent.set({
+        requestId,
+        route: "sessions_list",
+        ...(snapshot.ok ? { warehouseVersion: snapshot.version } : {}),
+      },
+      async (compareEvent) => {
+        if (!snapshot.ok) {
+          compareEvent.set({
+            analytics_compare_status: "unavailable",
+            analytics_compare_error: snapshot.error,
+          });
+          return "server_error";
+        }
+        if (!canCompareD1Exactly(compareOptions)) {
+          compareEvent.set({
             analytics_compare_status: "not_comparable",
             analytics_compare_reason: "d1_sparse_error_details",
-            warehouse_version: snapshot.version,
           });
-        } else {
-          const warehousePage = await readWarehouseSessionPage(
-            r2SqlSettingsFromEnv(env),
-            projectId,
-            snapshot.version,
-            { ...options, warehouse_version: snapshot.version },
-          );
-          const matches = sameSessionPage(d1Page, warehousePage);
-          wideEvent.set({
-            analytics_compare_status: matches ? "match" : "mismatch",
-            analytics_compare_match: matches,
-            analytics_bytes_scanned: warehousePage.metrics.bytesScanned,
-            analytics_files_scanned: warehousePage.metrics.filesScanned,
-            warehouse_version: snapshot.version,
-          });
+          return;
         }
-      }
-    } catch (error) {
-      wideEvent.set({
-        analytics_compare_status: "unavailable",
-        analytics_compare_error: safeCompareError(error),
-      });
-    }
+
+        const warehousePage = await readWarehouseSessionPage(
+          {
+            ...r2SqlSettingsFromEnv(env),
+            timeoutMs: ANALYTICS_COMPARE_QUERY_TIMEOUT_MS,
+          },
+          projectId,
+          snapshot.version,
+          compareOptions,
+        );
+        const matches = sameSessionPage(d1Page, warehousePage);
+        compareEvent.set({
+          analytics_compare_status: matches ? "match" : "mismatch",
+          analytics_compare_match: matches,
+          analytics_bytes_scanned: warehousePage.metrics.bytesScanned,
+          analytics_files_scanned: warehousePage.metrics.filesScanned,
+        });
+      },
+    );
 
     return jsonResponse({
       ...d1Page,
-      ...(warehouseVersion === null ? {} : { warehouseVersion }),
+      ...(snapshot.ok ? { warehouseVersion: snapshot.version } : {}),
       analyticsState: "compare",
     });
   }
@@ -275,11 +288,6 @@ export function sameSessionPage(
       nextBefore: right.nextBefore,
     })
   );
-}
-
-function safeCompareError(error: unknown): string {
-  const message = error instanceof Error ? error.message : "unknown analytics compare error";
-  return message.slice(0, 500);
 }
 
 export async function getManifest(

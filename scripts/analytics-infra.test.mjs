@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { drainAnalyticsExports } from "../apps/worker/src/analytics/exporter.ts";
 import {
   buildSetupPlan,
@@ -30,9 +30,24 @@ import {
 } from "./analytics/backfill-lib.mjs";
 import { readAnalyticsDeployMode, readAnalyticsSmokeProjectId } from "./analytics/deploy-mode.mjs";
 import {
+  MAX_STATE_CHECKS,
+  STATE_CHECK_WAIT_MS,
+  readStatsAfterDeploy,
+} from "./analytics/smoke-state.mjs";
+import {
   needsAnalyticsCutoverCheck,
   productionAcceptanceArguments,
 } from "./analytics/cutover-gate.mjs";
+import {
+  D1_ROLLBACK_STEPS,
+  rollbackStepEnvironment,
+  runProductionD1Rollback,
+} from "./deploy-prod-rollback.mjs";
+import {
+  D1_REBUILD_ROLLBACK_STEPS,
+  rebuildRollbackStepEnvironment,
+} from "./deploy-prod-rebuild-rollback.mjs";
+import { productionDeploySteps } from "./deploy-production.mjs";
 
 const scriptsDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptsDirectory, "..");
@@ -198,6 +213,77 @@ describe("analytics production deploy safety", () => {
     );
   });
 
+  it("waits for a previous valid analytics state to change after deploy", async () => {
+    const readyStats = { analyticsState: "d1_rollback", sessions: { value: 4 } };
+    const readStats = vi
+      .fn()
+      .mockResolvedValueOnce({ analyticsState: "fresh" })
+      .mockResolvedValueOnce(readyStats);
+    const wait = vi.fn(async () => undefined);
+    const reportRetry = vi.fn();
+
+    await expect(
+      readStatsAfterDeploy({
+        expectedState: "d1_rollback",
+        readStats,
+        wait,
+        reportRetry,
+      }),
+    ).resolves.toBe(readyStats);
+
+    expect(readStats).toHaveBeenCalledTimes(2);
+    expect(wait).toHaveBeenCalledOnce();
+    expect(wait).toHaveBeenCalledWith(STATE_CHECK_WAIT_MS);
+    expect(reportRetry).toHaveBeenCalledWith(
+      "Analytics state is still fresh; expected d1_rollback. Waiting 2 seconds for Cloudflare deployment (check 1 of 6).",
+    );
+  });
+
+  it("stops checking after a bounded number of state mismatches", async () => {
+    const readStats = vi.fn(async () => ({ analyticsState: "fresh" }));
+    const wait = vi.fn(async () => undefined);
+    const reportRetry = vi.fn();
+
+    await expect(
+      readStatsAfterDeploy({
+        expectedState: "d1_rollback",
+        readStats,
+        wait,
+        reportRetry,
+      }),
+    ).rejects.toThrow(
+      `Cloudflare did not reach analytics state d1_rollback after ${MAX_STATE_CHECKS} checks; the last state was fresh.`,
+    );
+
+    expect(readStats).toHaveBeenCalledTimes(MAX_STATE_CHECKS);
+    expect(wait).toHaveBeenCalledTimes(MAX_STATE_CHECKS - 1);
+    expect(reportRetry).toHaveBeenCalledTimes(MAX_STATE_CHECKS - 1);
+  });
+
+  it("does not retry a failed stats request", async () => {
+    const readStats = vi.fn(async () => {
+      throw new Error("Stats request failed.");
+    });
+    const wait = vi.fn(async () => undefined);
+
+    await expect(readStatsAfterDeploy({ expectedState: "fresh", readStats, wait })).rejects.toThrow(
+      "Stats request failed.",
+    );
+    expect(readStats).toHaveBeenCalledOnce();
+    expect(wait).not.toHaveBeenCalled();
+  });
+
+  it("does not retry an invalid analytics state", async () => {
+    const readStats = vi.fn(async () => ({ analyticsState: undefined }));
+    const wait = vi.fn(async () => undefined);
+
+    await expect(readStatsAfterDeploy({ expectedState: "fresh", readStats, wait })).rejects.toThrow(
+      "Analytics state is undefined; expected fresh.",
+    );
+    expect(readStats).toHaveBeenCalledOnce();
+    expect(wait).not.toHaveBeenCalled();
+  });
+
   it("keeps the production backend out of the committed config and smokes every deploy", async () => {
     const workerConfig = await readFile(
       path.join(repoRoot, "apps", "worker", "wrangler.jsonc"),
@@ -205,6 +291,10 @@ describe("analytics production deploy safety", () => {
     );
     const generator = await readFile(
       path.join(scriptsDirectory, "prepare-cloudflare-build-config.mjs"),
+      "utf8",
+    );
+    const deployer = await readFile(
+      path.join(scriptsDirectory, "deploy-worker-with-secrets.mjs"),
       "utf8",
     );
     const packageJson = JSON.parse(await readFile(path.join(repoRoot, "package.json"), "utf8"));
@@ -216,10 +306,13 @@ describe("analytics production deploy safety", () => {
     expect(packageJson.scripts["analytics:smoke:prod"]).toBe(
       "node scripts/smoke-analytics-prod.mjs",
     );
-    expect(packageJson.scripts["deploy:prod"]).toContain("smoke-analytics-prod.mjs");
-    expect(packageJson.scripts["deploy:cloudflare-build"]).toContain("smoke-analytics-prod.mjs");
-    expect(packageJson.scripts["deploy:prod"]).toContain("--keep-vars");
-    expect(packageJson.scripts["deploy:cloudflare-build"]).toContain("--keep-vars");
+    expect(packageJson.scripts["deploy:prod"]).toBe("node scripts/deploy-production.mjs");
+    expect(packageJson.scripts["deploy:cloudflare-build"]).toBe(
+      "node scripts/deploy-production.mjs --cloudflare-build",
+    );
+    expect(deployer).toContain('"--keep-vars"');
+    expect(deployer).toContain('"--strict"');
+    expect(deployer).toContain('"--secrets-file"');
     expect(packageJson.scripts["deploy:prod:dry-run"]).toContain("--keep-vars");
     expect(packageJson.scripts["deploy:prod"]).not.toContain(
       "ORANGE_REPLAY_PROD_ANALYTICS_READ_BACKEND=",
@@ -233,21 +326,143 @@ describe("analytics production deploy safety", () => {
     expect(packageJson.scripts["deploy:prod:r2-sql"]).toContain(
       "ORANGE_REPLAY_PROD_ANALYTICS_READ_BACKEND=r2_sql",
     );
-    expect(packageJson.scripts["deploy:prod:rollback"]).toContain(
-      "ORANGE_REPLAY_PROD_ANALYTICS_READ_BACKEND=d1",
+    expect(packageJson.scripts["deploy:prod:rollback"]).toBe(
+      "node scripts/deploy-prod-rollback.mjs",
     );
-    for (const scriptName of ["deploy:prod", "deploy:cloudflare-build"]) {
-      const command = packageJson.scripts[scriptName];
-      expect(command).toContain("node scripts/run-analytics-cutover-gate.mjs");
-      expect(command.indexOf("run-analytics-cutover-gate.mjs")).toBeLessThan(
-        command.indexOf("wrangler deploy"),
+    expect(packageJson.scripts["deploy:prod:rollback:rebuild"]).toBe(
+      "node scripts/deploy-prod-rebuild-rollback.mjs",
+    );
+    for (const cloudflareBuild of [false, true]) {
+      const steps = productionDeploySteps(cloudflareBuild);
+      const gateIndex = steps.findIndex((step) =>
+        step.args.includes("scripts/run-analytics-cutover-gate.mjs"),
+      );
+      const fallbackIndex = steps.findIndex((step) => step.kind === "upload_fallback");
+      const deployIndex = steps.findIndex((step) => step.kind === "deploy");
+      expect(gateIndex).toBeGreaterThanOrEqual(0);
+      expect(fallbackIndex).toBeGreaterThan(gateIndex);
+      expect(deployIndex).toBeGreaterThan(gateIndex);
+      expect(deployIndex).toBeGreaterThan(fallbackIndex);
+      expect(steps.some((step) => step.args.includes("scripts/smoke-analytics-prod.mjs"))).toBe(
+        true,
       );
     }
+    expect(packageJson.scripts["deploy:prod"]).not.toContain("wrangler secret put");
+    expect(packageJson.scripts["deploy:cloudflare-build"]).not.toContain("wrangler secret put");
   });
 
-  it("requires the full verifier only for R2 cutover and keeps D1 rollback open", () => {
+  it("keeps emergency D1 rollback independent from normal deploy work", async () => {
+    expect(D1_ROLLBACK_STEPS.map((step) => step.label)).toEqual([
+      "Deploy the newest prepared D1 fallback version",
+      "Check the production API",
+      "Check D1 analytics",
+    ]);
+
+    const commandText = D1_ROLLBACK_STEPS.map((step) =>
+      [step.command, ...step.args].join(" "),
+    ).join("\n");
+    for (const forbiddenWork of [
+      "build-deploy.mjs",
+      "apply-d1-migrations.mjs",
+      "check-prod-secret.mjs",
+      "run-analytics-cutover-gate.mjs",
+      "deploy:prod",
+      "--secrets-file",
+      "wrangler.cloudflare-build.jsonc",
+      "prepare-prod-rollback-config.mjs",
+    ]) {
+      expect(commandText).not.toContain(forbiddenWork);
+    }
+
+    expect(D1_ROLLBACK_STEPS[0]?.args).toEqual(["scripts/deploy-tagged-d1-fallback.mjs"]);
+    expect(D1_ROLLBACK_STEPS.slice(1).map((step) => step.args[0])).toEqual([
+      "scripts/smoke-prod-api.mjs",
+      "scripts/smoke-analytics-prod.mjs",
+    ]);
+
+    const runStep = vi.fn(async () => undefined);
+    const report = vi.fn();
+    await runProductionD1Rollback({
+      environment: {
+        KEEP_REMOTE_SETTINGS: "yes",
+        ORANGE_REPLAY_PROD_ANALYTICS_READ_BACKEND: "r2_sql",
+        ORANGE_REPLAY_PROD_API_PROJECT_IDS: "p1",
+        ORANGE_REPLAY_PROD_API_TOKEN: "api-secret",
+        CLOUDFLARE_API_TOKEN: "cloudflare-secret",
+        ORANGE_REPLAY_PROD_ANALYTICS_PURGE_RUNNER_TOKEN: "purge-secret",
+        ORANGE_REPLAY_PROD_LIVE_TICKET_SECRET: "ticket-secret",
+        ORANGE_REPLAY_PROD_R2_SQL_TOKEN: "r2-secret",
+      },
+      runStep,
+      report,
+    });
+
+    expect(runStep).toHaveBeenCalledTimes(D1_ROLLBACK_STEPS.length);
+    for (const call of runStep.mock.calls) {
+      expect(call[1]).toMatchObject({
+        KEEP_REMOTE_SETTINGS: "yes",
+        ORANGE_REPLAY_PROD_ANALYTICS_READ_BACKEND: "d1",
+      });
+      expect(call[1].ORANGE_REPLAY_PROD_ANALYTICS_PURGE_RUNNER_TOKEN).toBeUndefined();
+      expect(call[1].ORANGE_REPLAY_PROD_LIVE_TICKET_SECRET).toBeUndefined();
+      expect(call[1].ORANGE_REPLAY_PROD_R2_SQL_TOKEN).toBeUndefined();
+    }
+    expect(runStep.mock.calls[0]?.[1].CLOUDFLARE_API_TOKEN).toBe("cloudflare-secret");
+    expect(runStep.mock.calls[0]?.[1].ORANGE_REPLAY_PROD_API_TOKEN).toBeUndefined();
+    for (const call of runStep.mock.calls.slice(1)) {
+      expect(call[1].CLOUDFLARE_API_TOKEN).toBeUndefined();
+      expect(call[1].ORANGE_REPLAY_PROD_API_TOKEN).toBe("api-secret");
+      expect(call[1].ORANGE_REPLAY_PROD_API_PROJECT_IDS).toBe("p1");
+    }
+    expect(report).toHaveBeenLastCalledWith(
+      "The prepared D1 rollback passed the production API and analytics smoke checks.",
+    );
+  });
+
+  it("keeps the source rebuild rollback as a clearly separate second choice", () => {
+    expect(D1_REBUILD_ROLLBACK_STEPS.map((step) => step.kind)).toEqual([
+      "prepare",
+      "prepare",
+      "deploy_rebuild",
+      "smoke",
+      "smoke",
+    ]);
+    const environment = {
+      CLOUDFLARE_API_TOKEN: "cloudflare-secret",
+      ORANGE_REPLAY_PROD_API_PROJECT_IDS: "p1",
+      ORANGE_REPLAY_PROD_API_TOKEN: "api-secret",
+    };
+    expect(
+      rebuildRollbackStepEnvironment(D1_REBUILD_ROLLBACK_STEPS[0], environment)
+        .CLOUDFLARE_API_TOKEN,
+    ).toBeUndefined();
+    expect(
+      rebuildRollbackStepEnvironment(D1_REBUILD_ROLLBACK_STEPS[2], environment)
+        .CLOUDFLARE_API_TOKEN,
+    ).toBe("cloudflare-secret");
+    expect(
+      rebuildRollbackStepEnvironment(D1_REBUILD_ROLLBACK_STEPS[3], environment)
+        .ORANGE_REPLAY_PROD_API_TOKEN,
+    ).toBe("api-secret");
+  });
+
+  it("gives only smoke checks the local dashboard credential", () => {
+    const environment = {
+      ORANGE_REPLAY_PROD_API_PROJECT_IDS: "p1",
+      ORANGE_REPLAY_PROD_API_TOKEN: "api-secret",
+      ORANGE_REPLAY_PROD_R2_SQL_TOKEN: "r2-secret",
+    };
+    expect(
+      rollbackStepEnvironment(D1_ROLLBACK_STEPS[0], environment).ORANGE_REPLAY_PROD_API_TOKEN,
+    ).toBeUndefined();
+    expect(
+      rollbackStepEnvironment(D1_ROLLBACK_STEPS[1], environment).ORANGE_REPLAY_PROD_API_TOKEN,
+    ).toBe("api-secret");
+  });
+
+  it("requires the full verifier for compare and R2 while keeping D1 open", () => {
     expect(needsAnalyticsCutoverCheck("r2_sql")).toBe(true);
-    expect(needsAnalyticsCutoverCheck("compare")).toBe(false);
+    expect(needsAnalyticsCutoverCheck("compare")).toBe(true);
     expect(needsAnalyticsCutoverCheck("d1")).toBe(false);
     expect(productionAcceptanceArguments).toEqual([
       "--database",

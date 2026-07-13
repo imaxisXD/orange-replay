@@ -28,6 +28,9 @@ export function buildWarehouseVisibilityQuery(input: WarehouseVisibilityInput): 
   const ids = input.exportIds.map(sqlText).join(", ");
   const sessionIds = input.sessionIds.map(sqlText).join(", ");
 
+  // The Pipeline sinks already reject rows that miss required fields. Keeping
+  // the same long null-check list here makes live R2 SQL reject this proof as
+  // too deeply nested before it can check visibility.
   return `WITH scoped_sessions AS (
   SELECT s.*,
     ROW_NUMBER() OVER (
@@ -38,22 +41,6 @@ export function buildWarehouseVisibilityQuery(input: WarehouseVisibilityInput): 
   WHERE s.project_id = ${project}
     AND s.export_sequence <= ${version}
     AND s.export_id IN (${ids})
-    AND s.org_id IS NOT NULL
-    AND s.started_at IS NOT NULL
-    AND s.ended_at IS NOT NULL
-    AND s.duration_ms IS NOT NULL
-    AND s.url_count IS NOT NULL
-    AND s.analytics_version IS NOT NULL
-    AND s.clicks IS NOT NULL
-    AND s.event_count IS NOT NULL
-    AND s.errors IS NOT NULL
-    AND s.rages IS NOT NULL
-    AND s.navs IS NOT NULL
-    AND s.bytes IS NOT NULL
-    AND s.segment_count IS NOT NULL
-    AND s.flags IS NOT NULL
-    AND s.manifest_key IS NOT NULL
-    AND s.expires_at IS NOT NULL
 ),
 one_session AS (
   SELECT * FROM scoped_sessions WHERE retry_rank = 1
@@ -68,9 +55,6 @@ scoped_events AS (
   WHERE e.project_id = ${project}
     AND e.export_sequence <= ${version}
     AND e.session_id IN (${sessionIds})
-    AND e.event_index IS NOT NULL
-    AND e.event_time IS NOT NULL
-    AND e.event_kind IS NOT NULL
 ),
 one_event AS (
   SELECT * FROM scoped_events WHERE retry_rank = 1
@@ -85,8 +69,6 @@ scoped_deletions AS (
   WHERE d.project_id = ${project}
     AND d.export_sequence <= ${version}
     AND d.export_id IN (${ids})
-    AND d.deleted_at IS NOT NULL
-    AND d.delete_reason IS NOT NULL
 ),
 visible_sessions AS (
   SELECT s.project_id, s.export_id

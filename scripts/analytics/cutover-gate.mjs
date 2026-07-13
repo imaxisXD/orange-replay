@@ -10,5 +10,15 @@ export const productionAcceptanceArguments = Object.freeze([
 ]);
 
 export function needsAnalyticsCutoverCheck(backend) {
-  return backend === "r2_sql";
+  return backend === "compare" || backend === "r2_sql";
+}
+
+export function exactWorkerR2TokenEnvironment(environment, workerR2Token) {
+  const gateEnvironment = {
+    ...environment,
+    ORANGE_REPLAY_PROD_R2_SQL_TOKEN: workerR2Token,
+  };
+  delete gateEnvironment.ORANGE_REPLAY_R2_SQL_READ_TOKEN;
+  delete gateEnvironment.WRANGLER_R2_SQL_AUTH_TOKEN;
+  return gateEnvironment;
 }

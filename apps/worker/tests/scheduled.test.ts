@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { maintainAnalyticsWarehouse } from "../src/analytics/maintenance.ts";
 import { sweepExpiredSessions } from "../src/consumer/sweeper.ts";
 import type { Env } from "../src/env.ts";
-import worker, { RETENTION_SWEEP_SCHEDULE } from "../src/index.ts";
+import worker from "../src/index.ts";
+import { RETENTION_SWEEP_SCHEDULE } from "../src/schedules.ts";
 
 vi.mock("cloudflare:workers", () => ({
   DurableObject: class {},

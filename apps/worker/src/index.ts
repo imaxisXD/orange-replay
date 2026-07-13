@@ -10,6 +10,7 @@ import { handleFinalizeBatch } from "./consumer/queue.ts";
 import { sweepExpiredSessions } from "./consumer/sweeper.ts";
 import { isDevTestMode, setWorkerLoggerVersion, type Env, type FinalizeMessage } from "./env.ts";
 import { handleIngest, handleRecorderConfig } from "./ingest/handler.ts";
+import { RETENTION_SWEEP_SCHEDULE } from "./schedules.ts";
 import { handleTestRoutes } from "./test/harness-routes.ts";
 
 export { SessionRecorder } from "./do/session-recorder.ts";
@@ -19,8 +20,6 @@ const JSON_SECURITY_HEADERS = {
   "x-content-type-options": "nosniff",
   "referrer-policy": "no-referrer",
 } as const;
-
-export const RETENTION_SWEEP_SCHEDULE = "7,22,37,52 * * * *";
 
 export default {
   async fetch(request, env, ctx): Promise<Response> {
