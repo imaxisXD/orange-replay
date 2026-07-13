@@ -81,10 +81,43 @@ export function buildSetupPlan(resources, currentState) {
 
   return {
     steps,
-    // Catalog-level maintenance also needs this service credential, even when
-    // all sinks already exist.
+    // Catalog maintenance always needs the bucket-scoped credential.
     needsCatalogToken: true,
+    // Cloudflare currently rejects bucket-scoped credentials when it creates
+    // a Pipeline Data Catalog sink. Read the broader credential only when a
+    // sink is missing.
+    needsPipelineCatalogToken: resources.sinks.some((sink) => !currentState.sinks[sink.name]),
   };
+}
+
+export function readSetupTokens(environment, plan) {
+  const catalogToken = environment.ORANGE_REPLAY_CATALOG_TOKEN?.trim() ?? "";
+  const pipelineCatalogToken = environment.ORANGE_REPLAY_PIPELINE_CATALOG_TOKEN?.trim() ?? "";
+
+  if (plan.needsCatalogToken && catalogToken.length < 20) {
+    throw new Error("ORANGE_REPLAY_CATALOG_TOKEN is required for Data Catalog maintenance.");
+  }
+  if (plan.needsPipelineCatalogToken && pipelineCatalogToken.length < 20) {
+    throw new Error(
+      "ORANGE_REPLAY_PIPELINE_CATALOG_TOKEN is required to create a Data Catalog Pipeline sink.",
+    );
+  }
+  if (
+    plan.needsPipelineCatalogToken &&
+    catalogToken.length > 0 &&
+    catalogToken === pipelineCatalogToken
+  ) {
+    throw new Error("Use different tokens for Pipeline sink creation and bucket maintenance.");
+  }
+
+  return { catalogToken, pipelineCatalogToken };
+}
+
+export function environmentWithoutSetupTokens(environment) {
+  const childEnvironment = { ...environment };
+  delete childEnvironment.ORANGE_REPLAY_CATALOG_TOKEN;
+  delete childEnvironment.ORANGE_REPLAY_PIPELINE_CATALOG_TOKEN;
+  return childEnvironment;
 }
 
 export function parseSetupArguments(argumentsList, defaultConfigPath) {

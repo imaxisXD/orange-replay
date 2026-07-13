@@ -6,11 +6,13 @@ import { stripVTControlCharacters } from "node:util";
 import { fileURLToPath } from "node:url";
 import {
   buildSetupPlan,
+  environmentWithoutSetupTokens,
   findArrayValue,
   findTextValue,
   loadAnalyticsResources,
   parseSetupArguments,
   readJsonCommandOutput,
+  readSetupTokens,
   redactSecret,
 } from "./analytics/setup-lib.mjs";
 
@@ -24,8 +26,11 @@ Options:
   --apply          Create missing resources. Without this flag, nothing changes.
   --help           Show this help
 
---apply needs ORANGE_REPLAY_CATALOG_TOKEN for sinks and catalog maintenance.
-The token is never printed.`;
+--apply always needs the bucket-scoped ORANGE_REPLAY_CATALOG_TOKEN for catalog maintenance.
+Creating a missing sink also needs ORANGE_REPLAY_PIPELINE_CATALOG_TOKEN. Cloudflare requires that
+Pipeline-only token to have account-wide R2 Data Catalog Write and R2 Storage Write access.
+Cloudflare saves that credential in the sink, so it must stay valid while the sink runs.
+Tokens are never printed.`;
 
 try {
   const options = parseSetupArguments(process.argv.slice(2), defaultConfigPath);
@@ -45,6 +50,7 @@ try {
           event: "analytics.setup",
           mode: options.offline ? "offline_dry_run" : "dry_run",
           needsCatalogToken: plan.needsCatalogToken,
+          needsPipelineCatalogToken: plan.needsPipelineCatalogToken,
           steps: plan.steps,
         },
         null,
@@ -54,8 +60,8 @@ try {
     process.exit(0);
   }
 
-  const catalogToken = readCatalogToken(plan.needsCatalogToken);
-  const applied = applyPlan(resources, currentState, catalogToken);
+  const tokens = readSetupTokens(process.env, plan);
+  const applied = applyPlan(resources, currentState, tokens);
   console.log(
     JSON.stringify(
       {
@@ -70,8 +76,9 @@ try {
     ),
   );
 } catch (error) {
-  const token = process.env.ORANGE_REPLAY_CATALOG_TOKEN ?? "";
-  console.error(redactSecret(error instanceof Error ? error.message : String(error), [token]));
+  console.error(
+    redactSecret(error instanceof Error ? error.message : String(error), setupSecretValues()),
+  );
   process.exit(1);
 }
 
@@ -129,7 +136,7 @@ function inspectResources(resources) {
   return currentState;
 }
 
-function applyPlan(resources, currentState, catalogToken) {
+function applyPlan(resources, currentState, tokens) {
   const steps = [];
   let warehouse;
   let streamId = findTextValue(currentState.streamDetails, new Set(["id", "stream_id"]));
@@ -187,7 +194,7 @@ function applyPlan(resources, currentState, catalogToken) {
         "--table",
         sink.table,
         "--catalog-token",
-        catalogToken,
+        tokens.pipelineCatalogToken,
         "--compression",
         resources.compression,
         "--roll-interval",
@@ -209,7 +216,7 @@ function applyPlan(resources, currentState, catalogToken) {
     "--target-size",
     String(resources.maintenance.compactionTargetMb),
     "--token",
-    catalogToken,
+    tokens.catalogToken,
   ]);
   steps.push({
     action: "configured",
@@ -230,7 +237,7 @@ function applyPlan(resources, currentState, catalogToken) {
     "--retain-last",
     String(resources.maintenance.snapshotRetainLast),
     "--token",
-    catalogToken,
+    tokens.catalogToken,
   ]);
   steps.push({
     action: "configured",
@@ -293,34 +300,32 @@ function runWrangler(args, options = {}) {
       cwd: repoRoot,
       encoding: "utf8",
       env: {
-        ...process.env,
+        ...environmentWithoutSetupTokens(process.env),
         WRANGLER_LOG_SANITIZE: "true",
         WRANGLER_WRITE_LOGS: "false",
       },
       maxBuffer: 10 * 1024 * 1024,
     },
   );
-  const catalogToken = process.env.ORANGE_REPLAY_CATALOG_TOKEN ?? "";
   if (result.error !== undefined) throw result.error;
   if (result.status !== 0 && !options.allowFailure) {
-    const message = redactSecret(result.stderr || result.stdout || "Wrangler command failed.", [
-      catalogToken,
-    ]).trim();
+    const message = redactSecret(
+      result.stderr || result.stdout || "Wrangler command failed.",
+      setupSecretValues(),
+    ).trim();
     throw new Error(message || "Wrangler command failed.");
   }
   return {
     ok: result.status === 0,
-    stderr: redactSecret(result.stderr ?? "", [catalogToken]),
-    stdout: redactSecret(result.stdout ?? "", [catalogToken]),
+    stderr: redactSecret(result.stderr ?? "", setupSecretValues()),
+    stdout: redactSecret(result.stdout ?? "", setupSecretValues()),
   };
 }
 
-function readCatalogToken(required) {
-  const token = process.env.ORANGE_REPLAY_CATALOG_TOKEN?.trim() ?? "";
-  if (required && token.length < 20) {
-    throw new Error("ORANGE_REPLAY_CATALOG_TOKEN is required to create a Data Catalog sink.");
-  }
-  return token;
+function setupSecretValues() {
+  const catalogToken = process.env.ORANGE_REPLAY_CATALOG_TOKEN ?? "";
+  const pipelineCatalogToken = process.env.ORANGE_REPLAY_PIPELINE_CATALOG_TOKEN ?? "";
+  return [catalogToken, catalogToken.trim(), pipelineCatalogToken, pipelineCatalogToken.trim()];
 }
 
 function looksMissing(result) {

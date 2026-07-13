@@ -27,6 +27,8 @@ Put the printed D1 `database_id` and KV `id` into a private deployment copy, or 
 
 The committed file uses placeholder IDs. Keep real production IDs, tokens, and generated keys out of public commits. Use a private branch, local patch, or deployment-specific copy when wiring a public repo to your own Cloudflare account.
 
+The analytics warehouse setup uses two different writer tokens. The bucket-scoped `ORANGE_REPLAY_CATALOG_TOKEN` is for catalog maintenance and the protected purge workflow. Cloudflare currently requires a separate account-wide `ORANGE_REPLAY_PIPELINE_CATALOG_TOKEN` when creating a missing Pipeline Data Catalog sink. Cloudflare then saves that credential in the sink, so it must stay valid while the sink runs even though setup does not need it again. Keep the broader token in a local secret store and never add it to the Worker, GitHub Actions, or Workers Builds. See `docs/runbooks/r2-analytics.md` for the exact permissions, setup command, expiry check, and rotation path.
+
 ## 2. Apply D1 Migrations
 
 ```sh

@@ -31,12 +31,13 @@ Warehouse API reads use a 24-hour range when either date boundary is missing. An
 
 Use separate credentials:
 
-1. A catalog writer token for sink creation and reviewed Iceberg deletion maintenance. Cloudflare currently requires R2 and Data Catalog write access. Put it in `ORANGE_REPLAY_CATALOG_TOKEN` for setup or as the protected GitHub Actions secret with that name; never upload it to the Worker.
-2. A dedicated R2 SQL query token stored as the Worker secret `R2_SQL_TOKEN`. Cloudflare currently requires R2 SQL read-only, Data Catalog read-only, and R2 storage Admin read/write permissions for queries, so scope it to the analytics bucket even though Orange Replay sends only `SELECT` statements.
-3. A dedicated Account API token used only to create the recording inventory. It must be able to read the replay bucket. The helper verifies it, then mints a 15-minute `object-read-only` credential bound to that one bucket for the actual S3 listing.
-4. A separate random bearer value shared only by the Worker secret and GitHub Actions secret named `ANALYTICS_PURGE_RUNNER_TOKEN`.
+1. A bucket-scoped catalog maintenance token. Limit it to `orange-replay-analytics-prod` with **Workers R2 Data Catalog Write** and **Workers R2 Storage Bucket Item Write**. Put it in `ORANGE_REPLAY_CATALOG_TOKEN` while running setup. Store the same bucket-scoped token in the protected GitHub Actions environment for Spark deletion maintenance. Never upload it to the Worker.
+2. A Pipeline-only catalog token for creating missing Data Catalog sinks. Cloudflare currently rejects bucket-scoped tokens for this operation. It must have account-wide **Workers R2 Data Catalog Write** and **Workers R2 Storage Write** access. Put it in `ORANGE_REPLAY_PIPELINE_CATALOG_TOKEN` only while running setup. Cloudflare saves the credential in each sink, so the token must remain valid while those sinks run. Keep it in the local secret store used for Pipeline setup; never put it in the Worker, GitHub Actions, Workers Builds, or the purge runner.
+3. A dedicated R2 SQL query token stored as the Worker secret `R2_SQL_TOKEN`. Cloudflare currently requires R2 SQL read-only, Data Catalog read-only, and R2 storage Admin read/write permissions for queries, so scope it to the analytics bucket even though Orange Replay sends only `SELECT` statements.
+4. A dedicated Account API token used only to create the recording inventory. It must be able to read the replay bucket. The helper verifies it, then mints a 15-minute `object-read-only` credential bound to that one bucket for the actual S3 listing.
+5. A separate random bearer value shared only by the Worker secret and GitHub Actions secret named `ANALYTICS_PURGE_RUNNER_TOKEN`.
 
-Never put any token in a committed file, report, browser response, or application log, and do not type a token as a command argument. Wrangler currently accepts the catalog token for Pipeline sink setup only through its `--catalog-token` and `--token` command arguments. The setup script therefore reads the token from the environment and passes it to the Wrangler child process. Another process running as the same operating-system user may briefly see that argument. Run setup only on a trusted machine or single-use CI runner, unset the environment value immediately, and do not run it beside untrusted processes. The helper turns off Wrangler disk logs and redacts the token if Wrangler returns it in an error.
+Never put any token in a committed file, report, browser response, or application log, and do not type a token as a command argument. Wrangler accepts the two catalog tokens only through its `--catalog-token` and `--token` command arguments. The setup script reads them from the environment and sends the Pipeline token only to missing-sink creation and the bucket token only to catalog maintenance. Another process running as the same operating-system user may briefly see those arguments. Run setup only on a trusted machine or single-use CI runner, unset both environment values immediately, and do not run it beside untrusted processes. The helper turns off Wrangler disk logs and redacts both tokens if Wrangler returns either one in an error.
 
 ## Provision the warehouse
 
@@ -54,16 +55,20 @@ node scripts/setup-analytics.mjs
 
 The output says `keep` for a resource that already exists and `create` for a missing resource. Review the bucket, stream, sink, table, and pipeline names before continuing.
 
-Load the catalog token without printing it, then apply the plan:
+Load the bucket-scoped maintenance token without printing it. If the dry run says `needsPipelineCatalogToken: true`, also load the account-wide Pipeline-only token. Then apply the plan:
 
 ```sh
 read -s ORANGE_REPLAY_CATALOG_TOKEN
 export ORANGE_REPLAY_CATALOG_TOKEN
+read -s ORANGE_REPLAY_PIPELINE_CATALOG_TOKEN
+export ORANGE_REPLAY_PIPELINE_CATALOG_TOKEN
 node scripts/setup-analytics.mjs --apply
-unset ORANGE_REPLAY_CATALOG_TOKEN
+unset ORANGE_REPLAY_CATALOG_TOKEN ORANGE_REPLAY_PIPELINE_CATALOG_TOKEN
 ```
 
-Running the same command again is safe. Existing resources are kept. The script does not delete or replace a resource because Pipeline schemas, sinks, and SQL cannot be edited in place safely.
+Running the same command again is safe. Existing resources are kept. When all sinks exist, setup does not read or require `ORANGE_REPLAY_PIPELINE_CATALOG_TOKEN`; it still needs the bucket-scoped token to check and apply catalog maintenance settings. The script does not delete or replace a resource because Pipeline schemas, sinks, and SQL cannot be edited in place safely.
+
+Record the Pipeline token expiry in the private production inventory and check it during the monthly warehouse review. Rotate at least 30 days before expiry. Cloudflare cannot replace a Data Catalog sink credential in place, and it does not allow a new sink to attach to the existing table. Safe rotation therefore needs new versioned session, event, and deletion table names; new sinks using the replacement token; a reviewed Pipeline switch; a repeatable backfill into the new tables; the full D1-to-R2 acceptance check; and only then retirement of the old Pipeline, sinks, tables, and token. Never revoke the old token before the replacement warehouse is caught up and serving correctly.
 
 Record the stream ID and warehouse name from the result. Add the stream binding and R2 SQL settings using `infra/analytics/wrangler.binding.example.jsonc`. Store `R2_SQL_TOKEN` as a Worker secret, not as a variable.
 
@@ -328,15 +333,15 @@ Create a GitHub environment named `production-analytics` before enabling the sch
 
 Configure these GitHub Actions values for `.github/workflows/analytics-purge.yml`:
 
-| Kind     | Name                           | Value                                      |
-| -------- | ------------------------------ | ------------------------------------------ |
-| Variable | `ORANGE_REPLAY_PURGE_API_URL`  | Exact production Worker HTTPS origin       |
-| Variable | `R2_CATALOG_URI`               | R2 Data Catalog REST URI                   |
-| Variable | `R2_SQL_WAREHOUSE`             | Catalog warehouse returned during setup    |
-| Secret   | `ANALYTICS_PURGE_RUNNER_TOKEN` | Same random value stored in the Worker     |
-| Secret   | `ORANGE_REPLAY_CATALOG_TOKEN`  | R2 and Data Catalog writer token for Spark |
+| Kind     | Name                           | Value                                   |
+| -------- | ------------------------------ | --------------------------------------- |
+| Variable | `ORANGE_REPLAY_PURGE_API_URL`  | Exact production Worker HTTPS origin    |
+| Variable | `R2_CATALOG_URI`               | R2 Data Catalog REST URI                |
+| Variable | `R2_SQL_WAREHOUSE`             | Catalog warehouse returned during setup |
+| Secret   | `ANALYTICS_PURGE_RUNNER_TOKEN` | Same random value stored in the Worker  |
+| Secret   | `ORANGE_REPLAY_CATALOG_TOKEN`  | Bucket-scoped catalog maintenance token |
 
-The catalog token belongs only in the protected `production-analytics` workflow secret. Do not put it in Worker variables, logs, user-entered command arguments, or committed files.
+The bucket-scoped catalog token belongs only in the protected `production-analytics` workflow secret. Do not put it in Worker variables, logs, user-entered command arguments, or committed files. Never store the account-wide `ORANGE_REPLAY_PIPELINE_CATALOG_TOKEN` in GitHub; it is only for local Pipeline sink setup.
 
 ### Dry-run and execute
 
@@ -358,6 +363,8 @@ Official references:
 - [Cloudflare Pipelines](https://developers.cloudflare.com/pipelines/)
 - [Structured stream behavior](https://developers.cloudflare.com/pipelines/streams/manage-streams/)
 - [R2 Data Catalog sink](https://developers.cloudflare.com/pipelines/sinks/available-sinks/r2-data-catalog/)
+- [R2 token permission groups](https://developers.cloudflare.com/r2/api/tokens/)
+- [R2 Data Catalog maintenance credentials](https://developers.cloudflare.com/r2/data-catalog/manage-catalogs/)
 - [Deleting Data Catalog data safely](https://developers.cloudflare.com/r2/data-catalog/deleting-data/)
 - [Spark with R2 Data Catalog](https://developers.cloudflare.com/r2/data-catalog/config-examples/spark-python/)
 - [Apache Iceberg 1.6.1 Spark procedures](https://iceberg.apache.org/docs/1.6.1/spark-procedures/)

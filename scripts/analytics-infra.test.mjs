@@ -6,8 +6,10 @@ import { describe, expect, it } from "vite-plus/test";
 import { drainAnalyticsExports } from "../apps/worker/src/analytics/exporter.ts";
 import {
   buildSetupPlan,
+  environmentWithoutSetupTokens,
   loadAnalyticsResources,
   parseSetupArguments,
+  readSetupTokens,
   redactSecret,
 } from "./analytics/setup-lib.mjs";
 import {
@@ -64,12 +66,69 @@ describe("analytics resource setup", () => {
       { action: "create", kind: "pipeline", name: resources.pipeline },
     ]);
     expect(plan.needsCatalogToken).toBe(true);
+    expect(plan.needsPipelineCatalogToken).toBe(false);
     expect(plan.steps).toContainEqual({
       action: "configure",
       kind: "catalog_compaction",
       name: resources.bucket,
       targetSizeMb: 128,
     });
+
+    const missingSinkPlan = buildSetupPlan(resources, {
+      bucket: true,
+      catalog: true,
+      pipeline: true,
+      sinks: {
+        ...Object.fromEntries(resources.sinks.map((sink) => [sink.name, true])),
+        [resources.sinks[0].name]: false,
+      },
+      stream: true,
+    });
+    expect(missingSinkPlan.needsPipelineCatalogToken).toBe(true);
+  });
+
+  it("keeps Pipeline sink and bucket maintenance credentials separate", () => {
+    const catalogToken = "c".repeat(40);
+    const pipelineCatalogToken = "p".repeat(40);
+
+    expect(
+      readSetupTokens(
+        { ORANGE_REPLAY_CATALOG_TOKEN: catalogToken },
+        { needsCatalogToken: true, needsPipelineCatalogToken: false },
+      ),
+    ).toEqual({ catalogToken, pipelineCatalogToken: "" });
+    expect(() =>
+      readSetupTokens(
+        { ORANGE_REPLAY_CATALOG_TOKEN: catalogToken },
+        { needsCatalogToken: true, needsPipelineCatalogToken: true },
+      ),
+    ).toThrow("ORANGE_REPLAY_PIPELINE_CATALOG_TOKEN is required");
+    expect(
+      readSetupTokens(
+        {
+          ORANGE_REPLAY_CATALOG_TOKEN: catalogToken,
+          ORANGE_REPLAY_PIPELINE_CATALOG_TOKEN: pipelineCatalogToken,
+        },
+        { needsCatalogToken: true, needsPipelineCatalogToken: true },
+      ),
+    ).toEqual({ catalogToken, pipelineCatalogToken });
+    expect(() =>
+      readSetupTokens(
+        {
+          ORANGE_REPLAY_CATALOG_TOKEN: catalogToken,
+          ORANGE_REPLAY_PIPELINE_CATALOG_TOKEN: catalogToken,
+        },
+        { needsCatalogToken: true, needsPipelineCatalogToken: true },
+      ),
+    ).toThrow("Use different tokens");
+
+    expect(
+      environmentWithoutSetupTokens({
+        KEEP_ME: "yes",
+        ORANGE_REPLAY_CATALOG_TOKEN: catalogToken,
+        ORANGE_REPLAY_PIPELINE_CATALOG_TOKEN: pipelineCatalogToken,
+      }),
+    ).toEqual({ KEEP_ME: "yes" });
   });
 
   it("uses millisecond ingest time and carries the event count for reconciliation", async () => {
@@ -97,6 +156,8 @@ describe("analytics resource setup", () => {
     const source = await readFile(path.join(scriptsDirectory, "setup-analytics.mjs"), "utf8");
     expect(source).toContain('WRANGLER_LOG_SANITIZE: "true"');
     expect(source).toContain('WRANGLER_WRITE_LOGS: "false"');
+    expect(source).toMatch(/"--catalog-token",\s*tokens\.pipelineCatalogToken/);
+    expect(source).toMatch(/"--token",\s*tokens\.catalogToken/);
   });
 });
 
