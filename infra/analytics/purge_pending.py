@@ -106,6 +106,12 @@ def sql_text(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+def spark_string_literal(value: str) -> str:
+    """Put text inside a Spark SQL string without losing nested quotes."""
+    escaped = value.replace("\\", "\\\\").replace("'", "\\'")
+    return "'" + escaped + "'"
+
+
 def build_spark(catalog_uri: str, warehouse: str, token: str):
     from pyspark.sql import SparkSession
 
@@ -274,7 +280,7 @@ def maintain_deleted_data(
         where = jobs_predicate(jobs)
         spark.sql(
             "CALL r2.system.rewrite_data_files("
-            f"table => 'default.{table}', where => {sql_text(where)}, "
+            f"table => 'default.{table}', where => {spark_string_literal(where)}, "
             "options => map('min-input-files','1','delete-file-threshold','1'))"
         )
         maintained_tables.append(table)

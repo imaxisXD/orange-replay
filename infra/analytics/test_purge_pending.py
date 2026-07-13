@@ -148,6 +148,11 @@ class PurgePendingRunnerTest(unittest.TestCase):
             self.assertIn("where =>", query)
             self.assertIn("project-1", query)
             self.assertIn("session-1", query)
+            self.assertIn(
+                "where => '(project_id = \\'project-1\\' AND session_id = \\'session-1\\')'",
+                query,
+            )
+            self.assertNotIn("''project-1''", query)
             self.assertIn("'delete-file-threshold','1'", query)
             self.assertNotIn("analytics_deletions", query)
 
