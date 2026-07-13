@@ -139,6 +139,9 @@ describe("analytics backfill acceptance", () => {
     expect(r2SessionPage).toContain("event_coverage = 'sparse'");
     expect(r2SessionPage).toContain("AND session.session_id > 'session_1'");
     expect(r2SessionPage).toContain("paged_sessions AS");
+    expect(r2SessionPage).toContain("NOT EXISTS");
+    expect(r2SessionPage).toContain("FROM deleted_sessions deletion");
+    expect(r2SessionPage).not.toContain("LEFT JOIN deleted_sessions deletion");
     expect(r2SessionPage).not.toContain("session.*");
     expect(r2SessionIdentity).toContain('FROM "default"."analytics_sessions"');
     expect(r2SessionIdentity).not.toContain('FROM "default"."analytics_events"');

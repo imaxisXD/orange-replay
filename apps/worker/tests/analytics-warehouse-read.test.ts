@@ -51,8 +51,11 @@ describe("analytics warehouse queries", () => {
     expect(query.sql).toContain("PARTITION BY s.project_id, s.export_id");
     expect(query.sql).toContain("PARTITION BY e.project_id, e.export_id");
     expect(query.sql).toContain("PARTITION BY d.project_id, d.export_id");
-    expect(query.sql).toContain("LEFT JOIN deleted_sessions d");
-    expect(query.sql).toContain("d.session_id IS NULL");
+    // R2 SQL incorrectly removes every left row when an empty Iceberg table
+    // has a non-null join column and the anti-join checks that column for NULL.
+    expect(query.sql).toContain("NOT EXISTS");
+    expect(query.sql).toContain("FROM deleted_sessions d");
+    expect(query.sql).not.toContain("LEFT JOIN deleted_sessions d");
     expect(count(query.sql, "project_id = 'project_1'")).toBeGreaterThanOrEqual(4);
     expect(count(query.sql, '"analytics_sessions"')).toBe(1);
     expect(count(query.sql, '"analytics_events"')).toBe(1);

@@ -413,9 +413,13 @@ live_sessions AS (
     session.event_coverage,
     ${selectSqlColumns("session", comparedSessionColumns)}
   FROM ranked_sessions session
-  LEFT JOIN deleted_sessions deletion
-    ON deletion.project_id = session.project_id AND deletion.session_id = session.session_id
-  WHERE session.session_rank = 1 AND deletion.session_id IS NULL
+  WHERE session.session_rank = 1
+    AND NOT EXISTS (
+      SELECT 1
+      FROM deleted_sessions deletion
+      WHERE deletion.project_id = session.project_id
+        AND deletion.session_id = session.session_id
+    )
 ),
 paged_sessions AS (
   SELECT

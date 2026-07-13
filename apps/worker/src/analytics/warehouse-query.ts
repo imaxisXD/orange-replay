@@ -427,9 +427,12 @@ deleted_sessions AS (
 live_sessions AS (
   SELECT ${selectColumns("s", sessionRowColumns)}
   FROM ranked_sessions s
-  LEFT JOIN deleted_sessions d
-    ON d.project_id = s.project_id AND d.session_id = s.session_id
-  WHERE s.session_rank = 1 AND d.session_id IS NULL
+  WHERE s.session_rank = 1
+    AND NOT EXISTS (
+      SELECT 1
+      FROM deleted_sessions d
+      WHERE d.project_id = s.project_id AND d.session_id = s.session_id
+    )
 )`;
 
   if (!includeEvents) return sessionCtes;

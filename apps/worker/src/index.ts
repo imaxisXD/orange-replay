@@ -20,6 +20,8 @@ const JSON_SECURITY_HEADERS = {
   "referrer-policy": "no-referrer",
 } as const;
 
+export const RETENTION_SWEEP_SCHEDULE = "7,22,37,52 * * * *";
+
 export default {
   async fetch(request, env, ctx): Promise<Response> {
     setWorkerLoggerVersion(env);
@@ -65,7 +67,7 @@ export default {
 
   async scheduled(controller, env, ctx): Promise<void> {
     setWorkerLoggerVersion(env);
-    if (controller.cron === "17 3 * * *") {
+    if (controller.cron === RETENTION_SWEEP_SCHEDULE) {
       ctx.waitUntil(
         (async () => {
           let deletionError: unknown;
