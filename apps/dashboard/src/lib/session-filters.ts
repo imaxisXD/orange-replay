@@ -2,6 +2,7 @@ import {
   encodeSessionFilter,
   sessionFilterQueryKeys,
   sessionFilterSchema,
+  withDefaultAnalyticsDateRange,
   type SessionFilter,
 } from "@orange-replay/shared";
 
@@ -42,8 +43,17 @@ export function validateSessionSearch(search: Record<string, unknown>): SessionF
 }
 
 export function withDefaultDateRange(filter: SessionFilter, now: number): SessionFilter {
-  if (filter.from !== undefined || filter.to !== undefined) return { ...filter };
-  return dateRangeFilter(filter, "24h", now);
+  return withDefaultAnalyticsDateRange(filter, now);
+}
+
+export function dateRangeSnapshotFilter(filter: SessionFilter): SessionFilter {
+  return {
+    ...(filter.from === undefined ? {} : { from: filter.from }),
+    ...(filter.to === undefined ? {} : { to: filter.to }),
+    ...(filter.warehouse_version === undefined
+      ? {}
+      : { warehouse_version: filter.warehouse_version }),
+  };
 }
 
 export function dateRangeFilter(

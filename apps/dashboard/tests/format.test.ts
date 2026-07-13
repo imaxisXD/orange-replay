@@ -1,12 +1,17 @@
 import { describe, expect, it } from "vite-plus/test";
-import type { SessionListItem } from "../src/lib/api";
+import type { ListSessionsResponse, SessionListItem } from "../src/lib/api";
 import {
   formatDuration,
   formatErrorCount,
   formatRelativeTime,
   formatShortRelativeTime,
 } from "../src/lib/format";
-import { appendUniqueSessions, canLoadMore } from "../src/lib/session-list";
+import {
+  appendUniqueSessions,
+  canLoadMore,
+  hasStaleAnalytics,
+  nextSessionPageParam,
+} from "../src/lib/session-list";
 
 describe("format helpers", () => {
   it("formats relative time in simple units", () => {
@@ -49,7 +54,32 @@ describe("cursor helpers", () => {
       appendUniqueSessions([first], [duplicate, second]).map((session) => session.session_id),
     ).toEqual(["a", "b"]);
   });
+
+  it("pins later pages to the first warehouse snapshot", () => {
+    const firstPage = makePage("2000:session_b", 12, "fresh");
+
+    expect(nextSessionPageParam(firstPage, [firstPage])).toEqual({
+      before: "2000:session_b",
+      warehouseVersion: 12,
+    });
+    expect(nextSessionPageParam(makePage(null, 12, "fresh"), [firstPage])).toBeUndefined();
+  });
+
+  it("finds stale analytics in any loaded page", () => {
+    expect(
+      hasStaleAnalytics([makePage("2000:session_b", 12, "fresh"), makePage(null, 12, "stale")]),
+    ).toBe(true);
+    expect(hasStaleAnalytics([makePage(null, 12, "fresh")])).toBe(false);
+  });
 });
+
+function makePage(
+  nextBefore: string | null,
+  warehouseVersion: number,
+  analyticsState: "fresh" | "stale",
+): ListSessionsResponse {
+  return { sessions: [], nextBefore, warehouseVersion, analyticsState };
+}
 
 function makeSession(sessionId: string): SessionListItem {
   return {

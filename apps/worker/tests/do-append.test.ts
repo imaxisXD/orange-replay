@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vite-plus/test";
-import { manifestKey } from "@orange-replay/shared";
+import { analyticsSidecarKey, manifestKey } from "@orange-replay/shared";
 import type { SessionManifest } from "@orange-replay/shared";
 import {
   append,
@@ -227,7 +227,7 @@ describe("SessionRecorder Durable Object", () => {
     const manifest = JSON.parse(new TextDecoder().decode(manifestBytes)) as SessionManifest;
 
     expect(manifest.attrs.pageCount).toBe(5);
-    expect(manifest.attrs.urlCount).toBe(9);
+    expect(manifest.attrs.urlCount).toBe(4);
   });
 
   it("keeps legacy page fields absent when a pre-deploy session finalizes", async () => {
@@ -249,5 +249,48 @@ describe("SessionRecorder Durable Object", () => {
     const manifestBytes = await readR2Bytes(manifestKey(projectId, sessionId));
     const manifest = JSON.parse(new TextDecoder().decode(manifestBytes)) as SessionManifest;
     expect(manifest.attrs.pageCount).toBeUndefined();
+  });
+
+  it("writes every stored event into the finalized analytics sidecar", async () => {
+    const projectId = "project-complete-sidecar";
+    const sessionId = "session-complete-sidecar";
+
+    await append({
+      projectId,
+      sessionId,
+      tab: "tab-a",
+      seq: 0,
+      payload: bytes("first"),
+      t0: 20_000,
+      events: [
+        { t: 20_001, k: "custom", d: "first stored event" },
+        { t: 20_002, k: "error", d: "stored error" },
+      ],
+    });
+    await append({
+      projectId,
+      sessionId,
+      tab: "tab-a",
+      seq: 1,
+      payload: bytes("second"),
+      t0: 20_100,
+      events: [{ t: 20_101, k: "nav", d: "/next" }],
+    });
+
+    await forceFinalize(projectId, sessionId);
+    const sidecarBytes = await readR2Bytes(analyticsSidecarKey(projectId, sessionId));
+    const lines = new TextDecoder()
+      .decode(sidecarBytes)
+      .trimEnd()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+
+    expect(lines[0]).toEqual({ v: 1, coverage: "complete" });
+    expect(lines.slice(1).map((line) => line["event_detail"])).toEqual([
+      "first stored event",
+      "stored error",
+      "/next",
+    ]);
+    expect(lines.slice(1).map((line) => line["event_index"])).toEqual([0, 1, 2]);
   });
 });

@@ -81,7 +81,7 @@
     ],
   },
   "triggers": {
-    "crons": ["17 3 * * *"],
+    "crons": ["*/5 * * * *", "7,22,37,52 * * * *"],
   },
   // DEV_API_TOKEN is created with `wrangler secret put DEV_API_TOKEN`.
   // DEV_API_PROJECT_IDS is created with `wrangler secret put DEV_API_PROJECT_IDS`.

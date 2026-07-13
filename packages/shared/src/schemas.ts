@@ -55,6 +55,10 @@ const segmentKeySchema = z
   .string()
   .max(MAX_R2_KEY_CHARS)
   .regex(/^p\/[A-Za-z0-9_-]{1,64}\/[A-Za-z0-9_-]{1,64}\/seg-[0-9]{6}\.ors$/);
+const analyticsSidecarKeySchema = z
+  .string()
+  .max(MAX_R2_KEY_CHARS)
+  .regex(/^p\/[A-Za-z0-9_-]{1,64}\/[A-Za-z0-9_-]{1,64}\/analytics\.ndjson$/);
 const replayUrlSchema = z.string().max(MAX_ENTRY_URL_CHARS).refine(isSafeReplayUrl, {
   message: "entryUrl must be an http(s) URL or a relative path",
 });
@@ -307,6 +311,7 @@ export const finalizeMessageSchema: z.ZodType<FinalizeMessage> = z
     shard: z.number().int().nonnegative(),
     requestId: z.string(),
     manifestKey: z.string(),
+    analyticsSidecarKey: analyticsSidecarKeySchema.optional(),
     startedAt: z.number(),
     endedAt: z.number(),
     bytes: z.number().int().nonnegative(),

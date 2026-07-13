@@ -1,4 +1,5 @@
 export * from "./activity-hist.ts";
+export * from "./analytics-privacy.ts";
 export * from "./constants.ts";
 export * from "./insights.ts";
 export * from "./logger.ts";

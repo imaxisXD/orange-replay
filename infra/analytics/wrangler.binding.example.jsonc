@@ -1,0 +1,13 @@
+{
+  "pipelines": [
+    {
+      "binding": "ANALYTICS_STREAM",
+      "stream": "REPLACE_WITH_PIPELINE_STREAM_ID",
+    },
+  ],
+  "vars": {
+    "ANALYTICS_READ_BACKEND": "compare",
+    "R2_SQL_ACCOUNT_ID": "REPLACE_WITH_CLOUDFLARE_ACCOUNT_ID",
+    "R2_SQL_BUCKET": "orange-replay-analytics-prod",
+  },
+}

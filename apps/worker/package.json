@@ -6,8 +6,8 @@
   "scripts": {
     "build:deploy": "cd ../.. && node scripts/build-deploy.mjs",
     "dev": "wrangler dev",
-    "deploy:prod": "cd ../.. && node scripts/check-prod-secret.mjs && node scripts/build-deploy.mjs && node scripts/apply-d1-migrations.mjs orange-replay-idx-00-prod --env production --env-file apps/worker/wrangler.production.env --remote && vp exec --filter @orange-replay/worker -- wrangler deploy --env production --env-file wrangler.production.env --minify && node scripts/smoke-prod-api.mjs",
-    "deploy:prod:dry-run": "cd ../.. && node scripts/build-deploy.mjs && vp exec --filter @orange-replay/worker -- wrangler deploy --env production --env-file wrangler.production.env --dry-run --outdir dist/prod-dry-run",
+    "deploy:prod": "cd ../.. && vp run deploy:prod",
+    "deploy:prod:dry-run": "cd ../.. && vp run deploy:prod:dry-run",
     "test": "vp test",
     "check": "vp check",
     "build": "wrangler deploy --dry-run --outdir dist"

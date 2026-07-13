@@ -83,7 +83,7 @@ async function routeRequest(
     const authError = projectAuthError(auth, projectId, "sessions_list");
     if (authError !== null) return authError;
     wideEvent.set({ project_id: projectId });
-    return listSessions(url, env, projectId, auth.mode);
+    return listSessions(url, env, projectId, auth.mode, requestId, wideEvent, ctx);
   }
 
   const statsMatch = /^\/api\/v1\/projects\/([^/]+)\/stats$/.exec(url.pathname);
@@ -178,7 +178,7 @@ async function routeRequest(
       session_id: ids.sessionId,
       cache_hit: false,
     });
-    return getSegment(request, env, ctx, ids.projectId, ids.sessionId, name, wideEvent);
+    return getSegment(env, ids.projectId, ids.sessionId, name);
   }
 
   if (auth.mode === "demo") return jsonError("unauthorized", 401);

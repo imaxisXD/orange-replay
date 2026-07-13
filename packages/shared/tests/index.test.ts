@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   MAX_INDEX_JSON_BYTES,
+  MAX_ANALYTICS_DATE_RANGE_MS,
   batchIndexSchema,
   buildSegment,
   configKvKey,
@@ -19,6 +20,7 @@ import {
   segmentKey,
   sessionPrefix,
   uuidv7,
+  withDefaultAnalyticsDateRange,
   finalizeMessageSchema,
   sessionManifestSchema,
   setWideEventVersion,
@@ -350,6 +352,40 @@ describe("schemas", () => {
 });
 
 describe("session filters", () => {
+  it("adds a stable 24-hour range when either date is missing", () => {
+    expect(withDefaultAnalyticsDateRange({ country: "US" }, 100_001_000)).toEqual({
+      country: "US",
+      from: 13_560_000,
+      to: 99_960_000,
+    });
+    expect(withDefaultAnalyticsDateRange({ from: 1_000, country: "US" }, 100_001_000)).toEqual({
+      from: 1_000,
+      to: 86_401_000,
+      country: "US",
+    });
+    expect(withDefaultAnalyticsDateRange({ to: 100_000_000, country: "US" }, 1)).toEqual({
+      from: 13_600_000,
+      to: 100_000_000,
+      country: "US",
+    });
+  });
+
+  it("rejects an analytics date range longer than 31 days", () => {
+    expect(
+      parseSessionFilterQuery(
+        new URLSearchParams(`from=0&to=${String(MAX_ANALYTICS_DATE_RANGE_MS + 1)}`),
+      ),
+    ).toEqual({ ok: false, error: "invalid_to" });
+    expect(
+      parseSessionFilterQuery(
+        new URLSearchParams(`from=0&to=${String(MAX_ANALYTICS_DATE_RANGE_MS)}`),
+      ),
+    ).toEqual({
+      ok: true,
+      filter: { from: 0, to: MAX_ANALYTICS_DATE_RANGE_MS },
+    });
+  });
+
   it("parses and encodes one canonical shared filter", () => {
     const parsed = parseSessionFilterQuery(
       new URLSearchParams(

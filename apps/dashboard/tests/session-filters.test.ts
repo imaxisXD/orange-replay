@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   canonicalSessionFilter,
   dateRangeFilter,
+  dateRangeSnapshotFilter,
   selectedDateRange,
   validateSessionSearch,
   withDefaultDateRange,
@@ -57,6 +58,18 @@ describe("dashboard session filters", () => {
     expect(sevenDays).toEqual({ country: "US", from: 95_160_000, to: 699_960_000 });
     expect(selectedDateRange(sevenDays)).toBe("7d");
     expect(withDefaultDateRange({}, 100_001_000)).toEqual(withDefaultDateRange({}, 100_019_999));
+  });
+
+  it("keeps only the date range and warehouse snapshot for supporting stats", () => {
+    expect(
+      dateRangeSnapshotFilter({
+        from: 1_000,
+        to: 2_000,
+        country: "US",
+        has_errors: true,
+        warehouse_version: 12,
+      }),
+    ).toEqual({ from: 1_000, to: 2_000, warehouse_version: 12 });
   });
 
   it("drops only invalid URL search keys", () => {

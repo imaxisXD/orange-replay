@@ -183,6 +183,8 @@ export interface FinalizeMessage {
   shard: number;
   requestId: string;
   manifestKey: string;
+  /** Immutable scrubbed events; never contains replay payload bytes. */
+  analyticsSidecarKey?: string;
   startedAt: number;
   endedAt: number;
   bytes: number;

@@ -52,6 +52,11 @@ export function manifestKey(projectId: string, sessionId: string): string {
   return `${sessionPrefix(projectId, sessionId)}/manifest.json`;
 }
 
+/** Immutable scrubbed sidecar used only to retry analytics exports. */
+export function analyticsSidecarKey(projectId: string, sessionId: string): string {
+  return `${sessionPrefix(projectId, sessionId)}/analytics.ndjson`;
+}
+
 export function configKvKey(keyHash: string): string {
   return `k:${keyHash}`;
 }

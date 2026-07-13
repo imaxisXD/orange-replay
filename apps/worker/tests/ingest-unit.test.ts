@@ -18,6 +18,7 @@ import {
 } from "../src/ingest/helpers.ts";
 import { handleIngest } from "../src/ingest/handler.ts";
 import { ingestAckForAppendResult } from "../src/ingest/response.ts";
+import { analyticsSidecarLines } from "../src/do/session-analytics-sidecar.ts";
 import type { Env } from "../src/env.ts";
 
 const validWriteKey = testWriteKey("unit");
@@ -384,6 +385,64 @@ describe("ingest sidecar event sanitizing", () => {
     const [firstKey, firstValue] = Object.entries(firstMeta ?? {})[0] ?? ["", ""];
     expect(firstKey.length).toBeLessThanOrEqual(200);
     expect(String(firstValue).length).toBeLessThanOrEqual(200);
+  });
+
+  it("strips URL queries and fragments before D1 or R2 sidecars can store them", () => {
+    const secret = "secret-token-123";
+    const index = {
+      v: 1,
+      s: "session_12345678",
+      tab: "tab_1",
+      seq: 0,
+      t0: 1,
+      t1: 4,
+      u: `https://shop.example/checkout?token=${secret}#payment`,
+      e: [
+        { t: 2, k: "nav", d: `/account?access_token=${secret}#security` },
+        {
+          t: 3,
+          k: "vital",
+          d: "navigation",
+          m: {
+            url: `https://shop.example/orders?session=${secret}#latest`,
+            href: `/orders/1?key=${secret}#receipt`,
+            referrer: `https://search.example/results?q=shoes&token=${secret}#result`,
+            page_url: `/checkout?token=${secret}#payment`,
+            redirect_uri: `https://shop.example/complete?code=${secret}`,
+            URL: `https://shop.example/account?session=${secret}`,
+            Href: `/account/1?key=${secret}#private`,
+            destination: `https://shop.example/profile?access_token=${secret}`,
+          },
+        },
+      ],
+    } satisfies BatchIndex;
+
+    const sanitized = sanitizeBatchIndexEvents(index).index;
+    expect(sanitized.u).toBe("/checkout");
+    expect(sanitized.e).toEqual([
+      { t: 2, k: "nav", d: "/account" },
+      {
+        t: 3,
+        k: "vital",
+        d: "navigation",
+        m: {
+          url: "/orders",
+          href: "/orders/1",
+          referrer: "/results",
+          page_url: "/checkout",
+          redirect_uri: "/complete",
+          URL: "/account",
+          Href: "/account/1",
+          destination: "/profile",
+        },
+      },
+    ]);
+
+    const storedEvents = JSON.stringify(sanitized.e);
+    const sidecar = [...analyticsSidecarLines([{ events: storedEvents }])].join("");
+    expect(storedEvents).not.toContain(secret);
+    expect(sidecar).not.toContain(secret);
+    expect(sidecar).not.toContain("access_token");
   });
 });
 

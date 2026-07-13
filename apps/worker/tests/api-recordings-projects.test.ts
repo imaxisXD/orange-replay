@@ -36,7 +36,7 @@ describe("dashboard api", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("application/json");
-    expect(res.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
+    expect(res.headers.get("cache-control")).toBe("private, max-age=300, must-revalidate");
     expect(res.headers.get("vary")).toBe("Authorization");
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
     expect(res.headers.get("referrer-policy")).toBe("no-referrer");
@@ -51,7 +51,7 @@ describe("dashboard api", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("application/octet-stream");
-    expect(res.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+    expect(res.headers.get("cache-control")).toBe("private, max-age=300, must-revalidate");
     expect(res.headers.get("vary")).toBe("Authorization");
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
     expect(res.headers.get("referrer-policy")).toBe("no-referrer");

@@ -1,3 +1,4 @@
+import { cleanAnalyticsMetadataString } from "@orange-replay/shared";
 import type { IndexEvent } from "@orange-replay/shared/types";
 import { isSdkInternalError } from "./internal-error.ts";
 import type { Sink } from "./sink.ts";
@@ -387,7 +388,10 @@ function cleanCustomMeta(meta: Record<string, unknown> | undefined): CleanMeta {
 
     let cleanValue: string | number | undefined;
     if (typeof value === "string") {
-      cleanValue = truncateDetail(value);
+      const privateValue = cleanAnalyticsMetadataString(cleanKey, value);
+      if (privateValue !== null) {
+        cleanValue = truncateDetail(privateValue);
+      }
     } else if (typeof value === "number" && Number.isFinite(value)) {
       cleanValue = value;
     }

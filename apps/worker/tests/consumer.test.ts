@@ -28,6 +28,7 @@ interface ConsumerSessionBody {
   session: Record<string, unknown> | null;
   events: Record<string, unknown>[];
   usage: Record<string, unknown>[];
+  outbox: Record<string, unknown>[];
 }
 
 describe("consumer queue and sweeper", () => {
@@ -55,6 +56,7 @@ describe("consumer queue and sweeper", () => {
     expect(body.events).toHaveLength(2);
     expect(body.events[0]?.["kind"]).toBe("error");
     expect(String(body.events[0]?.["detail"])).toHaveLength(200);
+    expect(body.outbox).toEqual([]);
     expect(body.usage).toEqual([
       {
         org_id: message.orgId,
@@ -92,7 +94,55 @@ describe("consumer queue and sweeper", () => {
     expect(body.usage[0]?.["sessions"]).toBe(1);
     expect(body.usage[0]?.["bytes"]).toBe(message.bytes);
     expect(body.events).toHaveLength(2);
+    expect(body.outbox).toEqual([]);
   }, 30_000);
+
+  it("indexes 200 sparse events without crossing D1's parameter limit", async () => {
+    const message = makeFinalizeMessage("many-events");
+    message.events = Array.from({ length: 200 }, (_, index) => ({
+      t: message.startedAt + index + 1,
+      k: index % 2 === 0 ? ("error" as const) : ("custom" as const),
+      d: `event-${String(index)}`,
+    }));
+    message.counts.events = 200;
+    message.counts.errors = 100;
+
+    const response = await worker.fetch("/__test/consumer/index-now", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ inserted: true, eventsWritten: 200 });
+
+    const body = await readSession(message.sessionId, message.projectId);
+    expect(body.events).toHaveLength(200);
+  });
+
+  it("exports only an exact null jurisdiction into the default catalog", async () => {
+    const defaultProject = makeFinalizeMessage("default-residency");
+    const euProject = makeFinalizeMessage("eu-residency");
+    const emptyProject = makeFinalizeMessage("empty-residency");
+    const unknownProject = makeFinalizeMessage("unknown-residency");
+    await seedProject(defaultProject.projectId, null);
+    await seedProject(euProject.projectId, "eu");
+    await seedProject(emptyProject.projectId, "");
+    await seedProject(unknownProject.projectId, "unknown");
+
+    await indexWithWarehouse(defaultProject);
+    await indexWithWarehouse(euProject);
+    await indexWithWarehouse(emptyProject);
+    await indexWithWarehouse(unknownProject);
+
+    expect(
+      (await readSession(defaultProject.sessionId, defaultProject.projectId)).outbox,
+    ).toHaveLength(3);
+    expect((await readSession(euProject.sessionId, euProject.projectId)).outbox).toEqual([]);
+    expect((await readSession(emptyProject.sessionId, emptyProject.projectId)).outbox).toEqual([]);
+    expect((await readSession(unknownProject.sessionId, unknownProject.projectId)).outbox).toEqual(
+      [],
+    );
+  });
 
   it("keeps the same session id separate across projects", async () => {
     const sharedSessionId = `shared-${Date.now()}`;
@@ -125,6 +175,7 @@ describe("consumer queue and sweeper", () => {
     const usage = await readUsage(message.orgId);
     expect(body.session).toBeNull();
     expect(body.events).toEqual([]);
+    expect(body.outbox).toEqual([]);
     expect(usage).toEqual([]);
   });
 
@@ -174,6 +225,26 @@ describe("consumer queue and sweeper", () => {
     expect(liveBody.events).toHaveLength(1);
     await expectR2Object(liveKey, true);
   });
+
+  it("sweeps more than one safe D1 delete chunk", async () => {
+    const expiresAt = Date.now() - 60_000;
+    const expired = Array.from({ length: 51 }, (_, index) =>
+      makeSessionRow(`chunk-${index}-${Date.now()}`, expiresAt),
+    );
+
+    for (const session of expired) {
+      await seedSession(session, [], []);
+    }
+
+    const sweep = await worker.fetch("/__test/consumer/sweep", { method: "POST" });
+    expect(sweep.status).toBe(200);
+
+    for (const index of [0, 30, 50]) {
+      const session = expired[index];
+      if (session === undefined) throw new Error("expired test session was not prepared");
+      expect((await readSession(String(session["session_id"]))).session).toBeNull();
+    }
+  }, 60_000);
 
   it("keeps retry state when a session delete fails after object cleanup", async () => {
     const now = Date.now();
@@ -331,6 +402,24 @@ async function seedSession(
     body: JSON.stringify({ session, r2Keys, events }),
   });
   expect(res.status).toBe(200);
+}
+
+async function seedProject(projectId: string, jurisdiction: string | null): Promise<void> {
+  const response = await worker.fetch("/__test/consumer/seed-project", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ projectId, jurisdiction }),
+  });
+  expect(response.status).toBe(200);
+}
+
+async function indexWithWarehouse(message: FinalizeMessage): Promise<void> {
+  const response = await worker.fetch("/__test/consumer/index-now?warehouse=1", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ message }),
+  });
+  expect(response.status).toBe(200);
 }
 
 async function waitForSession(sessionId: string, projectId?: string): Promise<ConsumerSessionBody> {

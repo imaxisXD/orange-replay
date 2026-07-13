@@ -215,6 +215,14 @@ export function buildSessionWhere(
   ];
   const bindings: SessionQueryValue[] = [projectId];
 
+  if (filter.warehouse_version !== undefined) {
+    whereClauses.push(
+      `(EXISTS (SELECT 1 FROM analytics_export_outbox a WHERE a.project_id = ${tableAlias}.project_id AND a.session_id = ${tableAlias}.session_id AND a.record_kind = ? AND a.export_sequence <= ?)
+        OR EXISTS (SELECT 1 FROM analytics_export_ledger l WHERE l.project_id = ${tableAlias}.project_id AND l.session_id = ${tableAlias}.session_id AND l.record_kind = ? AND l.export_sequence <= ?))`,
+    );
+    bindings.push("session", filter.warehouse_version, "session", filter.warehouse_version);
+  }
+
   if (before !== undefined) {
     const sortConfig = sessionSortSql[before.sort];
     const sortColumn =

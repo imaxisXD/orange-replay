@@ -7,6 +7,7 @@ import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { buildNewProjectAnalyticsReceiptSql } from "./analytics/project-bootstrap.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const prodEnv = "production";
@@ -55,6 +56,11 @@ const statements = [
   )}, NULL, 2, 1, ${sqlString(JSON.stringify(allowedOrigins))}, 1, '[]', ${sqlString(
     JSON.stringify(config.capture),
   )}, 'ok', 1, ${now})`,
+  buildNewProjectAnalyticsReceiptSql({
+    projectId: options.projectId,
+    createdAt: now,
+    reportId: "new-project-bootstrap:demo-script",
+  }),
   `INSERT INTO keys (key_hash, project_id, active, created_at) VALUES (${sqlString(
     keyHash,
   )}, ${sqlString(options.projectId)}, 1, ${now})`,

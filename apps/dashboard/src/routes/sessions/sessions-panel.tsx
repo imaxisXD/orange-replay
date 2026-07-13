@@ -1,13 +1,24 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
+import { AnalyticsStaleAlert } from "@/components/analytics-stale-alert";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ApiError, fetchProjectStats, listSessions, type SessionListItem } from "@/lib/api";
 import { filterChips, removeFilterKey } from "@/lib/filter-chips";
 import { AlertCircle, ArrowLeft } from "@/lib/icon-map";
-import { appendUniqueSessions, canLoadMore } from "@/lib/session-list";
-import { canonicalSessionFilter } from "@/lib/session-filters";
+import {
+  appendUniqueSessions,
+  canLoadMore,
+  hasStaleAnalytics,
+  nextSessionPageParam,
+  type SessionPageParam,
+} from "@/lib/session-list";
+import {
+  canonicalSessionFilter,
+  dateRangeSnapshotFilter,
+  withDefaultDateRange,
+} from "@/lib/session-filters";
 import {
   sessionFilterOf,
   type SessionSort,
@@ -24,7 +35,10 @@ const pageSize = 25;
 
 export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectId: string }) {
   const view = useSearch({ strict: false }) as SessionsViewSearch;
-  const filter = sessionFilterOf(view);
+  const [initialNow] = useState(() => Date.now());
+  const searchFilter = sessionFilterOf(view);
+  const filter = withDefaultDateRange(searchFilter, initialNow);
+  const countryStatsFilter = dateRangeSnapshotFilter(filter);
   const sort: SessionSort = view.sort ?? "newest";
   const selected = view.selected;
   const navigate = useNavigate();
@@ -36,7 +50,7 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
   } | null>(null);
   const watched = watchedSessionIds(projectId);
 
-  const chips = filterChips(filter);
+  const chips = filterChips(searchFilter);
 
   function navigateView(nextView: SessionsViewSearch, options: { push?: boolean } = {}): void {
     const replace = options.push !== true;
@@ -57,7 +71,17 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
   }
 
   function replaceFilter(nextFilter: SessionsViewSearch): void {
-    navigateView({ ...nextFilter, selected, sort: view.sort });
+    const nextSearchFilter = { ...nextFilter };
+    if (
+      searchFilter.from === undefined &&
+      searchFilter.to === undefined &&
+      nextSearchFilter.from === filter.from &&
+      nextSearchFilter.to === filter.to
+    ) {
+      nextSearchFilter.from = undefined;
+      nextSearchFilter.to = undefined;
+    }
+    navigateView({ ...nextSearchFilter, selected, sort: view.sort });
   }
 
   function selectSession(session: SessionListItem): void {
@@ -82,32 +106,41 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
       canonicalSessionFilter(filter),
       sort,
     ],
-    initialPageParam: null as string | null,
+    initialPageParam: { before: null } satisfies SessionPageParam,
     queryFn: ({ pageParam, signal }) =>
       listSessions(
         projectId,
         {
           ...filter,
           sort,
-          before: pageParam,
+          before: pageParam.before,
           limit: pageSize,
+          warehouse_version: pageParam.warehouseVersion ?? filter.warehouse_version,
         },
         { signal },
       ),
-    getNextPageParam: (lastPage) => lastPage.nextBefore,
+    getNextPageParam: nextSessionPageParam,
   });
 
   const countriesQuery = useQuery({
-    queryKey: ["stats-countries", isDemo ? "demo" : "private", projectId],
-    queryFn: ({ signal }) => fetchProjectStats(projectId, {}, { signal }),
+    queryKey: [
+      "stats-countries",
+      isDemo ? "demo" : "private",
+      projectId,
+      canonicalSessionFilter(countryStatsFilter),
+    ],
+    queryFn: ({ signal }) => fetchProjectStats(projectId, countryStatsFilter, { signal }),
     staleTime: 60_000,
   });
   const countries = countriesQuery.data?.breakdowns.country ?? [];
 
-  const sessions = (sessionsQuery.data?.pages ?? []).reduce<SessionListItem[]>(
+  const sessionPages = sessionsQuery.data?.pages ?? [];
+  const sessions = sessionPages.reduce<SessionListItem[]>(
     (currentSessions, page) => appendUniqueSessions(currentSessions, page.sessions),
     [],
   );
+  const analyticsAreStale =
+    hasStaleAnalytics(sessionPages) || countriesQuery.data?.analyticsState === "stale";
   // Unwatched-only is a client-side lens (watched state lives in localStorage);
   // the selected session always stays visible so it does not vanish when
   // playback starts and marks it watched.
@@ -201,6 +234,8 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
         onClear={() => replaceFilter({})}
         onRemove={(key) => replaceFilter(removeFilterKey(filter, key))}
       />
+
+      {analyticsAreStale && <AnalyticsStaleAlert />}
 
       {recentlyWatched !== null && (
         <div

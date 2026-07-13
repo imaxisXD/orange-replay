@@ -152,6 +152,33 @@ describe("Sidecar privacy scrubbing", () => {
     );
     expect(returnedMeta).toEqual(cleanMeta);
   });
+
+  it("removes secrets from URL-like custom metadata before sending", () => {
+    const addIndexEvent = vi.fn<(event: IndexEvent) => void>();
+    const sidecar = new Sidecar({ config, sink: makeSink(addIndexEvent), now: () => 1, window });
+    const secret = "secret-token-123";
+
+    const returnedMeta = sidecar.addCustomEvent("checkout", {
+      referrer: `https://search.example/results?q=shoes&token=${secret}#result`,
+      page_url: `/checkout?token=${secret}#payment`,
+      redirectUri: `https://shop.example/complete?code=${secret}`,
+      URL: `https://shop.example/orders?session=${secret}`,
+      Href: `/orders/1?key=${secret}#receipt`,
+      destination: `https://shop.example/account?access_token=${secret}`,
+      label: "buy now",
+    });
+
+    expect(returnedMeta).toEqual({
+      referrer: "/results",
+      page_url: "/checkout",
+      redirectUri: "/complete",
+      URL: "/orders",
+      Href: "/orders/1",
+      destination: "/account",
+      label: "buy now",
+    });
+    expect(JSON.stringify(addIndexEvent.mock.calls)).not.toContain(secret);
+  });
 });
 
 function makeSink(addIndexEvent: (event: IndexEvent) => void): Sink {
