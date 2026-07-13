@@ -13,6 +13,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select";
 import { clearApiToken } from "@/lib/api";
+import { getDashboardEnvironmentLabel } from "@/lib/dashboard-environment";
 import { ArrowUpRight } from "@/lib/icon-map";
 import { dashboardNavItems, type DashboardNavItem } from "@/lib/dashboard-navigation";
 import { useDashboardWorkspace } from "@/lib/dashboard-workspace";
@@ -20,6 +21,10 @@ import { cn } from "@/lib/utils";
 
 export function AppShell({ children }: { children?: ReactNode }) {
   const { projectId, isDemo } = useDashboardWorkspace();
+  const environmentLabel = getDashboardEnvironmentLabel(
+    isDemo,
+    import.meta.env.VITE_DASHBOARD_ENVIRONMENT,
+  );
   const navigate = useNavigate();
   const projectOptions = [{ id: projectId, label: `Project ${projectId}` }];
   const pathname = useRouterState({ select: (state) => state.location.pathname });
@@ -80,7 +85,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
             </Select>
 
             <Badge color="amber" size="sm">
-              {isDemo ? "Demo" : "Local dev"}
+              {environmentLabel}
             </Badge>
 
             <div className="ml-auto flex items-center gap-4">

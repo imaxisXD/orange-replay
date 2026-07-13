@@ -298,6 +298,9 @@ describe("analytics production deploy safety", () => {
       "utf8",
     );
     const packageJson = JSON.parse(await readFile(path.join(repoRoot, "package.json"), "utf8"));
+    const workerPackageJson = JSON.parse(
+      await readFile(path.join(repoRoot, "apps", "worker", "package.json"), "utf8"),
+    );
 
     expect(workerConfig).toContain(
       '"ANALYTICS_READ_BACKEND": "REPLACE_WITH_PRODUCTION_ANALYTICS_READ_BACKEND"',
@@ -310,10 +313,15 @@ describe("analytics production deploy safety", () => {
     expect(packageJson.scripts["deploy:cloudflare-build"]).toBe(
       "node scripts/deploy-production.mjs --cloudflare-build",
     );
+    expect(packageJson.scripts["build:deploy"]).toBe("node scripts/build-deploy.mjs --production");
+    expect(workerPackageJson.scripts["build:deploy"]).toBe(
+      "cd ../.. && node scripts/build-deploy.mjs --production",
+    );
     expect(deployer).toContain('"--keep-vars"');
     expect(deployer).toContain('"--strict"');
     expect(deployer).toContain('"--secrets-file"');
     expect(packageJson.scripts["deploy:prod:dry-run"]).toContain("--keep-vars");
+    expect(packageJson.scripts["deploy:prod:dry-run"]).toContain("build-deploy.mjs --production");
     expect(packageJson.scripts["deploy:prod"]).not.toContain(
       "ORANGE_REPLAY_PROD_ANALYTICS_READ_BACKEND=",
     );
@@ -343,6 +351,12 @@ describe("analytics production deploy safety", () => {
       expect(fallbackIndex).toBeGreaterThan(gateIndex);
       expect(deployIndex).toBeGreaterThan(gateIndex);
       expect(deployIndex).toBeGreaterThan(fallbackIndex);
+      const buildStep = steps.find((step) => step.kind === "build");
+      if (cloudflareBuild) {
+        expect(buildStep).toBeUndefined();
+      } else {
+        expect(buildStep?.args).toEqual(["scripts/build-deploy.mjs", "--production"]);
+      }
       expect(steps.some((step) => step.args.includes("scripts/smoke-analytics-prod.mjs"))).toBe(
         true,
       );

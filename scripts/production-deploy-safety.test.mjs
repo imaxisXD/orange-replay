@@ -292,6 +292,10 @@ ${secretBlock}      "vars": { "ANALYTICS_READ_BACKEND": "d1" }
       "smoke",
       "smoke",
     ]);
+    expect(steps.find((step) => step.kind === "build")?.args).toEqual([
+      "scripts/build-deploy.mjs",
+      "--production",
+    ]);
 
     for (const step of steps) {
       const childEnvironment = productionStepEnvironment(step, environment, "r2_sql");

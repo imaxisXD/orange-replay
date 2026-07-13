@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build:deploy": "cd ../.. && node scripts/build-deploy.mjs",
+    "build:deploy": "cd ../.. && node scripts/build-deploy.mjs --production",
     "dev": "wrangler dev",
     "deploy:prod": "cd ../.. && vp run deploy:prod",
     "deploy:prod:dry-run": "cd ../.. && vp run deploy:prod:dry-run",

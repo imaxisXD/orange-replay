@@ -31,8 +31,10 @@ const defaultProjectId = readDefaultProjectId(
   process.env["VITE_DEFAULT_PROJECT_ID"],
   allowedProjectIds,
 );
+const dashboardEnvironment = readDashboardEnvironment(process.argv.slice(2));
 const dashboardEnv = {
   ...process.env,
+  VITE_DASHBOARD_ENVIRONMENT: dashboardEnvironment,
   VITE_DEFAULT_PROJECT_ID: defaultProjectId,
 };
 
@@ -125,4 +127,10 @@ function readDefaultProjectId(value, allowedProjectIds) {
 
 function isProjectId(value) {
   return /^[A-Za-z0-9_-]{1,64}$/.test(value);
+}
+
+function readDashboardEnvironment(argumentsList) {
+  if (argumentsList.length === 0) return "local";
+  if (argumentsList.length === 1 && argumentsList[0] === "--production") return "production";
+  throw new Error("Usage: node scripts/build-deploy.mjs [--production]");
 }
