@@ -301,6 +301,9 @@ describe("analytics production deploy safety", () => {
     const workerPackageJson = JSON.parse(
       await readFile(path.join(repoRoot, "apps", "worker", "package.json"), "utf8"),
     );
+    const workerNodeVersion = (
+      await readFile(path.join(repoRoot, "apps", "worker", ".node-version"), "utf8")
+    ).trim();
 
     expect(workerConfig).toContain(
       '"ANALYTICS_READ_BACKEND": "REPLACE_WITH_PRODUCTION_ANALYTICS_READ_BACKEND"',
@@ -317,6 +320,7 @@ describe("analytics production deploy safety", () => {
     expect(workerPackageJson.scripts["build:deploy"]).toBe(
       "cd ../.. && node scripts/build-deploy.mjs --production",
     );
+    expect(workerNodeVersion).toBe("22.18.0");
     expect(deployer).toContain('"--keep-vars"');
     expect(deployer).toContain('"--strict"');
     expect(deployer).toContain('"--secrets-file"');
