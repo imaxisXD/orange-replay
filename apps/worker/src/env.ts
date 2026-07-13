@@ -12,6 +12,12 @@ export interface RateLimitBinding {
   limit(input: { key: string }): Promise<{ success: boolean }>;
 }
 
+export interface AnalyticsStreamBinding {
+  send(records: readonly Record<string, unknown>[]): Promise<void>;
+}
+
+export type AnalyticsReadBackend = "d1" | "compare" | "r2_sql";
+
 export interface Env {
   ASSETS?: Fetcher;
   SESSION: DurableObjectNamespace<SessionRecorder>;
@@ -20,6 +26,8 @@ export interface Env {
   CONFIG: KVNamespace;
   IDX_00: D1Database;
   FINALIZE_QUEUE: Queue<FinalizeMessage>;
+  /** Structured Cloudflare Pipelines stream. Optional for local/self-host compatibility. */
+  ANALYTICS_STREAM?: AnalyticsStreamBinding;
   INGEST_LOOKUP_RATE_LIMITER?: RateLimitBinding;
   INGEST_PROJECT_RATE_LIMITER?: RateLimitBinding;
   INGEST_SESSION_RATE_LIMITER?: RateLimitBinding;
@@ -27,6 +35,16 @@ export interface Env {
   CF_VERSION_METADATA?: WorkerVersionMetadata;
   /** Deployment environment name. Production disables all dev-only test gates. */
   WORKER_ENV?: string;
+  /** Explicit analytics reader. Hosted production must set compare or r2_sql after provisioning. */
+  ANALYTICS_READ_BACKEND?: AnalyticsReadBackend;
+  /** "1" keeps warehouse exports active even while reads temporarily use D1. */
+  ANALYTICS_EXPORT_ENABLED?: string;
+  /** Server-only R2 SQL REST token. */
+  R2_SQL_TOKEN?: string;
+  /** Bearer secret shared only with the scheduled physical-deletion runner. */
+  ANALYTICS_PURGE_RUNNER_TOKEN?: string;
+  R2_SQL_ACCOUNT_ID?: string;
+  R2_SQL_BUCKET?: string;
   /** Bearer token for dashboard API auth (v1). Set via local .env / Worker secret. */
   DEV_API_TOKEN?: string;
   /** Comma-separated project ids that DEV_API_TOKEN may access. */
@@ -65,6 +83,24 @@ export function isDevTestMode(env: Pick<Env, "DEV_TEST_ROUTES" | "WORKER_ENV">):
     env.DEV_TEST_ROUTES === "1" &&
     (workerEnv === "development" || workerEnv === "test" || workerEnv === "local")
   );
+}
+
+export function analyticsReadBackend(
+  env: Pick<Env, "ANALYTICS_READ_BACKEND">,
+): AnalyticsReadBackend {
+  if (
+    env.ANALYTICS_READ_BACKEND === "d1" ||
+    env.ANALYTICS_READ_BACKEND === "compare" ||
+    env.ANALYTICS_READ_BACKEND === "r2_sql"
+  )
+    return env.ANALYTICS_READ_BACKEND;
+  // Warehouse reads are an explicit cutover. A missing value must keep the
+  // exact D1 path instead of turning a fresh production deploy into 503s.
+  return "d1";
+}
+
+export function analyticsExportEnabled(env: Pick<Env, "ANALYTICS_EXPORT_ENABLED">): boolean {
+  return env.ANALYTICS_EXPORT_ENABLED === "1";
 }
 
 export function devTestRoutesFlag(

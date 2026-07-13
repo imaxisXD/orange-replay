@@ -308,6 +308,14 @@ describe("stats api decisions", () => {
     expect(new URL(first.url).search).toBe("?country=US&browser=Chrome");
   });
 
+  it("changes the stats cache after a verified deletion", () => {
+    const before = statsCacheRequest("project_1", { warehouse_version: 4 }, 4);
+    const after = statsCacheRequest("project_1", { warehouse_version: 4 }, 9);
+
+    expect(before.url).not.toBe(after.url);
+    expect(after.url).toContain("privacy_version=9");
+  });
+
   it("filters live presence without using finalized-session cache data", () => {
     const sessions = [
       {

@@ -1,0 +1,56 @@
+{
+  "fields": [
+    { "name": "schema_version", "type": "int32", "required": true },
+    { "name": "record_kind", "type": "string", "required": true },
+    { "name": "export_id", "type": "string", "required": true },
+    { "name": "export_sequence", "type": "int64", "required": true },
+    { "name": "project_id", "type": "string", "required": true },
+    { "name": "session_id", "type": "string", "required": true },
+    {
+      "name": "recorded_at",
+      "type": "timestamp",
+      "unit": "millisecond",
+      "required": true
+    },
+
+    { "name": "org_id", "type": "string", "required": false },
+    { "name": "started_at", "type": "int64", "required": false },
+    { "name": "ended_at", "type": "int64", "required": false },
+    { "name": "duration_ms", "type": "int64", "required": false },
+    { "name": "country", "type": "string", "required": false },
+    { "name": "region", "type": "string", "required": false },
+    { "name": "city", "type": "string", "required": false },
+    { "name": "device", "type": "string", "required": false },
+    { "name": "browser", "type": "string", "required": false },
+    { "name": "os", "type": "string", "required": false },
+    { "name": "entry_url", "type": "string", "required": false },
+    { "name": "url_count", "type": "int64", "required": false },
+    { "name": "page_count", "type": "int64", "required": false },
+    { "name": "analytics_version", "type": "int64", "required": false },
+    { "name": "max_scroll_depth", "type": "int64", "required": false },
+    { "name": "quick_backs", "type": "int64", "required": false },
+    { "name": "interaction_time_ms", "type": "int64", "required": false },
+    { "name": "activity_hist", "type": "string", "required": false },
+    { "name": "clicks", "type": "int64", "required": false },
+    { "name": "errors", "type": "int64", "required": false },
+    { "name": "rages", "type": "int64", "required": false },
+    { "name": "navs", "type": "int64", "required": false },
+    { "name": "bytes", "type": "int64", "required": false },
+    { "name": "segment_count", "type": "int64", "required": false },
+    { "name": "flags", "type": "int64", "required": false },
+    { "name": "manifest_key", "type": "string", "required": false },
+    { "name": "analytics_sidecar_key", "type": "string", "required": false },
+    { "name": "expires_at", "type": "int64", "required": false },
+    { "name": "event_coverage", "type": "string", "required": false },
+    { "name": "event_count", "type": "int64", "required": false },
+
+    { "name": "event_index", "type": "int32", "required": false },
+    { "name": "event_time", "type": "int64", "required": false },
+    { "name": "event_kind", "type": "string", "required": false },
+    { "name": "event_detail", "type": "string", "required": false },
+    { "name": "event_meta_json", "type": "string", "required": false },
+
+    { "name": "deleted_at", "type": "int64", "required": false },
+    { "name": "delete_reason", "type": "string", "required": false }
+  ]
+}

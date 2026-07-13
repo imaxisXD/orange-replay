@@ -1,4 +1,9 @@
-import type { SessionListItem } from "@/lib/api";
+import type { ListSessionsResponse, SessionListItem } from "@/lib/api";
+
+export interface SessionPageParam {
+  before: string | null;
+  warehouseVersion?: number;
+}
 
 export function appendUniqueSessions(
   currentSessions: SessionListItem[],
@@ -18,4 +23,21 @@ export function appendUniqueSessions(
 
 export function canLoadMore(nextBefore: string | null): boolean {
   return nextBefore !== null && nextBefore.length > 0;
+}
+
+export function nextSessionPageParam(
+  lastPage: ListSessionsResponse,
+  pages: ListSessionsResponse[],
+): SessionPageParam | undefined {
+  if (!canLoadMore(lastPage.nextBefore)) return undefined;
+
+  const warehouseVersion = pages[0]?.warehouseVersion;
+  return {
+    before: lastPage.nextBefore,
+    ...(warehouseVersion === undefined ? {} : { warehouseVersion }),
+  };
+}
+
+export function hasStaleAnalytics(pages: ListSessionsResponse[]): boolean {
+  return pages.some((page) => page.analyticsState === "stale");
 }

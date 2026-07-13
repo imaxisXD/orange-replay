@@ -1,4 +1,4 @@
-import { desc } from "drizzle-orm";
+import { desc, sql } from "drizzle-orm";
 import { index, integer, primaryKey, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 export const orgs = sqliteTable("orgs", {
@@ -173,3 +173,110 @@ export const sessionDeletions = sqliteTable(
   },
   (table) => [primaryKey({ columns: [table.projectId, table.sessionId] })],
 );
+
+export const analyticsExportOutbox = sqliteTable(
+  "analytics_export_outbox",
+  {
+    exportSequence: integer("export_sequence").primaryKey({ autoIncrement: true }),
+    exportId: text("export_id").notNull().unique(),
+    projectId: text("project_id").notNull(),
+    sessionId: text("session_id").notNull(),
+    recordKind: text("record_kind").notNull(),
+    payloadJson: text("payload_json").notNull(),
+    createdAt: integer("created_at").notNull(),
+    sentAt: integer("sent_at"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    lastError: text("last_error"),
+    quarantinedAt: integer("quarantined_at"),
+    quarantineReason: text("quarantine_reason"),
+    sidecarEventOffset: integer("sidecar_event_offset").notNull().default(0),
+  },
+  (table) => [
+    index("idx_analytics_export_outbox_pending")
+      .on(table.exportSequence)
+      .where(sql`${table.sentAt} IS NULL AND ${table.quarantinedAt} IS NULL`),
+    index("idx_analytics_export_outbox_project_sequence").on(table.projectId, table.exportSequence),
+    index("idx_analytics_export_outbox_session_sequence").on(
+      table.projectId,
+      table.sessionId,
+      table.recordKind,
+      table.exportSequence,
+    ),
+  ],
+);
+
+export const analyticsExportLedger = sqliteTable(
+  "analytics_export_ledger",
+  {
+    exportId: text("export_id").primaryKey(),
+    exportSequence: integer("export_sequence").notNull().unique(),
+    projectId: text("project_id").notNull(),
+    sessionId: text("session_id").notNull(),
+    recordKind: text("record_kind").notNull(),
+    sentAt: integer("sent_at").notNull(),
+    firstSeenVerifiedAt: integer("first_seen_verified_at").notNull(),
+  },
+  (table) => [
+    index("idx_analytics_export_ledger_session_sequence").on(
+      table.projectId,
+      table.sessionId,
+      table.recordKind,
+      table.exportSequence,
+    ),
+  ],
+);
+
+export const analyticsWarehouseState = sqliteTable("analytics_warehouse_state", {
+  projectId: text("project_id").primaryKey(),
+  verifiedSequence: integer("verified_sequence").notNull().default(0),
+  verifiedAt: integer("verified_at"),
+  lastAttemptAt: integer("last_attempt_at"),
+  lastError: text("last_error"),
+});
+
+export const analyticsExportLease = sqliteTable("analytics_export_lease", {
+  shard: integer("shard").primaryKey(),
+  ownerId: text("owner_id").notNull(),
+  acquiredAt: integer("acquired_at").notNull(),
+  expiresAt: integer("expires_at").notNull(),
+  sendAvailableAt: integer("send_available_at").notNull().default(0),
+});
+
+export const analyticsDeletionJobs = sqliteTable(
+  "analytics_deletion_jobs",
+  {
+    projectId: text("project_id").notNull(),
+    sessionId: text("session_id").notNull(),
+    requestedAt: integer("requested_at").notNull(),
+    deleteReason: text("delete_reason").notNull(),
+    requiresWarehouseTombstone: integer("requires_warehouse_tombstone", {
+      mode: "boolean",
+    })
+      .notNull()
+      .default(true),
+    deletionExportSequence: integer("deletion_export_sequence"),
+    purgeAttempts: integer("purge_attempts").notNull().default(0),
+    purgeLastAttemptAt: integer("purge_last_attempt_at"),
+    purgeLastError: text("purge_last_error"),
+    firstZeroAt: integer("first_zero_at"),
+    completedAt: integer("completed_at"),
+    leaseOwner: text("lease_owner"),
+    leaseExpiresAt: integer("lease_expires_at"),
+    alertedAt: integer("alerted_at"),
+  },
+  (table) => [
+    primaryKey({ columns: [table.projectId, table.sessionId] }),
+    index("idx_analytics_deletion_jobs_pending")
+      .on(table.requestedAt, table.projectId, table.sessionId)
+      .where(sql`${table.completedAt} IS NULL`),
+  ],
+);
+
+export const analyticsBackfillCompletions = sqliteTable("analytics_backfill_completions", {
+  projectId: text("project_id").primaryKey(),
+  sourceSessionCount: integer("source_session_count").notNull(),
+  sourceCutoffMs: integer("source_cutoff_ms").notNull(),
+  requiredSequence: integer("required_sequence").notNull(),
+  reportId: text("report_id").notNull(),
+  completedAt: integer("completed_at").notNull(),
+});

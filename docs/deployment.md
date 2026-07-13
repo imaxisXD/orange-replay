@@ -46,11 +46,11 @@ export ORANGE_REPLAY_PROD_WORKER_URL="https://replay.example.com"
 
 Use long random secrets, at least 32 characters. `ORANGE_REPLAY_PROD_API_PROJECT_IDS` is a comma-separated allowlist for the projects that token may access. The deploy script validates those values and uploads `DEV_API_TOKEN`, `DEV_API_PROJECT_IDS`, and `LIVE_TICKET_SECRET` as Worker secrets before deploy.
 
-The dashboard build uses the first `ORANGE_REPLAY_PROD_API_PROJECT_IDS` value as its default project route. Set `VITE_DEFAULT_PROJECT_ID` before `vp run deploy:prod` only if you need the dashboard to open a different allowed project first. The value must also be listed in `ORANGE_REPLAY_PROD_API_PROJECT_IDS`.
+The dashboard build uses the first `ORANGE_REPLAY_PROD_API_PROJECT_IDS` value as its default project route. Set `VITE_DEFAULT_PROJECT_ID` before the chosen production deploy command only if you need the dashboard to open a different allowed project first. The value must also be listed in `ORANGE_REPLAY_PROD_API_PROJECT_IDS`.
 
 Generated production values are stored locally in `apps/worker/.env.production`. That file is ignored by git.
 
-Do not put production tokens, live ticket secrets, SDK write keys, or Cloudflare API tokens in `wrangler.jsonc`, package scripts, build commands, docs, or dashboard source. `pnpm deploy:prod` validates and uploads the production dashboard secrets before deploying, then calls a protected API route with the same token. The SDK write key is kept only in the ignored local env file.
+Do not put production tokens, live ticket secrets, SDK write keys, or Cloudflare API tokens in `wrangler.jsonc`, package scripts, build commands, docs, or dashboard source. The production deploy commands validate and upload the production dashboard and analytics secrets before deploying, then call protected API routes with the same dashboard token. The SDK write key is kept only in the ignored local env file.
 
 The SDK write key is still public once it is installed on a website. Treat it like a project-scoped browser credential, not like the dashboard bearer token. Exact allowed origins are a browser/CORS guard only; keep the committed ingest rate limiters, quota state, payload caps, and session caps enabled because non-browser clients can set any Origin header. Sampling is an honest-client optimization, not an abuse control.
 
@@ -68,11 +68,12 @@ By default, the script creates the first project id from `ORANGE_REPLAY_PROD_API
 ## 5. Build And Deploy
 
 ```sh
-vp run deploy:prod
+vp run deploy:prod:d1
 ```
 
-This builds the browser SDK, builds the dashboard, copies the static landing page to `apps/dashboard/dist/index.html`, keeps the dashboard app shell at `apps/dashboard/dist/dashboard/index.html`, copies `orange-replay.iife.js` to `apps/dashboard/dist/or-recorder.js`, and deploys the Worker with `apps/worker/wrangler.jsonc` using `--env production`.
-After deploy, the smoke check calls the configured project config route and requires a `200` response, so run the bootstrap step before `vp run deploy:prod`.
+Use `deploy:prod:d1` for the first warehouse-enabled deploy. The analytics runbook has the reviewed `deploy:prod:compare`, `deploy:prod:r2-sql`, and `deploy:prod:rollback` commands. Do not use a D1 command after cutover unless you intend to roll back.
+
+The command builds the browser SDK and dashboard, copies the public assets, generates a private production Wrangler config with the selected analytics backend, applies pending D1 migrations, uploads the required Worker secrets, and deploys with `--env production --keep-vars`. An `r2_sql` deploy first runs the full D1-to-R2 acceptance check and stops before deploy on any mismatch; D1 rollback skips that check. Keeping remote variables prevents an analytics cutover from removing existing production settings that are not repeated in the generated config. It then runs both the normal API smoke check and the metric-to-session analytics smoke check. Run the bootstrap step before the deploy so those checks have a real project to read.
 
 Production route split:
 
@@ -87,7 +88,7 @@ Production route split:
 For a local deploy validation without uploading:
 
 ```sh
-vp run deploy:prod:dry-run
+ORANGE_REPLAY_PROD_ANALYTICS_READ_BACKEND=d1 vp run deploy:prod:dry-run
 ```
 
 ## 6. Cloudflare GitHub Auto Deploy
@@ -96,23 +97,27 @@ In Cloudflare Workers Builds, connect the GitHub repo to the `orange-replay` Wor
 
 Use these settings:
 
-| Setting                      | Value                                                                                                                                                                                                                |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Root directory               | `apps/worker`                                                                                                                                                                                                        |
-| Build command                | `cd ../.. && pnpm install --frozen-lockfile && pnpm exec vp run build:deploy`                                                                                                                                        |
-| Deploy command               | `cd ../.. && node scripts/prepare-cloudflare-build-config.mjs && pnpm exec vp exec --filter @orange-replay/worker -- wrangler deploy --config wrangler.cloudflare-build.jsonc --env production --minify --keep-vars` |
-| Production branch            | `main`                                                                                                                                                                                                               |
-| Non-production branch builds | Disabled                                                                                                                                                                                                             |
+| Setting                      | Value                                                                         |
+| ---------------------------- | ----------------------------------------------------------------------------- |
+| Root directory               | `apps/worker`                                                                 |
+| Build command                | `cd ../.. && pnpm install --frozen-lockfile && pnpm exec vp run build:deploy` |
+| Deploy command               | `cd ../.. && pnpm exec vp run deploy:cloudflare-build`                        |
+| Production branch            | `main`                                                                        |
+| Non-production branch builds | Disabled                                                                      |
 
 Add these Workers Builds variables before the first GitHub build:
 
-| Variable                             | Value                                                 |
-| ------------------------------------ | ----------------------------------------------------- |
-| `ORANGE_REPLAY_PROD_KV_ID`           | Production `CONFIG` KV namespace id                   |
-| `ORANGE_REPLAY_PROD_D1_ID`           | Production `orange-replay-idx-00-prod` D1 database id |
-| `ORANGE_REPLAY_PROD_API_PROJECT_IDS` | Comma-separated project ids, for example `p1`         |
+| Variable                                    | Value                                                 |
+| ------------------------------------------- | ----------------------------------------------------- |
+| `ORANGE_REPLAY_PROD_KV_ID`                  | Production `CONFIG` KV namespace id                   |
+| `ORANGE_REPLAY_PROD_D1_ID`                  | Production `orange-replay-idx-00-prod` D1 database id |
+| `CLOUDFLARE_ACCOUNT_ID`                     | Production Cloudflare account id                      |
+| `ORANGE_REPLAY_PROD_ANALYTICS_STREAM_ID`    | Production typed Pipeline stream id                   |
+| `ORANGE_REPLAY_PROD_ANALYTICS_READ_BACKEND` | Explicit `d1`, `compare`, or `r2_sql` choice          |
+| `ORANGE_REPLAY_PROD_API_PROJECT_IDS`        | Comma-separated project ids, for example `p1`         |
+| `ORANGE_REPLAY_PROD_WORKER_URL`             | Exact production Worker HTTPS origin                  |
 
-The deploy command generates an ignored `apps/worker/wrangler.cloudflare-build.jsonc` file inside the build machine. The generated file contains deployment resource IDs, not tokens. Runtime secrets must be set in Worker Settings > Variables and Secrets: `DEV_API_TOKEN`, `DEV_API_PROJECT_IDS`, and `LIVE_TICKET_SECRET`.
+The deploy command generates an ignored `apps/worker/wrangler.cloudflare-build.jsonc` file inside the build machine. The generated file contains deployment resource IDs and the explicit read backend, not tokens. Store `ORANGE_REPLAY_PROD_API_TOKEN` as a protected Workers Builds secret so the post-deploy smoke checks can authenticate. For an `r2_sql` build, also store `ORANGE_REPLAY_PROD_R2_SQL_TOKEN` as a protected build secret for the pre-deploy acceptance check. Runtime Worker secrets must already include `DEV_API_TOKEN`, `DEV_API_PROJECT_IDS`, `LIVE_TICKET_SECRET`, `R2_SQL_TOKEN`, and `ANALYTICS_PURGE_RUNNER_TOKEN`; the build checks their uploaded names before deploy.
 
 ## 7. SDK Snippet Values
 

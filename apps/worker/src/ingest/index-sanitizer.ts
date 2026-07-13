@@ -1,5 +1,6 @@
 import {
   batchIndexSchema,
+  cleanAnalyticsMetadataString,
   MAX_CHECKPOINTS_PER_BATCH,
   type BatchIndex,
   type IndexEvent,
@@ -111,10 +112,8 @@ function optionalIndexUrl(value: unknown): { u?: string } {
   if (typeof value !== "string" || value.length > MAX_INDEX_URL_CHARS) {
     return {};
   }
-  if (!isSafeReplayUrl(value)) {
-    return {};
-  }
-  return { u: value };
+  const cleanUrl = scrubAnalyticsUrl(value);
+  return cleanUrl === null ? {} : { u: cleanUrl };
 }
 
 function optionalIndexEncoding(value: unknown): { enc?: { k: string } } {
@@ -128,21 +127,21 @@ function optionalIndexEncoding(value: unknown): { enc?: { k: string } } {
   return { enc: { k: key } };
 }
 
-function isSafeReplayUrl(value: string): boolean {
+function scrubAnalyticsUrl(value: string): string | null {
   if (value.startsWith("/") && !value.startsWith("//")) {
     try {
       const url = new URL(value, "https://orange-replay.invalid");
-      return url.protocol === "https:" && url.pathname.startsWith("/");
+      return url.protocol === "https:" && url.pathname.startsWith("/") ? url.pathname : null;
     } catch {
-      return false;
+      return null;
     }
   }
 
   try {
     const url = new URL(value);
-    return url.protocol === "http:" || url.protocol === "https:";
+    return url.protocol === "http:" || url.protocol === "https:" ? url.pathname : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -166,7 +165,12 @@ function sanitizeIndexEvent(
   const event: IndexEvent = { t, k: k as IndexEventKind };
   const detail = value["d"];
   if (typeof detail === "string") {
-    event.d = detail.slice(0, MAX_EVENT_DETAIL_CHARS);
+    if (k === "nav") {
+      const cleanUrl = scrubAnalyticsUrl(detail);
+      if (cleanUrl !== null) event.d = cleanUrl.slice(0, MAX_EVENT_DETAIL_CHARS);
+    } else {
+      event.d = detail.slice(0, MAX_EVENT_DETAIL_CHARS);
+    }
   }
 
   const meta = sanitizeEventMeta(value["m"], remainingMetaBytes);
@@ -208,7 +212,13 @@ function sanitizeEventMeta(
 
     let cleanItem: string | number;
     if (typeof item === "string") {
-      cleanItem = item.slice(0, MAX_EVENT_META_VALUE_CHARS);
+      const cleanUrl = cleanAnalyticsMetadataString(cleanKey, item);
+      if (cleanUrl !== item) {
+        if (cleanUrl === null) continue;
+        cleanItem = cleanUrl.slice(0, MAX_EVENT_META_VALUE_CHARS);
+      } else {
+        cleanItem = item.slice(0, MAX_EVENT_META_VALUE_CHARS);
+      }
     } else if (Number.isFinite(item)) {
       cleanItem = item;
     } else {

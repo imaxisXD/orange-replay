@@ -197,5 +197,7 @@ function serializedBytes(value: unknown): number {
 }
 
 function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
+  // Analytics stores millisecond times as int64. Normalize public ingest
+  // numbers here so one fractional client timestamp cannot poison export.
+  return Math.min(max, Math.max(min, Math.trunc(value)));
 }

@@ -75,6 +75,10 @@ export async function handleConsumerTestRoutes(
     return seedSession(request, env);
   }
 
+  if (request.method === "POST" && path === "/__test/consumer/seed-project") {
+    return seedProject(request, env);
+  }
+
   if (request.method === "POST" && path === "/__test/consumer/seed-deletion") {
     return seedDeletionMarker(request, env);
   }
@@ -157,11 +161,21 @@ async function readSession(url: URL, env: Env): Promise<Response> {
           .bind(orgId)
           .all<JsonRecord>()
       : { results: [] };
+  const outbox = await env.IDX_00.prepare(
+    `SELECT export_sequence, export_id, project_id, session_id, record_kind, payload_json,
+      created_at, sent_at, attempt_count, last_error
+    FROM analytics_export_outbox
+    WHERE project_id = ? AND session_id = ?
+    ORDER BY export_sequence`,
+  )
+    .bind(eventProjectId, sessionId)
+    .all<JsonRecord>();
 
   return Response.json({
     session: session ?? null,
     events: events.results,
     usage: usage.results,
+    outbox: outbox.results,
   });
 }
 
@@ -190,10 +204,48 @@ async function indexFinalizeMessageNow(request: Request, env: Env): Promise<Resp
   }
 
   try {
-    return Response.json(await indexSession(env, parsed.data));
+    const exportForTest = new URL(request.url).searchParams.get("warehouse") === "1";
+    const testEnv: Env = exportForTest
+      ? {
+          ...env,
+          ANALYTICS_EXPORT_ENABLED: "1",
+          ANALYTICS_STREAM: { async send() {} },
+        }
+      : env;
+    return Response.json(await indexSession(testEnv, parsed.data));
   } catch {
     return Response.json({ error: "index_failed" }, { status: 500 });
   }
+}
+
+async function seedProject(request: Request, env: Env): Promise<Response> {
+  const body = await readJsonBody(request);
+  if (body instanceof Response) return body;
+  const projectId = body["projectId"];
+  const jurisdiction = body["jurisdiction"];
+  if (
+    typeof projectId !== "string" ||
+    !isValidPathId(projectId) ||
+    (jurisdiction !== null && (typeof jurisdiction !== "string" || jurisdiction.length > 64))
+  ) {
+    return Response.json({ error: "invalid project" }, { status: 400 });
+  }
+  const orgId = `org-${projectId}`;
+  const now = Date.now();
+  await env.IDX_00.batch([
+    env.IDX_00.prepare(
+      `INSERT OR IGNORE INTO orgs (id, name, shard, created_at)
+      VALUES (?, ?, 0, ?)`,
+    ).bind(orgId, orgId, now),
+    env.IDX_00.prepare(
+      `INSERT OR REPLACE INTO projects (
+        id, org_id, name, jurisdiction, retention_days, sample_rate,
+        allowed_origins, mask_policy_version, mask_rules, capture_toggles,
+        quota_state, config_version, created_at
+      ) VALUES (?, ?, ?, ?, 30, 1, '["*"]', 1, '[]', '{}', 'ok', 1, ?)`,
+    ).bind(projectId, orgId, projectId, jurisdiction, now),
+  ]);
+  return Response.json({ ok: true });
 }
 
 async function seedSession(request: Request, env: Env): Promise<Response> {

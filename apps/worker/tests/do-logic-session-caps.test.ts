@@ -55,6 +55,30 @@ describe("SessionRecorder pure logic", () => {
     expect(clamped.e[0]?.t).toBe(receivedAt + 60_000);
   });
 
+  it("stores whole millisecond times for analytics export", () => {
+    const clamped = clampIndexForStorage(
+      {
+        v: 1,
+        s: "session",
+        tab: "tab",
+        seq: 0,
+        t0: 1_000.9,
+        t1: 1_100.8,
+        e: [{ t: 1_050.7, k: "custom" }],
+        checkpointTimestamps: [1_025.6],
+      },
+      1_000,
+      1_200,
+    );
+
+    expect(clamped).toMatchObject({
+      t0: 1_000,
+      t1: 1_100,
+      e: [{ t: 1_050, k: "custom" }],
+      checkpointTimestamps: [1_025],
+    });
+  });
+
   it("drops new batches when the per-session caps are reached", () => {
     expect(
       shouldDropForSessionCap({

@@ -1,5 +1,7 @@
 # F4 — Analytics dashboard (Clarity-class insights on the existing two-lane architecture)
 
+> **Warehouse cutover (2026-07-13):** `docs/specs/f4-r2-analytics-cutover.md` supersedes this file wherever it says finalized analytics or filtered session lists read D1, the lake is deferred, or Analytics Engine is the planned exact/trend path. The product phases and metric-doorway contract below stay valid. D1 now owns operational/control truth and the verified export ledger; R2 SQL owns finalized analytics after the guarded cutover.
+
 ## Goal
 
 Orange Replay records sessions but has no analytics surface: no aggregate endpoint, no overview page, and several signals that Clarity treats as table stakes (visitor identity, attribution, web vitals, frustration metrics) are either unaggregated, derivable-but-never-derived, or not captured. This campaign adds a Clarity-class overview dashboard in phases, ordered so each phase ships visible value and later phases never rework earlier ones.
@@ -45,7 +47,7 @@ DoD: gates green; sessions endpoint accepts the full filter; page-count fixtures
 
 Scope: `apps/worker/src/api/**`, `apps/dashboard/**`, migrations (rollup table only if EXPLAIN shows GROUP BY on `sessions` needs it — do not add speculatively).
 
-**API**: `GET /api/v1/projects/:id/stats?<SessionFilter>` (authz middleware as all routes) returning, in one response: session count; avg + p50 duration; total clicks; pages/session (covered `page_count` rows only, see F4.0); breakdowns (top-N + share) by country/region, device, browser, os, entry page; error groups (`session_events` kind=`error` GROUP BY detail, count + affected sessions); live-now count (presence shards). Every number or breakdown row includes the complete typed `SessionFilter` that selects it, not only an undocumented delta. Cache API may cache finalized-session aggregates for 60s per `(project, canonical filter string)`; live-now remains on the existing presence read so the cache cannot make it a minute stale. Wide event per request (route, cache_hit, duration_ms). D1 stays the exact source; verify each query with EXPLAIN QUERY PLAN against the `(project_id, started_at DESC)` index and add covering indexes only where the plan demands.
+**API**: `GET /api/v1/projects/:id/stats?<SessionFilter>` (authz middleware as all routes) returning, in one response: session count; avg + p50 duration; total clicks; pages/session (covered `page_count` rows only, see F4.0); breakdowns (top-N + share) by country/region, device, browser, os, entry page; error groups, and live-now count (presence shards). Every number or breakdown row includes the complete typed `SessionFilter` plus the verified `warehouse_version` that selects it. Cache API may cache finalized-session aggregates for 60s per `(project, warehouse version, canonical filter string)`; live-now remains on the existing presence read. Wide event per request (route, cache_hit, duration_ms). R2 SQL is the exact finalized source after the comparison cutover; D1 is the explicit rollback source only.
 
 If seeded query/load evidence requires daily rollups, add only one exact rollup shape that this screen reads. Gate its updates on an atomic per-session `analytics_applied` flag (or equivalent ledger) inside one D1 batch so a queue retry cannot double totals and a failed batch remains retryable. Do not pre-create heatmap, funnel, visitor, or event-rule tables.
 
@@ -90,11 +92,11 @@ Selector-based aggregation as the primary model (we already capture selector + n
 
 ## F4.6 — Smart events + funnels (own spec when reached)
 
-Dashboard-defined rules (URL visited / selector clicked / custom event) evaluated at finalize; funnels = ordered rule sequences over sessions. `track()` (F4.3) is the API leg. Tables land with the feature. D1 first; the Pipelines/Iceberg lake remains deferred per PLAN.md until cross-month analytical volume demands it.
+Dashboard-defined rules (URL visited / selector clicked / custom event) evaluated at finalize; funnels = ordered rule sequences over sessions. `track()` (F4.3) is the API leg. Tables land with the feature in the R2 Data Catalog warehouse; do not add feature tables before a reader ships.
 
 ## F4.7 — Analytics Engine trends (when provisioned)
 
-After the Analytics Engine dataset is provisioned, emit **one best-effort datapoint per newly finalized session** from the queue consumer, only after the exact D1 insert succeeds (blobs: country, device, browser, os, entry-page; doubles: 1, duration, errors, rages, bytes). An AE failure never fails ingest, finalization, D1 indexing, billing, or queue acknowledgement. It powers approximate recent sparklines only; every exact number and every doorway stays on D1. Re-check current sampling and retention behavior against official Cloudflare docs during implementation instead of freezing today's limit in code comments.
+Analytics Engine is optional and no longer part of the required analytics path. If provisioned later, it may power approximate recent sparklines only. Exact numbers and doorways stay on the verified R2 SQL warehouse snapshot, while billing stays on D1. Re-check current sampling and retention behavior against official Cloudflare docs before adding it.
 
 ## Non-goals (this campaign)
 

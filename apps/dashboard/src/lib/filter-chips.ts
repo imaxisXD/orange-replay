@@ -23,7 +23,8 @@ export function filterChips(filter: SessionFilter, now = Date.now()): FilterChip
   if (range !== null) chips.push({ key: "from", label: `Last ${range}` });
 
   for (const [key, value] of Object.entries(record)) {
-    if (value === undefined || key === "from" || key === "to") continue;
+    if (value === undefined || key === "from" || key === "to" || key === "warehouse_version")
+      continue;
     chips.push({ key, label: chipLabel(key, value) });
   }
 

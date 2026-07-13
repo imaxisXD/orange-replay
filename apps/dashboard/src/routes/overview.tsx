@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import type { SessionFilter } from "@orange-replay/shared";
+import { AnalyticsStaleAlert } from "@/components/analytics-stale-alert";
 import {
   Select,
   SelectContent,
@@ -86,7 +87,10 @@ export function OverviewPage() {
       ) : statsQuery.isError ? (
         <StatsError error={statsQuery.error} />
       ) : (
-        <OverviewContent isDemo={isDemo} projectId={projectId} stats={statsQuery.data} />
+        <>
+          {statsQuery.data.analyticsState === "stale" && <AnalyticsStaleAlert />}
+          <OverviewContent isDemo={isDemo} projectId={projectId} stats={statsQuery.data} />
+        </>
       )}
     </div>
   );

@@ -38,6 +38,12 @@ export interface StoredEventRow {
   events: string;
 }
 
+interface PagedStoredEventRow extends StoredEventRow {
+  t0: number;
+  tab: string;
+  seq: number;
+}
+
 export interface SegmentRow {
   [key: string]: SqlRowValue;
   n: number;
@@ -294,7 +300,44 @@ export class SessionRecorderStore {
   }
 
   storedEventRows(): Iterable<StoredEventRow> {
-    return this.sql.exec<StoredEventRow>("SELECT events FROM batches ORDER BY t0, tab, seq");
+    const sql = this.sql;
+    return {
+      *[Symbol.iterator]() {
+        let afterT0 = Number.MIN_SAFE_INTEGER;
+        let afterTab = "";
+        let afterSeq = -1;
+
+        for (;;) {
+          // Close each SQL cursor before the streamed R2 writer can pause on
+          // backpressure. The small page is replayable and memory-bounded.
+          const page = sql
+            .exec<PagedStoredEventRow>(
+              `SELECT t0, tab, seq, events
+              FROM batches
+              WHERE t0 > ?
+                OR (t0 = ? AND tab > ?)
+                OR (t0 = ? AND tab = ? AND seq > ?)
+              ORDER BY t0, tab, seq
+              LIMIT 50`,
+              afterT0,
+              afterT0,
+              afterTab,
+              afterT0,
+              afterTab,
+              afterSeq,
+            )
+            .toArray();
+          if (page.length === 0) return;
+
+          for (const row of page) yield row;
+          const last = page.at(-1);
+          if (last === undefined || page.length < 50) return;
+          afterT0 = last.t0;
+          afterTab = last.tab;
+          afterSeq = last.seq;
+        }
+      },
+    };
   }
 
   segmentRows(): SegmentRow[] {

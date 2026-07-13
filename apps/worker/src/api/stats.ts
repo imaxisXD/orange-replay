@@ -7,9 +7,14 @@ import {
 import { buildSessionWhere, UNKNOWN_ERROR_DETAIL, type SessionQueryValue } from "./helpers.ts";
 import type { Env } from "../env.ts";
 import type { PresenceSession } from "../do/presence-logic.ts";
+import {
+  readAnalyticsCache,
+  writeAnalyticsCache,
+  type AnalyticsCacheRequests,
+  type CachedAnalyticsResult,
+} from "./analytics-cache.ts";
 
 const TOP_BREAKDOWN_ROWS = 5;
-const STATS_CACHE_SECONDS = 60;
 const statsFilterKeys = new Set<string>(sessionFilterQueryKeys);
 
 export type StatsDimension = "country" | "region" | "device" | "browser" | "os";
@@ -316,43 +321,69 @@ export function withLiveNow(finalized: FinalizedProjectStats, liveNow: number): 
   };
 }
 
-export function statsCacheRequest(projectId: string, filter: SessionFilter): Request {
-  const query = encodeSessionFilter(filter).toString();
-  const suffix = query.length === 0 ? "" : `?${query}`;
-  return new Request(
-    `https://orange-replay-stats-cache.internal/v1/projects/${encodeURIComponent(projectId)}/stats${suffix}`,
+export function statsCacheRequest(
+  projectId: string,
+  filter: SessionFilter,
+  privacyVersion?: number,
+): Request {
+  const params = encodeSessionFilter(filter);
+  if (privacyVersion !== undefined) {
+    params.set("privacy_version", String(privacyVersion));
+  }
+  return cacheRequest(
+    `https://orange-replay-stats-cache.internal/v1/projects/${encodeURIComponent(projectId)}/stats`,
+    params,
   );
+}
+
+export function statsCacheRequests(
+  projectId: string,
+  filter: SessionFilter,
+  privacyVersion: number,
+  warehouseVersionWasRequested: boolean,
+): AnalyticsCacheRequests {
+  const currentParams = encodeSessionFilter(filter);
+  const currentVersion = filter.warehouse_version ?? 0;
+  currentParams.set("warehouse_version", String(currentVersion));
+  currentParams.set("privacy_version", String(privacyVersion));
+
+  const lastGoodParams = new URLSearchParams(currentParams);
+  if (!warehouseVersionWasRequested) {
+    lastGoodParams.delete("warehouse_version");
+  }
+
+  const projectPath = encodeURIComponent(projectId);
+  return {
+    current: cacheRequest(
+      `https://orange-replay-stats-cache.internal/v1/projects/${projectPath}/stats`,
+      currentParams,
+    ),
+    lastGood: cacheRequest(
+      `https://orange-replay-stats-cache.internal/v1/projects/${projectPath}/stats-last-good`,
+      lastGoodParams,
+    ),
+  };
 }
 
 export async function readCachedFinalizedStats(
   request: Request,
-): Promise<FinalizedProjectStats | null> {
-  try {
-    const response = await caches.default.match(request);
-    if (response === undefined || !response.ok) return null;
-    return (await response.json()) as FinalizedProjectStats;
-  } catch {
-    return null;
-  }
+  expectedWarehouseVersion?: number,
+): Promise<CachedAnalyticsResult<FinalizedProjectStats> | null> {
+  return readAnalyticsCache<FinalizedProjectStats>(request, expectedWarehouseVersion);
 }
 
 export function writeFinalizedStatsCache(
   ctx: ExecutionContext,
-  request: Request,
+  requests: AnalyticsCacheRequests,
   stats: FinalizedProjectStats,
+  warehouseVersion: number,
 ): void {
-  const response = new Response(JSON.stringify(stats), {
-    headers: {
-      "cache-control": `public, max-age=${STATS_CACHE_SECONDS}`,
-      "content-type": "application/json; charset=utf-8",
-    },
-  });
+  writeAnalyticsCache(ctx, requests, stats, warehouseVersion);
+}
 
-  try {
-    ctx.waitUntil(caches.default.put(request, response).catch(() => undefined));
-  } catch {
-    // Cache API support is optional in local and workers.dev environments.
-  }
+function cacheRequest(baseUrl: string, params: URLSearchParams): Request {
+  const query = params.toString();
+  return new Request(query.length === 0 ? baseUrl : `${baseUrl}?${query}`);
 }
 
 async function readMedianDuration(

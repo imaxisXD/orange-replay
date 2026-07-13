@@ -70,7 +70,17 @@ export async function handleDoTestRoutes(
 
   if (request.method === "GET" && url.pathname === "/__test/do/r2") {
     const rawKey = url.searchParams.get("key");
-    const key = rawKey === null ? { ok: false as const } : parseRecordingObjectKey(rawKey);
+    const analyticsMatch =
+      rawKey === null ? null : /^p\/([^/]+)\/([^/]+)\/analytics\.ndjson$/.exec(rawKey);
+    const key =
+      analyticsMatch?.[1] !== undefined &&
+      analyticsMatch[2] !== undefined &&
+      isValidPathId(analyticsMatch[1]) &&
+      isValidPathId(analyticsMatch[2])
+        ? { ok: true as const, key: analyticsMatch[0] }
+        : rawKey === null
+          ? { ok: false as const }
+          : parseRecordingObjectKey(rawKey);
     if (!key.ok) {
       return Response.json({ error: "bad_key" }, { status: 400 });
     }

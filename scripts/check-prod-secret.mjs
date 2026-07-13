@@ -5,47 +5,86 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const defaultConfig = path.join(repoRoot, "apps", "worker", "wrangler.jsonc");
 const tokenSecret = "DEV_API_TOKEN";
 const projectIdsSecret = "DEV_API_PROJECT_IDS";
 const liveTicketSecret = "LIVE_TICKET_SECRET";
+const r2SqlSecret = "R2_SQL_TOKEN";
+const purgeRunnerSecret = "ANALYTICS_PURGE_RUNNER_TOKEN";
 const tokenEnv = "ORANGE_REPLAY_PROD_API_TOKEN";
 const projectIdsEnv = "ORANGE_REPLAY_PROD_API_PROJECT_IDS";
 const liveTicketEnv = "ORANGE_REPLAY_PROD_LIVE_TICKET_SECRET";
+const r2SqlEnv = "ORANGE_REPLAY_PROD_R2_SQL_TOKEN";
+const purgeRunnerEnv = "ORANGE_REPLAY_PROD_ANALYTICS_PURGE_RUNNER_TOKEN";
 const pathIdPattern = /^[A-Za-z0-9_-]{1,64}$/;
 
 try {
+  const options = readOptions(process.argv.slice(2));
+  if (options.checkUploaded) {
+    await confirmUploadedSecrets(options);
+    console.log("All required production Worker secret names are present.");
+    process.exit(0);
+  }
+
   const token = readValidSecret(tokenEnv);
   const projectIds = readValidProjectIds();
   const ticketSecret = readValidSecret(liveTicketEnv);
+  const r2SqlToken = readValidSecret(r2SqlEnv);
+  const purgeRunnerToken = readValidSecret(purgeRunnerEnv);
 
-  await putSecret(tokenSecret, token);
-  await putSecret(projectIdsSecret, projectIds.join(","));
-  await putSecret(liveTicketSecret, ticketSecret);
-
-  const output = await runCapture("vp", [
-    "exec",
-    "--filter",
-    "@orange-replay/worker",
-    "--",
-    "wrangler",
-    "secret",
-    "list",
-    "--env",
-    "production",
-    "--env-file",
-    "wrangler.production.env",
-  ]);
-
-  for (const name of [tokenSecret, projectIdsSecret, liveTicketSecret]) {
-    if (!secretListIncludes(output, name)) {
-      throw new Error(`${name} was not visible after secret upload.`);
-    }
+  if (options.validateOnly) {
+    console.log("Production API and analytics secrets passed validation. Nothing was uploaded.");
+    process.exit(0);
   }
 
-  console.log(`Production API secrets passed validation and were uploaded.`);
+  await putSecret(tokenSecret, token, options);
+  await putSecret(projectIdsSecret, projectIds.join(","), options);
+  await putSecret(liveTicketSecret, ticketSecret, options);
+  await putSecret(r2SqlSecret, r2SqlToken, options);
+  await putSecret(purgeRunnerSecret, purgeRunnerToken, options);
+  await confirmUploadedSecrets(options);
+
+  console.log(`Production API and analytics secrets passed validation and were uploaded.`);
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
+}
+
+function readOptions(args) {
+  const options = { checkUploaded: false, config: defaultConfig, validateOnly: false };
+
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+    if (argument === "--validate-only") {
+      options.validateOnly = true;
+      continue;
+    }
+    if (argument === "--check-uploaded") {
+      options.checkUploaded = true;
+      continue;
+    }
+    if (argument === "--config") {
+      const value = args[index + 1];
+      if (value === undefined || value.startsWith("--") || value.trim().length === 0) {
+        throw new Error("--config needs a file path.");
+      }
+      options.config = path.resolve(process.cwd(), value);
+      index += 1;
+      continue;
+    }
+    if (argument === "--help" || argument === "-h") {
+      console.log(
+        "Usage: node scripts/check-prod-secret.mjs [--validate-only | --check-uploaded] [--config FILE]",
+      );
+      process.exit(0);
+    }
+    throw new Error(`Unknown option: ${argument}`);
+  }
+
+  if (options.validateOnly && options.checkUploaded) {
+    throw new Error("Use either --validate-only or --check-uploaded, not both.");
+  }
+  return options;
 }
 
 function readValidSecret(envName) {
@@ -80,7 +119,7 @@ function readValidProjectIds() {
   return [...new Set(projectIds)];
 }
 
-async function putSecret(name, value) {
+async function putSecret(name, value, options) {
   await runCapture(
     "vp",
     [
@@ -92,13 +131,41 @@ async function putSecret(name, value) {
       "secret",
       "put",
       name,
+      "--config",
+      options.config,
       "--env",
       "production",
-      "--env-file",
-      "wrangler.production.env",
     ],
     `${value}\n`,
   );
+}
+
+async function confirmUploadedSecrets(options) {
+  const output = await runCapture("vp", [
+    "exec",
+    "--filter",
+    "@orange-replay/worker",
+    "--",
+    "wrangler",
+    "secret",
+    "list",
+    "--config",
+    options.config,
+    "--env",
+    "production",
+  ]);
+  const uploaded = readUploadedSecretNames(output);
+  for (const name of [
+    tokenSecret,
+    projectIdsSecret,
+    liveTicketSecret,
+    r2SqlSecret,
+    purgeRunnerSecret,
+  ]) {
+    if (!uploaded.has(name)) {
+      throw new Error(`${name} was not visible after secret upload.`);
+    }
+  }
 }
 
 function runCapture(command, args, stdin = "") {
@@ -132,9 +199,16 @@ function runCapture(command, args, stdin = "") {
   });
 }
 
-function secretListIncludes(output, name) {
-  return output
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .some((line) => line === name || line.startsWith(`${name} `) || line.includes(` ${name} `));
+function readUploadedSecretNames(output) {
+  try {
+    const parsed = JSON.parse(output);
+    if (!Array.isArray(parsed)) throw new Error("not an array");
+    return new Set(
+      parsed
+        .map((item) => (item !== null && typeof item === "object" ? item.name : undefined))
+        .filter((name) => typeof name === "string"),
+    );
+  } catch {
+    throw new Error("Wrangler returned an unreadable production secret list.");
+  }
 }

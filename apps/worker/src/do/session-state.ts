@@ -98,7 +98,8 @@ export function updateStateWithBatch(
 
   if (clampedIndex.u !== undefined && clampedIndex.u.length > 0) {
     state.entryUrl ??= clampedIndex.u;
-    state.urlCount += 1;
+    const lastTabUrl = state.pageTabs.find((pageTab) => pageTab.tab === args.tab)?.url;
+    if (lastTabUrl !== clampedIndex.u) state.urlCount += 1;
   }
   updatePageTrackingWithBatch(state, args.tab, clampedIndex);
 

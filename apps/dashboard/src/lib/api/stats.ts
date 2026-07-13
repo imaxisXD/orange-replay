@@ -26,6 +26,9 @@ export interface StatsErrorGroup {
 }
 
 export interface ProjectStatsResponse {
+  /** Verified warehouse snapshot shared by every metric doorway. */
+  warehouseVersion?: number;
+  analyticsState?: "fresh" | "stale" | "compare" | "d1_rollback" | "d1_residency";
   filter: SessionFilter;
   sessions: FilteredNumber;
   duration: {

@@ -194,7 +194,7 @@ function appendQueues(lines, queues) {
 function appendTriggers(lines, triggers) {
   const crons = Array.isArray(triggers?.crons) ? triggers.crons : [];
   lines.push('  "triggers": {');
-  lines.push(`    "crons": ${JSON.stringify(crons)},`);
+  lines.push(`    "crons": [${crons.map((cron) => JSON.stringify(cron)).join(", ")}],`);
   lines.push("  },");
 }
 

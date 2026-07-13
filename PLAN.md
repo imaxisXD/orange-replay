@@ -5,7 +5,7 @@ Operating document for the orchestrated build. ARCHITECTURE.md is the design aut
 ## Decisions locked with the user (2026-07-03)
 
 - **Pacing**: autonomous run-through of all phases; report at the end (task list tracks progress).
-- **Cloudflare**: local-only (wrangler dev / miniflare / vitest-pool-workers). No real resources, no deploys.
+- **Cloudflare**: the original build was local-first. On 2026-07-13 the user explicitly approved the real analytics cutover, production backfill, remote verification, and browser E2E. That approval is limited to the analytics resources and code in `docs/specs/f4-r2-analytics-cutover.md`; unrelated unfinished hosted-auth work must not be deployed with it.
 - **Dashboard auth**: dev bearer token for v1. Hosted-plane auth decided 2026-07-09: **BetterAuth + GitHub/Google OAuth**, no email/password (ARCHITECTURE §6); implementation deferred to hosted launch.
 - **rrweb**: fork immediately — vendored in-repo at a pinned upstream tag, capture-side only.
 - **Toolchain**: Vite Plus (`vp` 0.2.2) — `vp install` / `vp check` / `vp test` / `vp build`. Oxlint + Oxfmt, Vitest.
@@ -15,7 +15,7 @@ Operating document for the orchestrated build. ARCHITECTURE.md is the design aut
 
 ## Deferred (out of v1 scope — most need a real CF account)
 
-Analytics Engine verification, Pipelines → Iceberg lake, Vectorize/AI features, heatmaps UI, the opt-in processing lane, E2E encryption tier, BYOC provisioner Workflow, hosted auth (BetterAuth + GitHub/Google OAuth), template-repo publishing, any deploy.
+Analytics Engine verification, Vectorize/AI features, heatmaps UI, the opt-in processing lane, E2E encryption tier, BYOC provisioner Workflow, hosted auth, and template-repo publishing. The Pipelines → Data Catalog → R2 SQL analytics cutover is now active under `docs/specs/f4-r2-analytics-cutover.md`.
 
 ## Ground rules (every agent, every task)
 

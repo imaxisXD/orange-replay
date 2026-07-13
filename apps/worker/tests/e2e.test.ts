@@ -197,7 +197,7 @@ describe("a session lives and is replayed", () => {
       );
 
       expect(segmentRes.status).toBe(200);
-      expect(segmentRes.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+      expect(segmentRes.headers.get("cache-control")).toBe("private, max-age=300, must-revalidate");
       expect(segmentRes.headers.get("vary")).toBe("Authorization");
 
       const parsed = parseSegment(new Uint8Array(await segmentRes.arrayBuffer()));

@@ -44,6 +44,8 @@ export type ListSessionsParams = SessionFilter & {
 export interface ListSessionsResponse {
   sessions: SessionListItem[];
   nextBefore: string | null;
+  warehouseVersion?: number;
+  analyticsState?: "fresh" | "stale" | "compare" | "d1_rollback" | "d1_residency";
 }
 
 export interface LiveSessionItem {

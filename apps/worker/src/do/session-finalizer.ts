@@ -1,6 +1,16 @@
-import { finalizeMessageSchema, manifestKey, sessionManifestSchema } from "@orange-replay/shared";
-import type { FinalizeMessage } from "@orange-replay/shared";
+import {
+  analyticsSidecarKey,
+  finalizeMessageSchema,
+  manifestKey,
+  sessionManifestSchema,
+} from "@orange-replay/shared";
+import type { FinalizeMessage, IndexEvent } from "@orange-replay/shared";
 import { capFinalizeMessageToBudget } from "./session-budgets.ts";
+import {
+  analyticsSidecarByteLength,
+  analyticsSidecarParts,
+  createAnalyticsSidecarStream,
+} from "./session-analytics-sidecar.ts";
 import { buildFinalizeTimelineData } from "./session-finalize-data.ts";
 import { buildSessionManifest } from "./session-manifest.ts";
 import type { FinalizedTombstone, SessionRecorderStore } from "./session-recorder-store.ts";
@@ -27,7 +37,10 @@ export interface SessionFinalizerDependencies {
     SessionRecorderStore,
     "segmentRowsForManifest" | "storedEventRows" | "replaceStateWithTombstone"
   >;
-  segmentWriter: Pick<SessionSegmentWriter, "assertRecordingMatches">;
+  segmentWriter: Pick<
+    SessionSegmentWriter,
+    "assertRecordingMatches" | "assertRecordingStreamMatches"
+  >;
   getSessionState: () => SessionState | null;
   flushPendingBatches: () => Promise<void>;
   queuePresenceRemove: (
@@ -92,6 +105,7 @@ export class SessionFinalizer {
       timelineData.counts.events - manifest.timeline.length,
     );
     const key = manifestKey(state.projectId, state.sessionId);
+    const sidecarKey = analyticsSidecarKey(state.projectId, state.sessionId);
     const analyticsVersion = Math.min(2, state.analyticsVersion);
 
     const message = capFinalizeMessageToBudget({
@@ -102,6 +116,7 @@ export class SessionFinalizer {
       shard: state.shard,
       requestId: state.firstRequestId,
       manifestKey: key,
+      analyticsSidecarKey: sidecarKey,
       startedAt: manifest.startedAt,
       endedAt: manifest.endedAt,
       bytes: manifest.bytes,
@@ -137,6 +152,8 @@ export class SessionFinalizer {
       );
     }
 
+    await this.writeAnalyticsSidecar(sidecarKey, derived.rageEvents);
+
     await this.dependencies.finalizeQueue.send(message, { contentType: "json" });
     metrics.presenceRemoveError = this.dependencies.queuePresenceRemove(
       state.projectId,
@@ -159,5 +176,70 @@ export class SessionFinalizer {
     this.dependencies.store.replaceStateWithTombstone(tombstone);
     this.dependencies.rememberTombstone(tombstone);
     await this.dependencies.scheduleTombstonePurge(purgeAt);
+  }
+
+  private async writeAnalyticsSidecar(
+    sidecarKey: string,
+    derivedEvents: readonly IndexEvent[],
+  ): Promise<void> {
+    const existing = await this.dependencies.recordings.head(sidecarKey);
+    if (existing !== null) {
+      await this.assertAnalyticsSidecarMatches(sidecarKey, derivedEvents);
+      return;
+    }
+
+    const parts = analyticsSidecarParts(this.dependencies.store.storedEventRows(), derivedEvents)[
+      Symbol.iterator
+    ]();
+    const first = parts.next();
+    if (first.done) throw new Error("Analytics sidecar did not contain a header.");
+    const second = parts.next();
+
+    if (second.done) {
+      const written = await this.dependencies.recordings.put(sidecarKey, first.value, {
+        httpMetadata: { contentType: "application/x-ndjson" },
+        onlyIf: { etagDoesNotMatch: "*" },
+      });
+      if (written === null) {
+        await this.assertAnalyticsSidecarMatches(sidecarKey, derivedEvents);
+      }
+      return;
+    }
+
+    const upload = await this.dependencies.recordings.createMultipartUpload(sidecarKey, {
+      httpMetadata: { contentType: "application/x-ndjson" },
+    });
+    const uploaded: R2UploadedPart[] = [];
+    try {
+      let partNumber = 1;
+      let current: IteratorResult<Uint8Array> = first;
+      for (;;) {
+        if (current.done) break;
+        uploaded.push(await upload.uploadPart(partNumber, current.value));
+        partNumber += 1;
+        current = partNumber === 2 ? second : parts.next();
+      }
+      await upload.complete(uploaded);
+    } catch (error) {
+      await upload.abort().catch(() => undefined);
+      throw error;
+    }
+  }
+
+  private async assertAnalyticsSidecarMatches(
+    sidecarKey: string,
+    derivedEvents: readonly IndexEvent[],
+  ): Promise<void> {
+    // Every pass starts a fresh, paged query instead of keeping the full
+    // sidecar in Worker memory.
+    const length = analyticsSidecarByteLength(
+      this.dependencies.store.storedEventRows(),
+      derivedEvents,
+    );
+    await this.dependencies.segmentWriter.assertRecordingStreamMatches(
+      sidecarKey,
+      createAnalyticsSidecarStream(this.dependencies.store.storedEventRows(), derivedEvents),
+      length,
+    );
   }
 }

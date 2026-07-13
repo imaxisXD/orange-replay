@@ -41,12 +41,28 @@ export class SessionSegmentWriter {
   }
 
   async assertRecordingMatches(key: string, expected: Uint8Array): Promise<void> {
+    const expectedBody = new Response(expected).body;
+    if (expectedBody === null) {
+      throw new Error(`Could not create the expected R2 body: ${key}`);
+    }
+    await this.assertRecordingStreamMatches(key, expectedBody, expected.byteLength);
+  }
+
+  async assertRecordingStreamMatches(
+    key: string,
+    expected: ReadableStream<Uint8Array>,
+    expectedLength: number,
+  ): Promise<void> {
     const existing = await this.recordings.get(key);
     if (existing === null) {
+      await cancelQuietly(expected);
       throw new Error(`R2 create-only write was not confirmed: ${key}`);
     }
-    const actual = new Uint8Array(await existing.arrayBuffer());
-    if (!bytesEqual(actual, expected)) {
+    if (existing.size !== expectedLength) {
+      await Promise.all([cancelQuietly(existing.body), cancelQuietly(expected)]);
+      throw new Error(`R2 create-only write does not match expected object: ${key}`);
+    }
+    if (!(await byteStreamsEqual(existing.body, expected))) {
       throw new Error(`R2 create-only write does not match expected object: ${key}`);
     }
   }
@@ -212,14 +228,60 @@ function batchIndexForSegmentRow(
   };
 }
 
-function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
-  if (left.byteLength !== right.byteLength) {
-    return false;
-  }
+async function byteStreamsEqual(
+  left: ReadableStream<Uint8Array>,
+  right: ReadableStream<Uint8Array>,
+): Promise<boolean> {
+  const leftReader = left.getReader();
+  const rightReader = right.getReader();
+  let leftChunk: Uint8Array<ArrayBufferLike> = new Uint8Array(0);
+  let rightChunk: Uint8Array<ArrayBufferLike> = new Uint8Array(0);
+  let leftOffset = 0;
+  let rightOffset = 0;
+  let leftDone = false;
+  let rightDone = false;
 
-  let difference = 0;
-  for (let index = 0; index < left.byteLength; index += 1) {
-    difference |= (left[index] ?? 0) ^ (right[index] ?? 0);
+  try {
+    for (;;) {
+      while (!leftDone && leftOffset === leftChunk.byteLength) {
+        const next = await leftReader.read();
+        leftDone = next.done;
+        leftChunk = next.value ?? new Uint8Array(0);
+        leftOffset = 0;
+      }
+      while (!rightDone && rightOffset === rightChunk.byteLength) {
+        const next = await rightReader.read();
+        rightDone = next.done;
+        rightChunk = next.value ?? new Uint8Array(0);
+        rightOffset = 0;
+      }
+
+      if (leftDone || rightDone) return leftDone && rightDone;
+
+      const bytesToCompare = Math.min(
+        leftChunk.byteLength - leftOffset,
+        rightChunk.byteLength - rightOffset,
+      );
+      for (let index = 0; index < bytesToCompare; index += 1) {
+        if (leftChunk[leftOffset + index] !== rightChunk[rightOffset + index]) return false;
+      }
+      leftOffset += bytesToCompare;
+      rightOffset += bytesToCompare;
+    }
+  } finally {
+    await Promise.all([
+      leftDone ? Promise.resolve() : leftReader.cancel().catch(() => undefined),
+      rightDone ? Promise.resolve() : rightReader.cancel().catch(() => undefined),
+    ]);
+    leftReader.releaseLock();
+    rightReader.releaseLock();
   }
-  return difference === 0;
+}
+
+async function cancelQuietly(stream: ReadableStream<Uint8Array>): Promise<void> {
+  try {
+    await stream.cancel();
+  } catch {
+    // The create-only mismatch is the useful error.
+  }
 }

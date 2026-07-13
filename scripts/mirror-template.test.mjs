@@ -26,6 +26,7 @@ describe("mirror-template", () => {
       expect(wrangler).toContain("# created by setup docs");
       expect(wrangler).toContain("DEV_API_TOKEN");
       expect(wrangler).toContain("LIVE_TICKET_SECRET");
+      expect(wrangler).toContain('"crons": ["*/5 * * * *", "17 3 * * *"]');
       expect(wrangler).not.toContain("DEV_TEST_ROUTES");
       expect(wrangler).not.toContain("TEST_TIMINGS");
 
