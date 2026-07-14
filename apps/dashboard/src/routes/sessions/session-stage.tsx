@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { SessionManifest } from "@orange-replay/shared/types";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { StatusPill } from "@/components/status-pill";
 import {
   Empty,
   EmptyContent,
@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip } from "@/components/ui/tooltip";
-import { ApiError } from "@/lib/api";
+import { ApiError, type SessionActivity, type SessionDetailsState } from "@/lib/api";
 import { formatDuration } from "@/lib/format";
 import { IconSwap } from "@/components/ui/icon-swap";
 import {
@@ -28,7 +28,7 @@ import {
   Inbox,
 } from "@/lib/icon-map";
 import { ReplayWorkspace } from "../session-detail/replay-playback";
-import { loadSessionManifest } from "../session-detail/session-detail-data";
+import { useSessionView } from "../session-detail/use-session-view";
 import { entryPath } from "./session-card";
 
 /**
@@ -121,17 +121,12 @@ function SelectedSession({
   projectId: string;
   sessionId: string;
 }) {
-  const manifestQuery = useQuery({
-    queryKey: ["session-manifest", isDemo ? "demo" : "private", projectId, sessionId],
-    queryFn: ({ signal }) => loadSessionManifest(projectId, sessionId, signal),
-  });
+  const sessionView = useSessionView({ isDemo, projectId, sessionId });
+  const manifest = sessionView.displayedManifest;
+  const playerManifest = sessionView.playerManifest;
+  const error = sessionView.error === null ? "" : readErrorMessage(sessionView.error);
 
-  const manifest = manifestQuery.data?.manifest ?? null;
-  const mode = manifestQuery.data?.mode ?? "recorded";
-  const notFound = manifestQuery.data?.notFound ?? false;
-  const error = manifestQuery.error === null ? "" : readErrorMessage(manifestQuery.error);
-
-  if (manifestQuery.isPending) {
+  if (sessionView.loading) {
     return (
       <div className="flex flex-col gap-3">
         <Skeleton className="h-6 w-64" />
@@ -140,20 +135,22 @@ function SelectedSession({
     );
   }
 
-  if (error.length > 0 || notFound || manifest === null) {
+  if (error.length > 0 || sessionView.notFound || manifest === null || playerManifest === null) {
     return (
       <Alert variant="destructive">
         <AlertCircle aria-hidden />
-        <AlertTitle>{notFound ? "Session not found" : "Could not load session"}</AlertTitle>
+        <AlertTitle>
+          {sessionView.notFound ? "Session not found" : "Could not load session"}
+        </AlertTitle>
         <AlertDescription>
           <p>
-            {notFound
+            {sessionView.notFound
               ? "This session is not available."
               : error || "The request failed. Try again in a moment."}
           </p>
           <div className="flex flex-wrap gap-2 pt-1">
-            {!notFound && (
-              <Button onClick={() => void manifestQuery.refetch()} size="sm" variant="secondary">
+            {!sessionView.notFound && (
+              <Button onClick={sessionView.refresh} size="sm" variant="secondary">
                 Try again
               </Button>
             )}
@@ -171,7 +168,7 @@ function SelectedSession({
     );
   }
 
-  const hasReplay = manifest.segments.length > 0 || mode === "live";
+  const hasReplay = manifest.segments.length > 0 || sessionView.mode === "live";
 
   return (
     <div className="flex flex-col gap-3">
@@ -180,6 +177,8 @@ function SelectedSession({
         hasPrev={hasPrev}
         isDemo={isDemo}
         isWatched={isWatched}
+        activity={sessionView.activity}
+        detailsState={sessionView.detailsState}
         manifest={manifest}
         onMarkUnwatched={onMarkUnwatched}
         onStep={onStep}
@@ -190,9 +189,15 @@ function SelectedSession({
         <ReplayWorkspace
           isDemo={isDemo}
           manifest={manifest}
-          mode={mode}
+          mode={sessionView.mode}
+          onLiveEnded={sessionView.onLiveEnded}
+          onLiveFinalized={sessionView.onLiveFinalized}
+          onLiveIndex={sessionView.onLiveIndex}
+          onLiveSnapshot={sessionView.onLiveSnapshot}
           onPlaybackStarted={onPlaybackStarted}
+          playerManifest={playerManifest}
           projectId={projectId}
+          reviewLiveHistory={sessionView.activity === "idle"}
           sessionId={sessionId}
         />
       ) : (
@@ -226,6 +231,8 @@ function SelectedSession({
 }
 
 function StageHeader({
+  activity,
+  detailsState,
   hasNext,
   hasPrev,
   isDemo,
@@ -236,6 +243,8 @@ function StageHeader({
   projectId,
   sessionId,
 }: {
+  activity: SessionActivity | null;
+  detailsState: SessionDetailsState | null;
   hasNext: boolean;
   hasPrev: boolean;
   isDemo: boolean;
@@ -275,6 +284,11 @@ function StageHeader({
             {formatDuration(manifest.durationMs)}
           </span>
         </span>
+        {activity === "live" ? (
+          <StatusPill kind="ok">Live</StatusPill>
+        ) : detailsState === "provisional" ? (
+          <StatusPill kind="neutral">Final details pending</StatusPill>
+        ) : null}
         <Tooltip content={copied ? "Copied session ID" : "Copy session ID"}>
           <Button
             aria-label={copied ? "Session ID copied" : "Copy session ID"}

@@ -7,6 +7,7 @@ import {
   type SessionRow,
 } from "../api/helpers.ts";
 import type { Env } from "../env.ts";
+import { buildExactSessionHeadQuery, sessionHeadCandidateSql } from "../api/session-head-routes.ts";
 import { createTestDatabaseSchema } from "./database-schema.ts";
 
 interface SeedSegment {
@@ -28,6 +29,31 @@ export async function handleApiTestRoutes(
   const url = new URL(request.url);
   if (request.method === "POST" && url.pathname === "/__test/api/delete-session-row") {
     return deleteSessionRow(request, env);
+  }
+
+  if (request.method === "POST" && url.pathname === "/__test/api/seed-session-export") {
+    return seedSessionExport(request, env);
+  }
+
+  if (request.method === "POST" && url.pathname === "/__test/api/mark-session-indexed") {
+    return markSessionIndexed(request, env);
+  }
+
+  if (request.method === "POST" && url.pathname === "/__test/api/seed-session-head-noise") {
+    return seedSessionHeadNoise(request, env);
+  }
+
+  if (request.method === "GET" && url.pathname === "/__test/api/session-head-plan") {
+    const projectId = url.searchParams.get("projectId") ?? "";
+    const source = url.searchParams.get("source");
+    const planQuery = sessionHeadPlanQuery(source, projectId);
+    if (planQuery === null) {
+      return Response.json({ error: "invalid_plan_source" }, { status: 400 });
+    }
+    const result = await env.IDX_00.prepare(`EXPLAIN QUERY PLAN ${planQuery.sql}`)
+      .bind(...planQuery.bindings)
+      .all<{ detail: string }>();
+    return Response.json({ plan: (result.results ?? []).map((row) => row.detail) });
   }
 
   if (request.method !== "POST" || url.pathname !== "/__test/api/seed") {
@@ -80,6 +106,23 @@ export async function handleApiTestRoutes(
   return Response.json({ ok: true });
 }
 
+function sessionHeadPlanQuery(
+  source: string | null,
+  projectId: string,
+): { sql: string; bindings: Array<string | number> } | null {
+  if (source === "latestIndexed") {
+    return { sql: sessionHeadCandidateSql.latestIndexed, bindings: [projectId, 100] };
+  }
+  if (source === "outbox" || source === "ledger" || source === "started" || source === "indexed") {
+    return { sql: sessionHeadCandidateSql[source], bindings: [projectId, 0, 100] };
+  }
+  if (source !== "point") return null;
+  return buildExactSessionHeadQuery(projectId, { limit: 100, sort: "duration", country: "US" }, [
+    "api_old",
+    "api_new",
+  ]);
+}
+
 async function deleteSessionRow(request: Request, env: Env): Promise<Response> {
   let body: { projectId?: unknown; sessionId?: unknown };
   try {
@@ -97,6 +140,116 @@ async function deleteSessionRow(request: Request, env: Env): Promise<Response> {
 
   await env.IDX_00.prepare("DELETE FROM sessions WHERE project_id = ? AND session_id = ?")
     .bind(body.projectId, body.sessionId)
+    .run();
+  return Response.json({ ok: true });
+}
+
+async function seedSessionExport(request: Request, env: Env): Promise<Response> {
+  const body = (await request.json()) as {
+    projectId?: unknown;
+    sessionId?: unknown;
+    exportSequence?: unknown;
+    location?: unknown;
+  };
+  if (
+    typeof body.projectId !== "string" ||
+    typeof body.sessionId !== "string" ||
+    !isValidPathId(body.projectId) ||
+    !isValidPathId(body.sessionId) ||
+    typeof body.exportSequence !== "number" ||
+    !Number.isSafeInteger(body.exportSequence) ||
+    body.exportSequence < 1 ||
+    (body.location !== "outbox" && body.location !== "ledger")
+  ) {
+    return Response.json({ error: "invalid_session_export" }, { status: 400 });
+  }
+
+  const exportId = `test-session-export-${body.projectId}-${body.sessionId}-${body.exportSequence}`;
+  const now = Date.now();
+  if (body.location === "outbox") {
+    await env.IDX_00.prepare(
+      `INSERT OR REPLACE INTO analytics_export_outbox (
+        export_sequence, export_id, project_id, session_id, record_kind, payload_json, created_at
+      ) VALUES (?, ?, ?, ?, 'session', '{}', ?)`,
+    )
+      .bind(body.exportSequence, exportId, body.projectId, body.sessionId, now)
+      .run();
+  } else {
+    await env.IDX_00.prepare(
+      `INSERT OR REPLACE INTO analytics_export_ledger (
+        export_id, export_sequence, project_id, session_id, record_kind, sent_at,
+        first_seen_verified_at
+      ) VALUES (?, ?, ?, ?, 'session', ?, ?)`,
+    )
+      .bind(exportId, body.exportSequence, body.projectId, body.sessionId, now, now)
+      .run();
+  }
+  return Response.json({ ok: true });
+}
+
+async function markSessionIndexed(request: Request, env: Env): Promise<Response> {
+  const body = (await request.json()) as {
+    projectId?: unknown;
+    sessionId?: unknown;
+    indexedAt?: unknown;
+  };
+  if (
+    typeof body.projectId !== "string" ||
+    typeof body.sessionId !== "string" ||
+    !isValidPathId(body.projectId) ||
+    !isValidPathId(body.sessionId) ||
+    typeof body.indexedAt !== "number" ||
+    !Number.isSafeInteger(body.indexedAt) ||
+    body.indexedAt < 0
+  ) {
+    return Response.json({ error: "invalid_indexed_session" }, { status: 400 });
+  }
+  await env.IDX_00.prepare(
+    "UPDATE sessions SET indexed_at = ? WHERE project_id = ? AND session_id = ?",
+  )
+    .bind(body.indexedAt, body.projectId, body.sessionId)
+    .run();
+  return Response.json({ ok: true });
+}
+
+async function seedSessionHeadNoise(request: Request, env: Env): Promise<Response> {
+  const body = (await request.json()) as {
+    projectId?: unknown;
+    count?: unknown;
+    indexedAt?: unknown;
+  };
+  if (
+    typeof body.projectId !== "string" ||
+    !isValidPathId(body.projectId) ||
+    typeof body.count !== "number" ||
+    !Number.isSafeInteger(body.count) ||
+    body.count < 1 ||
+    body.count > 200 ||
+    typeof body.indexedAt !== "number" ||
+    !Number.isSafeInteger(body.indexedAt) ||
+    body.indexedAt < 0
+  ) {
+    return Response.json({ error: "invalid_session_head_noise" }, { status: 400 });
+  }
+
+  const selectedColumns = sessionRowColumns.map((column) =>
+    column === "session_id"
+      ? `'head_noise_' || printf('%03d', sequence.value)`
+      : `template.${column}`,
+  );
+  await env.IDX_00.prepare(
+    `WITH RECURSIVE sequence(value) AS (
+      SELECT 1
+      UNION ALL
+      SELECT value + 1 FROM sequence WHERE value < ?
+    )
+    INSERT OR REPLACE INTO sessions (${sessionRowColumns.join(", ")}, indexed_at)
+    SELECT ${selectedColumns.join(", ")}, ? + sequence.value
+    FROM sequence
+    CROSS JOIN sessions AS template
+    WHERE template.project_id = ? AND template.session_id = 'api_mid'`,
+  )
+    .bind(body.count, body.indexedAt, body.projectId)
     .run();
   return Response.json({ ok: true });
 }

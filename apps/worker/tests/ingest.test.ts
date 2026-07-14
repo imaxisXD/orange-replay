@@ -22,6 +22,7 @@ const presenceFailureKey = testWriteKey("presence_failure");
 
 let worker: Awaited<ReturnType<typeof unstable_dev>>;
 let workerWithPresenceFailure: Awaited<ReturnType<typeof unstable_dev>>;
+let presenceFailureConfig: ProjectConfig | undefined;
 let id = 0;
 
 beforeAll(async () => {
@@ -36,6 +37,7 @@ beforeAll(async () => {
 }, 120_000);
 
 beforeAll(async () => {
+  presenceFailureConfig = makeConfig();
   workerWithPresenceFailure = await unstable_dev(`${workerDir}src/index.ts`, {
     config: `${workerDir}wrangler.jsonc`,
     vars: {
@@ -46,7 +48,7 @@ beforeAll(async () => {
     experimental: { disableExperimentalWarning: true },
   });
 
-  await seedKey(presenceFailureKey, makeConfig(), true, workerWithPresenceFailure);
+  await seedKey(presenceFailureKey, presenceFailureConfig, true, workerWithPresenceFailure);
 }, 120_000);
 
 afterAll(async () => {
@@ -382,7 +384,8 @@ describe("ingest route", () => {
     expect(res.status).toBe(200);
   });
 
-  it("keeps ingest successful when the presence registry is unavailable", async () => {
+  it("keeps ingest successful and retries promptly when the first presence ping fails", async () => {
+    if (presenceFailureConfig === undefined) throw new Error("presence failure setup is missing");
     const sessionId = nextSessionId("presencefail");
     const res = await postIngest(
       {
@@ -400,6 +403,30 @@ describe("ingest route", () => {
       ok: true,
       live: false,
     });
+
+    const firstDebug = await workerWithPresenceFailure.fetch(
+      `/__test/do/presence-ping-state?projectId=${presenceFailureConfig.projectId}&sessionId=${sessionId}`,
+    );
+    expect(firstDebug.status).toBe(200);
+    expect(await firstDebug.json()).toEqual({ lastPresencePingAt: null });
+
+    const retry = await postIngest(
+      {
+        key: presenceFailureKey,
+        sessionId,
+        tab: "tab_presence_fail",
+        seq: 1,
+        body: makeBody(sessionId, "tab_presence_fail", 1),
+      },
+      workerWithPresenceFailure,
+    );
+    expect(retry.status).toBe(200);
+
+    const retryDebug = await workerWithPresenceFailure.fetch(
+      `/__test/do/presence-ping-state?projectId=${presenceFailureConfig.projectId}&sessionId=${sessionId}`,
+    );
+    expect(retryDebug.status).toBe(200);
+    expect(await retryDebug.json()).toEqual({ lastPresencePingAt: null });
   });
 });
 

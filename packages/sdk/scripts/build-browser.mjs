@@ -43,12 +43,34 @@ const privateBrowserProperty = new RegExp(
     lastCaptureTime captureIntervalMs captureNextCanvas observedDocuments capturedDocuments
     currentDocuments documentOwners iframeLoadCleanups observerCleanups snapshotListener
     documentRemovedListener trackDocument clearDocument shadowDoms trackedShadowRoots restoreHandlers
-    iframeOwners observedIframeDocuments iframeDocuments patchAttachShadow activeReservations
-    reserveNextId idNodeMap nodeMetaMap addIframe addLoadListener addSnapshotListener
+    iframeOwners observedIframeDocuments iframeDocuments patchAttachShadow topologyGeneration
+    reserveNextId idNodeMap nodeMetaMap startTopologyCapture
+    hasActiveReservationForCurrentGeneration addIframe addLoadListener addSnapshotListener
     addDocumentRemovedListener snapshotLoadedIframe observeIframe isCurrentDocument isCurrentIframe
     removeContainedIframes attachIframe prepareForFullSnapshot finishFullSnapshot trackImage
     removeContainedImages addShadowRoot emitAdoptedStyleSheetsForSnapshot removeContainedRoots
     observeAttachShadow removeDocument attachLinkElement adoptStyleSheets inOtherBuffer
+    makeId broadcastChannel channel storage currentSessionId currentTabId lastActivity
+    lastActivityPersistedAt
+    reclaimForCurrentSession openClaimChannel postTabClaim makeTabId readCookieSession
+    writeCookieSession persistSeq claimTabOwnership persist resumeAfterIdle rotate
+    prepareForSessionRotation resetAfterSessionRotation takeFullSnapshot
+    projectRef ready nextSeq touch
+    afterCapturedTopology capturedChunks capturedNodes capturedParentIndexes capturedFlags
+    capturedLiveIds capturedNextIndexes capturedLastChildIndexes addCapturedNode getChunk getNode
+    getParentIndex getFlags setFlags getLiveId getNextLiveId releaseReconciliationValues
+    stopRecord discardPendingRecords revokeWorkerUrl sink bypassOptions pagehideRawFlushBytes
+    totalRawBytes isAvailable wrappedEmit eventRawBytes rawFlushBytes onClosed queueBatchSync timeoutId
+    addRrwebEvent queueCustomEvent flushing startIdReservation stopIdReservation
+    drainPendingCustomEvents trackCanvas kill adoptedStyleSheetCb fetchFn warned addIndexEvent
+    originalReplaceState originalPushState recorder scrollCb styleMirror requestSnapshot
+    removesSubTreeCache batcher pendingCustomEvents onNavigation drainPreBuffer onUnhandledRejection
+    genTextAreaValueMutation removeNodeFromMap encoder unattachedDoc styleIDMap lastScrollAt updateMeta
+    genAdds activateReservation flushBatch sendBatch getId addedSet addEvents onScroll onError frozen
+    isActiveNode movedSet lastSnapshotAt mapRemoves sidecar hasNode scheduled processMutations nodeMap
+    removers movedMap isRemovedNode setObserver droppedSet getMeta queueImage loadListener tail addNode
+    onClick attributeMap forgetNode processMutation resetObservers drain previous maxBodyBytes
+    reuseIdsFrom stopTouchListeners styleDiff _unchangedStyles onIframeLoad finalQueued
   `
     .trim()
     .split(/\s+/)

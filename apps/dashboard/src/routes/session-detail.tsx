@@ -1,8 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "@tanstack/react-router";
-import { applyLiveIndexToSnapshot } from "@orange-replay/player";
-import type { BatchIndex, LiveSessionSnapshot, SessionManifest } from "@orange-replay/shared/types";
+import type { SessionManifest } from "@orange-replay/shared/types";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { ClientLabel } from "@/components/client-label";
@@ -10,8 +8,9 @@ import { CountryFlag } from "@/components/country-flag";
 import { IconSwap } from "@/components/ui/icon-swap";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { StatusPill } from "@/components/status-pill";
 import { Tooltip } from "@/components/ui/tooltip";
-import { ApiError } from "@/lib/api";
+import { ApiError, type SessionActivity, type SessionDetailsState } from "@/lib/api";
 import { formatCountryCode } from "@/lib/country";
 import { useDashboardWorkspace } from "@/lib/dashboard-workspace";
 import { formatAbsoluteTime, formatDuration, formatShortRelativeTime } from "@/lib/format";
@@ -26,54 +25,22 @@ import {
   type IconComponent,
 } from "@/lib/icon-map";
 import { ReplayWorkspace } from "./session-detail/replay-playback";
-import { loadSessionManifest } from "./session-detail/session-detail-data";
+import { useSessionView } from "./session-detail/use-session-view";
 import { entryPath } from "./sessions/session-card";
 
 export function SessionDetailPage() {
   const { projectId, isDemo } = useDashboardWorkspace();
   const params = useParams({ strict: false });
   const sessionId = params.sessionId;
-  const manifestQuery = useQuery({
-    enabled: sessionId !== undefined,
-    queryKey: ["session-manifest", isDemo ? "demo" : "private", projectId, sessionId],
-    queryFn: ({ signal }) => loadSessionManifest(projectId, sessionId ?? "", signal),
+  const sessionView = useSessionView({
+    isDemo,
+    projectId,
+    sessionId: sessionId ?? "",
   });
-  const manifest = manifestQuery.data?.manifest ?? null;
-  const refetchManifest = manifestQuery.refetch;
-  const mode = manifestQuery.data?.mode ?? "recorded";
-  const loading = manifestQuery.isPending;
-  const error = manifestQuery.error === null ? "" : readErrorMessage(manifestQuery.error);
-  const notFound = manifestQuery.data?.notFound ?? false;
+  const manifest = sessionView.displayedManifest;
+  const playerManifest = sessionView.playerManifest;
+  const error = sessionView.error === null ? "" : readErrorMessage(sessionView.error);
   const [deadClickCount, setDeadClickCount] = useState(0);
-  const [liveState, setLiveState] = useState<{
-    sessionId: string;
-    snapshot: LiveSessionSnapshot;
-  } | null>(null);
-  const currentSessionId = sessionId ?? "";
-  const liveSnapshot =
-    mode === "live" && liveState !== null && liveState.sessionId === currentSessionId
-      ? liveState.snapshot
-      : null;
-
-  const displayedManifest = useMemo(
-    () => mergeLiveSnapshot(manifest, liveSnapshot),
-    [liveSnapshot, manifest],
-  );
-
-  const handleLiveIndex = useCallback((index: BatchIndex) => {
-    setLiveState((current) =>
-      current === null || current.sessionId !== index.s
-        ? current
-        : { ...current, snapshot: applyLiveIndexToSnapshot(current.snapshot, index) },
-    );
-  }, []);
-  const handleLiveSnapshot = useCallback(
-    (snapshot: LiveSessionSnapshot) => setLiveState({ sessionId: currentSessionId, snapshot }),
-    [currentSessionId],
-  );
-  const handleLiveEnded = useCallback(() => {
-    void refetchManifest();
-  }, [refetchManifest]);
 
   useEffect(() => {
     setDeadClickCount(0);
@@ -93,17 +60,12 @@ export function SessionDetailPage() {
     <div className="flex flex-col gap-5">
       <div className="flex items-center justify-between gap-3">
         <BackToSessionsButton isDemo={isDemo} projectId={projectId} />
-        <Button
-          leadingIcon={RotateCcw}
-          onClick={() => void refetchManifest()}
-          size="sm"
-          variant="ghost"
-        >
+        <Button leadingIcon={RotateCcw} onClick={sessionView.refresh} size="sm" variant="ghost">
           Reload session
         </Button>
       </div>
 
-      <SessionHeader manifest={displayedManifest} sessionId={sessionId} />
+      <SessionHeader manifest={manifest} sessionId={sessionId} />
 
       {error.length > 0 && (
         <Alert variant="destructive">
@@ -113,7 +75,7 @@ export function SessionDetailPage() {
         </Alert>
       )}
 
-      {notFound && (
+      {sessionView.notFound && (
         <Alert variant="destructive">
           <AlertCircle aria-hidden />
           <AlertTitle>Session not found</AlertTitle>
@@ -121,44 +83,37 @@ export function SessionDetailPage() {
         </Alert>
       )}
 
-      {loading ? (
+      {sessionView.loading ? (
         <DetailLoading />
       ) : (
-        displayedManifest !== null && (
-          <ManifestHeader deadClickCount={deadClickCount} manifest={displayedManifest} />
+        manifest !== null && (
+          <ManifestHeader
+            activity={sessionView.activity}
+            deadClickCount={deadClickCount}
+            detailsState={sessionView.detailsState}
+            manifest={manifest}
+          />
         )
       )}
 
-      {!loading && manifest !== null && displayedManifest !== null && (
+      {!sessionView.loading && manifest !== null && playerManifest !== null && (
         <ReplayWorkspace
           isDemo={isDemo}
-          manifest={displayedManifest}
-          mode={mode}
+          manifest={manifest}
+          mode={sessionView.mode}
           onDeadClickCountChange={setDeadClickCount}
-          onLiveEnded={handleLiveEnded}
-          onLiveIndex={handleLiveIndex}
-          onLiveSnapshot={handleLiveSnapshot}
-          playerManifest={manifest}
+          onLiveEnded={sessionView.onLiveEnded}
+          onLiveFinalized={sessionView.onLiveFinalized}
+          onLiveIndex={sessionView.onLiveIndex}
+          onLiveSnapshot={sessionView.onLiveSnapshot}
+          playerManifest={playerManifest}
           projectId={projectId}
+          reviewLiveHistory={sessionView.activity === "idle"}
           sessionId={sessionId}
         />
       )}
     </div>
   );
-}
-
-function mergeLiveSnapshot(
-  manifest: SessionManifest | null,
-  snapshot: LiveSessionSnapshot | null,
-): SessionManifest | null {
-  if (manifest === null || snapshot === null) return manifest;
-  return {
-    ...manifest,
-    endedAt: snapshot.endedAt,
-    durationMs: snapshot.durationMs,
-    timeline: snapshot.timeline,
-    counts: snapshot.counts,
-  };
 }
 
 function SessionHeader({
@@ -280,10 +235,14 @@ function BackToSessionsButton({ isDemo, projectId }: { isDemo: boolean; projectI
 }
 
 function ManifestHeader({
+  activity,
   deadClickCount,
+  detailsState,
   manifest,
 }: {
+  activity: SessionActivity | null;
   deadClickCount: number;
+  detailsState: SessionDetailsState | null;
   manifest: SessionManifest;
 }) {
   const errors = manifest.counts.errors;
@@ -294,18 +253,33 @@ function ManifestHeader({
   // so no pill row repeats them, and context lives in the page header.
   return (
     <section className="lit overflow-hidden rounded-lg">
+      {activity === "live" ? (
+        <div className="border-b border-dashed border-dash px-4.5 py-2.5">
+          <StatusPill kind="ok">Live</StatusPill>
+        </div>
+      ) : detailsState === "provisional" ? (
+        <div className="border-b border-dashed border-dash px-4.5 py-2.5">
+          <StatusPill kind="neutral">Final details pending</StatusPill>
+        </div>
+      ) : null}
       <ScrollArea orientation="horizontal" viewportClassName="scroll-fade-x">
         <div className="flex min-w-full w-max">
           <Metric label="Duration" value={formatDuration(manifest.durationMs)} />
-          {pageCount !== undefined && <Metric label="Pages" value={String(pageCount)} />}
-          <Metric label="Events" value={String(manifest.counts.events)} />
-          <Metric icon={AlertCircle} label="Errors" value={String(errors)} warm={errors > 0} />
-          <Metric
-            icon={Angry}
-            label="Rage clicks"
-            value={String(rageClicks)}
-            warm={rageClicks > 0}
-          />
+          {detailsState === "exact" && pageCount !== undefined && (
+            <Metric label="Pages" value={String(pageCount)} />
+          )}
+          {detailsState === "exact" && (
+            <>
+              <Metric label="Events" value={String(manifest.counts.events)} />
+              <Metric icon={AlertCircle} label="Errors" value={String(errors)} warm={errors > 0} />
+              <Metric
+                icon={Angry}
+                label="Rage clicks"
+                value={String(rageClicks)}
+                warm={rageClicks > 0}
+              />
+            </>
+          )}
           {deadClickCount > 0 && <Metric label="Dead clicks" value={String(deadClickCount)} warm />}
         </div>
       </ScrollArea>

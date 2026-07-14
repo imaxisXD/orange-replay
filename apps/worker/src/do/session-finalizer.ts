@@ -4,7 +4,7 @@ import {
   manifestKey,
   sessionManifestSchema,
 } from "@orange-replay/shared";
-import type { FinalizeMessage, IndexEvent } from "@orange-replay/shared";
+import type { FinalizeMessage, IndexEvent, SessionManifest } from "@orange-replay/shared";
 import { capFinalizeMessageToBudget } from "./session-budgets.ts";
 import {
   analyticsSidecarByteLength,
@@ -27,7 +27,7 @@ export interface SessionFinalizeMetrics {
   rageBursts: number;
   maxScrollDepth: number;
   interactionTimeMs: number;
-  presenceRemoveError?: string;
+  presenceMarkError?: string;
 }
 
 export interface SessionFinalizerDependencies {
@@ -43,12 +43,13 @@ export interface SessionFinalizerDependencies {
   >;
   getSessionState: () => SessionState | null;
   flushPendingBatches: () => Promise<void>;
-  queuePresenceRemove: (
+  markPresenceFinalizing: (
     projectId: string,
     sessionId: string,
     requestId: string,
-  ) => string | undefined;
-  closeViewers: () => void;
+    finalizingAt: number,
+  ) => Promise<string | undefined>;
+  finalizeViewers: (manifest: SessionManifest) => void;
   rememberTombstone: (tombstone: FinalizedTombstone) => void;
   scheduleTombstonePurge: (purgeAt: number) => Promise<void>;
 }
@@ -152,15 +153,22 @@ export class SessionFinalizer {
       );
     }
 
-    await this.writeAnalyticsSidecar(sidecarKey, derived.rageEvents);
+    // The immutable replay is ready. Hand it to current viewers before any
+    // analytics or queue work so those background steps cannot hold playback.
+    this.dependencies.finalizeViewers(manifest);
 
-    await this.dependencies.finalizeQueue.send(message, { contentType: "json" });
-    metrics.presenceRemoveError = this.dependencies.queuePresenceRemove(
+    metrics.presenceMarkError = await this.dependencies.markPresenceFinalizing(
       state.projectId,
       state.sessionId,
       state.firstRequestId,
+      state.finalizingAt ?? Date.now(),
     );
-    this.dependencies.closeViewers();
+
+    await this.writeAnalyticsSidecar(sidecarKey, derived.rageEvents);
+
+    await this.dependencies.finalizeQueue.send(message, { contentType: "json" });
+    // A final sweep closes any socket accepted just before finalizing started.
+    this.dependencies.finalizeViewers(manifest);
 
     const finalizedAt = Date.now();
     const purgeAt = finalizedAt + state.retentionDays * 86_400_000;

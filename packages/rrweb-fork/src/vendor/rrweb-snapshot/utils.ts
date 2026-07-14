@@ -186,12 +186,19 @@ export function isCSSStyleRule(rule: CSSRule): rule is CSSStyleRule {
   return "selectorText" in rule;
 }
 
+const activeReservationGeneration = Symbol();
+type ReservationMeta = serializedNodeWithId & {
+  // The absolute value is the capture generation plus one. A positive value
+  // is still reserved; a negative value was committed but remains visited.
+  [activeReservationGeneration]?: number;
+};
+
 export class Mirror implements IMirror<Node> {
   private idNodeMap: idNodeMap = new Map();
   private nodeMetaMap: nodeMetaMap = new WeakMap();
   private removedNodes = new WeakSet<Node>();
-  private activeReservations = new WeakSet<Node>();
   private reserveNextId?: () => number;
+  private topologyGeneration = 0;
 
   getId(n: Node | undefined | null): number {
     if (!n) return -1;
@@ -253,16 +260,26 @@ export class Mirror implements IMirror<Node> {
 
   add(n: Node, meta: serializedNodeWithId) {
     const id = meta.id;
+    const previousReservation = (this.nodeMetaMap.get(n) as ReservationMeta | undefined)?.[
+      activeReservationGeneration
+    ];
+    if (previousReservation !== undefined) {
+      (meta as ReservationMeta)[activeReservationGeneration] = -Math.abs(previousReservation);
+    }
     this.removedNodes.delete(n);
     this.idNodeMap.set(id, n);
     this.nodeMetaMap.set(n, meta);
-    this.activeReservations.delete(n);
   }
 
   updateMeta(n: Node, meta: serializedNodeWithId) {
-    const previousId = this.nodeMetaMap.get(n)?.id;
+    const previousMeta = this.nodeMetaMap.get(n) as ReservationMeta | undefined;
+    const previousId = previousMeta?.id;
+    const reservationGeneration = previousMeta?.[activeReservationGeneration];
     if (previousId !== undefined && this.idNodeMap.get(previousId) === n) {
       this.idNodeMap.delete(previousId);
+    }
+    if (reservationGeneration !== undefined) {
+      (meta as ReservationMeta)[activeReservationGeneration] = reservationGeneration;
     }
     this.nodeMetaMap.set(n, meta);
     if (!this.removedNodes.has(n)) this.idNodeMap.set(meta.id, n);
@@ -273,7 +290,6 @@ export class Mirror implements IMirror<Node> {
     if (id !== undefined && this.idNodeMap.get(id) === n) this.idNodeMap.delete(id);
     this.nodeMetaMap.delete(n);
     this.removedNodes.delete(n);
-    this.activeReservations.delete(n);
   }
 
   isRemovedNode(n: Node): boolean {
@@ -281,11 +297,41 @@ export class Mirror implements IMirror<Node> {
   }
 
   reserve(n: Node, id: number) {
-    this.nodeMetaMap.set(n, { id } as serializedNodeWithId);
+    const previousGeneration = (this.nodeMetaMap.get(n) as ReservationMeta | undefined)?.[
+      activeReservationGeneration
+    ];
+    const meta = { id } as ReservationMeta;
+    if (previousGeneration !== undefined) {
+      meta[activeReservationGeneration] = previousGeneration;
+    }
+    this.nodeMetaMap.set(n, meta);
   }
 
-  activateReservation(n: Node) {
-    this.activeReservations.add(n);
+  startTopologyCapture() {
+    this.topologyGeneration += 1;
+  }
+
+  activateReservation(n: Node): boolean {
+    let meta = this.nodeMetaMap.get(n) as ReservationMeta | undefined;
+    const currentGeneration = this.topologyGeneration + 1;
+    const previousReservation = meta?.[activeReservationGeneration];
+    if (previousReservation === currentGeneration || previousReservation === -currentGeneration) {
+      return false;
+    }
+    if (meta === undefined) {
+      meta = { id: undefined } as unknown as ReservationMeta;
+      this.nodeMetaMap.set(n, meta);
+    }
+    meta[activeReservationGeneration] = currentGeneration;
+    return true;
+  }
+
+  hasActiveReservationForCurrentGeneration(n: Node): boolean {
+    const currentGeneration = this.topologyGeneration + 1;
+    const reservation = (this.nodeMetaMap.get(n) as ReservationMeta | undefined)?.[
+      activeReservationGeneration
+    ];
+    return reservation === currentGeneration || reservation === -currentGeneration;
   }
 
   startIdReservation(nextId: () => number) {
@@ -297,12 +343,13 @@ export class Mirror implements IMirror<Node> {
   }
 
   isActiveNode(n: Node): boolean {
-    const id = this.nodeMetaMap.get(n)?.id;
+    const meta = this.nodeMetaMap.get(n) as ReservationMeta | undefined;
+    const id = meta?.id;
     return (
       id !== undefined &&
       id > 0 &&
       !this.removedNodes.has(n) &&
-      (this.idNodeMap.get(id) === n || this.activeReservations.has(n))
+      (this.idNodeMap.get(id) === n || (meta[activeReservationGeneration] ?? -1) > 0)
     );
   }
 
@@ -321,8 +368,8 @@ export class Mirror implements IMirror<Node> {
     this.idNodeMap = new Map();
     this.nodeMetaMap = new WeakMap();
     this.removedNodes = new WeakSet();
-    this.activeReservations = new WeakSet();
     this.reserveNextId = undefined;
+    this.topologyGeneration = 0;
   }
 }
 

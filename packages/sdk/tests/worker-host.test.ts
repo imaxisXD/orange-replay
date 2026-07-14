@@ -5,6 +5,7 @@ import {
   EventType,
   IncrementalSource,
   type eventWithTime,
+  type serializedNodeWithId,
 } from "@orange-replay/rrweb-fork";
 
 class FakeWorker {
@@ -255,8 +256,8 @@ describe("WorkerHost", () => {
     );
     expect(messages.filter((message) => message[0] === "s")).toHaveLength(2);
     expect(messages.filter((message) => message[0] === "e")).toHaveLength(2);
-    expect(nodeMessages).toHaveLength(6);
-    expect(nodeMessages.every((message) => message[1].length <= 256)).toBe(true);
+    expect(nodeMessages).toHaveLength(10);
+    expect(nodeMessages.every((message) => message[1].length <= 128)).toBe(true);
     expect(
       messages.some(
         (message) =>
@@ -266,6 +267,51 @@ describe("WorkerHost", () => {
       ),
     ).toBe(false);
     expect(yieldToMain).toHaveBeenCalled();
+  });
+
+  it("restores snapshot children after worker posts and failures", async () => {
+    const transferredNodes: Array<["n", serializedNodeWithId[], number[]]> = [];
+    const host = new WorkerHost({
+      WorkerCtor: FakeWorker as unknown as typeof Worker,
+      createObjectUrl: () => "blob:orange-replay-worker",
+      revokeObjectUrl: vi.fn(),
+      warn: vi.fn(),
+    });
+    const worker = FakeWorker.instances.at(-1)!;
+    worker.postMessage.mockImplementation((message: unknown) => {
+      if (Array.isArray(message) && message[0] === "n") {
+        transferredNodes.push(structuredClone(message) as ["n", serializedNodeWithId[], number[]]);
+      }
+    });
+    const snapshotRoot = makeSnapshotTree();
+    const originalTree = structuredClone(snapshotRoot);
+
+    addWorkerEvents(host, [makeFullSnapshot(snapshotRoot)]);
+    await flushWorkerQueue();
+
+    expect(snapshotRoot).toEqual(originalTree);
+    expect(rebuildSnapshotTree(transferredNodes)).toEqual(originalTree);
+
+    const failingHost = new WorkerHost({
+      WorkerCtor: FakeWorker as unknown as typeof Worker,
+      createObjectUrl: () => "blob:orange-replay-worker",
+      revokeObjectUrl: vi.fn(),
+      warn: vi.fn(),
+    });
+    const failingWorker = FakeWorker.instances.at(-1)!;
+    failingWorker.postMessage.mockImplementation((message: unknown) => {
+      if (Array.isArray(message) && message[0] === "n") {
+        throw new Error("Snapshot post failed.");
+      }
+    });
+    const failingRoot = makeSnapshotTree();
+    const originalFailingTree = structuredClone(failingRoot);
+
+    addWorkerEvents(failingHost, [makeFullSnapshot(failingRoot)]);
+    await flushWorkerQueue();
+
+    expect(failingRoot).toEqual(originalFailingTree);
+    expect(failingWorker.terminate).toHaveBeenCalledOnce();
   });
 
   it("isolates snapshot nodes that exceed the soft byte target", async () => {
@@ -424,6 +470,58 @@ describe("WorkerHost", () => {
     expect(decoder.decode((await newFlush).payload)).toBe("new");
   });
 });
+
+function makeSnapshotTree(): serializedNodeWithId {
+  return {
+    type: 0,
+    id: 1,
+    childNodes: [
+      {
+        type: 2,
+        id: 2,
+        tagName: "main",
+        attributes: { role: "main" },
+        childNodes: [{ type: 3, id: 3, textContent: "exact snapshot" }],
+      },
+    ],
+  } as serializedNodeWithId;
+}
+
+function makeFullSnapshot(root: serializedNodeWithId): eventWithTime {
+  return {
+    type: EventType.FullSnapshot,
+    timestamp: 10,
+    data: { node: root, initialOffset: { top: 0, left: 0 } },
+  } as eventWithTime;
+}
+
+function rebuildSnapshotTree(
+  messages: ReadonlyArray<readonly ["n", serializedNodeWithId[], number[]]>,
+): serializedNodeWithId {
+  const ancestors: serializedNodeWithId[] = [];
+  let root: serializedNodeWithId | undefined;
+
+  for (const [, nodes, depths] of messages) {
+    for (let index = 0; index < nodes.length; index += 1) {
+      const node = structuredClone(nodes[index]!);
+      const depth = depths[index]!;
+      if (depth === 0) {
+        root = node;
+      } else {
+        const parent = ancestors[depth - 1];
+        if (parent === undefined || !("childNodes" in parent)) {
+          throw new Error("Snapshot parent is missing.");
+        }
+        parent.childNodes.push(node);
+      }
+      ancestors[depth] = node;
+      ancestors.length = depth + 1;
+    }
+  }
+
+  if (root === undefined) throw new Error("Snapshot root is missing.");
+  return root;
+}
 
 function makeEvent(timestamp: number, name: string): eventWithTime {
   return { type: 0, timestamp, data: { name } } as eventWithTime;

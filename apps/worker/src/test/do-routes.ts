@@ -3,6 +3,8 @@ import type { Env } from "../env.ts";
 import type { AppendArgs, AppendResult } from "../do/contract.ts";
 import {
   listProjectPresence,
+  listProjectSessionHeads,
+  readProjectSessionHead,
   readProjectInstallStatus,
   readProjectPresenceDebug,
   sendPresenceSessionRequest,
@@ -107,6 +109,20 @@ export async function handleDoTestRoutes(
     return Response.json(await sessionStub(env, ids.projectId, ids.sessionId).debug());
   }
 
+  if (request.method === "GET" && url.pathname === "/__test/do/presence-ping-state") {
+    const ids = readSessionIds(
+      url.searchParams.get("projectId"),
+      url.searchParams.get("sessionId"),
+    );
+    if (!ids.ok) {
+      return Response.json({ error: "missing_id" }, { status: 400 });
+    }
+
+    return Response.json(
+      await sessionStub(env, ids.projectId, ids.sessionId).presencePingStateForTest(),
+    );
+  }
+
   if (request.method === "GET" && url.pathname === "/__test/do/live") {
     const ids = readSessionIds(
       url.searchParams.get("projectId"),
@@ -141,19 +157,38 @@ async function callPresenceTestRoute(
   }
 
   const route = pathname.slice("/__test/do/presence".length);
-  if (!["/ping", "/remove", "/list", "/install-status", "/debug"].includes(route)) {
+  if (
+    ![
+      "/ping",
+      "/mark-finalizing",
+      "/remove",
+      "/list",
+      "/heads",
+      "/head",
+      "/install-status",
+      "/debug",
+    ].includes(route)
+  ) {
     return Response.json({ error: "not_found" }, { status: 404 });
   }
 
   const requestId = "test-presence-request";
-  if (route === "/ping" || route === "/remove") {
+  if (
+    route === "/ping" ||
+    route === "/mark-finalizing" ||
+    route === "/remove" ||
+    route === "/head"
+  ) {
     if (typeof body.sessionId !== "string" || !isValidPathId(body.sessionId)) {
       return Response.json({ error: "sessionId is required" }, { status: 400 });
     }
+  }
+
+  if (route === "/ping" || route === "/mark-finalizing" || route === "/remove") {
     await sendPresenceSessionRequest(env, route, requestId, {
       ...body,
       projectId: body.projectId,
-      sessionId: body.sessionId,
+      sessionId: body.sessionId as string,
     });
     return Response.json({ ok: true });
   }
@@ -164,6 +199,56 @@ async function callPresenceTestRoute(
     return result === null
       ? Response.json({ error: "presence unavailable" }, { status: 503 })
       : Response.json(result);
+  }
+
+  if (route === "/heads") {
+    const now = typeof body.now === "number" ? body.now : Date.now();
+    const limit = typeof body.limit === "number" ? body.limit : 100;
+    const sort = body.sort === "duration" ? "duration" : "newest";
+    const result = await listProjectSessionHeads(env, body.projectId, requestId, {
+      now,
+      limit,
+      sort,
+      ...(isRecord(body.before) && typeof body.before.sortValue === "number"
+        ? {
+            before: {
+              sortValue: body.before.sortValue,
+              ...(typeof body.before.sessionId === "string"
+                ? { sessionId: body.before.sessionId }
+                : {}),
+            },
+          }
+        : {}),
+      ...(typeof body.from === "number" ? { from: body.from } : {}),
+      ...(typeof body.to === "number" ? { to: body.to } : {}),
+      ...(typeof body.country === "string" ? { country: body.country } : {}),
+      ...(typeof body.region === "string" ? { region: body.region } : {}),
+      ...(typeof body.device === "string" ? { device: body.device } : {}),
+      ...(typeof body.browser === "string" ? { browser: body.browser } : {}),
+      ...(typeof body.os === "string" ? { os: body.os } : {}),
+      ...(typeof body.entryUrl === "string" ? { entryUrl: body.entryUrl } : {}),
+      ...(typeof body.entryUrlPrefix === "string" ? { entryUrlPrefix: body.entryUrlPrefix } : {}),
+      ...(typeof body.minDurationMs === "number" ? { minDurationMs: body.minDurationMs } : {}),
+      ...(Array.isArray(body.trackedSessionIds) &&
+      body.trackedSessionIds.every((sessionId) => typeof sessionId === "string")
+        ? { trackedSessionIds: body.trackedSessionIds as string[] }
+        : {}),
+    });
+    return result === null
+      ? Response.json({ error: "presence unavailable" }, { status: 503 })
+      : Response.json(result);
+  }
+
+  if (route === "/head") {
+    const now = typeof body.now === "number" ? body.now : Date.now();
+    const result = await readProjectSessionHead(
+      env,
+      body.projectId,
+      String(body.sessionId),
+      requestId,
+      now,
+    );
+    return Response.json({ session: result });
   }
 
   if (route === "/install-status") {
@@ -177,6 +262,10 @@ async function callPresenceTestRoute(
   return result === null
     ? Response.json({ error: "presence unavailable" }, { status: 503 })
     : Response.json(result);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function decodeBase64(value: string): Uint8Array {

@@ -45,9 +45,9 @@ interface FlushOptions {
 export type WorkerEvent = readonly [event: eventWithTime, bytes: number];
 
 const DEFAULT_FLUSH_TIMEOUT_MS = 10_000;
-const SNAPSHOT_CHUNK_NODES = 256;
+const SNAPSHOT_CHUNK_NODES = 128;
 const WORKER_MESSAGE_TARGET_BYTES = SDK_BUFFER_CAP_BYTES / 16;
-const SNAPSHOT_TRANSFER_SLICE_MS = 4;
+const SNAPSHOT_TRANSFER_SLICE_MS = 3;
 
 export class WorkerHost {
   private readonly warn?: (message: string) => void;
@@ -295,7 +295,7 @@ export class WorkerHost {
           pendingChildIndexes.push(-1);
           break;
         }
-        nodes.push(withoutSnapshotChildren(currentNode));
+        nodes.push(currentNode);
         depths.push(currentDepth);
         messageBytes += nodeBytes;
         if (children.length > 0) {
@@ -305,7 +305,21 @@ export class WorkerHost {
         }
       }
 
-      worker.postMessage(["n", nodes, depths]);
+      const childLists = nodes.map((node) => ("childNodes" in node ? node.childNodes : undefined));
+      for (const node of nodes) {
+        if ("childNodes" in node) node.childNodes = [];
+      }
+      try {
+        worker.postMessage(["n", nodes, depths]);
+      } finally {
+        for (let index = 0; index < nodes.length; index += 1) {
+          const children = childLists[index];
+          const node = nodes[index];
+          if (children !== undefined && node !== undefined && "childNodes" in node) {
+            node.childNodes = children;
+          }
+        }
+      }
       const activeSliceMs = this.now() - sliceStartedAt;
       if (pendingNodes.length > 0 && activeSliceMs >= SNAPSHOT_TRANSFER_SLICE_MS) {
         await this.yieldToMain();
@@ -427,11 +441,6 @@ function cleanTimeoutMs(value: number | undefined): number {
   }
 
   return Math.floor(value);
-}
-
-function withoutSnapshotChildren(node: serializedNodeWithId): serializedNodeWithId {
-  if (!("childNodes" in node)) return node;
-  return { ...node, childNodes: [] };
 }
 
 function estimateNodeBytes(node: serializedNodeWithId): number {

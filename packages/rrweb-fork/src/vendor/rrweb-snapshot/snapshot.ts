@@ -1356,6 +1356,16 @@ export interface SnapshotOptions {
   keepIframeSrcFn?: KeepIframeSrcFn;
 }
 
+export interface CapturedTopology {
+  readonly length: number;
+  getNode(index: number): Node;
+  getParentIndex(index: number): number;
+  getFlags(index: number): number;
+  setFlags(index: number, flags: number): void;
+  getLiveId(index: number): number;
+  getNextLiveId(index: number): number | null;
+}
+
 export interface ChunkedSnapshotControl {
   timeSliceMs?: number;
   now?: () => number;
@@ -1367,6 +1377,8 @@ export interface ChunkedSnapshotControl {
     parentIndexes: readonly number[],
     nextIds: readonly (number | null)[],
   ) => void | Promise<void>;
+  /** Internal zero-copy reader used by the Orange Replay recorder bundle. */
+  afterCapturedTopology?: (topology: CapturedTopology) => void | Promise<void>;
   onShadowRoot?: (shadowRoot: ShadowRoot) => void;
   onIframeDocument?: (iframe: HTMLIFrameElement, doc: Document) => void;
   deferIframeDocuments?: boolean;
@@ -1459,6 +1471,124 @@ function estimateSerializedValueBytes(value: unknown): number {
   return 64;
 }
 
+const CAPTURED_TOPOLOGY_CHUNK_SIZE = 1_024;
+
+function fixedArray<T>(length: number): T[] {
+  const values: T[] = [];
+  values.length = length;
+  return values;
+}
+
+interface CapturedTopologyChunk {
+  capturedNodes: Node[];
+  capturedParentIndexes: Uint32Array;
+  capturedFlags: Uint8Array;
+  capturedLiveIds?: Float64Array;
+  capturedNextIndexes?: Uint32Array;
+  capturedLastChildIndexes?: Uint32Array;
+}
+
+/**
+ * Keeps topology capture writes bounded. Growing several large JavaScript
+ * arrays at the same index can copy the whole capture in one browser task.
+ */
+class CapturedTopologyStore implements CapturedTopology {
+  private readonly capturedChunks: CapturedTopologyChunk[] = [];
+  public length = 0;
+
+  addCapturedNode(node: Node, parentIndex: number, flags: number, liveId: number): void {
+    const index = this.length;
+    const chunkIndex = Math.floor(index / CAPTURED_TOPOLOGY_CHUNK_SIZE);
+    const offset = index % CAPTURED_TOPOLOGY_CHUNK_SIZE;
+    let chunk = this.capturedChunks[chunkIndex];
+    if (chunk === undefined) {
+      // Parent/flags stay for serialization. Live/next/last-child values are
+      // only needed for reconciliation and can be released before we build
+      // the serialized tree. Two shared buffers also avoid five independent
+      // backing-store allocations at every page boundary.
+      const serializedValues = new ArrayBuffer(CAPTURED_TOPOLOGY_CHUNK_SIZE * 5);
+      const reconciliationValues = new ArrayBuffer(CAPTURED_TOPOLOGY_CHUNK_SIZE * 16);
+      chunk = {
+        capturedNodes: fixedArray<Node>(CAPTURED_TOPOLOGY_CHUNK_SIZE),
+        capturedParentIndexes: new Uint32Array(serializedValues, 0, CAPTURED_TOPOLOGY_CHUNK_SIZE),
+        capturedFlags: new Uint8Array(
+          serializedValues,
+          CAPTURED_TOPOLOGY_CHUNK_SIZE * 4,
+          CAPTURED_TOPOLOGY_CHUNK_SIZE,
+        ),
+        capturedLiveIds: new Float64Array(reconciliationValues, 0, CAPTURED_TOPOLOGY_CHUNK_SIZE),
+        capturedNextIndexes: new Uint32Array(
+          reconciliationValues,
+          CAPTURED_TOPOLOGY_CHUNK_SIZE * 8,
+          CAPTURED_TOPOLOGY_CHUNK_SIZE,
+        ),
+        capturedLastChildIndexes: new Uint32Array(
+          reconciliationValues,
+          CAPTURED_TOPOLOGY_CHUNK_SIZE * 12,
+          CAPTURED_TOPOLOGY_CHUNK_SIZE,
+        ),
+      };
+      this.capturedChunks.push(chunk);
+    }
+    chunk.capturedNodes[offset] = node;
+    chunk.capturedParentIndexes[offset] = parentIndex + 1;
+    chunk.capturedFlags[offset] = flags;
+    chunk.capturedLiveIds![offset] = liveId;
+    this.length = index + 1;
+
+    if (parentIndex < 0) return;
+    const parentChunk = this.getChunk(parentIndex);
+    const parentOffset = parentIndex % CAPTURED_TOPOLOGY_CHUNK_SIZE;
+    const previousSiblingIndex = parentChunk.capturedLastChildIndexes![parentOffset]! - 1;
+    if (previousSiblingIndex >= 0) {
+      const previousChunk = this.getChunk(previousSiblingIndex);
+      previousChunk.capturedNextIndexes![previousSiblingIndex % CAPTURED_TOPOLOGY_CHUNK_SIZE] =
+        index + 1;
+    }
+    parentChunk.capturedLastChildIndexes![parentOffset] = index + 1;
+  }
+
+  getNode(index: number): Node {
+    return this.getChunk(index).capturedNodes[index % CAPTURED_TOPOLOGY_CHUNK_SIZE]!;
+  }
+
+  getParentIndex(index: number): number {
+    return this.getChunk(index).capturedParentIndexes[index % CAPTURED_TOPOLOGY_CHUNK_SIZE]! - 1;
+  }
+
+  getFlags(index: number): number {
+    return this.getChunk(index).capturedFlags[index % CAPTURED_TOPOLOGY_CHUNK_SIZE]!;
+  }
+
+  setFlags(index: number, flags: number): void {
+    this.getChunk(index).capturedFlags[index % CAPTURED_TOPOLOGY_CHUNK_SIZE] = flags;
+  }
+
+  getLiveId(index: number): number {
+    return this.getChunk(index).capturedLiveIds![index % CAPTURED_TOPOLOGY_CHUNK_SIZE]!;
+  }
+
+  getNextLiveId(index: number): number | null {
+    const nextIndex =
+      this.getChunk(index).capturedNextIndexes![index % CAPTURED_TOPOLOGY_CHUNK_SIZE]! - 1;
+    if (nextIndex < 0) return null;
+    const nextLiveId = this.getLiveId(nextIndex);
+    return nextLiveId > 0 ? nextLiveId : null;
+  }
+
+  releaseReconciliationValues(): void {
+    for (const chunk of this.capturedChunks) {
+      chunk.capturedLiveIds = undefined;
+      chunk.capturedNextIndexes = undefined;
+      chunk.capturedLastChildIndexes = undefined;
+    }
+  }
+
+  private getChunk(index: number): CapturedTopologyChunk {
+    return this.capturedChunks[Math.floor(index / CAPTURED_TOPOLOGY_CHUNK_SIZE)]!;
+  }
+}
+
 /**
  * Serializes a live document in short tasks while the recorder's live mirror
  * continues to process events.
@@ -1519,13 +1649,9 @@ export async function snapshotInChunks(
   const rootNeedsMask =
     control.privacyParent !== undefined &&
     matchesPrivacyTree(control.privacyParent, maskTextClass, maskTextSelector);
-  const topologyNodes: Node[] = [];
-  const topologyParentIndexes: number[] = [];
-  const topologyFlags: number[] = [];
-  const topologyLiveIds: number[] = [];
-  const topologyNextLiveIds: Array<number | null> = [];
-  const lastChildIndexByParent: number[] = [];
-  const visitedTopologyNodes = new WeakSet<Node>();
+  const topology = new CapturedTopologyStore();
+  const visitedTopologyNodes = options.reuseIdsFrom === undefined ? new WeakSet<Node>() : undefined;
+  options.reuseIdsFrom?.startTopologyCapture();
   const topologyIframeOwners = new Map<number, HTMLIFrameElement>();
   const iframeDocumentOwners = new WeakMap<Document, HTMLIFrameElement>();
   const iframeDocumentParentIndexes = new WeakMap<Document, number>();
@@ -1566,16 +1692,22 @@ export async function snapshotInChunks(
       }
 
       const currentNode = taskNode;
-      if (visitedTopologyNodes.has(currentNode)) continue;
-      visitedTopologyNodes.add(currentNode);
-      const currentIndex = topologyNodes.length;
+      let liveId = -1;
+      if (options.reuseIdsFrom === undefined) {
+        if (visitedTopologyNodes!.has(currentNode)) continue;
+        visitedTopologyNodes!.add(currentNode);
+      } else {
+        liveId = options.reuseIdsFrom.getId(currentNode);
+        if (!options.reuseIdsFrom.activateReservation(currentNode)) continue;
+      }
+      const currentIndex = topology.length;
       const nodeType = currentNode.nodeType;
       const isCurrentElement = nodeType === 1;
       const canHaveChildren = isCurrentElement || nodeType === 9 || nodeType === 11;
       const children = canHaveChildren ? getTopologyChildNodes(currentNode) : null;
       let needsMask =
         (inheritedFlags & MASKED) !== 0 ||
-        (parentIndex !== -1 && (topologyFlags[parentIndex]! & MASKED) !== 0);
+        (parentIndex !== -1 && (topology.getFlags(parentIndex) & MASKED) !== 0);
       let needsBlock = false;
       if (isCurrentElement) {
         const element = currentNode as HTMLElement;
@@ -1593,22 +1725,12 @@ export async function snapshotInChunks(
             ? false
             : _isBlockedElement(element, blockClass, blockSelector);
       }
-      topologyNodes.push(currentNode);
-      topologyParentIndexes.push(parentIndex);
-      topologyFlags.push(
+      topology.addCapturedNode(
+        currentNode,
+        parentIndex,
         (needsMask ? MASKED : 0) | (needsBlock ? BLOCKED : 0) | (inheritedFlags & SHADOW),
+        liveId,
       );
-      const liveId = options.reuseIdsFrom?.getId(currentNode) ?? -1;
-      options.reuseIdsFrom?.activateReservation(currentNode);
-      topologyLiveIds.push(liveId);
-      topologyNextLiveIds.push(null);
-      if (parentIndex >= 0) {
-        const previousSiblingIndex = lastChildIndexByParent[parentIndex];
-        if (previousSiblingIndex !== undefined) {
-          topologyNextLiveIds[previousSiblingIndex] = liveId > 0 ? liveId : null;
-        }
-        lastChildIndexByParent[parentIndex] = currentIndex;
-      }
       if (nodeType === 9) {
         const iframeOwner = iframeDocumentOwners.get(currentNode as Document);
         if (iframeOwner !== undefined) topologyIframeOwners.set(currentIndex, iframeOwner);
@@ -1675,16 +1797,21 @@ export async function snapshotInChunks(
     // A removed cursor can hide a later sibling from a live NodeList. When a
     // mutation happened during topology capture, rescan each captured parent
     // in slices and queue only nodes that were not visited yet.
-    const repairLength = topologyNodes.length;
+    const repairLength = topology.length;
     for (let index = 0; index < repairLength; index += 1) {
-      const currentNode = topologyNodes[index]!;
-      const currentFlags = topologyFlags[index]!;
+      const currentNode = topology.getNode(index);
+      const currentFlags = topology.getFlags(index);
       if ((currentFlags & BLOCKED) !== 0) continue;
       const isCurrentElement = currentNode.nodeType === currentNode.ELEMENT_NODE;
       if (isCurrentElement && currentNode.nodeName === "IFRAME") {
         const iframe = currentNode as HTMLIFrameElement;
         const iframeDocument = getLoadedIframeDocument(iframe);
-        if (iframeDocument !== null && !visitedTopologyNodes.has(iframeDocument)) {
+        if (
+          iframeDocument !== null &&
+          !(options.reuseIdsFrom === undefined
+            ? visitedTopologyNodes!.has(iframeDocument)
+            : options.reuseIdsFrom.hasActiveReservationForCurrentGeneration(iframeDocument))
+        ) {
           capturedIframeDocuments.set(iframe, iframeDocument);
           control.onIframeDocument?.(iframe, iframeDocument);
           if (control.deferIframeDocuments !== true) {
@@ -1728,14 +1855,39 @@ export async function snapshotInChunks(
       }
     }
   }
-  await control.afterTopology?.(topologyLiveIds, topologyParentIndexes, topologyNextLiveIds);
+  if (control.afterCapturedTopology !== undefined) {
+    await control.afterCapturedTopology(topology);
+  } else if (!isOrangeReplaySdk && control.afterTopology !== undefined) {
+    // Keep the public callback contract as normal arrays. Build them in
+    // slices so an opt-in callback cannot create another long browser task.
+    const capturedIds = fixedArray<number>(topology.length);
+    if (topology.length > 0) await yieldToMain();
+    const parentIndexes = fixedArray<number>(topology.length);
+    if (topology.length > 0) await yieldToMain();
+    const nextIds = fixedArray<number | null>(topology.length);
+    sliceStartedAt = now();
+    for (let index = 0; index < topology.length; index += 1) {
+      capturedIds[index] = topology.getLiveId(index);
+      parentIndexes[index] = topology.getParentIndex(index);
+      nextIds[index] = topology.getNextLiveId(index);
+      if (index + 1 < topology.length && now() - sliceStartedAt >= timeSliceMs) {
+        await yieldToMain();
+        sliceStartedAt = now();
+      }
+    }
+    await control.afterTopology(capturedIds, parentIndexes, nextIds);
+  }
+  topology.releaseReconciliationValues();
   if (control.shouldStop?.() === true) return null;
-  if (topologyNodes.length > 0) await yieldToMain();
+  if (topology.length > 0) await yieldToMain();
   if (control.shouldStop?.() === true) return null;
   sliceStartedAt = now();
 
-  const serializedNodes: Array<serializedNodeWithId | undefined> = [];
-  const serializedEstimates: Array<{ bytes: number } | undefined> = [];
+  const serializedNodes = fixedArray<serializedNodeWithId | undefined>(topology.length);
+  if (topology.length > 0) await yieldToMain();
+  const serializedEstimates = fixedArray<{ bytes: number } | undefined>(topology.length);
+  if (control.shouldStop?.() === true) return null;
+  sliceStartedAt = now();
   const iframeSnapshots: Array<{
     iframe: HTMLIFrameElement;
     document: Document;
@@ -1796,15 +1948,15 @@ export async function snapshotInChunks(
     }
     return privacy;
   };
-  const capturedPrivacy = new Uint8Array(topologyNodes.length);
+  const capturedPrivacy = new Uint8Array(topology.length);
   const readLivePrivacy = (
     topologyIndex: number,
     capturedState: Uint8Array,
     useCache = canCacheLivePrivacy,
   ) => {
-    const currentNode = topologyNodes[topologyIndex]!;
-    const currentFlags = topologyFlags[topologyIndex]!;
-    let capturedParentIndex = topologyParentIndexes[topologyIndex]!;
+    const currentNode = topology.getNode(topologyIndex);
+    const currentFlags = topology.getFlags(topologyIndex);
+    let capturedParentIndex = topology.getParentIndex(topologyIndex);
     if (capturedParentIndex === -1 && currentNode.nodeType === currentNode.DOCUMENT_NODE) {
       capturedParentIndex = iframeDocumentParentIndexes.get(currentNode as Document) ?? -1;
     }
@@ -1836,20 +1988,20 @@ export async function snapshotInChunks(
     );
   };
 
-  for (let topologyIndex = 0; topologyIndex < topologyNodes.length; topologyIndex += 1) {
+  for (let topologyIndex = 0; topologyIndex < topology.length; topologyIndex += 1) {
     if (control.shouldStop?.() === true) {
       return null;
     }
 
-    const currentNode = topologyNodes[topologyIndex]!;
-    let currentFlags = topologyFlags[topologyIndex]!;
-    const parentIndex = topologyParentIndexes[topologyIndex]!;
+    const currentNode = topology.getNode(topologyIndex);
+    let currentFlags = topology.getFlags(topologyIndex);
+    const parentIndex = topology.getParentIndex(topologyIndex);
     const parentFlags =
       parentIndex === -1
         ? (options.preserveWhiteSpace ?? true)
           ? PRESERVE_WHITE_SPACE
           : 0
-        : topologyFlags[parentIndex]!;
+        : topology.getFlags(parentIndex);
     const iframeOwner = topologyIframeOwners.get(topologyIndex);
     const parentNode =
       parentIndex !== -1 && (parentFlags & RECORD_CHILDREN) !== 0
@@ -1865,17 +2017,17 @@ export async function snapshotInChunks(
           id: IGNORED_NODE,
         } as serializedNodeWithId);
       }
-      serializedNodes.push(undefined);
-      serializedEstimates.push(parentEstimate);
+      serializedNodes[topologyIndex] = undefined;
+      serializedEstimates[topologyIndex] = parentEstimate;
       if (parentIgnoreDescendants) currentFlags |= IGNORE_DESCENDANTS;
-      topologyFlags[topologyIndex] = currentFlags;
+      topology.setFlags(topologyIndex, currentFlags);
       continue;
     }
 
     const privacy = readLivePrivacy(topologyIndex, capturedPrivacy);
     if ((privacy & BLOCKED_BY_ANCESTOR) !== 0) {
-      serializedNodes.push(undefined);
-      serializedEstimates.push(parentEstimate);
+      serializedNodes[topologyIndex] = undefined;
+      serializedEstimates[topologyIndex] = parentEstimate;
       continue;
     }
 
@@ -1933,7 +2085,7 @@ export async function snapshotInChunks(
       currentNode.nodeType === currentNode.TEXT_NODE
         ? parentIndex === -1
           ? null
-          : topologyNodes[parentIndex]!
+          : topology.getNode(parentIndex)
         : undefined,
     );
     if (serialized !== null) {
@@ -1989,12 +2141,12 @@ export async function snapshotInChunks(
     ) {
       currentFlags |= CSS_CAPTURED;
     }
-    topologyFlags[topologyIndex] = currentFlags;
-    serializedNodes.push(serialized ?? undefined);
-    serializedEstimates.push(estimate);
+    topology.setFlags(topologyIndex, currentFlags);
+    serializedNodes[topologyIndex] = serialized ?? undefined;
+    serializedEstimates[topologyIndex] = estimate;
 
     const activeSliceMs = now() - sliceStartedAt;
-    if (topologyIndex + 1 < topologyNodes.length && activeSliceMs >= timeSliceMs) {
+    if (topologyIndex + 1 < topology.length && activeSliceMs >= timeSliceMs) {
       await yieldToMain();
       sliceStartedAt = now();
     }
@@ -2002,15 +2154,15 @@ export async function snapshotInChunks(
 
   // Privacy can change after an early branch was serialized. Recheck the full
   // captured tree in slices and fail closed before any baseline is emitted.
-  if (topologyNodes.length > 0) await yieldToMain();
+  if (topology.length > 0) await yieldToMain();
   if (control.shouldStop?.() === true) return null;
   sliceStartedAt = now();
   resetLivePrivacyCache();
   let finalPrivacyRevision = control.getPrivacyRevision?.() ?? 0;
   let privacyRestarts = 0;
   let useFinalPrivacyCache = canCacheLivePrivacy;
-  let finalCapturedPrivacy = new Uint8Array(topologyNodes.length);
-  for (let topologyIndex = 0; topologyIndex < topologyNodes.length; topologyIndex += 1) {
+  let finalCapturedPrivacy = new Uint8Array(topology.length);
+  for (let topologyIndex = 0; topologyIndex < topology.length; topologyIndex += 1) {
     if (control.shouldStop?.() === true) return null;
     const serialized = serializedNodes[topologyIndex];
     if (serialized !== undefined) {
@@ -2018,7 +2170,7 @@ export async function snapshotInChunks(
       if ((privacy & (BLOCKED | BLOCKED_BY_ANCESTOR)) !== 0) {
         if (serialized.type === NodeType.Element) {
           const { width, height } = (
-            topologyNodes[topologyIndex] as Element
+            topology.getNode(topologyIndex) as Element
           ).getBoundingClientRect();
           serialized.attributes = {
             class: serialized.attributes.class,
@@ -2035,19 +2187,19 @@ export async function snapshotInChunks(
       } else if (
         (privacy & MASKED) !== 0 &&
         serialized.type === NodeType.Text &&
-        topologyNodes[topologyIndex]!.parentNode?.nodeName !== "STYLE" &&
-        topologyNodes[topologyIndex]!.parentNode?.nodeName !== "SCRIPT"
+        topology.getNode(topologyIndex).parentNode?.nodeName !== "STYLE" &&
+        topology.getNode(topologyIndex).parentNode?.nodeName !== "SCRIPT"
       ) {
         serialized.textContent =
           !isOrangeReplaySdk && options.maskTextFn
             ? options.maskTextFn(
                 serialized.textContent,
-                closestPrivacyElement(topologyNodes[topologyIndex]!) as HTMLElement | null,
+                closestPrivacyElement(topology.getNode(topologyIndex)) as HTMLElement | null,
               )
             : serialized.textContent.replace(/[\S]/g, "*");
       }
     }
-    if (topologyIndex + 1 < topologyNodes.length && now() - sliceStartedAt >= timeSliceMs) {
+    if (topologyIndex + 1 < topology.length && now() - sliceStartedAt >= timeSliceMs) {
       await yieldToMain();
       sliceStartedAt = now();
       const nextPrivacyRevision = control.getPrivacyRevision?.() ?? finalPrivacyRevision;
@@ -2059,7 +2211,7 @@ export async function snapshotInChunks(
         privacyRestarts += 1;
         finalPrivacyRevision = nextPrivacyRevision;
         if (privacyRestarts === 2) useFinalPrivacyCache = false;
-        finalCapturedPrivacy = new Uint8Array(topologyNodes.length);
+        finalCapturedPrivacy = new Uint8Array(topology.length);
         resetLivePrivacyCache();
         topologyIndex = -1;
       }

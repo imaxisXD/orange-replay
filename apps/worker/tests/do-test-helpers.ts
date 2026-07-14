@@ -306,6 +306,18 @@ export interface PresenceListBody {
   }>;
 }
 
+export interface PresenceHeadsBody {
+  sessions: Array<
+    PresenceListBody["sessions"][number] & {
+      org_id?: string | null;
+      finalizing_at?: number | null;
+      region?: string | null;
+      flags?: number;
+      activity: "live" | "idle" | "finalizing";
+    }
+  >;
+}
+
 export async function presencePing(input: {
   projectId: string;
   sessionId: string;
@@ -313,6 +325,7 @@ export async function presencePing(input: {
   lastSeen: number;
   entryUrl: string;
   browser?: string;
+  expiresAt?: number;
 }): Promise<void> {
   const response = await worker.fetch("/__test/do/presence/ping", {
     method: "POST",
@@ -327,6 +340,7 @@ export async function presencePing(input: {
       browser: input.browser ?? "Chrome",
       os: "macOS",
       device: "desktop",
+      ...(input.expiresAt === undefined ? {} : { expiresAt: input.expiresAt }),
     }),
   });
 
@@ -337,6 +351,19 @@ export async function presenceRemove(projectId: string, sessionId: string): Prom
   const response = await worker.fetch("/__test/do/presence/remove", {
     method: "POST",
     body: JSON.stringify({ projectId, sessionId }),
+  });
+
+  expect(response.status).toBe(200);
+}
+
+export async function presenceMarkFinalizing(
+  projectId: string,
+  sessionId: string,
+  finalizingAt = Date.now(),
+): Promise<void> {
+  const response = await worker.fetch("/__test/do/presence/mark-finalizing", {
+    method: "POST",
+    body: JSON.stringify({ projectId, sessionId, finalizingAt }),
   });
 
   expect(response.status).toBe(200);
@@ -353,6 +380,20 @@ export async function readPresenceList(
 
   expect(response.status).toBe(200);
   return (await response.json()) as PresenceListBody;
+}
+
+export async function readPresenceHeads(
+  projectId: string,
+  now = Date.now(),
+  query: Record<string, unknown> = {},
+): Promise<PresenceHeadsBody> {
+  const response = await worker.fetch("/__test/do/presence/heads", {
+    method: "POST",
+    body: JSON.stringify({ projectId, now, ...query }),
+  });
+
+  expect(response.status).toBe(200);
+  return (await response.json()) as PresenceHeadsBody;
 }
 
 export async function readPresenceDebug(

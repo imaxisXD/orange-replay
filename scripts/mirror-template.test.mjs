@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vite-plus/test";
+import { parseJsonc } from "./mirror-template/jsonc.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, "..");
@@ -20,6 +21,7 @@ describe("mirror-template", () => {
       expect(generated.code).toBe(0);
 
       const wrangler = await readFile(join(outDir, "wrangler.jsonc"), "utf8");
+      const wranglerConfig = parseJsonc(wrangler, "generated wrangler.jsonc");
       expect(wrangler).toContain('"name": "orange-replay"');
       expect(wrangler).toContain("REPLACE_WITH_D1_ID");
       expect(wrangler).toContain("REPLACE_WITH_KV_ID");
@@ -29,6 +31,20 @@ describe("mirror-template", () => {
       expect(wrangler).toContain('"crons": ["*/5 * * * *", "7,22,37,52 * * * *"]');
       expect(wrangler).not.toContain("DEV_TEST_ROUTES");
       expect(wrangler).not.toContain("TEST_TIMINGS");
+      expect(wranglerConfig.assets).toEqual({
+        directory: "../../apps/dashboard/dist",
+        binding: "ASSETS",
+        run_worker_first: [
+          "/api/*",
+          "/internal/*",
+          "/v1/*",
+          "/login",
+          "/demo",
+          "/demo/*",
+          "/projects",
+          "/projects/*",
+        ],
+      });
 
       const sourceMigration = await readFile(
         join(repoRoot, "apps/worker/migrations/0001_init.sql"),

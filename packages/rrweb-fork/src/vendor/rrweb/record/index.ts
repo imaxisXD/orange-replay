@@ -6,6 +6,7 @@ import {
   needMaskingText,
   yieldForPaint,
   type MaskInputOptions,
+  type CapturedTopology,
   type SnapshotOptions,
   createMirror,
   getSnapshotEstimatedBytes,
@@ -857,11 +858,11 @@ function record<T = eventWithTime>(options: recordOptions<T> = {}): listenerHand
     await flushQueuedIframeAttachments();
   };
 
-  const reconcileTopologyEvents = async (
-    capturedIds: readonly number[],
-    parentIndexes: readonly number[],
-    nextIds: readonly (number | null)[],
-  ) => {
+  type ReconciliationTopology = Pick<
+    CapturedTopology,
+    "length" | "getLiveId" | "getParentIndex" | "getNextLiveId"
+  >;
+  const reconcileTopologyEvents = async (topology: ReconciliationTopology) => {
     const entriesAtTopologyCut = queuedSnapshotEvents.length;
     const referencedIds = new Set<number>();
     const timeSliceMs =
@@ -886,14 +887,14 @@ function record<T = eventWithTime>(options: recordOptions<T> = {}): listenerHand
     }
     if (referencedIds.size === 0) return;
     const capturedPositionById = new Map<number, { parentId: number; nextId: number | null }>();
-    for (let index = 0; index < capturedIds.length; index += 1) {
+    for (let index = 0; index < topology.length; index += 1) {
       if (snapshotQueueOverflow) return;
-      const id = capturedIds[index] ?? -1;
+      const id = topology.getLiveId(index) ?? -1;
       if (referencedIds.has(id)) {
-        const parentIndex = parentIndexes[index] ?? -1;
+        const parentIndex = topology.getParentIndex(index) ?? -1;
         capturedPositionById.set(id, {
-          parentId: parentIndex === -1 ? -1 : (capturedIds[parentIndex] ?? -1),
-          nextId: nextIds[index] ?? null,
+          parentId: parentIndex === -1 ? -1 : (topology.getLiveId(parentIndex) ?? -1),
+          nextId: topology.getNextLiveId(index) ?? null,
         });
       }
       if (performance.now() - sliceStartedAt >= timeSliceMs) {
@@ -966,7 +967,6 @@ function record<T = eventWithTime>(options: recordOptions<T> = {}): listenerHand
     }
     queuedSnapshotBytes = queuedSnapshotEvents.reduce((bytes, entry) => bytes + entry.bytes, 0);
   };
-
   const createSnapshotOptions = (
     candidateMirror: ReturnType<typeof createMirror>,
     generation: number,
@@ -1107,7 +1107,7 @@ function record<T = eventWithTime>(options: recordOptions<T> = {}): listenerHand
             canvasManager.prepareForFullSnapshot();
             imageManager.prepareForFullSnapshot();
           },
-          afterTopology: reconcileTopologyEvents,
+          afterCapturedTopology: reconcileTopologyEvents,
           getTopologyRevision: () => topologyRevision,
           getPrivacyRevision: () => privacyRevision,
           deferIframeDocuments,
@@ -1227,7 +1227,7 @@ function record<T = eventWithTime>(options: recordOptions<T> = {}): listenerHand
             mirrorResetNeeded ||
             !isCurrentDocument() ||
             isBlocked(iframe, blockClass, blockSelector, true),
-          afterTopology: reconcileTopologyEvents,
+          afterCapturedTopology: reconcileTopologyEvents,
           getTopologyRevision: () => topologyRevision,
           getPrivacyRevision: () => privacyRevision,
           deferIframeDocuments,

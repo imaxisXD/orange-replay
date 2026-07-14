@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vite-plus/test";
+import { CLOSE_SESSION_AFTER_IDLE_MS } from "@orange-replay/shared/constants";
 import { SESSION_IDLE_MS, SessionManager, type StorageLike } from "../src/session.ts";
+import { startSessionTouchListeners } from "../src/session-touch.ts";
 
 const START_TIME = 1_700_000_000_000;
 
@@ -24,10 +26,24 @@ class MemoryStorage implements StorageLike {
 
 class CookieDocument implements Pick<Document, "cookie"> {
   private values = new Map<string, string>();
+  private expiresAt = new Map<string, number>();
   writeCount = 0;
 
+  constructor(private readonly now: () => number = () => START_TIME) {}
+
   get cookie(): string {
-    return Array.from(this.values, ([name, value]) => `${name}=${value}`).join("; ");
+    const now = this.now();
+    return Array.from(this.values)
+      .flatMap(([name, value]) => {
+        const expiry = this.expiresAt.get(name);
+        if (expiry !== undefined && expiry <= now) {
+          this.values.delete(name);
+          this.expiresAt.delete(name);
+          return [];
+        }
+        return [`${name}=${value}`];
+      })
+      .join("; ");
   }
 
   set cookie(value: string) {
@@ -40,10 +56,24 @@ class CookieDocument implements Pick<Document, "cookie"> {
 
     if (value.toLowerCase().includes("expires=thu, 01 jan 1970")) {
       this.values.delete(name);
+      this.expiresAt.delete(name);
       return;
     }
 
     this.values.set(name, rawValue);
+    const maxAge = /(?:^|;\s*)max-age=(\d+)/i.exec(value)?.[1];
+    const expires = /(?:^|;\s*)expires=([^;]+)/i.exec(value)?.[1];
+    const expiry =
+      maxAge === undefined
+        ? expires === undefined
+          ? Number.NaN
+          : Date.parse(expires)
+        : this.now() + Number(maxAge) * 1_000;
+    if (Number.isFinite(expiry)) {
+      this.expiresAt.set(name, expiry);
+    } else {
+      this.expiresAt.delete(name);
+    }
   }
 }
 
@@ -99,6 +129,10 @@ afterEach(() => {
 });
 
 describe("SessionManager", () => {
+  it("uses the same idle timeout as the server", () => {
+    expect(SESSION_IDLE_MS).toBe(CLOSE_SESSION_AFTER_IDLE_MS);
+  });
+
   it("persists session and tab ids in session storage", () => {
     const storage = new MemoryStorage();
     const cookieDocument = new CookieDocument();
@@ -150,10 +184,10 @@ describe("SessionManager", () => {
     expect(second.tabId).not.toBe(first.tabId);
   });
 
-  it("rotates after 30 idle minutes and resets the per-tab sequence", () => {
+  it("reports the exact 30-minute idle boundary before rotating the session", () => {
     const storage = new MemoryStorage();
-    const cookieDocument = new CookieDocument();
     let now = START_TIME;
+    const cookieDocument = new CookieDocument(() => now);
     const ids = ["session-one", "tab-one", "session-two"];
     const makeId = () => ids.shift() ?? "extra-id";
     const session = new SessionManager({
@@ -167,8 +201,10 @@ describe("SessionManager", () => {
     expect(session.nextSeq()).toBe(0);
     expect(session.nextSeq()).toBe(1);
 
-    now += SESSION_IDLE_MS + 1;
+    now += SESSION_IDLE_MS;
     expect(session.touch()).toBe(true);
+    expect(session.sessionId).toBe("session-one");
+    expect(session.resumeAfterIdle()).toBe(true);
 
     expect(session.sessionId).toBe("session-two");
     expect(session.nextSeq()).toBe(0);
@@ -201,6 +237,47 @@ describe("SessionManager", () => {
     expect(second.sessionId).toBe("session-one");
     expect(second.tabId).toBe("tab-one");
     expect(second.nextSeq()).toBe(2);
+  });
+
+  it("continues the dormant tab sequence when another tab kept the session active", () => {
+    let now = START_TIME;
+    const cookieDocument = new CookieDocument(() => now);
+    const activeStorage = new MemoryStorage();
+    const dormantStorage = new MemoryStorage();
+    const makeId = sequenceIds(["session-one", "active-tab", "dormant-tab"]);
+    const active = new SessionManager({
+      projectRef: "project",
+      now: () => now,
+      storage: activeStorage,
+      document: cookieDocument,
+      makeId,
+    });
+    const dormant = new SessionManager({
+      projectRef: "project",
+      now: () => now,
+      storage: dormantStorage,
+      document: cookieDocument,
+      makeId,
+    });
+
+    expect(dormant.nextSeq()).toBe(0);
+    expect(dormant.nextSeq()).toBe(1);
+
+    now += SESSION_IDLE_MS - 1_000;
+    expect(active.touch()).toBe(false);
+    now += 2_000;
+
+    const reloadedDormant = new SessionManager({
+      projectRef: "project",
+      now: () => now,
+      storage: dormantStorage,
+      document: cookieDocument,
+      makeId,
+    });
+
+    expect(reloadedDormant.sessionId).toBe(active.sessionId);
+    expect(reloadedDormant.tabId).toBe(dormant.tabId);
+    expect(reloadedDormant.nextSeq()).toBe(2);
   });
 
   it("mints a fresh tab id when another live tab claims the stored id", async () => {
@@ -238,7 +315,48 @@ describe("SessionManager", () => {
     second.stop();
   });
 
-  it("throttles touch persistence and does not rewrite the cookie on every event", () => {
+  it("uses random UUID bits when two copied tabs rotate in the same millisecond", async () => {
+    const rotateCopiedTab = async (replacementId: string): Promise<string> => {
+      const cookieDocument = new CookieDocument();
+      cookieDocument.cookie = "or_s=session-one; Path=/; SameSite=Lax";
+      const makeId = () => replacementId;
+      const first = new SessionManager({
+        projectRef: "project",
+        now: () => START_TIME,
+        storage: storedSession("session-one", "copied-tab"),
+        document: cookieDocument,
+        makeId,
+        broadcastChannel: FakeBroadcastChannel as unknown as typeof BroadcastChannel,
+        wait: flushMicrotasks,
+      });
+      const second = new SessionManager({
+        projectRef: "project",
+        now: () => START_TIME,
+        storage: storedSession("session-one", "copied-tab"),
+        document: cookieDocument,
+        makeId,
+        broadcastChannel: FakeBroadcastChannel as unknown as typeof BroadcastChannel,
+        wait: flushMicrotasks,
+      });
+
+      await Promise.all([first.ready, second.ready]);
+      const rotatedIds = [first.tabId, second.tabId].filter((tabId) => tabId !== "copied-tab");
+      first.stop();
+      second.stop();
+      FakeBroadcastChannel.reset();
+      expect(rotatedIds).toHaveLength(1);
+      return rotatedIds[0]!;
+    };
+
+    const firstTabId = await rotateCopiedTab("019f6087-7940-7000-8000-111111111111");
+    const secondTabId = await rotateCopiedTab("019f6087-7940-7000-8000-222222222222");
+
+    expect(firstTabId).toBe("8000111111111111");
+    expect(secondTabId).toBe("8000222222222222");
+    expect(firstTabId).not.toBe(secondTabId);
+  });
+
+  it("throttles touch persistence and refreshes the session cookie on the same cadence", () => {
     const storage = new MemoryStorage();
     const cookieDocument = new CookieDocument();
     let now = START_TIME;
@@ -266,7 +384,141 @@ describe("SessionManager", () => {
     session.touch();
 
     expect(storage.setCount).toBe(initialStorageWrites + 1);
-    expect(cookieDocument.writeCount).toBe(initialCookieWrites);
+    expect(cookieDocument.writeCount).toBe(initialCookieWrites + 1);
+  });
+
+  it("keeps one active session id when a new tab opens after 30 minutes", () => {
+    let now = START_TIME;
+    const cookieDocument = new CookieDocument(() => now);
+    const ids = ["session-one", "tab-one", "tab-two"];
+    const makeId = () => ids.shift() ?? "extra-id";
+    const first = new SessionManager({
+      projectRef: "project",
+      now: () => now,
+      storage: new MemoryStorage(),
+      document: cookieDocument,
+      makeId,
+    });
+
+    now += SESSION_IDLE_MS - 60_000;
+    expect(first.touch()).toBe(false);
+    now += SESSION_IDLE_MS - 60_000;
+    expect(first.touch()).toBe(false);
+
+    const second = new SessionManager({
+      projectRef: "project",
+      now: () => now,
+      storage: new MemoryStorage(),
+      document: cookieDocument,
+      makeId,
+    });
+
+    expect(second.sessionId).toBe(first.sessionId);
+    expect(second.tabId).not.toBe(first.tabId);
+  });
+
+  it("keeps a dormant tab in the session that another tab kept active", () => {
+    let now = START_TIME;
+    const cookieDocument = new CookieDocument(() => now);
+    const ids = ["session-one", "active-tab", "dormant-tab", "unexpected-session"];
+    const makeId = () => ids.shift() ?? "extra-id";
+    const active = new SessionManager({
+      projectRef: "project",
+      now: () => now,
+      storage: new MemoryStorage(),
+      document: cookieDocument,
+      makeId,
+    });
+    const dormant = new SessionManager({
+      projectRef: "project",
+      now: () => now,
+      storage: new MemoryStorage(),
+      document: cookieDocument,
+      makeId,
+    });
+
+    now += SESSION_IDLE_MS - 1_000;
+    expect(active.touch()).toBe(false);
+    now += 2_000;
+
+    expect(dormant.touch()).toBe(true);
+    expect(dormant.resumeAfterIdle()).toBe(false);
+    expect(dormant.sessionId).toBe(active.sessionId);
+
+    const nextTab = new SessionManager({
+      projectRef: "project",
+      now: () => now,
+      storage: new MemoryStorage(),
+      document: cookieDocument,
+      makeId,
+    });
+    expect(nextTab.sessionId).toBe(active.sessionId);
+  });
+
+  it("lets the idle listener continue a session kept active by another tab", () => {
+    let now = START_TIME;
+    const cookieDocument = new CookieDocument(() => now);
+    const ids = ["session-one", "active-tab", "dormant-tab"];
+    const makeId = () => ids.shift() ?? "extra-id";
+    const active = new SessionManager({
+      projectRef: "project",
+      now: () => now,
+      storage: new MemoryStorage(),
+      document: cookieDocument,
+      makeId,
+    });
+    const dormant = new SessionManager({
+      projectRef: "project",
+      now: () => now,
+      storage: new MemoryStorage(),
+      document: cookieDocument,
+      makeId,
+    });
+    const eventTarget = new EventTarget() as Window;
+    const actions: boolean[] = [];
+    const stop = startSessionTouchListeners(eventTarget, dormant, () => {
+      actions.push(dormant.resumeAfterIdle());
+    });
+
+    now += SESSION_IDLE_MS - 1_000;
+    active.touch();
+    now += 2_000;
+    eventTarget.dispatchEvent(new Event("click"));
+
+    expect(actions).toEqual([false]);
+    expect(dormant.sessionId).toBe(active.sessionId);
+    stop();
+  });
+
+  it("does not rotate when the clock crosses the idle boundary between reads", () => {
+    let readingEvent = false;
+    let eventReadCount = 0;
+    const session = new SessionManager({
+      projectRef: "project",
+      now: () => {
+        if (!readingEvent) return START_TIME;
+        eventReadCount += 1;
+        return eventReadCount === 1
+          ? START_TIME + SESSION_IDLE_MS - 1
+          : START_TIME + SESSION_IDLE_MS;
+      },
+      storage: new MemoryStorage(),
+      document: new CookieDocument(),
+      makeId: sequenceIds(["session-one", "tab-one", "unexpected-session"]),
+    });
+    const eventTarget = new EventTarget() as Window;
+    const idleActions: string[] = [];
+    const stop = startSessionTouchListeners(eventTarget, session, () => {
+      idleActions.push("idle");
+    });
+
+    readingEvent = true;
+    eventTarget.dispatchEvent(new Event("click"));
+
+    expect(eventReadCount).toBeGreaterThan(1);
+    expect(idleActions).toEqual([]);
+    expect(session.sessionId).toBe("session-one");
+    stop();
   });
 
   it("resets the persisted sequence when the session rotates", () => {
@@ -327,4 +579,17 @@ describe("SessionManager", () => {
 async function flushMicrotasks(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
+}
+
+function sequenceIds(values: string[]): () => string {
+  return () => values.shift() ?? "extra-id";
+}
+
+function storedSession(sessionId: string, tabId: string): MemoryStorage {
+  const storage = new MemoryStorage();
+  storage.setItem("or:s", sessionId);
+  storage.setItem("or:t", tabId);
+  storage.setItem("or:last", String(START_TIME));
+  storage.setItem("or:q", "0");
+  return storage;
 }

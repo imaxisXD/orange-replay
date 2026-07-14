@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import type { SessionListItem } from "@/lib/api";
+import type { SessionDisplayItem } from "@/lib/session-list";
 import { Check, Inbox, Search } from "@/lib/icon-map";
 import type { SessionSort } from "@/lib/sessions-view-search";
 import { cn } from "@/lib/utils";
@@ -63,16 +63,16 @@ export function SessionListPane({
   onClearFilters: () => void;
   onLoadMore: () => Promise<void>;
   onRailKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void;
-  onSelect: (session: SessionListItem) => void;
+  onSelect: (session: SessionDisplayItem) => void;
   onShowAll: () => void;
   onSortChange: (sort: SessionSort) => void;
   onToggleUnwatched: () => void;
   railRef: RefObject<HTMLDivElement | null>;
   selected: string | undefined;
-  sessions: readonly SessionListItem[];
+  sessions: readonly SessionDisplayItem[];
   sort: SessionSort;
   unwatchedOnly: boolean;
-  visibleSessions: readonly SessionListItem[];
+  visibleSessions: readonly SessionDisplayItem[];
   watched: ReadonlySet<string>;
 }) {
   const selectedIsVisible = visibleSessions.some((session) => session.session_id === selected);

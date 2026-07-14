@@ -79,6 +79,11 @@ export interface LiveHelloMessage {
   snapshot: LiveSessionSnapshot;
 }
 
+export interface LiveFinalizedMessage {
+  type: "finalized";
+  manifest: SessionManifest;
+}
+
 export interface SessionInsights {
   maxScrollDepth: number;
   quickBacks: number;

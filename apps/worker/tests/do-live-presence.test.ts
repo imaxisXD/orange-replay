@@ -1,4 +1,11 @@
+import {
+  decodeIngestBody,
+  manifestKey,
+  MAX_PRESENCE_BODY_BYTES,
+  MAX_PRESENCE_TEXT_CHARS,
+} from "@orange-replay/shared";
 import { describe, expect, it } from "vite-plus/test";
+import { presenceShardIndex } from "../src/do/presence-logic.ts";
 import {
   append,
   bytes,
@@ -7,10 +14,13 @@ import {
   parseTextMessage,
   pollPresenceList,
   presencePing,
+  presenceMarkFinalizing,
   presenceRemove,
   readPresenceDebug,
+  readPresenceHeads,
   readPresenceInstallStatus,
   readPresenceList,
+  readR2Bytes,
   waitForSocketMessage,
 } from "./do-test-helpers.ts";
 
@@ -130,7 +140,7 @@ describe("SessionRecorder Durable Object", () => {
     expect(heartbeatList.sessions[0]?.last_seen).toBe(startedAt + 250);
   });
 
-  it("removes presence on finalize", async () => {
+  it("marks presence finalizing and keeps it for the consumer handoff", async () => {
     const projectId = "project-presence-remove";
     const sessionId = "session-presence-remove";
 
@@ -145,11 +155,14 @@ describe("SessionRecorder Durable Object", () => {
     await pollPresenceList(projectId, (body) => body.sessions.length === 1);
     await forceFinalize(projectId, sessionId);
 
-    const removed = await pollPresenceList(projectId, (body) => body.sessions.length === 0);
-    expect(removed.sessions).toEqual([]);
+    expect((await readPresenceList(projectId)).sessions).toEqual([]);
+    expect(await readPresenceHeads(projectId)).toMatchObject({
+      sessions: [{ session_id: sessionId, activity: "finalizing" }],
+    });
+    expect(await readPresenceDebug(projectId)).toMatchObject({ rows: 1 });
   });
 
-  it("uses lazy TTL eviction and keeps duplicate pings and removes safe", async () => {
+  it("uses the live TTL only for activity and lazily expires old heads", async () => {
     const projectId = "project-presence-ttl";
     const sessionId = "session-presence-ttl";
 
@@ -171,13 +184,199 @@ describe("SessionRecorder Durable Object", () => {
     const active = await readPresenceList(projectId, 1200);
     expect(active.sessions.map((session) => session.session_id)).toEqual([sessionId]);
 
-    const stale = await readPresenceList(projectId, 1401);
-    expect(stale.sessions).toEqual([]);
+    const staleLive = await readPresenceList(projectId, 1401);
+    expect(staleLive.sessions).toEqual([]);
+    const idleHead = await readPresenceHeads(projectId, 1401);
+    expect(idleHead.sessions).toMatchObject([{ session_id: sessionId, activity: "idle" }]);
+    expect(await readPresenceDebug(projectId)).toMatchObject({ rows: 1 });
+
+    const expired = await readPresenceHeads(projectId, 302_501);
+    expect(expired.sessions).toEqual([]);
     expect(await readPresenceDebug(projectId)).toMatchObject({ rows: 0 });
 
     await presenceRemove(projectId, sessionId);
     await presenceRemove(projectId, sessionId);
     expect(await readPresenceDebug(projectId)).toMatchObject({ rows: 0 });
+  });
+
+  it("keeps finalizing presence through an outage and prunes it at replay expiry", async () => {
+    const projectId = "project-finalizing-retention";
+    const sessionId = "session-finalizing-retention";
+    const lastSeen = 1_000;
+    const expiresAt = 11_000;
+
+    await presencePing({
+      projectId,
+      sessionId,
+      startedAt: lastSeen,
+      lastSeen,
+      entryUrl: "/retained",
+      expiresAt,
+    });
+    await presenceMarkFinalizing(projectId, sessionId, 1_100);
+
+    expect(await readPresenceHeads(projectId, expiresAt - 1)).toMatchObject({
+      sessions: [{ session_id: sessionId, activity: "finalizing" }],
+    });
+    expect(await readPresenceHeads(projectId, expiresAt)).toEqual({ sessions: [] });
+  });
+
+  it("filters before each shard limit and returns every live row", async () => {
+    const projectId = "project-presence-large-list";
+    const now = Date.now();
+    const sessionIds: string[] = [];
+    for (let candidate = 0; sessionIds.length < 101; candidate += 1) {
+      const sessionId = `same_shard_${String(candidate).padStart(4, "0")}`;
+      if (presenceShardIndex(sessionId) === 0) sessionIds.push(sessionId);
+    }
+    const targetSessionId = sessionIds[0];
+    if (targetSessionId === undefined) throw new Error("same-shard session setup failed");
+
+    await Promise.all(
+      sessionIds.map((sessionId, index) =>
+        presencePing({
+          projectId,
+          sessionId,
+          startedAt: now - 200,
+          lastSeen: sessionId === targetSessionId ? now - 100 : now,
+          entryUrl: `/large/${index}`,
+          browser: sessionId === targetSessionId ? "Firefox" : "Chrome",
+        }),
+      ),
+    );
+
+    expect((await readPresenceList(projectId, now)).sessions).toHaveLength(101);
+    expect(
+      await readPresenceHeads(projectId, now, { browser: "Firefox", limit: 10 }),
+    ).toMatchObject({ sessions: [{ session_id: targetSessionId, browser: "Firefox" }] });
+  });
+
+  it("accepts the largest valid tracked head request within the hard body limit", async () => {
+    const projectId = "project-presence-large-request";
+    const now = Date.now();
+    const trackedSessionIds: string[] = [];
+    for (let candidate = 0; trackedSessionIds.length < 100; candidate += 1) {
+      const sessionId = `tracked_${String(candidate).padStart(8, "0")}`.padEnd(64, "x");
+      if (presenceShardIndex(sessionId) === 0) trackedSessionIds.push(sessionId);
+    }
+    const text = "x".repeat(MAX_PRESENCE_TEXT_CHARS);
+    const query = {
+      limit: 100,
+      sort: "newest",
+      trackedSessionIds,
+      before: { sortValue: now, sessionId: trackedSessionIds[0] },
+      from: 0,
+      to: now,
+      country: text,
+      region: text,
+      device: text,
+      browser: text,
+      os: text,
+      entryUrl: text,
+      entryUrlPrefix: text,
+      minDurationMs: 0,
+    };
+    const bodyBytes = new TextEncoder().encode(
+      JSON.stringify({ projectId, now, ...query }),
+    ).byteLength;
+
+    expect(bodyBytes).toBeGreaterThan(8 * 1024);
+    expect(bodyBytes).toBeLessThanOrEqual(MAX_PRESENCE_BODY_BYTES);
+    expect(await readPresenceHeads(projectId, now, query)).toEqual({ sessions: [] });
+  });
+
+  it("sends stored pending batches to each new viewer in timeline order", async () => {
+    const projectId = "project-live-pending";
+    const sessionId = "session-live-pending";
+    const startedAt = Date.now();
+
+    await append({
+      projectId,
+      sessionId,
+      tab: "tab-a",
+      seq: 0,
+      payload: bytes("first"),
+      t0: startedAt,
+      receivedAt: startedAt,
+    });
+    await append({
+      projectId,
+      sessionId,
+      tab: "tab-b",
+      seq: 0,
+      payload: bytes("third"),
+      t0: startedAt + 20,
+      receivedAt: startedAt + 20,
+    });
+    await append({
+      projectId,
+      sessionId,
+      tab: "tab-a",
+      seq: 1,
+      payload: bytes("second"),
+      t0: startedAt + 10,
+      receivedAt: startedAt + 30,
+    });
+
+    for (let viewer = 0; viewer < 2; viewer += 1) {
+      const connection = openDoLiveSocket(projectId, sessionId);
+      try {
+        const hello = parseTextMessage<{ type: string; pendingBatches: number }>(
+          await waitForSocketMessage(connection, "hello", 5_000),
+        );
+        expect(hello).toMatchObject({ type: "hello", pendingBatches: 3 });
+
+        const decoded = [];
+        for (let batch = 0; batch < 3; batch += 1) {
+          const message = await waitForSocketMessage(connection, "pending batch", 5_000);
+          expect(message).toBeInstanceOf(ArrayBuffer);
+          decoded.push(decodeIngestBody(new Uint8Array(message as ArrayBuffer)));
+        }
+        expect(decoded.map((batch) => [batch.index.tab, batch.index.seq])).toEqual([
+          ["tab-a", 0],
+          ["tab-a", 1],
+          ["tab-b", 0],
+        ]);
+        expect(decoded.map((batch) => new TextDecoder().decode(batch.payload))).toEqual([
+          "first",
+          "second",
+          "third",
+        ]);
+      } finally {
+        connection.socket.close();
+      }
+    }
+  });
+
+  it("sends the final manifest before closing live viewers", async () => {
+    const projectId = "project-live-finalized";
+    const sessionId = "session-live-finalized";
+    await append({
+      projectId,
+      sessionId,
+      tab: "tab-a",
+      seq: 0,
+      payload: bytes("finalized"),
+      t0: Date.now(),
+    });
+
+    const connection = openDoLiveSocket(projectId, sessionId);
+    try {
+      await waitForSocketMessage(connection, "hello", 5_000);
+      await waitForSocketMessage(connection, "pending batch", 5_000);
+      await forceFinalize(projectId, sessionId);
+
+      const terminal = parseTextMessage<{ type: string; manifest: unknown }>(
+        await waitForSocketMessage(connection, "finalized manifest", 5_000),
+      );
+      expect(terminal.type).toBe("finalized");
+      const storedManifest = JSON.parse(
+        new TextDecoder().decode(await readR2Bytes(manifestKey(projectId, sessionId))),
+      ) as unknown;
+      expect(terminal.manifest).toEqual(storedManifest);
+    } finally {
+      connection.socket.close();
+    }
   });
 
   it("keeps presence time and metadata monotonic", async () => {

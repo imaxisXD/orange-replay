@@ -1,51 +1,59 @@
 import type { SessionManifest } from "@orange-replay/shared/types";
-import { ApiError, fetchLiveSessions, getManifest, type LiveSessionItem } from "@/lib/api";
+import {
+  ApiError,
+  fetchSessionState,
+  getManifest,
+  type SessionActivity,
+  type SessionDetailsState,
+  type SessionHead,
+} from "../../lib/api";
 
 export type ReplayMode = "recorded" | "live";
 
-export interface ManifestQueryResult {
+export const sessionStatePollIntervalMs = 5_000;
+
+export interface SessionViewQueryResult {
   manifest: SessionManifest | null;
   mode: ReplayMode;
   notFound: boolean;
+  activity: SessionActivity | null;
+  detailsState: SessionDetailsState | null;
 }
 
-export async function loadSessionManifest(
+export async function loadSessionView(
   projectId: string,
   sessionId: string,
   signal?: AbortSignal,
-): Promise<ManifestQueryResult> {
+): Promise<SessionViewQueryResult> {
   try {
+    const state = await fetchSessionState(projectId, sessionId, { signal });
+    const manifest =
+      state.replay_source === "recorded"
+        ? await getManifest(projectId, sessionId, { signal })
+        : sessionHeadManifest(state);
+
     return {
-      manifest: await getManifest(projectId, sessionId, { signal }),
-      mode: "recorded",
+      manifest,
+      mode: state.replay_source,
       notFound: false,
+      activity: state.activity,
+      detailsState: state.details_state,
     };
   } catch (caughtError) {
     if (!isNotFound(caughtError)) throw caughtError;
-
-    const liveSessions = await fetchLiveSessions(projectId, { signal });
-    const liveSession = liveSessions.sessions.find((session) => session.session_id === sessionId);
-    if (liveSession === undefined) {
-      return { manifest: null, mode: "recorded", notFound: true };
-    }
-
     return {
-      manifest: liveSessionManifest(projectId, sessionId, liveSession),
-      mode: "live",
-      notFound: false,
+      manifest: null,
+      mode: "recorded",
+      notFound: true,
+      activity: null,
+      detailsState: null,
     };
   }
 }
 
-function liveSessionManifest(
-  projectId: string,
-  sessionId: string,
-  session: LiveSessionItem,
-): SessionManifest {
-  const startedAt = session.started_at;
-  const durationMs = Math.max(0, session.duration_ms);
-  const endedAt = Math.max(session.last_seen, startedAt + durationMs);
+export function sessionHeadManifest(session: SessionHead): SessionManifest {
   const country = cleanOptionalText(session.country);
+  const region = cleanOptionalText(session.region);
   const city = cleanOptionalText(session.city);
   const browser = cleanOptionalText(session.browser);
   const os = cleanOptionalText(session.os);
@@ -53,6 +61,7 @@ function liveSessionManifest(
   const entryUrl = cleanOptionalText(session.entry_url);
   const attrs: SessionManifest["attrs"] = {
     ...(country !== undefined ? { country } : {}),
+    ...(region !== undefined ? { region } : {}),
     ...(city !== undefined ? { city } : {}),
     ...(browser !== undefined ? { browser } : {}),
     ...(os !== undefined ? { os } : {}),
@@ -62,12 +71,12 @@ function liveSessionManifest(
 
   return {
     v: 1,
-    sessionId,
-    projectId,
-    orgId: "live",
-    startedAt,
-    endedAt,
-    durationMs,
+    sessionId: session.session_id,
+    projectId: session.project_id,
+    orgId: session.org_id,
+    startedAt: session.started_at,
+    endedAt: session.ended_at,
+    durationMs: Math.max(0, session.duration_ms),
     segments: [],
     timeline: [],
     counts: {
@@ -79,9 +88,16 @@ function liveSessionManifest(
       navs: 0,
     },
     bytes: 0,
-    flags: 0,
+    flags: session.flags,
     attrs,
   };
+}
+
+export function shouldPollSessionState(
+  detailsState: SessionDetailsState | null | undefined,
+  visibilityState: DocumentVisibilityState,
+): boolean {
+  return detailsState !== "exact" && visibilityState !== "hidden";
 }
 
 function isNotFound(error: unknown): boolean {

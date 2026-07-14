@@ -18,18 +18,27 @@ export {
 } from "./api/projects";
 export type { HealthResponse, InstallStatusResponse } from "./api/projects";
 export {
+  buildSessionHeadsUrl,
   buildSessionListUrl,
   fetchLiveSessions,
+  fetchSessionHeads,
+  fetchSessionState,
   getManifest,
   listSessions,
   segmentUrl,
 } from "./api/sessions";
 export type {
+  ListSessionHeadsParams,
+  ListSessionHeadsResponse,
   ListSessionsParams,
   ListSessionsResponse,
   LiveSessionItem,
   LiveSessionsResponse,
+  SessionActivity,
+  SessionDetailsState,
+  SessionHead,
   SessionListItem,
+  SessionReplaySource,
 } from "./api/sessions";
 export { buildStatsUrl, fetchProjectStats } from "./api/stats";
 export type {

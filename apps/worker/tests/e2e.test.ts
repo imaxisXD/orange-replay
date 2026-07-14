@@ -300,6 +300,12 @@ describe("a session lives and is replayed", () => {
       expect(hello.type).toBe("hello");
       expect(hello.sessionId).toBe(liveSessionId);
 
+      const pendingFrame = await waitForSocketMessage(conn, "stored binary batch", 5_000);
+      const pending = decodeIngestBody(await toBytes(pendingFrame));
+      expect(pending.index.seq).toBe(0);
+      expect(pending.index.s).toBe(liveSessionId);
+      expect(hex(pending.payload)).toBe(hex(first.payload));
+
       const second = makeLiveBatch(1);
       const secondRes = await postIngest(second);
       expect(secondRes.status).toBe(200);
