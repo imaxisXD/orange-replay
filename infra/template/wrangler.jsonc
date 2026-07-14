@@ -9,6 +9,20 @@
   "version_metadata": {
     "binding": "CF_VERSION_METADATA",
   },
+  "assets": {
+    "directory": "../../apps/dashboard/dist",
+    "binding": "ASSETS",
+    "run_worker_first": [
+      "/api/*",
+      "/internal/*",
+      "/v1/*",
+      "/login",
+      "/demo",
+      "/demo/*",
+      "/projects",
+      "/projects/*",
+    ],
+  },
   "durable_objects": {
     "bindings": [
       // # created by setup docs: deploy creates the SESSION Durable Object namespace.

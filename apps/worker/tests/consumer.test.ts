@@ -52,6 +52,8 @@ describe("consumer queue and sweeper", () => {
     expect(body.session?.["segment_count"]).toBe(2);
     expect(body.session?.["flags"]).toBe(message.flags);
     expect(body.session?.["manifest_key"]).toBe(message.manifestKey);
+    expect(body.session?.["indexed_at"]).toEqual(expect.any(Number));
+    expect(Number(body.session?.["indexed_at"])).toBeGreaterThan(0);
 
     expect(body.events).toHaveLength(2);
     expect(body.events[0]?.["kind"]).toBe("error");
@@ -87,14 +89,40 @@ describe("consumer queue and sweeper", () => {
     const message = makeFinalizeMessage("idempotent");
 
     await sendFinalizeMessage(message);
-    await waitForSession(message.sessionId);
+    const firstBody = await waitForSession(message.sessionId);
+    const firstIndexedAt = firstBody.session?.["indexed_at"];
     await sendFinalizeMessage(message);
     const body = await waitForStableUsage(message.sessionId);
 
+    expect(body.session?.["indexed_at"]).toBe(firstIndexedAt);
     expect(body.usage[0]?.["sessions"]).toBe(1);
     expect(body.usage[0]?.["bytes"]).toBe(message.bytes);
     expect(body.events).toHaveLength(2);
     expect(body.outbox).toEqual([]);
+  }, 30_000);
+
+  it("removes the finalizing presence row only after the session commit", async () => {
+    const message = makeFinalizeMessage("presence-handoff");
+    const presenceNow = Date.now();
+    await writePresence(message, "/ping", {
+      startedAt: presenceNow - 1_000,
+      lastSeen: presenceNow,
+      entryUrl: message.attrs.entryUrl,
+    });
+    await writePresence(message, "/mark-finalizing", { finalizingAt: Date.now() });
+    expect(await readPresenceHeads(message)).toMatchObject({
+      sessions: [{ session_id: message.sessionId, activity: "finalizing" }],
+    });
+
+    await sendFinalizeMessage(message);
+    await waitForSession(message.sessionId);
+    const deadline = Date.now() + 5_000;
+    for (;;) {
+      const heads = await readPresenceHeads(message);
+      if (heads.sessions.length === 0) break;
+      if (Date.now() >= deadline) throw new Error("finalized presence row was not removed");
+      await delay(50);
+    }
   }, 30_000);
 
   it("indexes 200 sparse events without crossing D1's parameter limit", async () => {
@@ -477,6 +505,35 @@ async function expectR2Object(key: string, exists: boolean): Promise<void> {
   expect(res.status).toBe(200);
   const body = (await res.json()) as { exists: boolean };
   expect(body.exists).toBe(exists);
+}
+
+async function writePresence(
+  message: FinalizeMessage,
+  route: "/ping" | "/mark-finalizing",
+  extra: Record<string, unknown>,
+): Promise<void> {
+  const response = await worker.fetch(`/__test/do/presence${route}`, {
+    method: "POST",
+    body: JSON.stringify({
+      projectId: message.projectId,
+      sessionId: message.sessionId,
+      ...extra,
+    }),
+  });
+  expect(response.status).toBe(200);
+}
+
+async function readPresenceHeads(
+  message: FinalizeMessage,
+): Promise<{ sessions: Array<{ session_id: string; activity: string }> }> {
+  const response = await worker.fetch("/__test/do/presence/heads", {
+    method: "POST",
+    body: JSON.stringify({ projectId: message.projectId, now: Date.now() }),
+  });
+  expect(response.status).toBe(200);
+  return (await response.json()) as {
+    sessions: Array<{ session_id: string; activity: string }>;
+  };
 }
 
 function delay(ms: number): Promise<void> {

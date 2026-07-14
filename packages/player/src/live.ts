@@ -1,6 +1,8 @@
 import { decodeIngestBody } from "@orange-replay/shared/wire";
+import { sessionManifestSchema } from "@orange-replay/shared/schemas";
 import type {
   BatchIndex,
+  LiveFinalizedMessage,
   LiveHelloMessage,
   LiveSessionSnapshot,
   SessionCounts,
@@ -37,6 +39,19 @@ export function parseLiveHelloMessage(value: string): LiveHelloMessage | null {
   }
 
   return parsed as unknown as LiveHelloMessage;
+}
+
+export function parseLiveFinalizedMessage(value: string): LiveFinalizedMessage | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return null;
+  }
+
+  if (!isRecord(parsed) || parsed["type"] !== "finalized") return null;
+  const manifest = sessionManifestSchema.safeParse(parsed["manifest"]);
+  return manifest.success ? { type: "finalized", manifest: manifest.data } : null;
 }
 
 export interface LiveKeyframeBuffer {

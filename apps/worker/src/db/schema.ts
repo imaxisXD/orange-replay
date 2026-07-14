@@ -65,10 +65,20 @@ export const sessions = sqliteTable(
     manifestKey: text("manifest_key").notNull(),
     expiresAt: integer("expires_at").notNull(),
     activityHist: text("activity_hist"),
+    indexedAt: integer("indexed_at").notNull().default(0),
   },
   (table) => [
     primaryKey({ columns: [table.projectId, table.sessionId] }),
-    index("idx_sessions_project_time").on(table.projectId, desc(table.startedAt)),
+    index("idx_sessions_project_time").on(
+      table.projectId,
+      desc(table.startedAt),
+      desc(table.sessionId),
+    ),
+    index("idx_sessions_project_indexed_at").on(
+      table.projectId,
+      desc(table.indexedAt),
+      desc(table.sessionId),
+    ),
     index("idx_sessions_expiry").on(table.expiresAt),
     index("idx_sessions_project_country_time").on(
       table.projectId,
@@ -196,6 +206,11 @@ export const analyticsExportOutbox = sqliteTable(
       .on(table.exportSequence)
       .where(sql`${table.sentAt} IS NULL AND ${table.quarantinedAt} IS NULL`),
     index("idx_analytics_export_outbox_project_sequence").on(table.projectId, table.exportSequence),
+    index("idx_analytics_export_outbox_project_kind_sequence").on(
+      table.projectId,
+      table.recordKind,
+      desc(table.exportSequence),
+    ),
     index("idx_analytics_export_outbox_session_sequence").on(
       table.projectId,
       table.sessionId,
@@ -217,6 +232,11 @@ export const analyticsExportLedger = sqliteTable(
     firstSeenVerifiedAt: integer("first_seen_verified_at").notNull(),
   },
   (table) => [
+    index("idx_analytics_export_ledger_project_kind_sequence").on(
+      table.projectId,
+      table.recordKind,
+      desc(table.exportSequence),
+    ),
     index("idx_analytics_export_ledger_session_sequence").on(
       table.projectId,
       table.sessionId,

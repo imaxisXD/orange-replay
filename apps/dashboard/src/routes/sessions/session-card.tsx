@@ -3,7 +3,7 @@ import { ClientLabel } from "@/components/client-label";
 import { decodeActivityHist } from "@/lib/activity-hist";
 import { CountryFlag } from "@/components/country-flag";
 import { StatusPill } from "@/components/status-pill";
-import type { SessionListItem } from "@/lib/api";
+import type { SessionDisplayItem } from "@/lib/session-list";
 import { cleanCountryCode, formatLocationName } from "@/lib/country";
 import {
   formatAbsoluteTime,
@@ -12,6 +12,7 @@ import {
   formatShortRelativeTime,
 } from "@/lib/format";
 import { MousePointer } from "@/lib/icon-map";
+import { sessionCardEvidence, sessionCardStatus } from "./session-card-state";
 import { sessionEvidenceLabel } from "./session-evidence";
 
 export function SessionCard({
@@ -25,13 +26,16 @@ export function SessionCard({
   isTabStop: boolean;
   isWatched: boolean;
   onSelect: () => void;
-  session: SessionListItem;
+  session: SessionDisplayItem;
 }) {
   const cardRef = useRef<HTMLDivElement>(null);
   const countryCode = cleanCountryCode(session.country);
   const location = formatLocationName(session.country, session.city);
   const hasClient = Boolean(session.browser) || Boolean(session.os);
-  const activity = decodeActivityHist(session.activity_hist);
+  const hasExactDetails = session.details_state === "exact";
+  const activity = hasExactDetails ? decodeActivityHist(session.activity_hist) : null;
+  const status = sessionCardStatus(session);
+  const evidence = sessionCardEvidence(session);
 
   // Deep links land with the playing session visible in the rail.
   useEffect(() => {
@@ -66,20 +70,30 @@ export function SessionCard({
         >
           {entryPath(session.entry_url)}
         </span>
-        {!isWatched && (
-          /* Replaces the old unlabeled amber dot: unwatched state now says
+        {status === "live" ? (
+          <StatusPill kind="ok">Live</StatusPill>
+        ) : status === "pending" ? (
+          <StatusPill kind="neutral">Final details pending</StatusPill>
+        ) : (
+          !isWatched && (
+            /* Replaces the old unlabeled amber dot: unwatched state now says
                  what it means; watched rows show nothing. */
-          <span
-            className="shrink-0 rounded-full border border-[rgba(245,166,35,0.35)] bg-[rgba(245,166,35,0.08)] px-1.5 text-[10px] font-medium leading-[16px] text-[#ffd9a0]"
-            title="You haven't watched this session yet"
-          >
-            New
-          </span>
+            <span
+              className="shrink-0 rounded-full border border-[rgba(245,166,35,0.35)] bg-[rgba(245,166,35,0.08)] px-1.5 text-[10px] font-medium leading-[16px] text-[#ffd9a0]"
+              title="You haven't watched this session yet"
+            >
+              New
+            </span>
+          )
         )}
       </div>
 
       <div className="mt-[9px] flex min-w-0 items-center gap-1.5">
-        {session.segment_count === 0 ? (
+        {evidence.kind === "provisional" ? (
+          <span className="font-mono text-[11px] tabular-nums text-foreground">
+            {formatDuration(evidence.durationMs)}
+          </span>
+        ) : evidence.kind === "metadata" ? (
           <span className="min-w-0 truncate text-[11.5px] text-muted-foreground">
             Metadata only — nothing to replay
           </span>
@@ -87,37 +101,41 @@ export function SessionCard({
           <span className="flex items-center gap-1.5 font-mono text-[11px] tabular-nums text-muted-foreground">
             <span className="flex items-center gap-1">
               <MousePointer aria-hidden className="size-3.5 shrink-0" />
-              {session.clicks} {session.clicks === 1 ? "click" : "clicks"}
+              {evidence.clicks} {evidence.clicks === 1 ? "click" : "clicks"}
             </span>
             <span className="text-dim">·</span>
-            <span className="text-foreground">{formatDuration(session.duration_ms)}</span>
+            <span className="text-foreground">{formatDuration(evidence.durationMs)}</span>
           </span>
         )}
         <span className="flex-1" />
-        {session.errors > 0 && (
+        {hasExactDetails && session.errors > 0 && (
           <StatusPill kind="err">{formatErrorCount(session.errors)}</StatusPill>
         )}
-        {session.rages > 0 && <StatusPill kind="rage">{session.rages} rage</StatusPill>}
-      </div>
-
-      <div aria-hidden className="mt-[9px] flex h-[3px] items-stretch gap-[2px]">
-        {activity === null ? (
-          <div className="h-full w-full rounded-[1px] bg-[#17171c]" />
-        ) : (
-          activity.levels.map((level, index) => (
-            <div
-              className="h-full w-full rounded-[1px]"
-              key={index}
-              style={{
-                backgroundColor:
-                  activity.errors[index] === true
-                    ? "#f4534e"
-                    : `rgba(148, 148, 163, ${(0.1 + 0.75 * (level / 15)).toFixed(3)})`,
-              }}
-            />
-          ))
+        {hasExactDetails && session.rages > 0 && (
+          <StatusPill kind="rage">{session.rages} rage</StatusPill>
         )}
       </div>
+
+      {hasExactDetails && (
+        <div aria-hidden className="mt-[9px] flex h-[3px] items-stretch gap-[2px]">
+          {activity === null ? (
+            <div className="h-full w-full rounded-[1px] bg-[#17171c]" />
+          ) : (
+            activity.levels.map((level, index) => (
+              <div
+                className="h-full w-full rounded-[1px]"
+                key={index}
+                style={{
+                  backgroundColor:
+                    activity.errors[index] === true
+                      ? "#f4534e"
+                      : `rgba(148, 148, 163, ${(0.1 + 0.75 * (level / 15)).toFixed(3)})`,
+                }}
+              />
+            ))
+          )}
+        </div>
+      )}
 
       <div className="mt-[9px] flex min-w-0 items-center gap-1.5 text-[11.5px] text-muted-foreground">
         <CountryFlag country={countryCode} />
@@ -140,14 +158,20 @@ export function SessionCard({
   );
 }
 
-function cardLabel(session: SessionListItem, location: string, isWatched: boolean): string {
-  const parts = [
-    entryPath(session.entry_url),
-    formatDuration(session.duration_ms),
-    sessionEvidenceLabel(session),
-  ];
-  if (session.errors > 0) parts.push(formatErrorCount(session.errors));
-  if (session.rages > 0) parts.push(`${session.rages} rage clicks`);
+function cardLabel(session: SessionDisplayItem, location: string, isWatched: boolean): string {
+  const parts = [entryPath(session.entry_url), formatDuration(session.duration_ms)];
+  const status = sessionCardStatus(session);
+  if (status === "live") parts.push("Live");
+  if (status === "pending") parts.push("Final details pending");
+  if (session.details_state === "exact") {
+    parts.push(sessionEvidenceLabel(session));
+  }
+  if (session.details_state === "exact" && session.errors > 0) {
+    parts.push(formatErrorCount(session.errors));
+  }
+  if (session.details_state === "exact" && session.rages > 0) {
+    parts.push(`${session.rages} rage clicks`);
+  }
   parts.push(location, formatShortRelativeTime(session.started_at));
   if (!isWatched) parts.push("not watched");
   return parts.join(", ");

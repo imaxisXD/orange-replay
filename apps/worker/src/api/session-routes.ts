@@ -29,6 +29,7 @@ import {
   type SessionRow,
 } from "./helpers.ts";
 import { jsonError, jsonResponse, secureHeaders } from "./http.ts";
+import { sessionHasDeletionFence } from "./session-head-routes.ts";
 
 const DEMO_SESSIONS_LIST_MAX = 50;
 
@@ -295,7 +296,7 @@ export async function getManifest(
   projectId: string,
   sessionId: string,
 ): Promise<Response> {
-  if (!(await sessionIsReadable(env, projectId, sessionId))) {
+  if (await sessionHasDeletionFence(env, projectId, sessionId)) {
     return jsonError("not_found", 404);
   }
 
@@ -319,7 +320,7 @@ export async function getSegment(
   sessionId: string,
   name: string,
 ): Promise<Response> {
-  if (!(await sessionIsReadable(env, projectId, sessionId))) {
+  if (await sessionHasDeletionFence(env, projectId, sessionId)) {
     return jsonError("not_found", 404);
   }
 
@@ -336,24 +337,4 @@ export async function getSegment(
   });
 
   return response;
-}
-
-async function sessionIsReadable(env: Env, projectId: string, sessionId: string): Promise<boolean> {
-  const row = await shardDb(env, 0)
-    .prepare(
-      `SELECT 1
-        FROM sessions
-        WHERE project_id = ?
-          AND session_id = ?
-          AND NOT EXISTS (
-            SELECT 1
-            FROM session_deletions d
-            WHERE d.project_id = sessions.project_id
-              AND d.session_id = sessions.session_id
-          )
-        LIMIT 1`,
-    )
-    .bind(projectId, sessionId)
-    .first();
-  return row !== null;
 }

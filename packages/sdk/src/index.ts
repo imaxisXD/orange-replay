@@ -1,11 +1,12 @@
 import type { IndexEvent } from "@orange-replay/shared/types";
 import type { eventWithTime } from "@orange-replay/rrweb-fork";
 import { CheckpointSnapshotLimiter } from "./checkpoint.ts";
-import { markSdkInternalError } from "./internal-error.ts";
 import { assertSafePrivacySelectors, loadRecorderProjectConfig } from "./project-config.ts";
 import { Recorder } from "./recorder.ts";
 import { shouldSampleSession } from "./sampling.ts";
+import { createSessionChangeCoordinator } from "./session-change.ts";
 import { SessionManager } from "./session.ts";
+import { startSessionTouchListeners } from "./session-touch.ts";
 import { InlineSink, WorkerSink } from "./sink.ts";
 import { discardLoaderPreBuffer, Sidecar } from "./sidecar.ts";
 import type { InitOptions, OrangeReplayHandle } from "./types.ts";
@@ -57,7 +58,6 @@ export function init(options: InitOptions): OrangeReplayHandle {
         }
         assertSafePrivacySelectors(config, document);
 
-        let rotationPromise: Promise<void> | undefined;
         let checkpointSnapshots: CheckpointSnapshotLimiter | undefined;
         let workerFailedBeforeStart = false;
         let stopForWorkerFailure = () => {
@@ -69,19 +69,15 @@ export function init(options: InitOptions): OrangeReplayHandle {
           if (required) recorder.takeFullSnapshot();
           else checkpointSnapshots?.requestSnapshot();
         };
-        const rotateSession = () => {
-          if (rotationPromise !== undefined) return rotationPromise;
-
-          rotationPromise = (async () => {
-            await sink.prepareForSessionRotation();
-            session.rotate();
+        const changeSession = createSessionChangeCoordinator(
+          () => sink.prepareForSessionRotation(),
+          () => session.resumeAfterIdle(),
+          () => session.rotate(),
+          () => {
             sink.resetAfterSessionRotation();
             recorder.takeFullSnapshot();
-          })().finally(() => {
-            rotationPromise = undefined;
-          });
-          return rotationPromise;
-        };
+          },
+        );
 
         sink =
           config.transport === "inline"
@@ -89,14 +85,14 @@ export function init(options: InitOptions): OrangeReplayHandle {
                 config,
                 session,
                 window,
-                onSessionClosed: () => void rotateSession(),
+                onSessionClosed: () => changeSession(true),
                 onCheckpointRequested: requestCheckpointSnapshot,
               })
             : new WorkerSink({
                 config,
                 session,
                 window,
-                onSessionClosed: () => void rotateSession(),
+                onSessionClosed: () => changeSession(true),
                 onCheckpointRequested: requestCheckpointSnapshot,
                 onWorkerUnavailable: () => stopForWorkerFailure(),
               });
@@ -119,7 +115,7 @@ export function init(options: InitOptions): OrangeReplayHandle {
         }
 
         const stopTouchListeners = startSessionTouchListeners(window, session, () => {
-          void rotateSession();
+          changeSession(false);
         });
         runtime = { sink, sidecar, recorder, stopTouchListeners };
         stopForWorkerFailure = () => {
@@ -214,40 +210,6 @@ function noopHandle(getUrl?: (base?: string) => string): OrangeReplayHandle {
     getSessionUrl(base?: string) {
       return getUrl?.(base) ?? "";
     },
-  };
-}
-
-function startSessionTouchListeners(
-  win: Window,
-  session: SessionManager,
-  onRotate: () => void,
-): () => void {
-  let warned = false;
-  const touch = () => {
-    try {
-      if (session.shouldRotateForIdle()) {
-        onRotate();
-        return;
-      }
-
-      session.touch();
-    } catch (error) {
-      if (!warned) {
-        warned = true;
-        console.warn("Orange Replay session update failed.", markSdkInternalError(error));
-      }
-    }
-  };
-  const events = ["click", "keydown", "scroll", "visibilitychange"];
-
-  for (const event of events) {
-    win.addEventListener(event, touch, true);
-  }
-
-  return () => {
-    for (const event of events) {
-      win.removeEventListener(event, touch, true);
-    }
   };
 }
 

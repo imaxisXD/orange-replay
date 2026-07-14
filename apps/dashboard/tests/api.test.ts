@@ -2,12 +2,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   ApiError,
+  buildSessionHeadsUrl,
   buildSessionListUrl,
   buildStatsUrl,
   checkApiToken,
   clearApiToken,
   fetchLiveSessions,
   fetchProjectStats,
+  fetchSessionHeads,
+  fetchSessionState,
   getApiToken,
   health,
   listSessions,
@@ -95,6 +98,39 @@ describe("api client", () => {
     expect(headers.get("authorization")).toBe("Bearer secret-token");
   });
 
+  it("loads session heads with the current warehouse snapshot", async () => {
+    setApiToken("secret-token");
+    fetchMock.mockResolvedValue(jsonResponse({ sessions: [] }));
+
+    await fetchSessionHeads("project 1", {
+      country: "US",
+      limit: 100,
+      opened_at: 10_000,
+      sort: "duration",
+      tracked_session_id: ["session_a"],
+      warehouse_to: 9_000,
+      warehouse_version: 42,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/projects/project%201/session-heads?limit=100&sort=duration&opened_at=10000&warehouse_to=9000&tracked_session_id=session_a&country=US&warehouse_version=42",
+      { headers: expect.any(Headers) },
+    );
+    expect(readFetchHeaders().get("authorization")).toBe("Bearer secret-token");
+  });
+
+  it("loads one session state with encoded ids", async () => {
+    setApiToken("secret-token");
+    fetchMock.mockResolvedValue(jsonResponse({ session_id: "session/1" }));
+
+    await fetchSessionState("project 1", "session/1");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/projects/project%201/sessions/session%2F1/state",
+      { headers: expect.any(Headers) },
+    );
+  });
+
   it("loads project stats with the canonical shared filter", async () => {
     setApiToken("secret-token");
     fetchMock.mockResolvedValue(jsonResponse({ sessions: { value: 0, filter: {} } }));
@@ -154,6 +190,19 @@ describe("api client", () => {
       }),
     ).toBe(
       "/api/v1/projects/project%201/sessions?limit=25&before=friction%3A1102%3Asession_a&sort=friction&country=US&has_errors=1&has_rage=1&min_duration_ms=60000",
+    );
+  });
+
+  it("builds the session-head query without a warehouse cursor", () => {
+    expect(
+      buildSessionHeadsUrl("project 1", {
+        browser: "Chrome",
+        limit: 25,
+        opened_at: 10_000,
+        sort: "clicks",
+      }),
+    ).toBe(
+      "/api/v1/projects/project%201/session-heads?limit=25&sort=clicks&opened_at=10000&browser=Chrome",
     );
   });
 

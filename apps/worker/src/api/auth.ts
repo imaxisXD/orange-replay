@@ -14,6 +14,8 @@ export type ApiAuthContext = {
 };
 export type ApiRouteName =
   | "sessions_list"
+  | "session_heads"
+  | "session_state"
   | "project_stats"
   | "project_live"
   | "project_config"
@@ -25,6 +27,8 @@ export type ApiRouteName =
 
 const DEMO_READABLE_ROUTES = new Set<ApiRouteName>([
   "sessions_list",
+  "session_heads",
+  "session_state",
   "project_stats",
   "project_live",
   "manifest",

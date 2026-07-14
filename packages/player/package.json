@@ -15,7 +15,7 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "build": "vp pack",
+    "build": "vp pack --dts",
     "test": "vp test",
     "check": "vp check"
   },

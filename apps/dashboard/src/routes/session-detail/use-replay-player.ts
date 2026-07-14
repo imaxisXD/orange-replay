@@ -27,12 +27,15 @@ export type { PlaybackState } from "./playback-state";
 export interface ReplayPlayerOptions {
   isDemo: boolean;
   manifest: SessionManifest;
+  liveReviewManifest?: SessionManifest;
   mode: ReplayMode;
   projectId: string;
   sessionId: string;
   onLiveIndex?: (index: BatchIndex) => void;
   onLiveSnapshot?: (snapshot: LiveSessionSnapshot) => void;
+  onLiveFinalized?: (manifest: SessionManifest) => void;
   onLiveEnded?: () => void;
+  reviewLiveHistory?: boolean;
 }
 
 export interface ReplayPlayerState {
@@ -68,16 +71,24 @@ const demoPlayerAccessMarker = "demo-read-only";
 export function useReplayPlayer({
   manifest,
   isDemo,
+  liveReviewManifest,
   mode,
   onLiveIndex,
   onLiveEnded,
+  onLiveFinalized,
   onLiveSnapshot,
   projectId,
+  reviewLiveHistory = false,
   sessionId,
 }: ReplayPlayerOptions): ReplayPlayerState {
   const containerRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<OrangePlayer | null>(null);
+  const latestManifestRef = useRef(manifest);
+  const latestModeRef = useRef(mode);
+  const playerManifestRef = useRef<SessionManifest | null>(null);
+  latestManifestRef.current = manifest;
+  latestModeRef.current = mode;
   const draggingTimeline = useRef(false);
   const progressFrameRef = useRef<number | null>(null);
   const pendingProgressRef = useRef<{ currentMs: number; durationMs: number } | null>(null);
@@ -98,7 +109,7 @@ export function useReplayPlayer({
   );
 
   const timelineDurationMs = Math.max(state.durationMs, manifest.durationMs, state.currentMs);
-  const isFollowing = mode === "live" || state.liveState.following;
+  const isFollowing = state.liveState.following;
   const playheadPercent = timelineProgressPercent(state.currentMs, timelineDurationMs);
 
   function writePlayheadVar(timeMs: number, durationMs: number): void {
@@ -282,7 +293,7 @@ export function useReplayPlayer({
   }
 
   const handleKeyDown = useEffectEvent((event: KeyboardEvent) => {
-    if (mode === "live") {
+    if (state.liveState.following) {
       return;
     }
 
@@ -301,6 +312,9 @@ export function useReplayPlayer({
   });
   const handleLiveIndex = useEffectEvent((index: BatchIndex) => onLiveIndex?.(index));
   const handleLiveEnded = useEffectEvent(() => onLiveEnded?.());
+  const handleLiveFinalized = useEffectEvent((nextManifest: SessionManifest) =>
+    onLiveFinalized?.(nextManifest),
+  );
   const handleLiveSnapshot = useEffectEvent((snapshot: LiveSessionSnapshot) =>
     onLiveSnapshot?.(snapshot),
   );
@@ -321,9 +335,11 @@ export function useReplayPlayer({
       return;
     }
 
+    const initialManifest = latestManifestRef.current;
+    const initialMode = latestModeRef.current;
     const overlayColors = readReplayOverlayColors();
     const player = new OrangePlayer(container, {
-      api: dashboardPlayerApi(manifest, isDemo),
+      api: dashboardPlayerApi(initialManifest, isDemo),
       projectId,
       sessionId,
       token: isDemo ? demoPlayerAccessMarker : (getApiToken() ?? undefined),
@@ -332,6 +348,7 @@ export function useReplayPlayer({
       overlay: overlayColors,
     });
     playerRef.current = player;
+    playerManifestRef.current = initialManifest;
 
     // Per frame: only the cheap CSS-var write for the needle. React commits
     // happen when the displayed second (or duration) changes, so steady
@@ -345,7 +362,7 @@ export function useReplayPlayer({
 
       const effectiveDurationMs = Math.max(
         pendingProgress.durationMs,
-        manifest.durationMs,
+        latestManifestRef.current.durationMs,
         pendingProgress.currentMs,
       );
       timelineRef.current?.style.setProperty(
@@ -394,6 +411,7 @@ export function useReplayPlayer({
         dispatch({ type: "live", liveState: event });
       }),
       player.on("live_index", handleLiveIndex),
+      player.on("live_finalized", handleLiveFinalized),
       player.on("live_ended", handleLiveEnded),
       player.on("live_snapshot", handleLiveSnapshot),
       player.on("waiting_keyframe", (event) => {
@@ -409,7 +427,7 @@ export function useReplayPlayer({
       }),
     ];
 
-    if (mode === "live") {
+    if (initialMode === "live") {
       player.follow();
     }
 
@@ -430,11 +448,33 @@ export function useReplayPlayer({
         stop();
       }
       player.destroy();
+      playerManifestRef.current = null;
       if (playerRef.current === player) {
         playerRef.current = null;
       }
     };
-  }, [isDemo, manifest, mode, projectId, retryKey, sessionId]);
+  }, [isDemo, projectId, retryKey, sessionId]);
+
+  // The player owns the visible replay surface. Adopt the final manifest in
+  // place so the live frame and current time survive the source handoff.
+  useEffect(() => {
+    const player = playerRef.current;
+    if (player === null || mode !== "recorded" || playerManifestRef.current === manifest) {
+      return;
+    }
+    playerManifestRef.current = manifest;
+    player.finishLive(manifest);
+  }, [manifest, mode]);
+
+  useEffect(() => {
+    const player = playerRef.current;
+    if (player === null || mode !== "live") return;
+    if (reviewLiveHistory) {
+      player.reviewLiveHistory(liveReviewManifest ?? manifest);
+      return;
+    }
+    player.follow();
+  }, [liveReviewManifest, manifest, mode, reviewLiveHistory]);
 
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);

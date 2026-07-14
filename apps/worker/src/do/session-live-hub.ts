@@ -5,7 +5,13 @@ import {
   startWideEvent,
   uuidv7,
 } from "@orange-replay/shared";
-import type { LiveSessionSnapshot, SegmentRef, WideEventOutcome } from "@orange-replay/shared";
+import type {
+  BatchIndex,
+  LiveSessionSnapshot,
+  SegmentRef,
+  SessionManifest,
+  WideEventOutcome,
+} from "@orange-replay/shared";
 import type { AppendArgs } from "./contract.ts";
 import type { SessionState } from "./session-logic.ts";
 
@@ -14,6 +20,7 @@ export interface SessionLiveHubDependencies {
   getSessionState: () => SessionState | null;
   getSegmentRefs: () => SegmentRef[];
   getPendingBatchCount: () => number;
+  getPendingBatches: () => Array<{ index: BatchIndex; payload: Uint8Array }>;
   getLiveSnapshot: () => LiveSessionSnapshot | null;
   requestCheckpointOnNextAppend: () => void;
 }
@@ -46,9 +53,10 @@ export class SessionLiveHub {
     return sockets.length;
   }
 
-  closeViewers(): void {
+  finalizeViewers(manifest: SessionManifest): void {
     for (const socket of this.dependencies.ctx.getWebSockets("viewer")) {
       try {
+        socket.send(JSON.stringify({ type: "finalized", manifest }));
         socket.close(1000);
       } catch {
         // Closing a dead viewer is best effort.
@@ -74,6 +82,13 @@ export class SessionLiveHub {
     try {
       if (!wantsLiveSocket || state === null) {
         const response = Response.json({ error: "not_found" }, { status: 404 });
+        statusCode = response.status;
+        outcome = "client_error";
+        return response;
+      }
+
+      if (state.finalizingAt !== undefined) {
+        const response = Response.json({ error: "session_finalizing" }, { status: 409 });
         statusCode = response.status;
         outcome = "client_error";
         return response;
@@ -115,6 +130,9 @@ export class SessionLiveHub {
           snapshot,
         }),
       );
+      for (const batch of this.dependencies.getPendingBatches()) {
+        server.send(encodeIngestBody(batch.index, batch.payload));
+      }
 
       statusCode = 101;
       outcome = "success";

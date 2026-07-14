@@ -1,4 +1,5 @@
 import snapshot, {
+  type CapturedTopology,
   type ChunkedSnapshotControl,
   cleanupSnapshot,
   classMatchesRegex,
@@ -33,6 +34,7 @@ export {
   toLowerCase,
 } from "./utils.ts";
 export {
+  type CapturedTopology,
   type ChunkedSnapshotControl,
   cleanupSnapshot,
   classMatchesRegex,

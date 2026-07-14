@@ -21,12 +21,14 @@ import {
   trackAppendRateLimit,
 } from "../src/do/session-logic.ts";
 import {
+  SESSION_HEAD_HANDOFF_GRACE_MS,
   liveSessionsFromPresenceRows,
   presenceShardIndex,
   presenceShardNames,
   resolvePresenceTiming,
   shouldSendPresencePing,
 } from "../src/do/presence-logic.ts";
+import { shouldFailPresenceHeadShardForTest } from "../src/do/presence-client.ts";
 
 describe("SessionRecorder pure logic", () => {
   it("uses default timings unless dev test routes are enabled", () => {
@@ -169,6 +171,29 @@ describe("SessionRecorder pure logic", () => {
 });
 
 describe("PresenceRegistry pure logic", () => {
+  it("never enables the failed-shard test hook in production", () => {
+    expect(
+      shouldFailPresenceHeadShardForTest(
+        {
+          WORKER_ENV: "production",
+          DEV_TEST_ROUTES: "1",
+          TEST_FAIL_PRESENCE_HEAD_SHARD: "0",
+        },
+        0,
+      ),
+    ).toBe(false);
+    expect(
+      shouldFailPresenceHeadShardForTest(
+        {
+          WORKER_ENV: "development",
+          DEV_TEST_ROUTES: "1",
+          TEST_FAIL_PRESENCE_HEAD_SHARD: "0",
+        },
+        0,
+      ),
+    ).toBe(true);
+  });
+
   it("routes every session to one stable project shard", () => {
     const first = presenceShardIndex("session-stable");
     expect(presenceShardIndex("session-stable")).toBe(first);
@@ -182,6 +207,8 @@ describe("PresenceRegistry pure logic", () => {
     expect(resolvePresenceTiming(undefined, JSON.stringify({ presenceTtlMs: 1 }))).toEqual({
       ttlMs: PRESENCE_TTL_MS,
       heartbeatMs: PRESENCE_HEARTBEAT_MS,
+      closeMs: CLOSE_SESSION_AFTER_IDLE_MS,
+      headGraceMs: SESSION_HEAD_HANDOFF_GRACE_MS,
       forceFailure: false,
     });
 
@@ -197,6 +224,8 @@ describe("PresenceRegistry pure logic", () => {
     ).toEqual({
       ttlMs: 100,
       heartbeatMs: 50,
+      closeMs: CLOSE_SESSION_AFTER_IDLE_MS,
+      headGraceMs: SESSION_HEAD_HANDOFF_GRACE_MS,
       forceFailure: true,
     });
   });

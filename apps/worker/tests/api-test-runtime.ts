@@ -28,6 +28,7 @@ export let worker: TestWorker;
 export let workerWithoutToken: TestWorker;
 export let workerWithEmptyToken: TestWorker;
 export let workerWithDemo: TestWorker;
+export let workerWithPresenceHeadFailure: TestWorker;
 export let assetManifestJson = "";
 export let demoManifestJson = "";
 
@@ -35,6 +36,7 @@ interface SetupApiTestWorkersOptions {
   withoutToken?: boolean;
   emptyToken?: boolean;
   demo?: boolean;
+  presenceHeadFailure?: boolean;
 }
 
 export function setupApiTestWorkers(options: SetupApiTestWorkersOptions = {}): void {
@@ -111,11 +113,29 @@ export function setupApiTestWorkers(options: SetupApiTestWorkersOptions = {}): v
     }, 120_000);
   }
 
+  if (options.presenceHeadFailure === true) {
+    beforeAll(async () => {
+      workerWithPresenceHeadFailure = await unstable_dev(`${workerDir}src/index.ts`, {
+        config: `${workerDir}wrangler.jsonc`,
+        vars: {
+          DEV_TEST_ROUTES: "1",
+          DEV_API_TOKEN: token,
+          DEV_API_PROJECT_IDS: apiProjectIds,
+          LIVE_TICKET_SECRET: liveTicketSecret,
+          TEST_FAIL_PRESENCE_HEAD_SHARD: "0",
+        },
+        persist: false,
+        experimental: { disableExperimentalWarning: true },
+      });
+    }, 120_000);
+  }
+
   afterAll(async () => {
     await worker?.stop();
     await workerWithoutToken?.stop();
     await workerWithEmptyToken?.stop();
     await workerWithDemo?.stop();
+    await workerWithPresenceHeadFailure?.stop();
   });
 }
 
@@ -288,7 +308,11 @@ async function seedDemoWorkspace(): Promise<string> {
   return JSON.stringify(manifest);
 }
 
-export async function appendActiveSession(projectId: string, sessionId: string): Promise<void> {
+export async function appendActiveSession(
+  projectId: string,
+  sessionId: string,
+  entryUrl?: string,
+): Promise<void> {
   const res = await worker.fetch("/__test/do/append", {
     method: "POST",
     body: JSON.stringify({
@@ -308,6 +332,7 @@ export async function appendActiveSession(projectId: string, sessionId: string):
         seq: 0,
         t0: Date.now(),
         t1: Date.now() + 1,
+        ...(entryUrl === undefined ? {} : { u: entryUrl }),
         e: [],
       },
       payloadB64: Buffer.from("live-ticket-payload").toString("base64"),

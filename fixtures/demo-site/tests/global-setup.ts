@@ -33,8 +33,10 @@ const timings = {
   segmentFlushMs: 700,
   segmentFlushBytes: 2048,
   flushTailMs: 700,
-  closeMs: 3_000,
-  presenceTtlMs: 20_000,
+  // Leave a visible idle window so the product test proves the row and player
+  // stay available after Live ends but before the immutable manifest is done.
+  closeMs: 12_000,
+  presenceTtlMs: 1_500,
   presenceHeartbeatMs: 700,
   // Keep the server-driven SDK cadence below closeMs: at the production
   // default (15s) every lightly-active session finalizes between flushes

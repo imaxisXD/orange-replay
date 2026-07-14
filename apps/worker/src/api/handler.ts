@@ -4,6 +4,7 @@ import { checkAuth, demoRateLimitAllows, projectAuthError } from "./auth.ts";
 import { isValidPathId, isValidSegmentName, outcomeForStatus } from "./helpers.ts";
 import { jsonError, jsonResponse } from "./http.ts";
 import { mintLiveTicket, proxyLiveSession } from "./live-ticket.ts";
+import { getSessionState, listSessionHeads } from "./session-head-routes.ts";
 import {
   getDemoDiscovery,
   getInstallStatus,
@@ -86,6 +87,16 @@ async function routeRequest(
     return listSessions(url, env, projectId, auth.mode, requestId, wideEvent, ctx);
   }
 
+  const sessionHeadsMatch = /^\/api\/v1\/projects\/([^/]+)\/session-heads$/.exec(url.pathname);
+  if (request.method === "GET" && sessionHeadsMatch) {
+    const projectId = sessionHeadsMatch[1];
+    if (!projectId || !isValidPathId(projectId)) return jsonError("invalid_path_id", 400);
+    const authError = projectAuthError(auth, projectId, "session_heads");
+    if (authError !== null) return authError;
+    wideEvent.set({ project_id: projectId });
+    return listSessionHeads(url, env, projectId, requestId);
+  }
+
   const statsMatch = /^\/api\/v1\/projects\/([^/]+)\/stats$/.exec(url.pathname);
   if (request.method === "GET" && statsMatch) {
     const projectId = statsMatch[1];
@@ -149,6 +160,18 @@ async function routeRequest(
     return getManifest(env, ids.projectId, ids.sessionId);
   }
 
+  const sessionStateMatch = /^\/api\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/state$/.exec(
+    url.pathname,
+  );
+  if (request.method === "GET" && sessionStateMatch) {
+    const ids = parseProjectSessionIds(sessionStateMatch);
+    if (!ids.ok) return jsonError("invalid_path_id", 400);
+    const authError = projectAuthError(auth, ids.projectId, "session_state");
+    if (authError !== null) return authError;
+    wideEvent.set({ project_id: ids.projectId, session_id: ids.sessionId });
+    return getSessionState(env, ids.projectId, ids.sessionId, requestId);
+  }
+
   const liveTicketMatch = /^\/api\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/live-ticket$/.exec(
     url.pathname,
   );
@@ -205,6 +228,7 @@ function routeName(pathname: string): string {
   if (pathname === "/api/v1/demo") return "demo_discovery";
   if (pathname === "/api/v1/health") return "health";
   if (/^\/api\/v1\/projects\/[^/]+\/sessions$/.test(pathname)) return "sessions_list";
+  if (/^\/api\/v1\/projects\/[^/]+\/session-heads$/.test(pathname)) return "session_heads";
   if (/^\/api\/v1\/projects\/[^/]+\/stats$/.test(pathname)) return "project_stats";
   if (/^\/api\/v1\/projects\/[^/]+\/live$/.test(pathname)) return "project_live";
   if (/^\/api\/v1\/projects\/[^/]+\/config$/.test(pathname)) return "project_config";
@@ -214,6 +238,9 @@ function routeName(pathname: string): string {
   if (/^\/api\/v1\/projects\/[^/]+\/keys$/.test(pathname)) return "project_keys";
   if (/^\/api\/v1\/projects\/[^/]+\/sessions\/[^/]+\/manifest$/.test(pathname)) {
     return "manifest";
+  }
+  if (/^\/api\/v1\/projects\/[^/]+\/sessions\/[^/]+\/state$/.test(pathname)) {
+    return "session_state";
   }
   if (/^\/api\/v1\/projects\/[^/]+\/sessions\/[^/]+\/live-ticket$/.test(pathname)) {
     return "live_ticket";

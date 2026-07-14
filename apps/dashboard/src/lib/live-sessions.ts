@@ -1,4 +1,4 @@
-import type { LiveSessionItem } from "@/lib/api";
+import type { SessionHead } from "@/lib/api";
 import { cleanCountryCode, formatLocationName } from "./country";
 import { formatDuration } from "./format";
 
@@ -12,7 +12,16 @@ export interface LiveSessionRow {
   elapsedTime: string;
 }
 
-export function formatLiveSessionRow(session: LiveSessionItem): LiveSessionRow {
+export function activeSessionHeads(sessions: readonly SessionHead[]): SessionHead[] {
+  return sessions.filter((session) => session.activity === "live");
+}
+
+export function formatLiveSessionRow(
+  session: Pick<
+    SessionHead,
+    "session_id" | "entry_url" | "country" | "city" | "browser" | "duration_ms"
+  >,
+): LiveSessionRow {
   return {
     sessionId: session.session_id,
     entryPath: entryPath(session.entry_url),

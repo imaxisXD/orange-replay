@@ -12,7 +12,9 @@ export const INGEST_HEADER_FLAG_MASK = FLAG_UNCOMPRESSED | PERSISTED_REPLAY_FLAG
 export const MAX_COMPRESSED_BATCH_BYTES = 1024 * 1024;
 export const MAX_INDEX_JSON_BYTES = 64 * 1024;
 export const MAX_CONFIG_UPDATE_BODY_BYTES = 64 * 1024;
-export const MAX_PRESENCE_BODY_BYTES = 8 * 1024;
+// Covers every valid presence ping and a 100-session head lookup while still
+// placing a hard limit on internal Durable Object request bodies.
+export const MAX_PRESENCE_BODY_BYTES = 32 * 1024;
 export const MAX_PRESENCE_ID_CHARS = 64;
 export const MAX_PRESENCE_TEXT_CHARS = 2048;
 export const MAX_BATCHES_PER_SEGMENT = 4096;

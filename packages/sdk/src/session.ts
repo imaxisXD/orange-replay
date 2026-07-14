@@ -1,4 +1,4 @@
-import { MAX_SEQ } from "@orange-replay/shared/constants";
+import { CLOSE_SESSION_AFTER_IDLE_MS, MAX_SEQ } from "@orange-replay/shared/constants";
 import { uuidv7 } from "@orange-replay/shared/uuid";
 
 const SESSION_STORAGE_KEY = "or:s";
@@ -7,9 +7,9 @@ const LAST_ACTIVITY_STORAGE_KEY = "or:last";
 const SEQ_STORAGE_KEY = "or:q";
 const SESSION_COOKIE = "or_s";
 
-// Mirrors the server's CLOSE_SESSION_AFTER_IDLE_MS (shared/constants.ts):
-// the client rotates ids at the same idle horizon the DO closes sessions.
-export const SESSION_IDLE_MS = 30 * 60 * 1000;
+// Keep the public SDK name, but use the same number as the server. One shared
+// value prevents the browser and Durable Object from silently drifting apart.
+export const SESSION_IDLE_MS = CLOSE_SESSION_AFTER_IDLE_MS;
 export const TAB_CLAIM_GRACE_MS = 50;
 export const TOUCH_PERSIST_THROTTLE_MS = 5_000;
 
@@ -36,52 +36,48 @@ type BroadcastMessage =
 type BroadcastChannelCtor = new (name: string) => BroadcastChannel;
 
 export class SessionManager {
-  readonly projectRef: string;
-  readonly now: () => number;
   readonly ready: Promise<void>;
 
-  private readonly storage?: StorageLike;
-  private readonly document?: Pick<Document, "cookie">;
+  readonly #projectRef: string;
+  readonly #now: () => number;
+  readonly #storage?: StorageLike;
+  readonly #document?: Pick<Document, "cookie">;
   private readonly makeId: () => string;
   private readonly broadcastChannel?: BroadcastChannelCtor;
-  private readonly wait: (ms: number) => Promise<void>;
+  readonly #wait: (ms: number) => Promise<void>;
   private currentSessionId: string;
   private currentTabId: string;
   private lastActivity: number;
-  private seq: number;
-  private channel: BroadcastChannel | undefined;
-  private persistedSessionId: string | undefined;
-  private persistedTabId: string | undefined;
-  private persistedLastActivity: number | undefined;
-  private persistedSeq: number | undefined;
+  #seq: number;
+  #channel: BroadcastChannel | undefined;
   private lastActivityPersistedAt = 0;
 
   constructor(options: SessionManagerOptions) {
-    this.projectRef = options.projectRef;
-    this.now = options.now;
-    this.storage = options.storage ?? safeSessionStorage();
-    this.document = options.document ?? safeDocument();
+    this.#projectRef = options.projectRef;
+    this.#now = options.now;
+    this.#storage = options.storage ?? safeSessionStorage();
+    this.#document = options.document ?? safeDocument();
     this.makeId = options.makeId ?? uuidv7;
     this.broadcastChannel = options.broadcastChannel ?? safeBroadcastChannel();
-    this.wait = options.wait ?? defaultWait;
+    this.#wait = options.wait ?? defaultWait;
 
-    const nowMs = this.now();
+    const nowMs = this.#now();
     const cookieSession = this.readCookieSession();
-    const storedSession = safeGet(this.storage, SESSION_STORAGE_KEY);
-    const storedLastActivity = parseStoredNumber(safeGet(this.storage, LAST_ACTIVITY_STORAGE_KEY));
+    const storedSession = safeGet(this.#storage, SESSION_STORAGE_KEY);
+    const storedLastActivity = parseStoredNumber(safeGet(this.#storage, LAST_ACTIVITY_STORAGE_KEY));
     const sessionIsIdle =
-      storedLastActivity !== undefined && nowMs - storedLastActivity > SESSION_IDLE_MS;
+      storedLastActivity !== undefined && nowMs - storedLastActivity >= SESSION_IDLE_MS;
 
     this.currentSessionId =
       cookieSession ?? (sessionIsIdle ? this.makeId() : storedSession) ?? this.makeId();
-    this.currentTabId = safeGet(this.storage, TAB_STORAGE_KEY) ?? this.makeTabId();
+    this.currentTabId = safeGet(this.#storage, TAB_STORAGE_KEY) ?? this.makeTabId();
     this.lastActivity = sessionIsIdle ? nowMs : (storedLastActivity ?? nowMs);
-    this.seq =
-      !sessionIsIdle && storedSession === this.currentSessionId
-        ? (parseStoredSeq(safeGet(this.storage, SEQ_STORAGE_KEY)) ?? 0)
+    this.#seq =
+      storedSession === this.currentSessionId
+        ? (parseStoredSeq(safeGet(this.#storage, SEQ_STORAGE_KEY)) ?? 0)
         : 0;
 
-    this.persist({ force: true });
+    this.persist();
     this.ready = this.claimTabOwnership();
   }
 
@@ -93,49 +89,72 @@ export class SessionManager {
     return this.currentTabId;
   }
 
-  shouldRotateForIdle(): boolean {
-    return this.now() - this.lastActivity > SESSION_IDLE_MS;
-  }
-
   touch(): boolean {
-    const nowMs = this.now();
-    if (nowMs - this.lastActivity > SESSION_IDLE_MS) {
-      this.rotate();
+    const nowMs = this.#now();
+    if (nowMs - this.lastActivity >= SESSION_IDLE_MS) {
+      // The caller must reconcile the shared cookie before changing ids. A
+      // different tab may still be keeping this browser session alive.
       return true;
     }
 
     this.lastActivity = nowMs;
     if (nowMs - this.lastActivityPersistedAt >= TOUCH_PERSIST_THROTTLE_MS) {
-      this.persist({ lastActivityOnly: true });
+      this.persist(true);
     }
     return false;
   }
 
+  /**
+   * Resolve an idle tab against the shared first-party cookie. Another tab may
+   * still be active even when this tab has been quiet for 30 minutes.
+   */
+  resumeAfterIdle(): boolean {
+    const nowMs = this.#now();
+    const activeSessionId = this.readCookieSession();
+
+    if (activeSessionId === undefined) {
+      this.rotate();
+      return true;
+    }
+
+    this.lastActivity = nowMs;
+    if (activeSessionId === this.currentSessionId) {
+      this.persist(true);
+      return false;
+    }
+
+    this.currentSessionId = activeSessionId;
+    this.#seq = 0;
+    this.persist();
+    void this.reclaimForCurrentSession();
+    return true;
+  }
+
   rotate(): void {
     this.currentSessionId = this.makeId();
-    this.seq = 0;
-    this.lastActivity = this.now();
-    this.persist({ force: true });
+    this.#seq = 0;
+    this.lastActivity = this.#now();
+    this.persist();
     void this.reclaimForCurrentSession();
   }
 
   nextSeq(): number {
-    const seq = this.seq;
-    this.seq += 1;
+    const seq = this.#seq;
+    this.#seq += 1;
     this.persistSeq();
     return seq;
   }
 
   getSessionUrl(base: string): string {
     const cleanBase = base.replace(/\/+$/, "");
-    return `${cleanBase}/sessions/${encodeURIComponent(this.projectRef)}/${encodeURIComponent(
+    return `${cleanBase}/sessions/${encodeURIComponent(this.#projectRef)}/${encodeURIComponent(
       this.currentSessionId,
     )}`;
   }
 
   stop(): void {
-    this.channel?.close();
-    this.channel = undefined;
+    this.#channel?.close();
+    this.#channel = undefined;
   }
 
   private async claimTabOwnership(): Promise<void> {
@@ -153,20 +172,20 @@ export class SessionManager {
       return;
     }
 
-    this.channel?.close();
-    this.channel = undefined;
+    this.#channel?.close();
+    this.#channel = undefined;
     await this.openClaimChannel(Channel);
   }
 
   private async openClaimChannel(Channel: BroadcastChannelCtor): Promise<void> {
     let channel: BroadcastChannel;
     try {
-      channel = new Channel(`orange-replay:${this.projectRef}:${this.currentSessionId}`);
+      channel = new Channel(`orange-replay:${this.#projectRef}:${this.currentSessionId}`);
     } catch {
       return;
     }
 
-    this.channel = channel;
+    this.#channel = channel;
     let nonce = makeNonce();
     let claimed = false;
     const onMessage = (event: MessageEvent<unknown>) => {
@@ -191,12 +210,12 @@ export class SessionManager {
 
     channel.addEventListener("message", onMessage);
     this.postTabClaim(channel, nonce);
-    await this.wait(TAB_CLAIM_GRACE_MS);
+    await this.#wait(TAB_CLAIM_GRACE_MS);
 
     if (claimed) {
       this.currentTabId = this.makeTabId();
-      this.seq = 0;
-      this.persist({ force: true });
+      this.#seq = 0;
+      this.persist();
       nonce = makeNonce();
       this.postTabClaim(channel, nonce);
     }
@@ -211,44 +230,32 @@ export class SessionManager {
   }
 
   private makeTabId(): string {
-    return this.makeId().slice(0, 12);
+    const createdId = this.makeId();
+    const randomPart = createdId.replaceAll("-", "");
+    // UUIDv7 starts with its timestamp. Taking the first characters lets two
+    // tabs opened in the same millisecond choose the same tab id. Keep the
+    // random end instead; short custom ids used by tests stay readable.
+    return randomPart.length > 16 ? randomPart.slice(-16) : createdId.slice(0, 16);
   }
 
-  private persist(options: { force?: boolean; lastActivityOnly?: boolean } = {}): void {
-    const force = options.force === true;
-    const lastActivityOnly = options.lastActivityOnly === true;
-
+  private persist(lastActivityOnly = false): void {
     if (!lastActivityOnly) {
-      if (force || this.persistedSessionId !== this.currentSessionId) {
-        safeSet(this.storage, SESSION_STORAGE_KEY, this.currentSessionId);
-        this.persistedSessionId = this.currentSessionId;
-        this.writeCookieSession();
-      }
-
-      if (force || this.persistedTabId !== this.currentTabId) {
-        safeSet(this.storage, TAB_STORAGE_KEY, this.currentTabId);
-        this.persistedTabId = this.currentTabId;
-      }
-
-      this.persistSeq(force);
+      safeSet(this.#storage, SESSION_STORAGE_KEY, this.currentSessionId);
+      safeSet(this.#storage, TAB_STORAGE_KEY, this.currentTabId);
+      this.persistSeq();
     }
 
-    if (force || this.persistedLastActivity !== this.lastActivity) {
-      safeSet(this.storage, LAST_ACTIVITY_STORAGE_KEY, String(this.lastActivity));
-      this.persistedLastActivity = this.lastActivity;
-      this.lastActivityPersistedAt = this.now();
-    }
+    safeSet(this.#storage, LAST_ACTIVITY_STORAGE_KEY, String(this.lastActivity));
+    this.lastActivityPersistedAt = this.#now();
+    this.writeCookieSession();
   }
 
-  private persistSeq(force = false): void {
-    if (force || this.persistedSeq !== this.seq) {
-      safeSet(this.storage, SEQ_STORAGE_KEY, String(this.seq));
-      this.persistedSeq = this.seq;
-    }
+  private persistSeq(): void {
+    safeSet(this.#storage, SEQ_STORAGE_KEY, String(this.#seq));
   }
 
   private readCookieSession(): string | undefined {
-    const cookie = this.document?.cookie;
+    const cookie = this.#document?.cookie;
     if (cookie === undefined || cookie.length === 0) {
       return undefined;
     }
@@ -265,14 +272,13 @@ export class SessionManager {
   }
 
   private writeCookieSession(): void {
-    if (this.document === undefined) {
+    if (this.#document === undefined) {
       return;
     }
 
-    const expires = new Date(this.now() + SESSION_IDLE_MS).toUTCString();
-    this.document.cookie = `${SESSION_COOKIE}=${encodeURIComponent(
+    this.#document.cookie = `${SESSION_COOKIE}=${encodeURIComponent(
       this.currentSessionId,
-    )}; Path=/; Expires=${expires}; SameSite=Lax`;
+    )}; Path=/; Max-Age=${SESSION_IDLE_MS / 1_000}; SameSite=Lax`;
   }
 }
 

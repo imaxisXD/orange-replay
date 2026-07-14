@@ -19,6 +19,7 @@ import {
 } from "./helpers.ts";
 import { buildFinalizeAnalyticsRecords } from "../analytics/export-record.ts";
 import { maintainAnalyticsWarehouse } from "../analytics/maintenance.ts";
+import { sendPresenceSessionRequest } from "../do/presence-client.ts";
 
 const QUEUE_MAX_RETRIES = 10; // Must match wrangler.jsonc queue max_retries.
 const SESSION_EVENT_INSERT_CHUNK_SIZE = 20;
@@ -93,6 +94,12 @@ async function handleFinalizeMessage(message: Message<FinalizeMessage>, env: Env
       events_written: result.eventsWritten,
       exports_written: result.exportsWritten,
     });
+    // Do not acknowledge until the finalizing presence row is gone. D1 writes
+    // are idempotent, so a temporary presence error can safely retry this job.
+    await sendPresenceSessionRequest(env, "/remove", finalizeMessage.requestId, {
+      projectId: finalizeMessage.projectId,
+      sessionId: finalizeMessage.sessionId,
+    });
     await writeFinalizeTraceForTest(env, finalizeMessage);
     message.ack();
   } catch (err) {
@@ -145,6 +152,7 @@ export async function indexSession(
   }
   const db = shardDb(env, finalizeMessage.shard);
   const expiresAt = expiresAtFromEndedAt(finalizeMessage.endedAt, finalizeMessage.retentionDays);
+  const indexedAt = Date.now();
   const analyticsRecords = buildFinalizeAnalyticsRecords(finalizeMessage);
   const sessionRecord = analyticsRecords.session;
   const statements = [
@@ -179,8 +187,9 @@ export async function indexSession(
           segment_count,
           flags,
           manifest_key,
-          expires_at
-        ) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+          expires_at,
+          indexed_at
+        ) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
         WHERE NOT EXISTS (
           SELECT 1 FROM session_deletions d
           WHERE d.project_id = ? AND d.session_id = ?
@@ -217,6 +226,7 @@ export async function indexSession(
         sessionRecord.flags,
         sessionRecord.manifest_key,
         expiresAt,
+        indexedAt,
         sessionRecord.project_id,
         sessionRecord.session_id,
       ),

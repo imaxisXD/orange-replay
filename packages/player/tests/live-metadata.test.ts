@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
-import type { BatchIndex, LiveSessionSnapshot } from "@orange-replay/shared/types";
+import type { BatchIndex, LiveSessionSnapshot, SessionManifest } from "@orange-replay/shared/types";
 import { applyLiveIndexToSnapshot } from "../src/live-metadata.ts";
-import { parseLiveHelloMessage } from "../src/live.ts";
+import { parseLiveFinalizedMessage, parseLiveHelloMessage } from "../src/live.ts";
 
 describe("live session metadata", () => {
   it("reads the counter snapshot from the live hello message", () => {
@@ -19,6 +19,18 @@ describe("live session metadata", () => {
 
     expect(hello?.snapshot).toEqual(snapshot);
     expect(parseLiveHelloMessage("not json")).toBeNull();
+  });
+
+  it("reads the immutable manifest from the live finished message", () => {
+    const manifest = makeManifest();
+
+    expect(parseLiveFinalizedMessage(JSON.stringify({ type: "finalized", manifest }))).toEqual({
+      type: "finalized",
+      manifest,
+    });
+    expect(
+      parseLiveFinalizedMessage(JSON.stringify({ type: "finalized", manifest: {} })),
+    ).toBeNull();
   });
 
   it("updates clicks, errors, duration, and rage clicks from live batch indexes", () => {
@@ -64,6 +76,24 @@ function makeSnapshot(): LiveSessionSnapshot {
     durationMs: 0,
     timeline: [],
     counts: { batches: 0, events: 0, clicks: 0, errors: 0, rages: 0, navs: 0 },
+  };
+}
+
+function makeManifest(): SessionManifest {
+  return {
+    v: 1,
+    sessionId: "session-live",
+    projectId: "project-live",
+    orgId: "org-live",
+    startedAt: 1_000,
+    endedAt: 2_000,
+    durationMs: 1_000,
+    segments: [],
+    timeline: [],
+    counts: { batches: 1, events: 1, clicks: 0, errors: 0, rages: 0, navs: 0 },
+    bytes: 0,
+    flags: 0,
+    attrs: {},
   };
 }
 

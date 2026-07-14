@@ -58,7 +58,7 @@ describe("dashboard api", () => {
     expect(Array.from(new Uint8Array(await res.arrayBuffer()))).toEqual(Array.from(segmentBytes));
   });
 
-  it("does not serve cached segments after the session row is gone", async () => {
+  it("serves R2 recordings before D1 handoff and stops at a deletion fence", async () => {
     const session = makeSession({
       session_id: "api_cache_deleted_session",
       project_id: assetProjectId,
@@ -82,7 +82,38 @@ describe("dashboard api", () => {
     expect(deleteRow.status).toBe(200);
 
     const secondRead = await worker.fetch(segmentPath, { headers: authHeaders() });
-    expect(secondRead.status).toBe(404);
+    expect(secondRead.status).toBe(200);
+    expect(Array.from(new Uint8Array(await secondRead.arrayBuffer()))).toEqual(
+      Array.from(segmentBytes),
+    );
+    const manifestRead = await worker.fetch(
+      `/api/v1/projects/${assetProjectId}/sessions/${session.session_id}/manifest`,
+      { headers: authHeaders() },
+    );
+    expect(manifestRead.status).toBe(200);
+
+    const deletion = await worker.fetch("/__test/consumer/seed-deletion", {
+      method: "POST",
+      body: JSON.stringify({ projectId: assetProjectId, sessionId: session.session_id }),
+    });
+    expect(deletion.status).toBe(200);
+    expect((await worker.fetch(segmentPath, { headers: authHeaders() })).status).toBe(404);
+    expect(
+      (
+        await worker.fetch(
+          `/api/v1/projects/${assetProjectId}/sessions/${session.session_id}/manifest`,
+          { headers: authHeaders() },
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await worker.fetch(
+          `/api/v1/projects/${assetProjectId}/sessions/${session.session_id}/state`,
+          { headers: authHeaders() },
+        )
+      ).status,
+    ).toBe(404);
   });
 
   it("rejects unsafe segment names", async () => {

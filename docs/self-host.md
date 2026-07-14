@@ -95,7 +95,17 @@ For real self-host use, put Cloudflare Access in front of the dashboard and API 
 
 When building the dashboard outside the production deploy script, set `VITE_DEFAULT_PROJECT_ID` to one of the ids in `DEV_API_PROJECT_IDS`. The dashboard uses it only for the first route and login token check.
 
-## 5. Deploy
+## 5. Build The Dashboard Assets
+
+The self-host Worker serves the dashboard and player through its `ASSETS` binding. Build those files from the repo root before deploying:
+
+```sh
+VITE_DEFAULT_PROJECT_ID=project_demo node scripts/build-deploy.mjs --production
+```
+
+Replace `project_demo` with one of the project ids in `DEV_API_PROJECT_IDS`. Re-run this command after pulling dashboard or player changes.
+
+## 6. Deploy
 
 From `infra/template`:
 
@@ -105,7 +115,7 @@ wrangler deploy
 
 For playback caching, use a custom domain. Workers served only on `workers.dev` still play sessions, but Cache API is a no-op there, so repeated playback is uncached.
 
-## 6. Connect The SDK
+## 7. Connect The SDK
 
 Use the install guide: [Install the SDK](./install-sdk.md).
 
@@ -118,10 +128,13 @@ When `apps/worker/wrangler.jsonc` or `apps/worker/migrations` changes:
 ```sh
 node scripts/mirror-template.mjs
 node scripts/mirror-template.mjs --check
+VITE_DEFAULT_PROJECT_ID=project_demo node scripts/build-deploy.mjs --production
 cd infra/template
 wrangler d1 migrations apply orange-replay-idx-00
 wrangler deploy
 ```
+
+Use the same project id that you stored in `DEV_API_PROJECT_IDS`.
 
 If you need a stamped manifest for release automation, pass the stamp explicitly:
 

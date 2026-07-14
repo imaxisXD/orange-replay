@@ -152,6 +152,7 @@ export interface OrangePlayerEventMap {
   live: LiveEvent;
   live_index: BatchIndex;
   live_snapshot: LiveSessionSnapshot;
+  live_finalized: SessionManifest;
   live_ended: undefined;
   waiting_keyframe: WaitingKeyframeEvent;
   error: PlayerErrorEvent;

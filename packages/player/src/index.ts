@@ -12,6 +12,7 @@ export {
   createLiveFrameState,
   decodeLiveFrame,
   liveFrameKey,
+  parseLiveFinalizedMessage,
   parseLiveHelloMessage,
 } from "./live.ts";
 export { applyLiveIndexToSnapshot } from "./live-metadata.ts";

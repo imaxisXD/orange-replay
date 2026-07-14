@@ -3,6 +3,7 @@ import { PlayerEmitter } from "./emitter.ts";
 import { DEAD_CLICK_RESULT_WINDOW_MS, detectDeadClicks, type DeadClick } from "./friction.ts";
 import { ReplayOverlay } from "./overlay.ts";
 import { LiveFollowController } from "./player/live-follow-controller.ts";
+import type { LiveReviewHistory } from "./player/live-follow-controller.ts";
 import { RecordedPlaybackController } from "./player/recorded-playback-controller.ts";
 import {
   RecordedSegmentLoader,
@@ -51,7 +52,13 @@ export class OrangePlayer {
   private bufferingOperations = 0;
   private following = false;
   private liveRebuildAfterKeyframe = false;
+  private liveReviewManifest: SessionManifest | undefined;
+  private liveReviewWaitStarted = false;
+  private reviewingLiveHistory = false;
+  private liveReviewTailEvents: ReplayEvent[] = [];
+  private liveReviewTailLoaded = false;
   private recordedCheckpoint: SegmentWindow["checkpoint"];
+  private recordedReplayNeedsResetAfterLive = false;
   private rebasingRecordedReplay = false;
   private readonly deadClicksByTime = new Map<number, DeadClick>();
 
@@ -121,6 +128,7 @@ export class OrangePlayer {
         onLiveEvents: (events) => this.handleLiveEvents(events),
         onLiveIndex: (index) => this.emitter.emit("live_index", index),
         onLiveSnapshot: (snapshot) => this.emitter.emit("live_snapshot", snapshot),
+        onSessionFinalized: (manifest) => this.finishLive(manifest),
         onSessionEnded: () => this.emitter.emit("live_ended", undefined),
         onResetReplayEvents: () => this.resetReplayEventsForLiveKeyframe(),
         onReconnectStarted: () => {
@@ -160,9 +168,13 @@ export class OrangePlayer {
   async play(): Promise<void> {
     const operation = ++this.playbackOperation;
     this.playRequested = true;
-    const manifest = await this.readyPromise;
+    await this.readyPromise;
+    const manifest = this.manifest;
     if (!this.isCurrentPlaybackOperation(operation) || !this.playRequested) {
       return;
+    }
+    if (manifest === undefined) {
+      throw new Error("This replay is not ready yet.");
     }
 
     if (this.following) {
@@ -208,9 +220,13 @@ export class OrangePlayer {
     const operation = ++this.playbackOperation;
     const shouldResume = this.playing || this.playRequested;
     this.stopPlayback();
-    const manifest = await this.readyPromise;
+    await this.readyPromise;
+    const manifest = this.manifest;
     if (!this.isCurrentPlaybackOperation(operation)) {
       return;
+    }
+    if (manifest === undefined) {
+      throw new Error("This replay is not ready yet.");
     }
     this.currentMs = clamp(ms, 0, manifest.durationMs);
     await this.ensureSegmentForTime(this.currentMs);
@@ -239,6 +255,7 @@ export class OrangePlayer {
   }
 
   follow(): void {
+    this.liveReviewManifest = undefined;
     if (this.following) {
       return;
     }
@@ -247,6 +264,9 @@ export class OrangePlayer {
     this.stopPlayback();
     this.surface.destroyReplay();
     this.following = true;
+    this.reviewingLiveHistory = false;
+    this.liveReviewTailEvents = [];
+    this.liveReviewTailLoaded = false;
     this.liveRebuildAfterKeyframe = true;
     this.liveController.startFollowing();
     void this.readyPromise.then(
@@ -259,11 +279,130 @@ export class OrangePlayer {
     );
   }
 
+  /**
+   * Stop following after the current live history is loaded, then let the user
+   * play and seek that local history while final details are still pending.
+   */
+  reviewLiveHistory(manifest: SessionManifest): void {
+    if (
+      this.destroyed ||
+      (this.manifest !== undefined &&
+        (manifest.projectId !== this.manifest.projectId ||
+          manifest.sessionId !== this.manifest.sessionId))
+    ) {
+      return;
+    }
+
+    this.liveReviewManifest = manifest;
+    if (!this.following || this.liveReviewWaitStarted) {
+      return;
+    }
+
+    this.liveReviewWaitStarted = true;
+    void (async () => {
+      await this.liveController.refreshHistoryForReview();
+      if (this.liveReviewManifest === undefined || !this.following || this.destroyed) return;
+
+      const history = await this.liveController.stopAndTakeReviewHistory();
+      const reviewManifest = this.liveReviewManifest;
+      if (reviewManifest === undefined || !this.following || this.destroyed) {
+        if (this.following && !this.destroyed) {
+          this.liveController.startFollowing();
+          this.liveController.connect();
+        }
+        return;
+      }
+
+      this.liveReviewManifest = undefined;
+      this.startLiveHistoryReview(reviewManifest, history);
+    })()
+      .catch((error) => {
+        if (!this.destroyed) {
+          this.emitError("Could not prepare stored live history for review.", error, "warning");
+        }
+      })
+      .finally(() => {
+        this.liveReviewWaitStarted = false;
+      });
+  }
+
+  /**
+   * Adopt the immutable manifest without replacing the visible live replay.
+   * The next recorded seek can rebuild from R2, while the current frame stays
+   * on screen during the handoff.
+   */
+  finishLive(manifest: SessionManifest): void {
+    if (
+      this.destroyed ||
+      (this.manifest !== undefined &&
+        (manifest.projectId !== this.manifest.projectId ||
+          manifest.sessionId !== this.manifest.sessionId))
+    ) {
+      return;
+    }
+
+    const wasFollowing = this.following;
+    const wasReviewingLiveHistory = this.reviewingLiveHistory;
+    this.liveReviewManifest = undefined;
+    this.liveReviewWaitStarted = false;
+    this.reviewingLiveHistory = false;
+    this.liveReviewTailEvents = [];
+    this.liveReviewTailLoaded = false;
+    this.liveController.releaseHistoryWait();
+    this.manifest = manifest;
+    this.readyPromise = Promise.resolve(manifest);
+    this.segmentLoader.useManifest(manifest);
+    this.recordedCheckpoint = this.segmentLoader.segmentWindowAt(this.currentMs)?.checkpoint;
+    this.timeline = buildTimeline(manifest.timeline, {
+      startedAt: manifest.startedAt,
+      durationMs: manifest.durationMs,
+    });
+    this.currentMs = clamp(this.currentMs, 0, manifest.durationMs);
+    this.overlay.setSessionStart(manifest.startedAt);
+    this.emitter.emit("timeline", this.timeline);
+    this.emitter.emit("ready", manifest);
+    this.emitProgress();
+
+    if (!wasFollowing) {
+      if (wasReviewingLiveHistory) this.recordedReplayNeedsResetAfterLive = true;
+      return;
+    }
+
+    this.following = false;
+    this.liveRebuildAfterKeyframe = false;
+    this.liveController.disconnect();
+    this.emitter.emit("live_finalized", manifest);
+
+    if (!this.surface.hasReplayer && manifest.segments.length > 0) {
+      void this.ensureSegmentForTime(this.currentMs)
+        .then(() => {
+          if (this.destroyed || this.following) return;
+          this.rebuildReplayer();
+          if (this.playRequested) this.startPlayback();
+        })
+        .catch((error) => {
+          if (!this.destroyed) {
+            this.emitError("Could not load the finalized replay.", error, "warning");
+          }
+        });
+    } else {
+      // The visible live frame stays mounted. Its events overlap the immutable
+      // segments, so the first recorded play or seek must rebuild cleanly
+      // instead of eagerly appending the same rrweb mutations a second time.
+      this.recordedReplayNeedsResetAfterLive = true;
+    }
+  }
+
   destroy(): void {
     this.destroyed = true;
     this.pause();
     this.abortController.abort();
     this.following = false;
+    this.liveReviewManifest = undefined;
+    this.reviewingLiveHistory = false;
+    this.liveReviewTailEvents = [];
+    this.liveReviewTailLoaded = false;
+    this.liveController.releaseHistoryWait();
     this.liveRebuildAfterKeyframe = false;
     this.liveController.disconnect();
     this.surface.stop();
@@ -271,6 +410,50 @@ export class OrangePlayer {
     this.worker.stop();
     this.segmentLoader.clearLoadingSegments();
     this.emitter.clear();
+  }
+
+  private startLiveHistoryReview(manifest: SessionManifest, history: LiveReviewHistory): void {
+    this.playbackOperation += 1;
+    this.stopPlayback();
+    this.following = false;
+    this.reviewingLiveHistory = true;
+    this.liveRebuildAfterKeyframe = false;
+    this.liveController.disconnect();
+
+    const latestReceivedAt = latestReviewTimestamp(history, manifest.startedAt);
+    const durationMs = Math.max(
+      manifest.durationMs,
+      this.currentMs,
+      latestReceivedAt - manifest.startedAt,
+    );
+    const reviewManifest: SessionManifest = {
+      ...manifest,
+      endedAt: Math.max(manifest.endedAt, manifest.startedAt + durationMs),
+      durationMs,
+      segments: history.segments,
+      bytes: Math.max(
+        manifest.bytes,
+        history.segments.reduce((total, segment) => total + segment.bytes, 0),
+      ),
+    };
+    this.manifest = reviewManifest;
+    this.readyPromise = Promise.resolve(reviewManifest);
+    this.segmentLoader.useManifest(reviewManifest);
+    this.segmentLoader.clearLoadedSegments();
+    this.liveReviewTailEvents = history.tailEvents;
+    this.liveReviewTailLoaded = history.segments.length === 0;
+    this.recordedReplayNeedsResetAfterLive = history.segments.length > 0;
+    this.recordedCheckpoint = undefined;
+    this.timeline = buildTimeline(reviewManifest.timeline, {
+      startedAt: reviewManifest.startedAt,
+      durationMs: reviewManifest.durationMs,
+    });
+    this.currentMs = clamp(this.currentMs, 0, reviewManifest.durationMs);
+    this.overlay.setSessionStart(reviewManifest.startedAt);
+    this.refreshFrictionTimeline();
+    this.rebuildReplayer();
+    this.emitter.emit("ready", reviewManifest);
+    this.emitProgress();
   }
 
   private async load(): Promise<SessionManifest> {
@@ -313,13 +496,24 @@ export class OrangePlayer {
       return;
     }
 
-    this.prepareRecordedWindow(window);
+    if (this.recordedReplayNeedsResetAfterLive) {
+      this.recordedReplayNeedsResetAfterLive = false;
+      this.segmentLoader.resetLoadedWindow(window.startIndex);
+      this.eventStore.resetRecordedEvents(window.checkpoint?.tab ?? this.segmentLoader.replayTab);
+      this.surface.destroyReplay();
+      this.overlay.reset();
+      this.recordedCheckpoint = window.checkpoint;
+      this.liveReviewTailLoaded = false;
+    } else {
+      this.prepareRecordedWindow(window);
+    }
 
     this.beginBuffering(window.activeIndex);
     try {
       // Sanitizer state and rrweb mutations are ordered. Fetching a later
       // segment before its parent mutations can produce a different page.
       await this.segmentLoader.loadSegmentsInOrder(window.neededIndexes);
+      this.appendLiveReviewTail(window);
     } finally {
       this.endBuffering(window.activeIndex);
     }
@@ -403,7 +597,7 @@ export class OrangePlayer {
 
   private rebuildReplayer(): void {
     const events = this.eventStore.events;
-    if (events.length === 0 || this.manifest === undefined || this.destroyed) {
+    if (events.length < 2 || this.manifest === undefined || this.destroyed) {
       return;
     }
 
@@ -490,6 +684,36 @@ export class OrangePlayer {
     this.surface.destroyReplay();
     this.overlay.reset();
     this.recordedCheckpoint = window.checkpoint;
+    this.liveReviewTailLoaded = false;
+  }
+
+  private appendLiveReviewTail(window: SegmentWindow): void {
+    const manifest = this.manifest;
+    if (
+      !this.reviewingLiveHistory ||
+      this.liveReviewTailLoaded ||
+      this.liveReviewTailEvents.length === 0 ||
+      manifest === undefined
+    ) {
+      return;
+    }
+
+    const lastSegmentIndex = manifest.segments.length - 1;
+    if (
+      lastSegmentIndex < 0 ||
+      (window.activeIndex !== lastSegmentIndex && !window.neededIndexes.includes(lastSegmentIndex))
+    ) {
+      return;
+    }
+
+    const storedTail = this.eventStore.add(this.liveReviewTailEvents);
+    this.overlay.addEvents(storedTail);
+    // The segment loader may have just built a replay before the pending tail
+    // was restored. Rebuild once from the complete ordered event list instead
+    // of pushing tail mutations into a partly initialized rrweb instance.
+    this.surface.destroyReplay();
+    this.refreshFrictionTimeline();
+    this.liveReviewTailLoaded = true;
   }
 
   private maybeAdvanceRecordedCheckpoint(): void {
@@ -684,4 +908,11 @@ function sameCheckpoint(
     left.timestamp === right.timestamp &&
     left.tab === right.tab
   );
+}
+
+function latestReviewTimestamp(history: LiveReviewHistory, fallback: number): number {
+  let latest = fallback;
+  for (const segment of history.segments) latest = Math.max(latest, segment.t1);
+  for (const event of history.tailEvents) latest = Math.max(latest, event.timestamp);
+  return latest;
 }

@@ -31,6 +31,7 @@ test("records, replays, masks, and follows a live session from the dashboard", a
   let liveDashboardContext: BrowserContext | undefined;
   let livePage: Page | undefined;
   let liveDashboardPage: Page | undefined;
+  let liveSessionsPage: Page | undefined;
   let liveSessionId = "";
   let stopLiveActions: (() => void) | undefined;
 
@@ -174,12 +175,16 @@ test("records, replays, masks, and follows a live session from the dashboard", a
           .first(),
       ).toBeVisible();
 
-      await timeline.click({ position: { x: 1, y: 13 } });
-      const beforeFirstError = readNumber(await timeline.getAttribute("aria-valuenow"));
+      const pauseReplay = page.getByRole("button", { name: "Pause replay" });
+      if (await pauseReplay.isVisible()) await pauseReplay.click();
+      await timeline.press("End");
+      await expect
+        .poll(async () => readNumber(await timeline.getAttribute("aria-valuenow")))
+        .toBe(readNumber(await timeline.getAttribute("aria-valuemax")));
       await page.getByTestId("first-error-button").click();
       await expect
         .poll(async () => readNumber(await timeline.getAttribute("aria-valuenow")))
-        .toBeGreaterThan(beforeFirstError);
+        .toBe(0);
 
       await expect(page.getByRole("heading", { name: "Segments" })).toHaveCount(0);
 
@@ -190,7 +195,6 @@ test("records, replays, masks, and follows a live session from the dashboard", a
         .first();
       await expect(errorRow).toBeVisible();
 
-      const pauseReplay = page.getByRole("button", { name: "Pause replay" });
       if (await pauseReplay.isVisible()) await pauseReplay.click();
       await timeline.press("End");
       await expect
@@ -223,6 +227,16 @@ test("records, replays, masks, and follows a live session from the dashboard", a
 
     await test.step("live now", async () => {
       await seedProject(state);
+
+      // Keep Sessions open before the visitor arrives. The polling window must
+      // roll forward so a new recording appears without a page refresh.
+      liveDashboardContext = await browser.newContext();
+      liveSessionsPage = await openDashboardPage(
+        liveDashboardContext,
+        state,
+        `/projects/${state.projectId}/sessions`,
+      );
+
       liveContext = await browser.newContext();
       livePage = await liveContext.newPage();
       await livePage.goto(state.demoUrl);
@@ -232,12 +246,15 @@ test("records, replays, masks, and follows a live session from the dashboard", a
       liveSessionId = await readSessionId(livePage);
       stopLiveActions = startSmallLiveActions(livePage);
 
-      liveDashboardContext = await browser.newContext();
       liveDashboardPage = await openDashboardPage(
         liveDashboardContext,
         state,
         `/projects/${state.projectId}/live`,
       );
+
+      await expect(liveSessionsPage.locator(`[data-session-id="${liveSessionId}"]`)).toBeVisible({
+        timeout: 15_000,
+      });
 
       const liveRow = await waitForFirstLiveRow(liveDashboardPage, 15_000);
       await expect(liveRow).toContainText("/");
@@ -270,8 +287,115 @@ test("records, replays, masks, and follows a live session from the dashboard", a
       const liveFrame = await waitForReplayFrameWithText(watcherPage, liveAddedRowText, 20_000);
       await expect(liveFrame.locator("body")).toContainText(liveAddedRowText);
 
+      const stableReplayUrl = watcherPage.url();
       await sourcePage.close();
+
+      const continuousRow = requirePage(liveSessionsPage).locator(
+        `[data-session-id="${liveSessionId}"]`,
+      );
+      await expect(continuousRow).toBeVisible({ timeout: 10_000 });
+      await expect(continuousRow).toContainText("Final details pending", { timeout: 7_000 });
+      await expect(watcherPage.getByText("Final details pending", { exact: true })).toBeVisible({
+        timeout: 7_000,
+      });
+      expect(watcherPage.url()).toBe(stableReplayUrl);
+      await expect(
+        (await waitForReplayFrameWithText(watcherPage, liveAddedRowText, 5_000)).locator("body"),
+      ).toContainText(liveAddedRowText);
+
+      // Presence has expired, but the history already received by the player
+      // must stay reviewable while final details are still pending.
+      const idleTimeline = watcherPage.getByRole("slider", { name: "Replay timeline" });
+      await expect(idleTimeline).toHaveAttribute("aria-disabled", "false");
+      await expect(watcherPage.getByRole("button", { name: "Play replay" })).toBeVisible();
+      await idleTimeline.press("End");
+      await expect
+        .poll(async () => readNumber(await idleTimeline.getAttribute("aria-valuenow")))
+        .toBeGreaterThan(0);
+      await idleTimeline.press("Home");
+      await expect
+        .poll(async () => readNumber(await idleTimeline.getAttribute("aria-valuenow")))
+        .toBe(0);
+      await watcherPage.getByRole("button", { name: "Play replay" }).click();
+      await expect
+        .poll(async () => readNumber(await idleTimeline.getAttribute("aria-valuenow")))
+        .toBeGreaterThan(0);
+      const idlePause = watcherPage.getByRole("button", { name: "Pause replay" });
+      if (await idlePause.isVisible()) await idlePause.click();
+      await idleTimeline.press("End");
+      await expect
+        .poll(async () => readNumber(await idleTimeline.getAttribute("aria-valuenow")))
+        .toBe(readNumber(await idleTimeline.getAttribute("aria-valuemax")));
+      expect(watcherPage.url()).toBe(stableReplayUrl);
+      await expect(
+        (await waitForReplayFrameWithText(watcherPage, liveAddedRowText, 5_000)).locator("body"),
+      ).toContainText(liveAddedRowText);
+
+      // A fresh player opened in the old dark-gap window must rebuild from
+      // already flushed segments plus any stored live tail. Idle review closes
+      // this history socket before finalization, so watch the exact state poll
+      // that must complete the recorded handoff.
+      let routedLiveSocket = false;
+      await watcherPage.routeWebSocket(/\/live\?ticket=/, (socket) => {
+        routedLiveSocket = true;
+        const server = socket.connectToServer();
+        server.onMessage((message) => {
+          if (typeof message === "string" && message.includes('"type":"finalized"')) {
+            return;
+          }
+          socket.send(message);
+        });
+        // Keep the page-side socket open when the server closes so its normal
+        // close callback cannot trigger the fallback early.
+        server.onClose(() => undefined);
+      });
+      const exactStateFromPoll = watcherPage.waitForResponse(
+        async (response) => {
+          if (
+            response.request().method() !== "GET" ||
+            !response
+              .url()
+              .includes(`/api/v1/projects/${state.projectId}/sessions/${liveSessionId}/state`) ||
+            !response.ok()
+          ) {
+            return false;
+          }
+
+          const body = (await response.json()) as {
+            details_state?: unknown;
+            replay_source?: unknown;
+          };
+          return body.details_state === "exact" && body.replay_source === "recorded";
+        },
+        { timeout: state.timings.closeMs + 20_000 },
+      );
+      await watcherPage.reload();
+      await expect.poll(() => routedLiveSocket, { timeout: 7_000 }).toBe(true);
+      await expect(watcherPage.getByText("Final details pending", { exact: true })).toBeVisible({
+        timeout: 7_000,
+      });
+      expect(watcherPage.url()).toBe(stableReplayUrl);
+      await expect(
+        (await waitForReplayFrameWithText(watcherPage, liveAddedRowText, 7_000)).locator("body"),
+      ).toContainText(liveAddedRowText);
+
       await waitForFinalize(state, liveSessionId);
+      await waitForIndexedSession(state, liveSessionId);
+      await exactStateFromPoll;
+      await expect(continuousRow).toBeVisible({ timeout: 15_000 });
+      await expect(continuousRow).not.toContainText("Final details pending", { timeout: 15_000 });
+      await expect(continuousRow).toBeVisible();
+      await expect(watcherPage.getByText("Final details pending", { exact: true })).not.toBeVisible(
+        { timeout: 15_000 },
+      );
+      expect(watcherPage.url()).toBe(stableReplayUrl);
+      await expect(watcherPage.getByRole("slider", { name: "Replay timeline" })).toHaveAttribute(
+        "aria-disabled",
+        "false",
+      );
+      await expect(
+        (await waitForReplayFrameWithText(watcherPage, liveAddedRowText, 10_000)).locator("body"),
+      ).toContainText(liveAddedRowText);
       await expect(watcherPage.getByRole("alert")).toHaveCount(0);
     });
   } finally {

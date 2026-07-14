@@ -35,6 +35,20 @@ export interface SessionListItem {
   expires_at: number;
 }
 
+export type SessionActivity = "live" | "idle" | "finalizing" | "complete";
+export type SessionDetailsState = "provisional" | "exact";
+export type SessionReplaySource = "live" | "recorded";
+
+/**
+ * A fast control-plane row. Provisional rows use placeholder zeroes for exact
+ * analytics fields, so callers must check `details_state` before showing them.
+ */
+export interface SessionHead extends SessionListItem {
+  activity: SessionActivity;
+  details_state: SessionDetailsState;
+  replay_source: SessionReplaySource;
+}
+
 export type ListSessionsParams = SessionFilter & {
   before?: string | null;
   limit?: number;
@@ -46,6 +60,16 @@ export interface ListSessionsResponse {
   nextBefore: string | null;
   warehouseVersion?: number;
   analyticsState?: "fresh" | "stale" | "compare" | "d1_rollback" | "d1_residency";
+}
+
+export type ListSessionHeadsParams = Omit<ListSessionsParams, "before"> & {
+  opened_at: number;
+  warehouse_to?: number;
+  tracked_session_id?: readonly string[];
+};
+
+export interface ListSessionHeadsResponse {
+  sessions: SessionHead[];
 }
 
 export interface LiveSessionItem {
@@ -76,6 +100,28 @@ export async function listSessions(
   });
 }
 
+export async function fetchSessionHeads(
+  projectId: string,
+  params: ListSessionHeadsParams,
+  options: { signal?: AbortSignal } = {},
+): Promise<ListSessionHeadsResponse> {
+  return requestJson<ListSessionHeadsResponse>(buildSessionHeadsUrl(projectId, params), {
+    auth: true,
+    signal: options.signal,
+  });
+}
+
+export async function fetchSessionState(
+  projectId: string,
+  sessionId: string,
+  options: { signal?: AbortSignal } = {},
+): Promise<SessionHead> {
+  const path = `/api/v1/projects/${encodePathPart(projectId)}/sessions/${encodePathPart(
+    sessionId,
+  )}/state`;
+  return requestJson<SessionHead>(path, { auth: true, signal: options.signal });
+}
+
 export async function fetchLiveSessions(
   projectId: string,
   options: { signal?: AbortSignal } = {},
@@ -104,17 +150,66 @@ export function segmentUrl(projectId: string, sessionId: string, name: string): 
 }
 
 export function buildSessionListUrl(projectId: string, params: ListSessionsParams = {}): string {
+  return buildSessionSearchUrl(projectId, "sessions", params);
+}
+
+export function buildSessionHeadsUrl(projectId: string, params: ListSessionHeadsParams): string {
+  return buildSessionSearchUrl(projectId, "session-heads", params);
+}
+
+function buildSessionSearchUrl(
+  projectId: string,
+  route: "sessions" | "session-heads",
+  params: ListSessionsParams | ListSessionHeadsParams,
+): string {
   const query = new URLSearchParams();
 
   if (params.limit !== undefined) query.set("limit", String(params.limit));
-  if (params.before) query.set("before", params.before);
+  if ("before" in params && params.before) query.set("before", params.before);
   if (params.sort !== undefined && params.sort !== "newest") query.set("sort", params.sort);
-  const { before: _before, limit: _limit, sort: _sort, ...sessionFilter } = params;
+  if (route === "session-heads") {
+    const headParams = params as ListSessionHeadsParams;
+    query.set("opened_at", String(headParams.opened_at));
+    if (headParams.warehouse_to !== undefined) {
+      query.set("warehouse_to", String(headParams.warehouse_to));
+    }
+    for (const sessionId of headParams.tracked_session_id ?? []) {
+      query.append("tracked_session_id", sessionId);
+    }
+  }
+  const sessionFilter = sessionFilterFromParams(params);
   const filter = encodeSessionFilter(sessionFilter);
   for (const [key, value] of filter) {
     query.set(key, value);
   }
 
   const suffix = query.size > 0 ? `?${query.toString()}` : "";
-  return `/api/v1/projects/${encodePathPart(projectId)}/sessions${suffix}`;
+  return `/api/v1/projects/${encodePathPart(projectId)}/${route}${suffix}`;
+}
+
+function sessionFilterFromParams(
+  params: ListSessionsParams | ListSessionHeadsParams,
+): SessionFilter {
+  const { limit: _limit, sort: _sort, ...withPossibleBeforeAndControls } = params;
+  const withPossibleBefore =
+    "opened_at" in withPossibleBeforeAndControls
+      ? withoutSessionHeadControls(withPossibleBeforeAndControls)
+      : withPossibleBeforeAndControls;
+  if ("before" in withPossibleBefore) {
+    const { before: _before, ...sessionFilter } = withPossibleBefore;
+    return sessionFilter;
+  }
+  return withPossibleBefore;
+}
+
+function withoutSessionHeadControls(
+  params: Omit<ListSessionHeadsParams, "limit" | "sort">,
+): SessionFilter {
+  const {
+    opened_at: _openedAt,
+    warehouse_to: _warehouseTo,
+    tracked_session_id: _trackedSessionIds,
+    ...sessionFilter
+  } = params;
+  return sessionFilter;
 }

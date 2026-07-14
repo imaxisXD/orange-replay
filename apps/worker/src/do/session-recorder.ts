@@ -6,6 +6,7 @@ import { devTestRoutesFlag, setWorkerLoggerVersion, shardDb } from "../env.ts";
 import type { AppendArgs, AppendResult } from "./contract.ts";
 import { sendPresenceSessionRequest } from "./presence-client.ts";
 import { resolvePresenceTiming, shouldSendPresencePing } from "./presence-logic.ts";
+import { parseStoredBatchMetadata } from "./session-batch-metadata.ts";
 import { createSessionFinalizeMetrics, SessionFinalizer } from "./session-finalizer.ts";
 import { buildFinalizeTimelineData } from "./session-finalize-data.ts";
 import { SessionLiveHub } from "./session-live-hub.ts";
@@ -60,6 +61,7 @@ export class SessionRecorder extends DurableObject<Env> {
   private finalizedTombstone: FinalizedTombstone | null = null;
   private alarmAt: number | null = null;
   private activeFlush: Promise<SegmentFlushResult | null> | null = null;
+  private activeFinalize: Promise<void> | null = null;
   private readonly appendRateLimit: AppendRateLimitState = { windowStartedAt: 0, count: 0 };
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -73,6 +75,7 @@ export class SessionRecorder extends DurableObject<Env> {
       getSessionState: () => this.sessionState,
       getSegmentRefs: () => this.store.segmentRefs(),
       getPendingBatchCount: () => this.store.pendingBatchCount(),
+      getPendingBatches: () => this.pendingLiveBatches(),
       getLiveSnapshot: () => this.buildLiveSnapshot(),
       requestCheckpointOnNextAppend: () => this.requestCheckpointOnNextAppend(),
     });
@@ -85,9 +88,9 @@ export class SessionRecorder extends DurableObject<Env> {
       flushPendingBatches: async () => {
         await this.flushSegment("finalize");
       },
-      queuePresenceRemove: (projectId, sessionId, requestId) =>
-        this.queuePresenceRemove(projectId, sessionId, requestId),
-      closeViewers: () => this.liveHub.closeViewers(),
+      markPresenceFinalizing: (projectId, sessionId, requestId, finalizingAt) =>
+        this.markPresenceFinalizing(projectId, sessionId, requestId, finalizingAt),
+      finalizeViewers: (manifest) => this.liveHub.finalizeViewers(manifest),
       rememberTombstone: (tombstone) => {
         this.sessionState = null;
         this.finalizedTombstone = tombstone;
@@ -132,6 +135,30 @@ export class SessionRecorder extends DurableObject<Env> {
     };
   }
 
+  private pendingLiveBatches() {
+    const state = this.sessionState;
+    if (state === null) return [];
+
+    return this.store.pendingBatchRows().map((row) => {
+      const metadata = parseStoredBatchMetadata(row.events);
+      return {
+        index: {
+          v: 1 as const,
+          s: state.sessionId,
+          tab: row.tab,
+          seq: row.seq,
+          t0: row.t0,
+          t1: row.t1,
+          e: metadata.events,
+          ...(metadata.checkpointTimestamps.length === 0
+            ? {}
+            : { checkpointTimestamps: metadata.checkpointTimestamps }),
+        },
+        payload: new Uint8Array(row.body),
+      };
+    });
+  }
+
   async appendBatch(args: AppendArgs): Promise<AppendResult> {
     const event = startWideEvent("worker", "do.append", args.requestId);
     const timing = resolveSessionTiming(devTestRoutesFlag(this.env), this.env.TEST_TIMINGS);
@@ -149,6 +176,13 @@ export class SessionRecorder extends DurableObject<Env> {
     try {
       let state = this.sessionState;
       if (this.finalizedTombstone !== null) {
+        outcome = "dropped";
+        dropReason = "session_closed";
+        result = { live: false, closed: true, flushMs: sdkFlushMs(false, timing) };
+        return result;
+      }
+
+      if (state?.finalizingAt !== undefined) {
         outcome = "dropped";
         dropReason = "session_closed";
         result = { live: false, closed: true, flushMs: sdkFlushMs(false, timing) };
@@ -259,6 +293,9 @@ export class SessionRecorder extends DurableObject<Env> {
       ) {
         state.lastPresencePingAt = args.receivedAt;
         presencePingError = this.queuePresencePing(state, args.requestId, args.receivedAt);
+        if (presencePingError !== undefined) {
+          delete state.lastPresencePingAt;
+        }
       }
 
       checkpoint = state.checkpointRequested === true;
@@ -344,6 +381,10 @@ export class SessionRecorder extends DurableObject<Env> {
         ? {}
         : { tombstonePurgeAt: this.finalizedTombstone.purgeAt }),
     };
+  }
+
+  async presencePingStateForTest(): Promise<{ lastPresencePingAt: number | null }> {
+    return { lastPresencePingAt: this.sessionState?.lastPresencePingAt ?? null };
   }
 
   private stateBytes(): number {
@@ -520,12 +561,33 @@ export class SessionRecorder extends DurableObject<Env> {
   }
 
   private async finalize(): Promise<void> {
-    await this.ctx.blockConcurrencyWhile(async () => {
-      await this.finalizeLocked();
-    });
+    if (this.activeFinalize !== null) {
+      return await this.activeFinalize;
+    }
+
+    const state = this.sessionState;
+    if (state === null || this.finalizedTombstone !== null) {
+      return;
+    }
+
+    if (state.finalizingAt === undefined) {
+      state.finalizingAt = Date.now();
+      this.sessionState = state;
+      this.store.persistState(state);
+    }
+
+    const finalize = this.finalizeNow();
+    this.activeFinalize = finalize;
+    try {
+      await finalize;
+    } finally {
+      if (this.activeFinalize === finalize) {
+        this.activeFinalize = null;
+      }
+    }
   }
 
-  private async finalizeLocked(): Promise<void> {
+  private async finalizeNow(): Promise<void> {
     const stateBeforeFlush = this.sessionState;
     const event = startWideEvent("worker", "do.finalize", stateBeforeFlush?.firstRequestId);
     const metrics = createSessionFinalizeMetrics();
@@ -553,8 +615,8 @@ export class SessionRecorder extends DurableObject<Env> {
         quick_backs: stateBeforeFlush?.quickBacks ?? 0,
         interaction_time_ms: metrics.interactionTimeMs,
       });
-      if (metrics.presenceRemoveError !== undefined) {
-        event.set({ presence_remove_error: metrics.presenceRemoveError });
+      if (metrics.presenceMarkError !== undefined) {
+        event.set({ presence_mark_error: metrics.presenceMarkError });
       }
       event.emit();
     }
@@ -567,18 +629,7 @@ export class SessionRecorder extends DurableObject<Env> {
   ): string | undefined {
     try {
       this.throwIfPresenceFailsForTest();
-      const task = sendPresenceSessionRequest(this.env, "/ping", requestId, {
-        projectId: state.projectId,
-        sessionId: state.sessionId,
-        startedAt: state.startedAt,
-        lastSeen,
-        entryUrl: state.entryUrl ?? null,
-        country: state.attrs.country ?? null,
-        city: state.attrs.city ?? null,
-        browser: state.attrs.browser ?? null,
-        os: state.attrs.os ?? null,
-        device: state.attrs.device ?? null,
-      }).catch(() => undefined);
+      const task = this.sendPresencePing(state, requestId, lastSeen);
       this.ctx.waitUntil(task);
       return undefined;
     } catch (error) {
@@ -586,18 +637,65 @@ export class SessionRecorder extends DurableObject<Env> {
     }
   }
 
-  private queuePresenceRemove(
+  private async sendPresencePing(
+    state: SessionState,
+    requestId: string,
+    lastSeen: number,
+  ): Promise<void> {
+    const event = startWideEvent("worker", "do.presence_ping", requestId);
+    try {
+      await sendPresenceSessionRequest(this.env, "/ping", requestId, {
+        projectId: state.projectId,
+        sessionId: state.sessionId,
+        orgId: state.orgId,
+        startedAt: state.startedAt,
+        lastSeen,
+        entryUrl: state.entryUrl ?? null,
+        country: state.attrs.country ?? null,
+        region: state.attrs.region ?? null,
+        city: state.attrs.city ?? null,
+        browser: state.attrs.browser ?? null,
+        os: state.attrs.os ?? null,
+        device: state.attrs.device ?? null,
+        flags: state.flags,
+        expiresAt: lastSeen + state.retentionDays * 86_400_000,
+      });
+    } catch (error) {
+      event.fail(error);
+      const current = this.sessionState;
+      if (
+        current !== null &&
+        current.projectId === state.projectId &&
+        current.sessionId === state.sessionId &&
+        current.lastPresencePingAt === lastSeen
+      ) {
+        delete current.lastPresencePingAt;
+        this.store.persistState(current);
+      }
+    } finally {
+      event.set({
+        project_id: state.projectId,
+        org_id: state.orgId,
+        session_id: state.sessionId,
+        last_seen: lastSeen,
+      });
+      event.emit();
+    }
+  }
+
+  private async markPresenceFinalizing(
     projectId: string,
     sessionId: string,
     requestId: string,
-  ): string | undefined {
+    finalizingAt: number,
+  ): Promise<string | undefined> {
     try {
       this.throwIfPresenceFailsForTest();
-      const task = sendPresenceSessionRequest(this.env, "/remove", requestId, {
+      await sendPresenceSessionRequest(this.env, "/mark-finalizing", requestId, {
         projectId,
         sessionId,
-      }).catch(() => undefined);
-      this.ctx.waitUntil(task);
+        finalizingAt,
+      });
       return undefined;
     } catch (error) {
       return errorMessage(error);

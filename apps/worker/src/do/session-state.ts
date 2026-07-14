@@ -33,6 +33,7 @@ export interface SessionState {
   encKeyId?: string;
   lastPresencePingAt?: number;
   checkpointRequested?: boolean;
+  finalizingAt?: number;
 }
 
 const utf8Encoder = new TextEncoder();
@@ -64,7 +65,7 @@ export function createFreshState(args: AppendArgs): SessionState {
 }
 
 export function normalizeSessionState(state: SessionState): SessionState {
-  return {
+  const normalized = {
     ...state,
     totalEventBytes:
       typeof state.totalEventBytes === "number" && Number.isFinite(state.totalEventBytes)
@@ -81,6 +82,18 @@ export function normalizeSessionState(state: SessionState): SessionState {
         : 0,
     pageTabs: normalizePageTabs(state.pageTabs),
   };
+
+  if (
+    typeof state.finalizingAt === "number" &&
+    Number.isFinite(state.finalizingAt) &&
+    state.finalizingAt >= 0
+  ) {
+    normalized.finalizingAt = Math.floor(state.finalizingAt);
+  } else {
+    delete normalized.finalizingAt;
+  }
+
+  return normalized;
 }
 
 export function updateStateWithBatch(

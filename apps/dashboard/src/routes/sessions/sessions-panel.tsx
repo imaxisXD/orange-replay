@@ -4,13 +4,25 @@ import { useNavigate, useSearch } from "@tanstack/react-router";
 import { AnalyticsStaleAlert } from "@/components/analytics-stale-alert";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { ApiError, fetchProjectStats, listSessions, type SessionListItem } from "@/lib/api";
+import {
+  ApiError,
+  fetchProjectStats,
+  fetchSessionHeads,
+  listSessions,
+  type SessionListItem,
+} from "@/lib/api";
 import { filterChips, removeFilterKey } from "@/lib/filter-chips";
 import { AlertCircle, ArrowLeft } from "@/lib/icon-map";
+import { livePollIntervalMs, shouldPollLiveSessions } from "@/lib/live-sessions";
 import {
   appendUniqueSessions,
+  canMergeSessionHeads,
   canLoadMore,
   hasStaleAnalytics,
+  mergeSessionRows,
+  nextTrackedSessionHeadIds,
+  sessionHeadsFilter,
+  type SessionDisplayItem,
   nextSessionPageParam,
   type SessionPageParam,
 } from "@/lib/session-list";
@@ -41,6 +53,7 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
   const countryStatsFilter = dateRangeSnapshotFilter(filter);
   const sort: SessionSort = view.sort ?? "newest";
   const selected = view.selected;
+  const includeSessionHeads = canMergeSessionHeads(searchFilter, sort);
   const navigate = useNavigate();
   const [, setWatchedVersion] = useState(0);
   const [announcement, setAnnouncement] = useState("");
@@ -84,7 +97,7 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
     navigateView({ ...nextSearchFilter, selected, sort: view.sort });
   }
 
-  function selectSession(session: SessionListItem): void {
+  function selectSession(session: SessionDisplayItem): void {
     setAnnouncement(`Selected ${entryPath(session.entry_url)}`);
     // Selection is the high-frequency, high-regret action — it pushes history
     // so Back walks the triage trail; keystroke-level filter edits replace.
@@ -135,10 +148,108 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
   const countries = countriesQuery.data?.breakdowns.country ?? [];
 
   const sessionPages = sessionsQuery.data?.pages ?? [];
-  const sessions = sessionPages.reduce<SessionListItem[]>(
+  const warehouseSessions = sessionPages.reduce<SessionListItem[]>(
     (currentSessions, page) => appendUniqueSessions(currentSessions, page.sessions),
     [],
   );
+  const warehouseVersion = sessionPages[0]?.warehouseVersion ?? filter.warehouse_version;
+  const headsFilter = sessionHeadsFilter(filter, searchFilter, warehouseVersion);
+  const usesRollingDefault = searchFilter.from === undefined && searchFilter.to === undefined;
+  const headTrackingScope = `${projectId}\n${canonicalSessionFilter(searchFilter)}\n${sort}`;
+  const trackedSessionHeads = useRef({ scope: headTrackingScope, sessionIds: [] as string[] });
+  const headsQuery = useQuery({
+    enabled: includeSessionHeads,
+    queryKey: [
+      "session-heads",
+      isDemo ? "demo" : "private",
+      projectId,
+      canonicalSessionFilter(filter),
+      usesRollingDefault,
+      initialNow,
+      sort,
+    ],
+    queryFn: async ({ signal }) => {
+      const previousTracking =
+        trackedSessionHeads.current.scope === headTrackingScope
+          ? trackedSessionHeads.current
+          : { scope: headTrackingScope, sessionIds: [] };
+      trackedSessionHeads.current = previousTracking;
+      const response = await fetchSessionHeads(
+        projectId,
+        {
+          ...headsFilter,
+          limit: 100,
+          sort,
+          opened_at: initialNow,
+          ...(usesRollingDefault && filter.to !== undefined ? { warehouse_to: filter.to } : {}),
+          tracked_session_id: previousTracking.sessionIds,
+        },
+        { signal },
+      );
+      trackedSessionHeads.current = {
+        scope: headTrackingScope,
+        sessionIds: nextTrackedSessionHeadIds(
+          previousTracking.sessionIds,
+          response.sessions,
+          warehouseSessions,
+        ),
+      };
+      return response;
+    },
+    refetchInterval: () =>
+      shouldPollLiveSessions(document.visibilityState) ? livePollIntervalMs : false,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+  });
+  const heads = includeSessionHeads ? (headsQuery.data?.sessions ?? []) : [];
+  const sessions = mergeSessionRows(warehouseSessions, heads, sort);
+  const refetchHeads = headsQuery.refetch;
+  const lastRequestedWarehouseVersion = useRef<{
+    scope: string;
+    warehouseVersion: number;
+  } | null>(null);
+  const lastWarehouseRefresh = useRef({ scope: headTrackingScope, updatedAt: 0 });
+  const refetchSessions = sessionsQuery.refetch;
+
+  useEffect(() => {
+    if (!includeSessionHeads) {
+      trackedSessionHeads.current = { scope: headTrackingScope, sessionIds: [] };
+    }
+  }, [headTrackingScope, includeSessionHeads]);
+
+  // Keep the visible heads while the exact warehouse watermark changes, then
+  // ask the same query for the new bridge set.
+  useEffect(() => {
+    if (
+      !includeSessionHeads ||
+      warehouseVersion === undefined ||
+      (lastRequestedWarehouseVersion.current?.scope === headTrackingScope &&
+        lastRequestedWarehouseVersion.current.warehouseVersion === warehouseVersion)
+    ) {
+      return;
+    }
+    lastRequestedWarehouseVersion.current = { scope: headTrackingScope, warehouseVersion };
+    void refetchHeads();
+  }, [headTrackingScope, includeSessionHeads, refetchHeads, warehouseVersion]);
+
+  // Once D1 has exact details, check R2 after each head poll. The exact page
+  // keeps its own cursor; this only lets it replace the bridge row when ready.
+  useEffect(() => {
+    const updatedAt = headsQuery.dataUpdatedAt;
+    const previousUpdatedAt =
+      lastWarehouseRefresh.current.scope === headTrackingScope
+        ? lastWarehouseRefresh.current.updatedAt
+        : 0;
+    if (updatedAt === 0 || updatedAt <= previousUpdatedAt) return;
+    lastWarehouseRefresh.current = { scope: headTrackingScope, updatedAt };
+    if (
+      document.visibilityState === "hidden" ||
+      !heads.some((session) => session.details_state === "exact")
+    ) {
+      return;
+    }
+    void refetchSessions();
+  }, [headTrackingScope, heads, headsQuery.dataUpdatedAt, refetchSessions]);
   const analyticsAreStale =
     hasStaleAnalytics(sessionPages) || countriesQuery.data?.analyticsState === "stale";
   // Unwatched-only is a client-side lens (watched state lives in localStorage);
@@ -200,12 +311,18 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
     }
   }
   const nextBefore = sessionsQuery.data?.pages.at(-1)?.nextBefore ?? null;
-  const loadState = sessionsQuery.isPending
+  const waitingForFirstRows =
+    sessions.length === 0 &&
+    (sessionsQuery.isPending || (includeSessionHeads && headsQuery.isPending));
+  const loadState = waitingForFirstRows
     ? "loading"
     : sessionsQuery.isFetchingNextPage
       ? "loading_more"
       : "idle";
-  const error = sessionsQuery.error === null ? "" : readErrorMessage(sessionsQuery.error);
+  const sessionsError = sessionsQuery.error === null ? "" : readErrorMessage(sessionsQuery.error);
+  const headsError = headsQuery.error === null ? "" : readErrorMessage(headsQuery.error);
+  const error =
+    sessionsError || (warehouseSessions.length === 0 && heads.length === 0 ? headsError : "");
 
   async function loadMore(): Promise<void> {
     if (!canLoadMore(nextBefore) || loadState !== "idle") return;
@@ -222,10 +339,16 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
         hasMore={canLoadMore(nextBefore)}
         isLoading={loadState === "loading"}
         isRefreshing={
-          sessionsQuery.isFetching && !sessionsQuery.isPending && !sessionsQuery.isFetchingNextPage
+          (sessionsQuery.isFetching &&
+            !sessionsQuery.isPending &&
+            !sessionsQuery.isFetchingNextPage) ||
+          headsQuery.isFetching
         }
         onFilterChange={replaceFilter}
-        onRefresh={() => void sessionsQuery.refetch()}
+        onRefresh={() => {
+          void sessionsQuery.refetch();
+          if (includeSessionHeads) void headsQuery.refetch();
+        }}
         sessionCount={sessions.length}
       />
 

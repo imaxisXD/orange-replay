@@ -19,6 +19,7 @@ import {
 } from "../src/segments.ts";
 import type { ReplayEvent } from "../src/types.ts";
 import { DecodeWorkerHost } from "../src/worker-host.ts";
+import { EventType, IncrementalSource } from "rrweb";
 
 const encoder = new TextEncoder();
 
@@ -407,12 +408,28 @@ describe("manifest and segment loading", () => {
   it("mints a fresh live ticket on reconnect", async () => {
     const sockets: FakeWebSocket[] = [];
     const ticketUrls: string[] = [];
+    const provisionalManifest = makeManifest(0);
+    provisionalManifest.segments = [];
+    provisionalManifest.timeline = [];
+    const snapshotEvent = {
+      type: EventType.FullSnapshot,
+      timestamp: 1_100,
+      data: {
+        node: { id: 1, type: 0, childNodes: [] },
+        initialOffset: { left: 0, top: 0 },
+      },
+    } as ReplayEvent;
+    const firstLiveEvent = makeIncrementalEvent(1_200);
+    const secondLiveEvent = makeIncrementalEvent(1_300);
+    const historyFrame = await liveFrame(makeIndex("tab-live", 0, 1_100), [snapshotEvent]);
+    const firstLiveFrame = await liveFrame(makeIndex("tab-live", 1, 1_200), [firstLiveEvent]);
+    const secondLiveFrame = await liveFrame(makeIndex("tab-live", 2, 1_300), [secondLiveEvent]);
     const api = {
       baseUrl: "https://api.example.test",
       fetch: async (url: string | URL | Request) => {
         const requestUrl = requestUrlString(url);
         if (requestUrl.endsWith("/manifest")) {
-          return Response.json(makeManifest(0));
+          return Response.json(provisionalManifest);
         }
         if (requestUrl.endsWith("/live-ticket")) {
           ticketUrls.push(requestUrl);
@@ -451,12 +468,29 @@ describe("manifest and segment loading", () => {
       token: "dev-token",
       worker: { allowSynchronousFallback: true },
     });
+    const liveIndexes: BatchIndex[] = [];
+    const waitingStates: boolean[] = [];
+    player.on("live_index", (index) => liveIndexes.push(index));
+    player.on("waiting_keyframe", ({ waiting }) => waitingStates.push(waiting));
 
     await player.ready();
     player.follow();
     await waitFor(() => sockets.length === 1);
+    sendLiveHello(sockets[0], 1);
+    sockets[0]?.onmessage?.({ data: historyFrame });
+    sockets[0]?.onmessage?.({ data: firstLiveFrame });
+    await waitFor(
+      () => liveIndexes.length === 1 && waitingStates.filter((value) => !value).length === 1,
+    );
     sockets[0]?.close();
     await waitFor(() => sockets.length === 2, 2_000);
+    sendLiveHello(sockets[1], 2);
+    sockets[1]?.onmessage?.({ data: historyFrame });
+    sockets[1]?.onmessage?.({ data: firstLiveFrame });
+    sockets[1]?.onmessage?.({ data: secondLiveFrame });
+    await waitFor(
+      () => liveIndexes.length === 2 && waitingStates.filter((value) => !value).length === 2,
+    );
     player.destroy();
     container.remove();
 
@@ -468,6 +502,344 @@ describe("manifest and segment loading", () => {
       "wss://api.example.test/api/v1/projects/project/sessions/session/live?ticket=ticket-1",
       "wss://api.example.test/api/v1/projects/project/sessions/session/live?ticket=ticket-2",
     ]);
+    expect(liveIndexes.map((index) => index.seq)).toEqual([1, 2]);
+  });
+
+  it("loads earlier live segments and adopts the final manifest without a new player", async () => {
+    const fullSnapshot = {
+      type: EventType.FullSnapshot,
+      timestamp: 1_100,
+      data: {
+        node: { id: 1, type: 0, childNodes: [] },
+        initialOffset: { left: 0, top: 0 },
+      },
+    } as ReplayEvent;
+    const batchIndex: BatchIndex = {
+      ...makeIndex("tab-live", 0, 1_100),
+      checkpointTimestamps: [1_100],
+    };
+    const segmentBytes = buildSegment([
+      encodeIngestBody(batchIndex, await gzipJson([makeMetaEvent(1_050), fullSnapshot])),
+    ]);
+    const finalManifest = makeManifest(segmentBytes.byteLength);
+    finalManifest.segments[0] = {
+      ...finalManifest.segments[0]!,
+      checkpoints: [{ timestamp: 1_100, tab: "tab-live", batch: 0 }],
+    };
+    const provisionalManifest = makeManifest(0);
+    provisionalManifest.endedAt = provisionalManifest.startedAt;
+    provisionalManifest.durationMs = 0;
+    provisionalManifest.segments = [];
+    provisionalManifest.timeline = [];
+    provisionalManifest.counts = {
+      batches: 0,
+      events: 0,
+      clicks: 0,
+      errors: 0,
+      rages: 0,
+      navs: 0,
+    };
+    provisionalManifest.bytes = 0;
+
+    const sockets: LiveTestWebSocket[] = [];
+    const segmentRequests: string[] = [];
+    const api = {
+      baseUrl: "https://api.example.test",
+      fetch: async (url: string | URL | Request) => {
+        const requestUrl = requestUrlString(url);
+        if (requestUrl.endsWith("/manifest")) {
+          return Response.json(provisionalManifest);
+        }
+        if (requestUrl.endsWith("/live-ticket")) {
+          return Response.json({ ticket: "ticket-live", expiresAt: Date.now() + 60_000 });
+        }
+        if (requestUrl.endsWith("/seg-000001.ors")) {
+          segmentRequests.push(requestUrl);
+          return new Response(segmentBytes as unknown as BodyInit, {
+            headers: { "content-type": "application/octet-stream" },
+          });
+        }
+        return Response.json({ error: "not_found" }, { status: 404 });
+      },
+    };
+    class LiveTestWebSocket {
+      binaryType = "";
+      onopen: (() => void) | null = null;
+      onmessage: ((event: { data: unknown }) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onclose: ((event: { code: number }) => void) | null = null;
+
+      constructor(readonly url: string) {
+        sockets.push(this);
+        queueMicrotask(() => this.onopen?.());
+      }
+
+      close(): void {
+        this.onclose?.({ code: 1000 });
+      }
+    }
+    vi.stubGlobal("WebSocket", LiveTestWebSocket);
+
+    const container = document.createElement("div");
+    document.body.append(container);
+    const player = new OrangePlayer(container, {
+      api,
+      projectId: "project",
+      sessionId: "session",
+      token: "dev-token",
+      worker: { allowSynchronousFallback: true },
+    });
+    const waitingStates: boolean[] = [];
+    const liveStates: boolean[] = [];
+    const liveIndexes: BatchIndex[] = [];
+    const finalManifests: SessionManifest[] = [];
+    const liveErrors: string[] = [];
+    player.on("waiting_keyframe", ({ waiting }) => waitingStates.push(waiting));
+    player.on("live", ({ following }) => liveStates.push(following));
+    player.on("live_index", (index) => liveIndexes.push(index));
+    player.on("live_finalized", (manifest) => finalManifests.push(manifest));
+    player.on("error", ({ message, error }) =>
+      liveErrors.push(error instanceof Error ? `${message}: ${error.message}` : message),
+    );
+
+    await player.ready();
+    player.follow();
+    await waitFor(() => sockets.length === 1);
+    sockets[0]?.onmessage?.({
+      data: JSON.stringify({
+        type: "hello",
+        sessionId: "session",
+        startedAt: 1_000,
+        segments: finalManifest.segments,
+        pendingBatches: 1,
+        snapshot: {
+          startedAt: 1_000,
+          endedAt: 1_100,
+          durationMs: 100,
+          timeline: [],
+          counts: {
+            batches: 1,
+            events: 1,
+            clicks: 0,
+            errors: 0,
+            rages: 0,
+            navs: 0,
+          },
+        },
+      }),
+    });
+    const historyFrame = await liveFrame(makeIndex("tab-live", 1, 1_200), [
+      makeIncrementalEvent(1_200),
+    ]);
+    const nextLiveFrame = await liveFrame(makeIndex("tab-live", 2, 1_300), [
+      makeIncrementalEvent(1_300),
+    ]);
+    sockets[0]?.onmessage?.({ data: historyFrame });
+    sockets[0]?.onmessage?.({ data: nextLiveFrame });
+    await waitFor(() => segmentRequests.length === 1 && waitingStates.includes(false));
+    expect(liveErrors).toEqual([]);
+    expect(liveIndexes.map((index) => index.seq)).toEqual([2]);
+
+    sockets[0]?.onmessage?.({
+      data: JSON.stringify({ type: "finalized", manifest: finalManifest }),
+    });
+    await waitFor(() => finalManifests.length === 1 && liveStates.includes(false));
+
+    expect(finalManifests).toEqual([finalManifest]);
+    expect(await player.ready()).toEqual(finalManifest);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(segmentRequests).toHaveLength(1);
+    await player.seek(0);
+    expect(segmentRequests).toHaveLength(2);
+
+    player.destroy();
+    container.remove();
+  });
+
+  it("seeks all flushed live segments and keeps the pending tail during idle review", async () => {
+    const firstFullSnapshot = {
+      type: EventType.FullSnapshot,
+      timestamp: 1_100,
+      data: {
+        node: { id: 1, type: 0, childNodes: [] },
+        initialOffset: { left: 0, top: 0 },
+      },
+    } as ReplayEvent;
+    const secondFullSnapshot = {
+      ...firstFullSnapshot,
+      timestamp: 5_100,
+    } as ReplayEvent;
+    const firstBatchIndex: BatchIndex = {
+      ...makeIndex("tab-live", 0, 1_100),
+      checkpointTimestamps: [1_100],
+    };
+    const secondBatchIndex: BatchIndex = {
+      ...makeIndex("tab-live", 1, 5_100),
+      checkpointTimestamps: [5_100],
+    };
+    const firstSegmentBytes = buildSegment([
+      encodeIngestBody(firstBatchIndex, await gzipJson([makeMetaEvent(1_050), firstFullSnapshot])),
+    ]);
+    const secondSegmentBytes = buildSegment([
+      encodeIngestBody(
+        secondBatchIndex,
+        await gzipJson([makeMetaEvent(5_050), secondFullSnapshot]),
+      ),
+    ]);
+    const finalManifest = makeManifest(firstSegmentBytes.byteLength);
+    finalManifest.endedAt = 6_500;
+    finalManifest.durationMs = 5_500;
+    finalManifest.segments = [
+      {
+        key: "p/project/session/seg-000001.ors",
+        bytes: firstSegmentBytes.byteLength,
+        t0: 1_000,
+        t1: 3_000,
+        batches: 1,
+        checkpoints: [{ timestamp: 1_100, tab: "tab-live", batch: 0 }],
+      },
+      {
+        key: "p/project/session/seg-000002.ors",
+        bytes: secondSegmentBytes.byteLength,
+        t0: 5_000,
+        t1: 6_000,
+        batches: 1,
+        checkpoints: [{ timestamp: 5_100, tab: "tab-live", batch: 0 }],
+      },
+    ];
+    finalManifest.bytes = firstSegmentBytes.byteLength + secondSegmentBytes.byteLength;
+    const provisionalManifest = makeManifest(0);
+    provisionalManifest.endedAt = provisionalManifest.startedAt;
+    provisionalManifest.durationMs = 0;
+    provisionalManifest.segments = [];
+    provisionalManifest.timeline = [];
+    provisionalManifest.bytes = 0;
+    const reviewManifest = {
+      ...provisionalManifest,
+      endedAt: 6_500,
+      durationMs: 5_500,
+    };
+
+    const sockets: ReviewWebSocket[] = [];
+    const segmentRequests: string[] = [];
+    const api = {
+      baseUrl: "https://api.example.test",
+      fetch: async (url: string | URL | Request) => {
+        const requestUrl = requestUrlString(url);
+        if (requestUrl.endsWith("/manifest")) return Response.json(provisionalManifest);
+        if (requestUrl.endsWith("/live-ticket")) {
+          return Response.json({ ticket: "ticket-review", expiresAt: Date.now() + 60_000 });
+        }
+        if (requestUrl.endsWith("/seg-000001.ors")) {
+          segmentRequests.push(requestUrl);
+          return new Response(firstSegmentBytes as unknown as BodyInit, {
+            headers: { "content-type": "application/octet-stream" },
+          });
+        }
+        if (requestUrl.endsWith("/seg-000002.ors")) {
+          segmentRequests.push(requestUrl);
+          return new Response(secondSegmentBytes as unknown as BodyInit, {
+            headers: { "content-type": "application/octet-stream" },
+          });
+        }
+        return Response.json({ error: "not_found" }, { status: 404 });
+      },
+    };
+    class ReviewWebSocket {
+      binaryType = "";
+      onopen: (() => void) | null = null;
+      onmessage: ((event: { data: unknown }) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onclose: ((event: { code: number }) => void) | null = null;
+
+      constructor(readonly url: string) {
+        sockets.push(this);
+        queueMicrotask(() => this.onopen?.());
+      }
+
+      close(): void {
+        this.onclose?.({ code: 1000 });
+      }
+    }
+    vi.stubGlobal("WebSocket", ReviewWebSocket);
+
+    const container = document.createElement("div");
+    document.body.append(container);
+    const player = new OrangePlayer(container, {
+      api,
+      projectId: "project",
+      sessionId: "session",
+      token: "dev-token",
+      worker: { allowSynchronousFallback: true },
+    });
+    const followingStates: boolean[] = [];
+    const finalizedManifests: SessionManifest[] = [];
+    const errors: string[] = [];
+    player.on("live", ({ following }) => followingStates.push(following));
+    player.on("live_finalized", (manifest) => finalizedManifests.push(manifest));
+    player.on("error", ({ error, message }) =>
+      errors.push(error instanceof Error ? `${message}: ${error.message}` : message),
+    );
+
+    await player.ready();
+    player.follow();
+    await waitFor(() => sockets.length === 1);
+    player.reviewLiveHistory(reviewManifest);
+    await waitFor(() => sockets.length === 2);
+    sockets[1]?.onmessage?.({
+      data: JSON.stringify({
+        type: "hello",
+        sessionId: "session",
+        startedAt: 1_000,
+        segments: finalManifest.segments,
+        pendingBatches: 1,
+        snapshot: {
+          startedAt: 1_000,
+          endedAt: 6_200,
+          durationMs: 5_200,
+          timeline: [],
+          counts: {
+            batches: 3,
+            events: 5,
+            clicks: 0,
+            errors: 0,
+            rages: 0,
+            navs: 0,
+          },
+        },
+      }),
+    });
+    sockets[1]?.onmessage?.({
+      data: await liveFrame(makeIndex("tab-live", 2, 6_200), [makeIncrementalEvent(6_200)]),
+    });
+
+    await waitFor(() => followingStates.at(-1) === false && segmentRequests.length === 1);
+    expect(finalizedManifests).toEqual([]);
+    expect(await player.ready()).toEqual({
+      ...reviewManifest,
+      bytes: finalManifest.bytes,
+      segments: finalManifest.segments,
+    });
+    expect(segmentRequests[0]).toContain("seg-000002.ors");
+
+    await player.seek(100);
+    expect(segmentRequests.filter((url) => url.endsWith("/seg-000001.ors"))).toHaveLength(1);
+
+    await player.seek(5_200);
+    expect(
+      segmentRequests.filter((url) => url.endsWith("/seg-000002.ors")).length,
+    ).toBeGreaterThanOrEqual(2);
+    await player.play();
+    expect(errors).toEqual([]);
+
+    player.finishLive(finalManifest);
+    expect(finalizedManifests).toEqual([]);
+    expect(await player.ready()).toEqual(finalManifest);
+    await player.seek(0);
+    expect(segmentRequests.filter((url) => url.endsWith("/seg-000001.ors"))).toHaveLength(2);
+
+    player.destroy();
+    container.remove();
   });
 });
 
@@ -480,6 +852,55 @@ async function gzipJson(events: readonly ReplayEvent[]): Promise<Uint8Array> {
   return new Uint8Array(
     await new Response(body.pipeThrough(new CompressionStream("gzip"))).arrayBuffer(),
   );
+}
+
+async function liveFrame(index: BatchIndex, events: readonly ReplayEvent[]): Promise<ArrayBuffer> {
+  return new Uint8Array(encodeIngestBody(index, await gzipJson(events))).buffer;
+}
+
+function sendLiveHello(
+  socket: { onmessage: ((event: { data: unknown }) => void) | null } | undefined,
+  pendingBatches: number,
+): void {
+  socket?.onmessage?.({
+    data: JSON.stringify({
+      type: "hello",
+      sessionId: "session",
+      startedAt: 1_000,
+      segments: [],
+      pendingBatches,
+      snapshot: {
+        startedAt: 1_000,
+        endedAt: 1_300,
+        durationMs: 300,
+        timeline: [],
+        counts: {
+          batches: pendingBatches,
+          events: pendingBatches,
+          clicks: 0,
+          errors: 0,
+          rages: 0,
+          navs: 0,
+        },
+      },
+    }),
+  });
+}
+
+function makeIncrementalEvent(timestamp: number): ReplayEvent {
+  return {
+    type: EventType.IncrementalSnapshot,
+    timestamp,
+    data: { source: IncrementalSource.ViewportResize, width: 1_440, height: 900 },
+  } as ReplayEvent;
+}
+
+function makeMetaEvent(timestamp: number): ReplayEvent {
+  return {
+    type: EventType.Meta,
+    timestamp,
+    data: { href: "https://example.test/", width: 1_440, height: 900 },
+  } as ReplayEvent;
 }
 
 function makeManifest(segmentBytes: number): SessionManifest {

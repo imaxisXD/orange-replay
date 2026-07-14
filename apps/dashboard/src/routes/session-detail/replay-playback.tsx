@@ -34,6 +34,7 @@ interface ReplayWorkspaceProps extends ReplayPlayerOptions {
 export function ReplayWorkspace(props: ReplayWorkspaceProps) {
   const player = useReplayPlayer({
     ...props,
+    liveReviewManifest: props.manifest,
     manifest: props.playerManifest ?? props.manifest,
   });
   const staticPlaybackData = useMemo(
@@ -105,7 +106,7 @@ export function ReplayWorkspace(props: ReplayWorkspaceProps) {
         rageMarkers={staticPlaybackData.rageMarkers}
       />
       <TimelineSidebar
-        disabled={props.mode === "live"}
+        disabled={player.values.isFollowing}
         onSeek={seekFromTimeline}
         rows={deadClickData.rows}
       />

@@ -532,8 +532,11 @@ describe("record", () => {
     moved.dataset.testNode = "same-parent-move";
     parent.append(first, second, moved);
     document.body.appendChild(parent);
-    for (let index = 0; index < 30; index += 1)
-      document.body.appendChild(document.createElement("div"));
+    const fillers = Array.from({ length: 1_050 }, () => {
+      const filler = document.createElement("div");
+      document.body.appendChild(filler);
+      return filler;
+    });
     const events: eventWithTime[] = [];
     stopRecording = record({
       emit: (event) => events.push(event),
@@ -541,10 +544,14 @@ describe("record", () => {
       snapshotTimeSliceMs: Number.MIN_VALUE,
     });
 
-    await startChunkedSnapshot(frameCallbacks);
+    await runSnapshotFramesUntil(
+      frameCallbacks,
+      () => record.mirror.isActiveNode(fillers[1_024]!),
+      3_000,
+    );
     parent.insertBefore(moved, first);
     await waitForMutationFlush();
-    await drainSnapshotFrames(frameCallbacks, events);
+    await drainSnapshotFramesQuick(frameCallbacks, events, 10_000);
     const movedId = record.mirror.getId(moved);
     const mutations = events.filter(
       (event) =>
@@ -1894,7 +1901,162 @@ describe("record", () => {
   });
 });
 
+describe("Mirror topology reservations", () => {
+  it("tracks one visit per capture without exposing the private marker", () => {
+    const mirror = new Mirror();
+    const reservedNode = document.createElement("div");
+    let nextId = 41;
+
+    mirror.startIdReservation(() => nextId++);
+    mirror.startTopologyCapture();
+    expect(mirror.getId(reservedNode)).toBe(41);
+    expect(mirror.activateReservation(reservedNode)).toBe(true);
+    expect(mirror.activateReservation(reservedNode)).toBe(false);
+    expect(mirror.hasActiveReservationForCurrentGeneration(reservedNode)).toBe(true);
+    expect(Object.entries(mirror.getMeta(reservedNode)!)).toEqual([["id", 41]]);
+    expect(JSON.stringify(mirror.getMeta(reservedNode))).toBe('{"id":41}');
+
+    mirror.stopIdReservation();
+    expect(mirror.isActiveNode(reservedNode)).toBe(true);
+
+    mirror.startIdReservation(() => nextId++);
+    mirror.startTopologyCapture();
+    expect(mirror.hasActiveReservationForCurrentGeneration(reservedNode)).toBe(false);
+    expect(mirror.activateReservation(reservedNode)).toBe(true);
+
+    const unseenNode = document.createElement("div");
+    expect(mirror.hasNode(unseenNode)).toBe(false);
+    expect(mirror.hasActiveReservationForCurrentGeneration(unseenNode)).toBe(false);
+    expect(mirror.hasNode(unseenNode)).toBe(false);
+    expect(mirror.getId(unseenNode)).toBe(42);
+    expect(mirror.activateReservation(unseenNode)).toBe(true);
+
+    const committedMeta = { id: 41 } as Parameters<Mirror["add"]>[1];
+    mirror.updateMeta(reservedNode, committedMeta);
+    expect(mirror.hasActiveReservationForCurrentGeneration(reservedNode)).toBe(true);
+    mirror.add(reservedNode, committedMeta);
+    expect(mirror.hasActiveReservationForCurrentGeneration(reservedNode)).toBe(true);
+    expect(mirror.activateReservation(reservedNode)).toBe(false);
+    mirror.stopIdReservation();
+
+    mirror.startIdReservation(() => nextId++);
+    mirror.startTopologyCapture();
+    expect(mirror.getId(reservedNode)).toBe(41);
+    expect(mirror.activateReservation(reservedNode)).toBe(true);
+    mirror.stopIdReservation();
+
+    mirror.reset();
+    expect(mirror.isActiveNode(reservedNode)).toBe(false);
+  });
+});
+
 describe("snapshotInChunks", () => {
+  it("deduplicates topology repair scans without a live mirror", async () => {
+    const first = document.createElement("div");
+    first.dataset.topologyRepair = "first";
+    const second = document.createElement("div");
+    second.dataset.topologyRepair = "second";
+    document.body.append(first, second);
+    const serializedMarkers: string[] = [];
+    let topologyRevision = 0;
+    let revisionChanged = false;
+    let clock = 0;
+
+    const result = await snapshotInChunks(
+      document,
+      {
+        mirror: new Mirror(),
+        onSerialize: (node) => {
+          if (node instanceof HTMLElement && node.dataset.topologyRepair !== undefined) {
+            serializedMarkers.push(node.dataset.topologyRepair);
+          }
+        },
+      },
+      {
+        skipPreparation: true,
+        timeSliceMs: Number.MIN_VALUE,
+        now: () => clock++,
+        getTopologyRevision: () => topologyRevision,
+        yieldToMain: async () => {
+          if (!revisionChanged) {
+            revisionChanged = true;
+            topologyRevision += 1;
+          }
+        },
+      },
+    );
+
+    expect(result).not.toBeNull();
+    expect(revisionChanged).toBe(true);
+    expect(serializedMarkers.filter((marker) => marker === "first")).toHaveLength(1);
+    expect(serializedMarkers.filter((marker) => marker === "second")).toHaveLength(1);
+  });
+
+  it("captures a new iframe document found during topology repair", async () => {
+    const iframe = document.createElement("iframe");
+    document.body.appendChild(iframe);
+    const initialDocument = iframe.contentDocument!;
+    Object.defineProperty(initialDocument, "readyState", { value: "complete" });
+    initialDocument.body.textContent = "initial-iframe-document";
+    const replacementDocument = document.implementation.createHTMLDocument("replacement");
+    Object.defineProperty(replacementDocument, "readyState", { value: "complete" });
+    replacementDocument.body.textContent = "replacement-found-during-repair";
+    let currentDocument = initialDocument;
+    Object.defineProperty(iframe, "contentDocument", {
+      configurable: true,
+      get: () => currentDocument,
+    });
+
+    const registeredDocuments: Document[] = [];
+    const loadedDocuments: Array<{ document: Document; snapshot: unknown }> = [];
+    const liveMirror = new Mirror();
+    let nextId = 1;
+    let topologyRevision = 0;
+    let initialDocumentRegistered = false;
+    let documentChanged = false;
+    let clock = 0;
+    liveMirror.startIdReservation(() => nextId++);
+
+    const result = await snapshotInChunks(
+      document,
+      {
+        mirror: new Mirror(),
+        reuseIdsFrom: liveMirror,
+        onIframeLoad: (_iframe, snapshotNode, capturedDocument) => {
+          if (capturedDocument !== undefined) {
+            loadedDocuments.push({ document: capturedDocument, snapshot: snapshotNode });
+          }
+        },
+      },
+      {
+        skipPreparation: true,
+        timeSliceMs: Number.MIN_VALUE,
+        now: () => clock++,
+        getTopologyRevision: () => topologyRevision,
+        onIframeDocument: (_iframe, capturedDocument) => {
+          registeredDocuments.push(capturedDocument);
+          if (capturedDocument === initialDocument) initialDocumentRegistered = true;
+        },
+        yieldToMain: async () => {
+          if (initialDocumentRegistered && !documentChanged) {
+            currentDocument = replacementDocument;
+            documentChanged = true;
+            topologyRevision += 1;
+          }
+        },
+      },
+    );
+    liveMirror.stopIdReservation();
+
+    expect(result).not.toBeNull();
+    expect(documentChanged).toBe(true);
+    expect(registeredDocuments).toEqual([initialDocument, replacementDocument]);
+    expect(loadedDocuments.map((loaded) => loaded.document)).toEqual([replacementDocument]);
+    expect(JSON.stringify(loadedDocuments[0]?.snapshot)).toContain(
+      "replacement-found-during-repair",
+    );
+  });
+
   it("masks text that is a direct child of a shadow root", async () => {
     const host = document.createElement("section");
     host.className = "rr-mask";
@@ -2040,8 +2202,8 @@ describe("snapshotInChunks", () => {
     expect(JSON.stringify(result)).toContain("/direct-snapshot.png");
   });
 
-  it("matches the synchronous snapshot and yields inside the time budget", async () => {
-    for (let index = 0; index < 40; index += 1) {
+  it("matches the synchronous snapshot across topology storage chunks", async () => {
+    for (let index = 0; index < 520; index += 1) {
       const row = document.createElement("div");
       row.dataset.index = String(index);
       row.textContent = `item-${index}`;
@@ -2065,6 +2227,65 @@ describe("snapshotInChunks", () => {
 
     expect(result).toEqual(expected);
     expect(yieldToMain).toHaveBeenCalled();
+  });
+
+  it("keeps public parent and sibling positions exact across topology chunks", async () => {
+    const siblings = Array.from({ length: 1_050 }, (_, index) => {
+      const child = document.createElement("div");
+      child.dataset.index = String(index);
+      document.body.appendChild(child);
+      return child;
+    });
+    const liveMirror = new Mirror();
+    let nextId = 1;
+    liveMirror.startIdReservation(() => nextId++);
+    let capturedIds: readonly number[] = [];
+    let parentIndexes: readonly number[] = [];
+    let nextIds: readonly (number | null)[] = [];
+
+    const result = await snapshotInChunks(
+      document,
+      { mirror: new Mirror(), reuseIdsFrom: liveMirror },
+      {
+        skipPreparation: true,
+        now: () => 0,
+        yieldToMain: async () => undefined,
+        afterTopology: (ids, parents, nextSiblings) => {
+          capturedIds = ids;
+          parentIndexes = parents;
+          nextIds = nextSiblings;
+        },
+      },
+    );
+    liveMirror.stopIdReservation();
+
+    expect(result).not.toBeNull();
+    expect(Array.isArray(capturedIds)).toBe(true);
+    expect(Array.isArray(parentIndexes)).toBe(true);
+    expect(Array.isArray(nextIds)).toBe(true);
+    const positionById = new Map(capturedIds.map((id, index) => [id, index]));
+    const bodyIndex = positionById.get(liveMirror.getId(document.body));
+    let crossingSibling = -1;
+    for (let index = 0; index + 1 < siblings.length; index += 1) {
+      const currentPosition = positionById.get(liveMirror.getId(siblings[index]!));
+      const nextPosition = positionById.get(liveMirror.getId(siblings[index + 1]!));
+      if (
+        currentPosition !== undefined &&
+        nextPosition !== undefined &&
+        Math.floor(currentPosition / 1_024) !== Math.floor(nextPosition / 1_024)
+      ) {
+        crossingSibling = index;
+        break;
+      }
+    }
+
+    expect(bodyIndex).toBeDefined();
+    expect(crossingSibling).toBeGreaterThanOrEqual(0);
+    const currentId = liveMirror.getId(siblings[crossingSibling]!);
+    const followingId = liveMirror.getId(siblings[crossingSibling + 1]!);
+    const currentPosition = positionById.get(currentId)!;
+    expect(parentIndexes[currentPosition]).toBe(bodyIndex);
+    expect(nextIds[currentPosition]).toBe(followingId);
   });
 
   it("reuses privacy results instead of rewalking every ancestor in a deep tree", async () => {
