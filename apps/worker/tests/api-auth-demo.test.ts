@@ -29,6 +29,23 @@ describe("dashboard api", () => {
     expect(await res.json()).toEqual({ ok: true });
   });
 
+  it("reports whether this install uses a local token", async () => {
+    const local = await worker.fetch("/api/v1/auth/config");
+    expect(local.status).toBe(200);
+    expect(local.headers.get("cache-control")).toBe("no-store");
+    expect(await local.json()).toEqual({ mode: "token" });
+
+    const missing = await workerWithoutToken.fetch("/api/v1/auth/config");
+    expect(missing.status).toBe(200);
+    expect(await missing.json()).toEqual({ mode: "unavailable" });
+  });
+
+  it("routes Better Auth before project authorization", async () => {
+    const res = await worker.fetch("/api/auth/get-session");
+    expect(res.status).toBe(404);
+    expect(await res.json()).toMatchObject({ error: "hosted_auth_not_enabled" });
+  });
+
   it("fails closed when the dev token is not configured", async () => {
     const health = await workerWithoutToken.fetch("/api/v1/health");
     expect(health.status).toBe(200);

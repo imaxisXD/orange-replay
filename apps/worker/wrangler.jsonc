@@ -3,6 +3,7 @@
   "name": "orange-replay-dev",
   "main": "src/index.ts",
   "compatibility_date": "2026-06-01",
+  "compatibility_flags": ["nodejs_compat"],
   "version_metadata": {
     "binding": "CF_VERSION_METADATA",
   },
@@ -55,6 +56,16 @@
       "namespace_id": "1004",
       "simple": { "limit": 600, "period": 60 },
     },
+    {
+      "name": "KEY_MANAGEMENT_RATE_LIMITER",
+      "namespace_id": "1005",
+      "simple": { "limit": 30, "period": 60 },
+    },
+    {
+      "name": "PUBLIC_PAGE_RATE_LIMITER",
+      "namespace_id": "1006",
+      "simple": { "limit": 600, "period": 60 },
+    },
   ],
   "queues": {
     "producers": [{ "binding": "FINALIZE_QUEUE", "queue": "or-session-finalized" }],
@@ -76,7 +87,9 @@
       "name": "orange-replay",
       "workers_dev": true,
       "preview_urls": false,
+      "routes": [{ "pattern": "public-page-origin.invalid", "custom_domain": true }],
       "compatibility_date": "2026-07-06",
+      "compatibility_flags": ["nodejs_compat"],
       "version_metadata": {
         "binding": "CF_VERSION_METADATA",
       },
@@ -84,7 +97,18 @@
         "enabled": true,
       },
       "secrets": {
-        "required": ["R2_SQL_TOKEN", "ANALYTICS_PURGE_RUNNER_TOKEN"],
+        "required": [
+          "BETTER_AUTH_SECRET",
+          "BETTER_AUTH_URL",
+          "BETTER_AUTH_TRUSTED_ORIGINS",
+          "GITHUB_CLIENT_ID",
+          "GITHUB_CLIENT_SECRET",
+          "LIVE_TICKET_SECRET",
+          "DEMO_PROJECT_ID",
+          "DEMO_WRITE_KEY",
+          "R2_SQL_TOKEN",
+          "ANALYTICS_PURGE_RUNNER_TOKEN",
+        ],
       },
       "vars": {
         "WORKER_ENV": "production",
@@ -92,6 +116,7 @@
         "ANALYTICS_EXPORT_ENABLED": "1",
         "R2_SQL_ACCOUNT_ID": "REPLACE_WITH_PRODUCTION_ACCOUNT_ID",
         "R2_SQL_BUCKET": "orange-replay-analytics-prod",
+        "PUBLIC_PAGE_ORIGIN": "https://public-page-origin.invalid",
       },
       "assets": {
         "directory": "../dashboard/dist",
@@ -101,10 +126,13 @@
           "/internal/*",
           "/v1/*",
           "/login",
+          "/_admin",
+          "/_admin/*",
           "/demo",
           "/demo/*",
           "/projects",
           "/projects/*",
+          "/p/*",
         ],
       },
       "durable_objects": {
@@ -148,6 +176,16 @@
         {
           "name": "DEMO_API_RATE_LIMITER",
           "namespace_id": "1004",
+          "simple": { "limit": 600, "period": 60 },
+        },
+        {
+          "name": "KEY_MANAGEMENT_RATE_LIMITER",
+          "namespace_id": "1005",
+          "simple": { "limit": 30, "period": 60 },
+        },
+        {
+          "name": "PUBLIC_PAGE_RATE_LIMITER",
+          "namespace_id": "1006",
           "simple": { "limit": 600, "period": 60 },
         },
       ],

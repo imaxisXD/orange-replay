@@ -1,6 +1,14 @@
-import { defaultProjectId } from "./routes";
+export const defaultReturnTo = "/projects";
 
-const defaultReturnTo = `/projects/${defaultProjectId}/overview`;
+export function loginReasonMessage(
+  reason: string | undefined,
+  authMode: "github" | "token" | "unavailable" | undefined,
+): string {
+  if (reason !== "unauthorized") return "";
+  return authMode === "github"
+    ? "GitHub sign-in was not completed. Try again."
+    : "That token was rejected. Check the owner API token and try again.";
+}
 
 export function safeReturnPath(value: string | undefined): string {
   if (value === undefined || value.length === 0) return defaultReturnTo;
@@ -14,6 +22,8 @@ export function safeReturnPath(value: string | undefined): string {
   }
 
   if (url.origin !== window.location.origin) return defaultReturnTo;
-  if (!url.pathname.startsWith("/projects/")) return defaultReturnTo;
+  const isProjectPath = url.pathname === "/projects" || url.pathname.startsWith("/projects/");
+  const isAdminPath = url.pathname === "/_admin";
+  if (!isProjectPath && !isAdminPath) return defaultReturnTo;
   return `${url.pathname}${url.search}${url.hash}`;
 }

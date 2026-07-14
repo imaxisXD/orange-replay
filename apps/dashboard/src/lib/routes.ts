@@ -22,6 +22,10 @@ export function projectIdFromProjectPath(value: string): string {
   }
 }
 
+export function localTokenReturnPath(value: string): string {
+  return /^\/projects\/[^/?#]+/.test(value) ? value : `/projects/${defaultProjectId}/overview`;
+}
+
 function readDefaultProjectId(): string {
   const configured = import.meta.env.VITE_DEFAULT_PROJECT_ID;
   if (typeof configured === "string" && projectIdPattern.test(configured)) {

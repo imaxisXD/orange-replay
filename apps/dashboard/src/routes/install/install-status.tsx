@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { LoadingIndicator } from "@/components/ui/loading-indicator";
 import { fetchInstallStatus } from "@/lib/api";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/format";
 import { RotateCcw } from "@/lib/icon-map";
@@ -57,9 +58,9 @@ export function InstallStatus({ projectId }: { projectId: string }) {
 
       {firstEventAt === null ? (
         <div className="mt-5 flex items-start gap-3">
-          <span
-            aria-hidden
-            className="mt-1.25 size-1.75 rounded-full bg-amber opacity-80 animate-pulse"
+          <LoadingIndicator
+            className="mt-0.5"
+            label={loading ? "Checking install status" : "Waiting for the first event"}
           />
           <div>
             <div className="text-[13px]">

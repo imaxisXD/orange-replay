@@ -309,6 +309,8 @@ describe("analytics production deploy safety", () => {
       '"ANALYTICS_READ_BACKEND": "REPLACE_WITH_PRODUCTION_ANALYTICS_READ_BACKEND"',
     );
     expect(generator).toContain("readAnalyticsDeployMode()");
+    expect(generator).toContain("ORANGE_REPLAY_PROD_PUBLIC_PAGE_ORIGIN");
+    expect(generator).toContain("readPublicPageConfig()");
     expect(packageJson.scripts["analytics:smoke:prod"]).toBe(
       "node scripts/smoke-analytics-prod.mjs",
     );

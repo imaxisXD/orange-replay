@@ -7,10 +7,12 @@ import { handleAnalyticsPurgeApi, isAnalyticsPurgeApiPath } from "./analytics/pu
 import { handleApi } from "./api/handler.ts";
 import { isDashboardAppRoute, serveDashboardAppShell } from "./app-shell.ts";
 import { handleFinalizeBatch } from "./consumer/queue.ts";
+import { sweepProjectKeyCache } from "./consumer/key-cache-sweeper.ts";
 import { sweepExpiredSessions } from "./consumer/sweeper.ts";
 import { isDevTestMode, setWorkerLoggerVersion, type Env, type FinalizeMessage } from "./env.ts";
 import { handleIngest, handleRecorderConfig } from "./ingest/handler.ts";
 import { RETENTION_SWEEP_SCHEDULE } from "./schedules.ts";
+import { handlePublicPage, publicPageIdFromPath } from "./public-page/handler.ts";
 import { handleTestRoutes } from "./test/harness-routes.ts";
 
 export { SessionRecorder } from "./do/session-recorder.ts";
@@ -29,6 +31,7 @@ export default {
     if (url.pathname === "/v1/config") return handleRecorderConfig(request, env, ctx);
     if (isAnalyticsPurgeApiPath(url.pathname)) return handleAnalyticsPurgeApi(request, env);
     if (url.pathname.startsWith("/api/")) return handleApi(request, env, ctx);
+    if (publicPageIdFromPath(url.pathname) !== null) return handlePublicPage(request, env, ctx);
     if (url.pathname.startsWith("/__test/") && isDevTestMode(env)) {
       return handleTestRoutes(request, env, ctx);
     }
@@ -69,6 +72,7 @@ export default {
     if (controller.cron === RETENTION_SWEEP_SCHEDULE) {
       ctx.waitUntil(
         (async () => {
+          const keySweep = sweepProjectKeyCache(env);
           let deletionError: unknown;
           try {
             // Cancel pending exports before this sweep deletes their sidecars.
@@ -76,13 +80,13 @@ export default {
           } catch (error) {
             deletionError = error;
           }
-          await maintainAnalyticsWarehouse(env);
+          await Promise.all([maintainAnalyticsWarehouse(env), keySweep]);
           if (deletionError !== undefined) throw deletionError;
         })(),
       );
       return;
     }
-    ctx.waitUntil(maintainAnalyticsWarehouse(env));
+    ctx.waitUntil(Promise.all([maintainAnalyticsWarehouse(env), sweepProjectKeyCache(env)]));
   },
 } satisfies ExportedHandler<Env, FinalizeMessage>;
 

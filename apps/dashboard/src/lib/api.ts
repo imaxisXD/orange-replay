@@ -8,15 +8,51 @@ export {
 } from "./api/client";
 export type { AuthRedirectEvent, AuthRedirectReason } from "./api/client";
 export {
+  accountProjects,
+  accountQueryKey,
+  authConfigQueryKey,
+  bootstrapAccount,
+  canManageProject,
+  createProjectKey,
+  fetchAccount,
+  fetchAdminStats,
+  fetchAdminUsers,
+  fetchAuthConfig,
+  findAccountProject,
+  revokeProjectKey,
+} from "./api/account";
+export type {
+  AccountProject,
+  AccountResponse,
+  AccountUser,
+  AccountWorkspace,
+  AdminStatsResponse,
+  AdminUser,
+  AdminUsersResponse,
+  AuthConfigResponse,
+  AuthMode,
+  CreatedProjectKeyResponse,
+  ProjectKeyAudit,
+  ProjectKeysResponse,
+  WorkspaceRole,
+} from "./api/account";
+export {
   checkApiToken,
   fetchDemoWorkspace,
   fetchInstallStatus,
   fetchProjectConfig,
   fetchProjectKeys,
+  fetchPublicPageSettings,
   health,
+  savePublicPageSettings,
   saveProjectConfig,
 } from "./api/projects";
 export type { HealthResponse, InstallStatusResponse } from "./api/projects";
+export type {
+  PublicPageSelectedRecording,
+  PublicPageSettings,
+  PublicPageSettingsUpdate,
+} from "@orange-replay/shared/types";
 export {
   buildSessionHeadsUrl,
   buildSessionListUrl,

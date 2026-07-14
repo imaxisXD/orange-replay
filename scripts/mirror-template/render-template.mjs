@@ -174,9 +174,13 @@ function appendRateLimits(lines, ratelimits) {
 
   lines.push('  "ratelimits": [');
   for (const limit of cleanRateLimits) {
-    lines.push(
-      `    // # created by setup docs: ${String(limit.name)} protects public ingest before Durable Object writes.`,
-    );
+    const note =
+      limit.name === "PUBLIC_PAGE_RATE_LIMITER"
+        ? "protects anonymous public pages and replay reads"
+        : limit.name === "KEY_MANAGEMENT_RATE_LIMITER"
+          ? "protects project key changes"
+          : "protects public ingest before Durable Object writes";
+    lines.push(`    // # created by setup docs: ${String(limit.name)} ${note}.`);
     lines.push("    {");
     lines.push(`      "name": ${JSON.stringify(limit.name)},`);
     lines.push(`      "namespace_id": ${JSON.stringify(limit.namespace_id)},`);

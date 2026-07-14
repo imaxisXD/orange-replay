@@ -5,6 +5,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { IconSwap } from "@/components/ui/icon-swap";
 import { InputField, InputGroup } from "@/components/ui/input-group";
+import { LoadingIndicator } from "@/components/ui/loading-indicator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip } from "@/components/ui/tooltip";
 import { fetchProjectKeys } from "@/lib/api";
@@ -83,7 +84,10 @@ export function InstallSnippetBuilder({ projectId }: { projectId: string }) {
 
   return (
     <section className="lit rounded-lg p-5">
-      <h2 className="text-[15px] font-medium">Loader snippet</h2>
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-[15px] font-medium">Loader snippet</h2>
+        {keysQuery.isPending && <LoadingIndicator label="Checking project keys" />}
+      </div>
       <p className="mt-1 text-[13px] text-muted-foreground">
         Paste before <code className="font-mono text-foreground">&lt;/head&gt;</code>. Raw keys are
         shown only where you created them.

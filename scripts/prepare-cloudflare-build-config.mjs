@@ -8,7 +8,7 @@ import { readAnalyticsDeployMode } from "./analytics/deploy-mode.mjs";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sourceConfig = path.join(repoRoot, "apps", "worker", "wrangler.jsonc");
 const buildConfig = path.join(repoRoot, "apps", "worker", "wrangler.cloudflare-build.jsonc");
-const replacements = [
+const resourceReplacements = [
   {
     envName: "ORANGE_REPLAY_PROD_KV_ID",
     placeholder: "REPLACE_WITH_PRODUCTION_KV_ID",
@@ -38,6 +38,20 @@ const replacements = [
 try {
   let config = await readFile(sourceConfig, "utf8");
   const analyticsMode = readAnalyticsDeployMode();
+  const publicPage = readPublicPageConfig();
+  const replacements = [
+    ...resourceReplacements,
+    {
+      envName: "ORANGE_REPLAY_PROD_PUBLIC_PAGE_ORIGIN",
+      placeholder: "https://public-page-origin.invalid",
+      value: publicPage.origin,
+    },
+    {
+      envName: "ORANGE_REPLAY_PROD_PUBLIC_PAGE_ORIGIN",
+      placeholder: "public-page-origin.invalid",
+      value: publicPage.hostname,
+    },
+  ];
 
   for (const replacement of replacements) {
     const value = readBuildValue(replacement);
@@ -61,7 +75,8 @@ try {
   process.exit(1);
 }
 
-function readBuildValue({ envName, pattern, label }) {
+function readBuildValue({ envName, pattern, label, value: preparedValue }) {
+  if (preparedValue !== undefined) return preparedValue;
   const value = process.env[envName]?.trim();
   if (value === undefined || value.length === 0) {
     throw new Error(`${envName} is required for the ${label}.`);
@@ -70,4 +85,33 @@ function readBuildValue({ envName, pattern, label }) {
     throw new Error(`${envName} is not a valid ${label}.`);
   }
   return value;
+}
+
+function readPublicPageConfig() {
+  const envName = "ORANGE_REPLAY_PROD_PUBLIC_PAGE_ORIGIN";
+  const value = process.env[envName]?.trim();
+  if (!value) {
+    throw new Error(`${envName} is required for the public page address.`);
+  }
+
+  try {
+    const url = new URL(value);
+    if (
+      url.protocol !== "https:" ||
+      url.username !== "" ||
+      url.password !== "" ||
+      url.port !== "" ||
+      url.pathname !== "/" ||
+      url.search !== "" ||
+      url.hash !== "" ||
+      url.hostname.length === 0
+    ) {
+      throw new Error("invalid public page address");
+    }
+    return { origin: url.origin, hostname: url.hostname };
+  } catch {
+    throw new Error(
+      `${envName} must be one HTTPS origin without a path, port, query, or fragment.`,
+    );
+  }
 }

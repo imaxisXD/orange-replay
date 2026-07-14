@@ -17,10 +17,13 @@
       "/internal/*",
       "/v1/*",
       "/login",
+      "/_admin",
+      "/_admin/*",
       "/demo",
       "/demo/*",
       "/projects",
       "/projects/*",
+      "/p/*",
     ],
   },
   "durable_objects": {
@@ -76,6 +79,18 @@
       "name": "INGEST_SESSION_RATE_LIMITER",
       "namespace_id": "1003",
       "simple": { "limit": 12000, "period": 60 },
+    },
+    // # created by setup docs: KEY_MANAGEMENT_RATE_LIMITER protects project key changes.
+    {
+      "name": "KEY_MANAGEMENT_RATE_LIMITER",
+      "namespace_id": "1005",
+      "simple": { "limit": 30, "period": 60 },
+    },
+    // # created by setup docs: PUBLIC_PAGE_RATE_LIMITER protects anonymous public pages and replay reads.
+    {
+      "name": "PUBLIC_PAGE_RATE_LIMITER",
+      "namespace_id": "1006",
+      "simple": { "limit": 600, "period": 60 },
     },
   ],
   "queues": {

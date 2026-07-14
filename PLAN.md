@@ -6,7 +6,7 @@ Operating document for the orchestrated build. ARCHITECTURE.md is the design aut
 
 - **Pacing**: autonomous run-through of all phases; report at the end (task list tracks progress).
 - **Cloudflare**: the original build was local-first. On 2026-07-13 the user explicitly approved the real analytics cutover, production backfill, remote verification, and browser E2E. That approval is limited to the analytics resources and code in `docs/specs/f4-r2-analytics-cutover.md`; unrelated unfinished hosted-auth work must not be deployed with it.
-- **Dashboard auth**: dev bearer token for v1. Hosted-plane auth decided 2026-07-09: **BetterAuth + GitHub/Google OAuth**, no email/password (ARCHITECTURE §6); implementation deferred to hosted launch.
+- **Dashboard auth**: dev/self-host bearer token fallback. Hosted-plane auth: **Better Auth + GitHub OAuth**, no email/password; D1-backed workspace membership controls project access and key management (ARCHITECTURE §6 and `docs/specs/hosted-auth-better-auth.md`).
 - **rrweb**: fork immediately — vendored in-repo at a pinned upstream tag, capture-side only.
 - **Toolchain**: Vite Plus (`vp` 0.2.2) — `vp install` / `vp check` / `vp test` / `vp build`. Oxlint + Oxfmt, Vitest.
 - **UI**: React + Tailwind + shadcn with the **Fluid Functionalism registry** (`npx shadcn@latest add @fluid/<component>`). Never hand-roll a component the registry provides. Hard review criterion.
@@ -15,7 +15,7 @@ Operating document for the orchestrated build. ARCHITECTURE.md is the design aut
 
 ## Deferred (out of v1 scope — most need a real CF account)
 
-Analytics Engine verification, Vectorize/AI features, heatmaps UI, the opt-in processing lane, E2E encryption tier, BYOC provisioner Workflow, hosted auth, and template-repo publishing. The Pipelines → Data Catalog → R2 SQL analytics cutover is now active under `docs/specs/f4-r2-analytics-cutover.md`.
+Analytics Engine verification, Vectorize/AI features, heatmaps UI, the opt-in processing lane, E2E encryption tier, BYOC provisioner Workflow, and template-repo publishing. The Pipelines → Data Catalog → R2 SQL analytics cutover is now active under `docs/specs/f4-r2-analytics-cutover.md`.
 
 ## Ground rules (every agent, every task)
 

@@ -7,6 +7,7 @@
     "budget": "vp run @orange-replay/sdk#budget",
     "build:deploy": "node scripts/build-deploy.mjs --production",
     "bootstrap:prod": "node scripts/bootstrap-prod-project.mjs",
+    "auth:promote-admin": "node scripts/promote-auth-admin.mjs",
     "analytics:setup": "node scripts/setup-analytics.mjs",
     "analytics:inventory": "node scripts/inventory-r2.mjs",
     "analytics:backfill": "node scripts/backfill-analytics.mjs",
@@ -26,6 +27,7 @@
     "deploy:prod:rollback:rebuild": "node scripts/deploy-prod-rebuild-rollback.mjs",
     "deploy:prod:dry-run": "node scripts/prepare-cloudflare-build-config.mjs && node scripts/build-deploy.mjs --production && vp exec --filter @orange-replay/worker -- wrangler deploy --config wrangler.cloudflare-build.jsonc --env production --dry-run --outdir dist/prod-dry-run --keep-vars",
     "mirror-template": "node scripts/mirror-template.mjs",
+    "workspace:link-owner": "node scripts/link-workspace-owner.mjs",
     "ready": "vp check && vp run -r test && vp run -r build",
     "prepare": "vp config"
   },

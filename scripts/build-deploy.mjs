@@ -12,6 +12,8 @@ const dashboardDist = path.join(repoRoot, "apps", "dashboard", "dist");
 const dashboardIndex = path.join(dashboardDist, "index.html");
 const dashboardAppShell = path.join(dashboardDist, "dashboard", "index.html");
 const recorderAsset = path.join(dashboardDist, "or-recorder.js");
+const publicPageClient = path.join(dashboardDist, "public", "public-page.js");
+const publicPageStyles = path.join(dashboardDist, "public", "public-page.css");
 const landingFiles = [
   "_headers",
   "android-chrome-192x192.png",
@@ -40,8 +42,11 @@ const dashboardEnv = {
 
 await run(process.execPath, ["packages/sdk/scripts/build-browser.mjs"], repoRoot);
 await run("vp", ["build"], path.join(repoRoot, "apps", "dashboard"), dashboardEnv);
+await run("vp", ["build"], path.join(repoRoot, "apps", "public-page"));
 
 await assertFile(dashboardIndex, "Dashboard app shell");
+await assertFile(publicPageClient, "Public page browser entry");
+await assertFile(publicPageStyles, "Public page styles");
 await mkdir(path.dirname(dashboardAppShell), { recursive: true });
 await copyFile(dashboardIndex, dashboardAppShell);
 await copyLandingAssets();
@@ -55,6 +60,7 @@ console.log(
     `Deploy assets ready: ${path.relative(repoRoot, path.join(dashboardDist, "index.html"))}`,
     `Dashboard shell: ${path.relative(repoRoot, dashboardAppShell)}`,
     `SDK bundle: ${path.relative(repoRoot, recorderAsset)}`,
+    `Public page: ${path.relative(repoRoot, publicPageClient)}`,
   ].join("\n"),
 );
 

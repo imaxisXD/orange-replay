@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // This script touches production Cloudflare resources. Review and test it with
 // --dry-run before running it against a real account.
-import { randomBytes, createHash } from "node:crypto";
+import { randomBytes, createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -24,46 +24,34 @@ try {
 
 const writeKey = options.key ?? `or_live_${randomBytes(24).toString("base64url")}`;
 const keyHash = sha256Hex(writeKey);
+const keyId = `key_${randomUUID()}`;
 const now = Date.now();
 const allowedOrigins = [options.origin];
-const config = {
-  projectId: options.projectId,
-  orgId: options.orgId,
-  shard: 0,
-  active: true,
-  sampleRate: 1,
-  allowedOrigins,
-  maskPolicyVersion: 1,
-  maskRules: [],
-  capture: {
-    heatmaps: false,
-    console: false,
-    network: false,
-    canvas: false,
-  },
-  quotaState: "ok",
-  retentionDays: 2,
-  version: 1,
+const captureToggles = {
+  heatmaps: false,
+  console: false,
+  network: false,
+  canvas: false,
 };
 const statements = [
-  `INSERT INTO orgs (id, name, shard, created_at) VALUES (${sqlString(
+  `INSERT INTO orgs (id, name, slug, logo, metadata, shard, created_at) VALUES (${sqlString(
     options.orgId,
-  )}, ${sqlString(options.orgName)}, 0, ${now})`,
+  )}, ${sqlString(options.orgName)}, ${sqlString(workspaceSlug(options.orgName, options.orgId))}, NULL, NULL, 0, ${now})`,
   `INSERT INTO projects (id, org_id, name, jurisdiction, retention_days, sample_rate, allowed_origins, mask_policy_version, mask_rules, capture_toggles, quota_state, config_version, created_at) VALUES (${sqlString(
     options.projectId,
   )}, ${sqlString(options.orgId)}, ${sqlString(
     options.projectName,
   )}, NULL, 2, 1, ${sqlString(JSON.stringify(allowedOrigins))}, 1, '[]', ${sqlString(
-    JSON.stringify(config.capture),
+    JSON.stringify(captureToggles),
   )}, 'ok', 1, ${now})`,
   buildNewProjectAnalyticsReceiptSql({
     projectId: options.projectId,
     createdAt: now,
     reportId: "new-project-bootstrap:demo-script",
   }),
-  `INSERT INTO keys (key_hash, project_id, active, created_at) VALUES (${sqlString(
-    keyHash,
-  )}, ${sqlString(options.projectId)}, 1, ${now})`,
+  `INSERT INTO keys (id, key_hash, project_id, name, active, created_at, created_by, revoked_at, revoked_by, cache_synced, cache_final_check_at) VALUES (${sqlString(
+    keyId,
+  )}, ${sqlString(keyHash)}, ${sqlString(options.projectId)}, 'Demo write key', 1, ${now}, NULL, NULL, NULL, 0, 0)`,
 ];
 const d1Command = `BEGIN TRANSACTION; ${statements.join(";")}; COMMIT;`;
 
@@ -71,10 +59,7 @@ if (options.dryRun) {
   printSummary({ saved: false });
   console.log("\nSQL:");
   console.log(`${statements.join(";\n")};`);
-  console.log("\nKV key:");
-  console.log(`k:${keyHash}`);
-  console.log("\nKV value:");
-  console.log(JSON.stringify(config, null, 2));
+  console.log("\nThe Worker cache repair will add this key to KV.");
   process.exit(0);
 }
 
@@ -89,27 +74,13 @@ try {
     "execute",
     "IDX_00",
     "--config",
-    "wrangler.jsonc",
+    options.config,
     "--env",
     prodEnv,
     "--remote",
     "--yes",
     "--command",
     d1Command,
-  ]);
-  await runWrangler([
-    "kv",
-    "key",
-    "put",
-    `k:${keyHash}`,
-    JSON.stringify(config),
-    "--config",
-    "wrangler.jsonc",
-    "--env",
-    prodEnv,
-    "--binding",
-    "CONFIG",
-    "--remote",
   ]);
   if (options.envFile !== undefined && pendingEnvFile !== undefined) {
     await promotePendingDemoEnv(options.envFile, pendingEnvFile);
@@ -139,6 +110,7 @@ function parseArgs(args) {
     orgName: "Public demo org",
     origin: undefined,
     envFile: "apps/worker/.env.production",
+    config: path.join(repoRoot, "apps", "worker", "wrangler.jsonc"),
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -179,6 +151,13 @@ function parseArgs(args) {
     }
     if (arg === "--env-file") {
       parsed.envFile = readValue(args, index, arg);
+      index += 1;
+      continue;
+    }
+    if (arg === "--config") {
+      const configPath = readValue(args, index, arg).trim();
+      if (configPath.length === 0) throw new Error("--config needs a file path");
+      parsed.config = path.resolve(process.cwd(), configPath);
       index += 1;
       continue;
     }
@@ -255,6 +234,15 @@ function sha256Hex(value) {
   return createHash("sha256").update(value).digest("hex");
 }
 
+function workspaceSlug(name, id) {
+  const readable = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+  return `${readable || "workspace"}-${id.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+}
+
 function sqlString(value) {
   return `'${String(value).replaceAll("'", "''")}'`;
 }
@@ -299,16 +287,7 @@ function runWrangler(args) {
   return new Promise((resolve, reject) => {
     const child = spawn(
       "vp",
-      [
-        "exec",
-        "--filter",
-        "@orange-replay/worker",
-        "--",
-        "wrangler",
-        ...args,
-        "--env-file",
-        "wrangler.production.env",
-      ],
+      ["exec", "--filter", "@orange-replay/worker", "--", "wrangler", ...args],
       {
         cwd: repoRoot,
         stdio: "inherit",
@@ -367,35 +346,40 @@ function printSummary({ saved }) {
   console.log(`Project id: ${options.projectId}`);
   console.log(`Org id: ${options.orgId}`);
   console.log(`Landing origin: ${options.origin}`);
+  console.log(`Wrangler config: ${displayPath(options.config)}`);
   console.log(`Write key hash: ${keyHash}`);
   if (saved) {
     console.log(`Demo env values: saved to ${options.envFile}`);
   } else {
     console.log("Demo write key: not printed.");
   }
-  printSecretCommands({ saved });
+  printDeployInstructions({ saved });
 }
 
-function printSecretCommands({ saved }) {
-  console.log("\nSet the Worker demo secrets with:");
-  if (saved) {
-    console.log(`set -a && . ${options.envFile} && set +a`);
-    console.log(
-      `printf '%s\\n' "$${demoProjectIdEnv}" | vp exec --filter @orange-replay/worker -- wrangler secret put DEMO_PROJECT_ID --env production --env-file wrangler.production.env`,
-    );
-    console.log(
-      `printf '%s\\n' "$${demoWriteKeyEnv}" | vp exec --filter @orange-replay/worker -- wrangler secret put DEMO_WRITE_KEY --env production --env-file wrangler.production.env`,
-    );
+function printDeployInstructions({ saved }) {
+  if (options.dryRun) {
+    console.log("\nDry run only. No demo values were saved or uploaded.");
     return;
   }
 
-  console.log(`DEMO_PROJECT_ID=${options.projectId}`);
-  console.log(
-    `printf '%s\\n' "$DEMO_PROJECT_ID" | vp exec --filter @orange-replay/worker -- wrangler secret put DEMO_PROJECT_ID --env production --env-file wrangler.production.env`,
-  );
-  console.log(
-    `printf '%s\\n' "$DEMO_WRITE_KEY" | vp exec --filter @orange-replay/worker -- wrangler secret put DEMO_WRITE_KEY --env production --env-file wrangler.production.env`,
-  );
+  console.log("\nLoad the demo values before running the production deploy:");
+  if (saved) {
+    console.log(`set -a && . ${options.envFile} && set +a`);
+    console.log("The deploy command uploads both demo values with the hosted-auth secrets.");
+    return;
+  }
+
+  console.log(`export ${demoProjectIdEnv}=${options.projectId}`);
+  console.log(`export ${demoWriteKeyEnv}='the same value passed with --key'`);
+  console.log("The deploy command uploads both demo values with the hosted-auth secrets.");
+}
+
+function displayPath(value) {
+  const relativePath = path.relative(repoRoot, value);
+  if (relativePath.length > 0 && !relativePath.startsWith("..") && !path.isAbsolute(relativePath)) {
+    return relativePath.split(path.sep).join("/");
+  }
+  return value;
 }
 
 function printHelp() {
@@ -405,7 +389,7 @@ Creates the public demo production org, project, and SDK write key using the pro
 The script is insert-only and fails if the org, project, or key already exists.
 
 Options:
-  --dry-run                 Print the SQL and KV value without writing.
+  --dry-run                 Print the SQL without writing.
   --key VALUE               Use a specific demo write key. Default: generate one.
   --project-id VALUE        Demo project id. Default: demo_project.
   --project-name VALUE      Demo project name. Default: Public demo project.
@@ -414,5 +398,6 @@ Options:
   --origin VALUE            Production landing origin. Default: ORANGE_REPLAY_PROD_WORKER_URL.
   --env-file VALUE          Save demo env values to this ignored repo-local .env file. Default: apps/worker/.env.production.
   --no-env-file             Do not save the key. Requires --key unless this is --dry-run.
+  --config VALUE            Wrangler config with the real production resource ids. Default: apps/worker/wrangler.jsonc.
 `);
 }

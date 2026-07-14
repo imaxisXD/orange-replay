@@ -355,20 +355,6 @@
   --shadow-2: var(--shadow-2);
   --shadow-1: var(--shadow-1);
   --color-shadow-color: var(--shadow-color);
-  @keyframes spinner-move {
-    to {
-      stroke-dashoffset: -100;
-    }
-  }
-  @keyframes spinner-dash {
-    0%,
-    100% {
-      stroke-dasharray: 15 85;
-    }
-    50% {
-      stroke-dasharray: 40 60;
-    }
-  }
 }
 
 .lit {
@@ -558,8 +544,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  /* Decorative loops stop; progress spinners (animate-spin, the button
-     spinner keyframes) are left running since they represent ongoing work. */
+  /* Decorative loops stop. The shared loading indicator handles its own
+     reduced-motion state. */
   .live-pulse,
   .timeline-playhead-flash,
   .animate-pulse,

@@ -19,7 +19,6 @@ import EyeOffIcon from "@hugeicons/core-free-icons/EyeOffIcon";
 import InboxIcon from "@hugeicons/core-free-icons/InboxIcon";
 import InformationCircleIcon from "@hugeicons/core-free-icons/InformationCircleIcon";
 import Key02Icon from "@hugeicons/core-free-icons/Key02Icon";
-import Loading03Icon from "@hugeicons/core-free-icons/Loading03Icon";
 import RefreshIcon from "@hugeicons/core-free-icons/RefreshIcon";
 import Search01Icon from "@hugeicons/core-free-icons/Search01Icon";
 import ArrowUpRight01Icon from "@hugeicons/core-free-icons/ArrowUpRight01Icon";
@@ -32,6 +31,12 @@ import SafariIcon from "@hugeicons/core-free-icons/SafariIcon";
 import ServerStack01Icon from "@hugeicons/core-free-icons/ServerStack01Icon";
 import SmartPhone01Icon from "@hugeicons/core-free-icons/SmartPhone01Icon";
 import WindowsOldIcon from "@hugeicons/core-free-icons/WindowsOldIcon";
+import Building02Icon from "@hugeicons/core-free-icons/Building02Icon";
+import GithubIcon from "@hugeicons/core-free-icons/GithubIcon";
+import LogoutCircle01Icon from "@hugeicons/core-free-icons/LogoutCircle01Icon";
+import ShieldUserIcon from "@hugeicons/core-free-icons/ShieldUserIcon";
+import UserBlock02Icon from "@hugeicons/core-free-icons/UserBlock02Icon";
+import UserGroupIcon from "@hugeicons/core-free-icons/UserGroupIcon";
 
 export interface IconComponentProps extends Omit<
   SVGProps<SVGSVGElement>,
@@ -99,10 +104,15 @@ export const EyeOff = createHugeIcon(EyeOffIcon);
 export const Inbox = createHugeIcon(InboxIcon);
 export const Info = createHugeIcon(InformationCircleIcon);
 export const KeyRound = createHugeIcon(Key02Icon);
-export const Loader = createHugeIcon(Loading03Icon);
 export const Plus = createHugeIcon(Add01Icon);
 export const RotateCcw = createHugeIcon(RefreshIcon);
 export const Search = createHugeIcon(Search01Icon);
 export const Server = createHugeIcon(ServerStack01Icon);
 export const Trash2 = createHugeIcon(Delete02Icon);
 export const X = createHugeIcon(Cancel01Icon);
+export const Building = createHugeIcon(Building02Icon);
+export const Github = createHugeIcon(GithubIcon);
+export const LogOut = createHugeIcon(LogoutCircle01Icon);
+export const ShieldUser = createHugeIcon(ShieldUserIcon);
+export const UserBlock = createHugeIcon(UserBlock02Icon);
+export const Users = createHugeIcon(UserGroupIcon);

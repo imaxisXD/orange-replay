@@ -12,7 +12,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
-import { Skeleton } from "@/components/ui/skeleton";
+import { LoadingArea } from "@/components/ui/loading-indicator";
 import { Tooltip } from "@/components/ui/tooltip";
 import { ApiError, type SessionActivity, type SessionDetailsState } from "@/lib/api";
 import { formatDuration } from "@/lib/format";
@@ -127,12 +127,7 @@ function SelectedSession({
   const error = sessionView.error === null ? "" : readErrorMessage(sessionView.error);
 
   if (sessionView.loading) {
-    return (
-      <div className="flex flex-col gap-3">
-        <Skeleton className="h-6 w-64" />
-        <Skeleton className="h-90 w-full rounded-lg" />
-      </div>
-    );
+    return <LoadingArea className="lit min-h-90 rounded-lg" label="Loading the selected session" />;
   }
 
   if (error.length > 0 || sessionView.notFound || manifest === null || playerManifest === null) {

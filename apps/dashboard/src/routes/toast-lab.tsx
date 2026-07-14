@@ -1,5 +1,14 @@
 import { Button } from "@/components/ui/button";
-import { useOrangeToast, type OrangeToastVariant } from "@/components/ui/orange-toast";
+import {
+  OrangeToastPreview,
+  OrangeToastPreviewV2,
+  OrangeToastPreviewV3,
+  OrangeToastPreviewV4,
+  OrangeToastPreviewV5,
+  OrangeToastPreviewV6,
+  useOrangeToast,
+  type OrangeToastVariant,
+} from "@/components/ui/orange-toast";
 import { useDashboardWorkspace } from "@/lib/dashboard-workspace";
 import { useNavigate } from "@tanstack/react-router";
 
@@ -55,6 +64,11 @@ const toastExamples: ToastExample[] = [
     signalClassName: "bg-teal",
   },
 ];
+
+const toastPreviewActions: Partial<Record<OrangeToastVariant, string>> = {
+  success: "View Session",
+  error: "Try Again",
+};
 
 export function ToastLabPage() {
   const toastManager = useOrangeToast();
@@ -176,6 +190,207 @@ export function ToastLabPage() {
               >
                 Show
               </Button>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="lit overflow-visible rounded-lg">
+        <div className="border-b border-border px-5 py-4">
+          <h2 className="text-[13px] font-semibold text-foreground">Always-visible previews</h2>
+          <p className="mt-1 max-w-2xl text-[13px] text-muted-foreground">
+            Every variant stays open here, so its resting UI can be reviewed without a timer.
+          </p>
+        </div>
+        <ul className="grid gap-x-8 gap-y-8 px-5 py-6 lg:grid-cols-2">
+          {toastExamples.map((example) => (
+            <li className="min-w-0" key={example.variant}>
+              <div className="flex min-w-0 items-start gap-3">
+                <span
+                  aria-hidden
+                  className={`mt-1.5 h-2 w-2 shrink-0 rounded-[2px] ${example.signalClassName}`}
+                />
+                <div className="min-w-0">
+                  <h3 className="text-[13px] font-medium text-foreground">{example.label}</h3>
+                  <p className="mt-1 text-[12px] text-muted-foreground">{example.description}</p>
+                </div>
+              </div>
+              <div className="mt-8 flex min-h-[74px] items-start justify-start">
+                <OrangeToastPreview
+                  actionLabel={toastPreviewActions[example.variant]}
+                  title={example.title}
+                  variant={example.variant}
+                />
+              </div>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="lit overflow-visible rounded-lg">
+        <div className="border-b border-border px-5 py-4">
+          <h2 className="text-[13px] font-semibold text-foreground">V2 previews</h2>
+          <p className="mt-1 max-w-2xl text-[13px] text-muted-foreground">
+            Proposed redesign on the same 48px geometry: the signal fills a full-height rail, the
+            dashed edge moves inside as the rail divider, and the action takes the variant color.
+          </p>
+        </div>
+        <ul className="grid gap-x-8 gap-y-8 px-5 py-6 lg:grid-cols-2">
+          {toastExamples.map((example) => (
+            <li className="min-w-0" key={example.variant}>
+              <div className="flex min-w-0 items-start gap-3">
+                <span
+                  aria-hidden
+                  className={`mt-1.5 h-2 w-2 shrink-0 rounded-[2px] ${example.signalClassName}`}
+                />
+                <div className="min-w-0">
+                  <h3 className="text-[13px] font-medium text-foreground">{example.label}</h3>
+                  <p className="mt-1 text-[12px] text-muted-foreground">{example.description}</p>
+                </div>
+              </div>
+              <div className="mt-8 flex min-h-[74px] items-start justify-start">
+                <OrangeToastPreviewV2
+                  actionLabel={toastPreviewActions[example.variant]}
+                  title={example.title}
+                  variant={example.variant}
+                />
+              </div>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="lit overflow-visible rounded-lg">
+        <div className="border-b border-border px-5 py-4">
+          <h2 className="text-[13px] font-semibold text-foreground">V3 previews</h2>
+          <p className="mt-1 max-w-2xl text-[13px] text-muted-foreground">
+            Evolved from both: the surface goes near-black with the landing grain, V1&apos;s dashed
+            edge becomes a signal-tinted bloom, and V2&apos;s rail carries a glow over the dot-grid
+            canvas.
+          </p>
+        </div>
+        <ul className="grid gap-x-8 gap-y-8 px-5 py-6 lg:grid-cols-2">
+          {toastExamples.map((example) => (
+            <li className="min-w-0" key={example.variant}>
+              <div className="flex min-w-0 items-start gap-3">
+                <span
+                  aria-hidden
+                  className={`mt-1.5 h-2 w-2 shrink-0 rounded-[2px] ${example.signalClassName}`}
+                />
+                <div className="min-w-0">
+                  <h3 className="text-[13px] font-medium text-foreground">{example.label}</h3>
+                  <p className="mt-1 text-[12px] text-muted-foreground">{example.description}</p>
+                </div>
+              </div>
+              <div className="mt-8 flex min-h-[74px] items-start justify-start">
+                <OrangeToastPreviewV3
+                  actionLabel={toastPreviewActions[example.variant]}
+                  title={example.title}
+                  variant={example.variant}
+                />
+              </div>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="lit overflow-visible rounded-lg">
+        <div className="border-b border-border px-5 py-4">
+          <h2 className="text-[13px] font-semibold text-foreground">V4 previews</h2>
+          <p className="mt-1 max-w-2xl text-[13px] text-muted-foreground">
+            The toast fragments: the signal breaks off into its own pixel-glyph tile and every drop
+            of color moves there, leaving the body quiet. The lineage stays as traces — V1&apos;s
+            dashed edge on the tile, V2&apos;s hairline body, V3&apos;s grain inside the fragment.
+          </p>
+        </div>
+        <ul className="grid gap-x-8 gap-y-8 px-5 py-6 lg:grid-cols-2">
+          {toastExamples.map((example) => (
+            <li className="min-w-0" key={example.variant}>
+              <div className="flex min-w-0 items-start gap-3">
+                <span
+                  aria-hidden
+                  className={`mt-1.5 h-2 w-2 shrink-0 rounded-[2px] ${example.signalClassName}`}
+                />
+                <div className="min-w-0">
+                  <h3 className="text-[13px] font-medium text-foreground">{example.label}</h3>
+                  <p className="mt-1 text-[12px] text-muted-foreground">{example.description}</p>
+                </div>
+              </div>
+              <div className="mt-8 flex min-h-[74px] items-start justify-start">
+                <OrangeToastPreviewV4
+                  actionLabel={toastPreviewActions[example.variant]}
+                  title={example.title}
+                  variant={example.variant}
+                />
+              </div>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="lit overflow-visible rounded-lg">
+        <div className="border-b border-border px-5 py-4">
+          <h2 className="text-[13px] font-semibold text-foreground">V5 previews</h2>
+          <p className="mt-1 max-w-2xl text-[13px] text-muted-foreground">
+            The mature form: one 6px logo pixel carries all the color, typography carries the
+            meaning, and the toast speaks the dashboard&apos;s own status-dot language. Loading uses
+            the shared sunrise matrix, then returns to the single status pixel when it settles.
+          </p>
+        </div>
+        <ul className="grid gap-x-8 gap-y-8 px-5 py-6 lg:grid-cols-2">
+          {toastExamples.map((example) => (
+            <li className="min-w-0" key={example.variant}>
+              <div className="flex min-w-0 items-start gap-3">
+                <span
+                  aria-hidden
+                  className={`mt-1.5 h-2 w-2 shrink-0 rounded-[2px] ${example.signalClassName}`}
+                />
+                <div className="min-w-0">
+                  <h3 className="text-[13px] font-medium text-foreground">{example.label}</h3>
+                  <p className="mt-1 text-[12px] text-muted-foreground">{example.description}</p>
+                </div>
+              </div>
+              <div className="mt-8 flex min-h-[74px] items-start justify-start">
+                <OrangeToastPreviewV5
+                  actionLabel={toastPreviewActions[example.variant]}
+                  title={example.title}
+                  variant={example.variant}
+                />
+              </div>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="lit overflow-visible rounded-lg">
+        <div className="border-b border-border px-5 py-4">
+          <h2 className="text-[13px] font-semibold text-foreground">V6 previews</h2>
+          <p className="mt-1 max-w-2xl text-[13px] text-muted-foreground">
+            V3&apos;s bloom edge returns, but the rail dissolves: the icon floats bare, the buttons
+            take the standard surface lift, and the dot grid becomes a faint ember field —
+            variant-tinted squares brightest at the bottom edge, fading as they rise.
+          </p>
+        </div>
+        <ul className="grid gap-x-8 gap-y-8 px-5 py-6 lg:grid-cols-2">
+          {toastExamples.map((example) => (
+            <li className="min-w-0" key={example.variant}>
+              <div className="flex min-w-0 items-start gap-3">
+                <span
+                  aria-hidden
+                  className={`mt-1.5 h-2 w-2 shrink-0 rounded-[2px] ${example.signalClassName}`}
+                />
+                <div className="min-w-0">
+                  <h3 className="text-[13px] font-medium text-foreground">{example.label}</h3>
+                  <p className="mt-1 text-[12px] text-muted-foreground">{example.description}</p>
+                </div>
+              </div>
+              <div className="mt-8 flex min-h-[74px] items-start justify-start">
+                <OrangeToastPreviewV6
+                  actionLabel={toastPreviewActions[example.variant]}
+                  title={example.title}
+                  variant={example.variant}
+                />
+              </div>
             </li>
           ))}
         </ul>

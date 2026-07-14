@@ -214,19 +214,12 @@ export class LiveFollowController {
       this.options.host.onWaitingChanged(this.liveKeyframes.waiting);
     }
 
-    const token = this.options.request.token;
-    if (token === undefined || token.length === 0) {
-      this.options.host.onError("Live follow needs an API token.");
-      this.markHistoryReady();
-      return;
-    }
-
     let ticket: string;
     try {
       const response = await mintLiveTicket(this.options.request.api, {
         projectId: this.options.request.projectId,
         sessionId: this.options.request.sessionId,
-        token,
+        token: this.options.request.token,
         signal: this.options.signal,
       });
       ticket = response.ticket;
@@ -265,7 +258,7 @@ export class LiveFollowController {
       liveSocketUrl(this.options.request.api, {
         projectId: this.options.request.projectId,
         sessionId: this.options.request.sessionId,
-        token,
+        token: this.options.request.token,
         ticket,
       }),
     );

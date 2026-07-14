@@ -45,7 +45,7 @@ cd fixtures/demo-site
 vp dev
 ```
 
-The dashboard uses the dev bearer token from `apps/worker/.env.example`.
+The dashboard uses the dev bearer token from `apps/worker/.env.example` by default. To test the hosted GitHub sign-in locally, follow [Hosted accounts and project keys](./docs/hosted-auth.md).
 
 ## Repo Map
 
@@ -67,12 +67,13 @@ The dashboard uses the dev bearer token from `apps/worker/.env.example`.
 - [Plan](./PLAN.md)
 - [Handoff](./HANDOFF.md)
 - [Production deployment](./docs/deployment.md)
+- [Hosted accounts and project keys](./docs/hosted-auth.md)
 - [Self-host guide](./docs/self-host.md)
 - [SDK install guide](./docs/install-sdk.md)
 - [Design language](./docs/design-language.md)
 
 ## Status
 
-Local-first v1 is complete. Production deployment uses Cloudflare Workers with a separate production Wrangler config. Deferred: Analytics Engine verification, Pipelines/Iceberg lake, Vectorize/AI, heatmaps backend, processing lane, end-to-end encryption tier, BYOC provisioner, GitHub OAuth, template publishing, and OSS license choice.
+The local-first product is complete. Production deployment uses Cloudflare Workers with a separate production Wrangler config. Hosted accounts use GitHub OAuth through Better Auth while the demo stays public. Deferred: Analytics Engine verification, Pipelines/Iceberg lake, Vectorize/AI, heatmaps backend, processing lane, end-to-end encryption tier, BYOC provisioner, template publishing, and OSS license choice.
 
 License: not yet chosen.

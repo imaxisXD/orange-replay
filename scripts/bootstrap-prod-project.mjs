@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { randomBytes, createHash } from "node:crypto";
+import { randomBytes, createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -19,47 +19,34 @@ try {
 }
 const writeKey = options.key ?? `or_live_${randomBytes(24).toString("base64url")}`;
 const keyHash = sha256Hex(writeKey);
+const keyId = `key_${randomUUID()}`;
 const now = Date.now();
 const allowedOrigins = options.allowAnyOrigin ? ["*"] : options.origins;
-const config = {
-  projectId: options.projectId,
-  orgId: options.orgId,
-  shard: 0,
-  active: true,
-  sampleRate: 1,
-  allowedOrigins,
-  maskPolicyVersion: 1,
-  maskRules: [],
-  capture: {
-    heatmaps: false,
-    console: false,
-    network: false,
-    canvas: false,
-  },
-  quotaState: "ok",
-  retentionDays: options.retentionDays,
-  version: 1,
-  ...(options.jurisdiction === undefined ? {} : { jurisdiction: options.jurisdiction }),
+const captureToggles = {
+  heatmaps: false,
+  console: false,
+  network: false,
+  canvas: false,
 };
 const statements = [
-  `INSERT INTO orgs (id, name, shard, created_at) VALUES (${sqlString(
+  `INSERT INTO orgs (id, name, slug, logo, metadata, shard, created_at) VALUES (${sqlString(
     options.orgId,
-  )}, ${sqlString(options.orgName)}, 0, ${now})`,
+  )}, ${sqlString(options.orgName)}, ${sqlString(workspaceSlug(options.orgName, options.orgId))}, NULL, NULL, 0, ${now})`,
   `INSERT INTO projects (id, org_id, name, jurisdiction, retention_days, sample_rate, allowed_origins, mask_policy_version, mask_rules, capture_toggles, quota_state, config_version, created_at) VALUES (${sqlString(
     options.projectId,
   )}, ${sqlString(options.orgId)}, ${sqlString(options.projectName)}, ${sqlNullable(
     options.jurisdiction,
   )}, ${options.retentionDays}, 1, ${sqlString(JSON.stringify(allowedOrigins))}, 1, '[]', ${sqlString(
-    JSON.stringify(config.capture),
+    JSON.stringify(captureToggles),
   )}, 'ok', 1, ${now})`,
   buildNewProjectAnalyticsReceiptSql({
     projectId: options.projectId,
     createdAt: now,
     reportId: "new-project-bootstrap:production-script",
   }),
-  `INSERT INTO keys (key_hash, project_id, active, created_at) VALUES (${sqlString(
-    keyHash,
-  )}, ${sqlString(options.projectId)}, 1, ${now})`,
+  `INSERT INTO keys (id, key_hash, project_id, name, active, created_at, created_by, revoked_at, revoked_by, cache_synced, cache_final_check_at) VALUES (${sqlString(
+    keyId,
+  )}, ${sqlString(keyHash)}, ${sqlString(options.projectId)}, 'Initial write key', 1, ${now}, NULL, NULL, NULL, 0, 0)`,
 ];
 const d1Command = `BEGIN TRANSACTION; ${statements.join(";")}; COMMIT;`;
 
@@ -67,10 +54,7 @@ if (options.dryRun) {
   printSummary({ saved: false });
   console.log("\nSQL:");
   console.log(`${statements.join(";\n")};`);
-  console.log("\nKV key:");
-  console.log(`k:${keyHash}`);
-  console.log("\nKV value:");
-  console.log(JSON.stringify(config, null, 2));
+  console.log("\nThe Worker cache repair will add this key to KV.");
   process.exit(0);
 }
 
@@ -85,27 +69,13 @@ try {
     "execute",
     "IDX_00",
     "--config",
-    "wrangler.jsonc",
+    options.config,
     "--env",
     prodEnv,
     "--remote",
     "--yes",
     "--command",
     d1Command,
-  ]);
-  await runWrangler([
-    "kv",
-    "key",
-    "put",
-    `k:${keyHash}`,
-    JSON.stringify(config),
-    "--config",
-    "wrangler.jsonc",
-    "--env",
-    prodEnv,
-    "--binding",
-    "CONFIG",
-    "--remote",
   ]);
   if (options.envFile !== undefined && pendingEnvFile !== undefined) {
     await promotePendingWriteKey(options.envFile, pendingEnvFile);
@@ -138,6 +108,7 @@ function parseArgs(args) {
     retentionDays: 30,
     jurisdiction: undefined,
     envFile: "apps/worker/.env.production",
+    config: path.join(repoRoot, "apps", "worker", "wrangler.jsonc"),
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -192,6 +163,13 @@ function parseArgs(args) {
     }
     if (arg === "--env-file") {
       parsed.envFile = readValue(args, index, arg);
+      index += 1;
+      continue;
+    }
+    if (arg === "--config") {
+      const configPath = readValue(args, index, arg).trim();
+      if (configPath.length === 0) throw new Error("--config needs a file path");
+      parsed.config = path.resolve(process.cwd(), configPath);
       index += 1;
       continue;
     }
@@ -282,6 +260,15 @@ function sha256Hex(value) {
   return createHash("sha256").update(value).digest("hex");
 }
 
+function workspaceSlug(name, id) {
+  const readable = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+  return `${readable || "workspace"}-${id.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+}
+
 function sqlString(value) {
   return `'${String(value).replaceAll("'", "''")}'`;
 }
@@ -355,16 +342,7 @@ function runWrangler(args) {
   return new Promise((resolve, reject) => {
     const child = spawn(
       "vp",
-      [
-        "exec",
-        "--filter",
-        "@orange-replay/worker",
-        "--",
-        "wrangler",
-        ...args,
-        "--env-file",
-        "wrangler.production.env",
-      ],
+      ["exec", "--filter", "@orange-replay/worker", "--", "wrangler", ...args],
       {
         cwd: repoRoot,
         stdio: "inherit",
@@ -432,7 +410,7 @@ Creates the first production org, project, and SDK write key using the productio
 The script is insert-only and fails if the org, project, or key already exists.
 
 Options:
-  --dry-run                 Print the SQL and KV value without writing.
+  --dry-run                 Print the SQL without writing.
   --key VALUE               Use a specific write key. Default: generate one.
   --project-id VALUE        Project id. Default: first ORANGE_REPLAY_PROD_API_PROJECT_IDS value, otherwise project_demo.
   --project-name VALUE      Project name. Default: Default project.
@@ -442,6 +420,7 @@ Options:
   --allow-any-origin        Allow SDK ingest from any origin. Use only for a public test project.
   --retention-days VALUE    Retention days. Default: 30.
   --jurisdiction VALUE      Optional Durable Object jurisdiction, for example eu.
+  --config VALUE            Wrangler config. Use the generated production config for hosted deploys.
   --env-file VALUE          Save the write key to this ignored repo-local .env file. Default: apps/worker/.env.production.
   --no-env-file             Do not save the key. Requires --key unless this is --dry-run.
 `);

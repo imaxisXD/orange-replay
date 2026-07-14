@@ -10,9 +10,46 @@ const secretDefinitions = Object.freeze([
     kind: "project_ids",
   }),
   Object.freeze({
+    workerName: "BETTER_AUTH_SECRET",
+    environmentName: "ORANGE_REPLAY_PROD_BETTER_AUTH_SECRET",
+    kind: "secret",
+  }),
+  Object.freeze({
+    workerName: "BETTER_AUTH_URL",
+    environmentName: "ORANGE_REPLAY_PROD_BETTER_AUTH_URL",
+    kind: "origin",
+  }),
+  Object.freeze({
+    workerName: "BETTER_AUTH_TRUSTED_ORIGINS",
+    environmentName: "ORANGE_REPLAY_PROD_BETTER_AUTH_TRUSTED_ORIGINS",
+    kind: "trusted_origins",
+  }),
+  Object.freeze({
+    workerName: "GITHUB_CLIENT_ID",
+    environmentName: "ORANGE_REPLAY_PROD_GITHUB_CLIENT_ID",
+    kind: "secret",
+    minimumLength: 10,
+  }),
+  Object.freeze({
+    workerName: "GITHUB_CLIENT_SECRET",
+    environmentName: "ORANGE_REPLAY_PROD_GITHUB_CLIENT_SECRET",
+    kind: "secret",
+    minimumLength: 20,
+  }),
+  Object.freeze({
     workerName: "LIVE_TICKET_SECRET",
     environmentName: "ORANGE_REPLAY_PROD_LIVE_TICKET_SECRET",
     kind: "secret",
+  }),
+  Object.freeze({
+    workerName: "DEMO_PROJECT_ID",
+    environmentName: "ORANGE_REPLAY_DEMO_PROJECT_ID",
+    kind: "project_id",
+  }),
+  Object.freeze({
+    workerName: "DEMO_WRITE_KEY",
+    environmentName: "ORANGE_REPLAY_DEMO_WRITE_KEY",
+    kind: "write_key",
   }),
   Object.freeze({
     workerName: "R2_SQL_TOKEN",
@@ -23,10 +60,12 @@ const secretDefinitions = Object.freeze([
     workerName: "ANALYTICS_PURGE_RUNNER_TOKEN",
     environmentName: "ORANGE_REPLAY_PROD_ANALYTICS_PURGE_RUNNER_TOKEN",
     kind: "secret",
+    maximumLength: 512,
   }),
 ]);
 
 const pathIdPattern = /^[A-Za-z0-9_-]{1,64}$/;
+const writeKeyPattern = /^or_live_[A-Za-z0-9_-]{32}$/;
 
 export const cloudflareAuthEnvironmentNames = Object.freeze([
   "CLOUDFLARE_API_TOKEN",
@@ -55,14 +94,41 @@ const extraSensitiveEnvironmentNames = Object.freeze([
 ]);
 
 export function readProductionSecretValues(environment = process.env) {
-  return Object.fromEntries(
-    secretDefinitions.map((definition) => [
-      definition.workerName,
-      definition.kind === "project_ids"
-        ? readValidProjectIds(environment[definition.environmentName], definition.environmentName)
-        : readValidSecret(environment[definition.environmentName], definition.environmentName),
-    ]),
+  const values = {};
+  for (const definition of secretDefinitions) {
+    const value = environment[definition.environmentName];
+    if (definition.kind === "project_ids") {
+      values[definition.workerName] = readValidProjectIds(value, definition.environmentName);
+    } else if (definition.kind === "project_id") {
+      values[definition.workerName] = readValidProjectId(value, definition.environmentName);
+    } else if (definition.kind === "write_key") {
+      values[definition.workerName] = readValidWriteKey(value, definition.environmentName);
+    } else if (definition.kind === "origin") {
+      values[definition.workerName] = readValidHttpsOrigin(value, definition.environmentName);
+    } else if (definition.kind === "trusted_origins") {
+      values[definition.workerName] = readValidTrustedOrigins(
+        value,
+        definition.environmentName,
+        values.BETTER_AUTH_URL,
+      );
+    } else {
+      values[definition.workerName] = readValidSecret(value, definition.environmentName, {
+        maximumLength: definition.maximumLength,
+        minimumLength: definition.minimumLength,
+      });
+    }
+  }
+
+  const workerOrigin = readValidHttpsOrigin(
+    environment.ORANGE_REPLAY_PROD_WORKER_URL,
+    "ORANGE_REPLAY_PROD_WORKER_URL",
   );
+  if (values.BETTER_AUTH_URL !== workerOrigin) {
+    throw new Error(
+      "ORANGE_REPLAY_PROD_BETTER_AUTH_URL must exactly match ORANGE_REPLAY_PROD_WORKER_URL.",
+    );
+  }
+  return values;
 }
 
 export function readProductionR2SqlToken(environment = process.env) {
@@ -91,7 +157,10 @@ export function readProductionSmokeValues(environment = process.env) {
     ),
     projectIds,
     smokeProjectId,
-    workerOrigin: readValidHttpsOrigin(environment.ORANGE_REPLAY_PROD_WORKER_URL),
+    workerOrigin: readValidHttpsOrigin(
+      environment.ORANGE_REPLAY_PROD_WORKER_URL,
+      "ORANGE_REPLAY_PROD_WORKER_URL",
+    ),
   };
 }
 
@@ -121,15 +190,23 @@ export function withoutCloudflareAuth(environment = process.env) {
   return cleanEnvironment;
 }
 
-function readValidSecret(value, name) {
+function readValidSecret(value, name, options = {}) {
+  const maximumLength = options.maximumLength ?? 4096;
+  const minimumLength = options.minimumLength ?? 32;
   if (typeof value !== "string" || value.length === 0) {
     throw new Error(`${name} is required before production deploy.`);
   }
-  if (value.length < 32) {
-    throw new Error(`${name} must be at least 32 characters.`);
+  if (value.length < minimumLength) {
+    throw new Error(`${name} must be at least ${minimumLength} characters.`);
+  }
+  if (value.length > maximumLength) {
+    throw new Error(`${name} must be at most ${maximumLength} characters.`);
   }
   if (value.trim() !== value || /[\r\n]/.test(value)) {
     throw new Error(`${name} must not include surrounding space or new lines.`);
+  }
+  if (value.startsWith("REPLACE_WITH_") || value.startsWith("your-")) {
+    throw new Error(`${name} must not use a placeholder value.`);
   }
   return value;
 }
@@ -161,8 +238,36 @@ function readValidSmokeProjectId(projectId, allowedProjectIds) {
   return projectId;
 }
 
-function readValidHttpsOrigin(value) {
-  const name = "ORANGE_REPLAY_PROD_WORKER_URL";
+function readValidProjectId(value, name) {
+  if (typeof value !== "string" || !pathIdPattern.test(value)) {
+    throw new Error(`${name} must use only letters, numbers, _ or -.`);
+  }
+  return value;
+}
+
+function readValidWriteKey(value, name) {
+  if (typeof value !== "string" || !writeKeyPattern.test(value)) {
+    throw new Error(`${name} must be a generated key that starts with or_live_.`);
+  }
+  return value;
+}
+
+function readValidTrustedOrigins(value, name, authOrigin) {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`${name} is required before production deploy.`);
+  }
+  const origins = [...new Set(value.split(",").map((part) => part.trim()))];
+  if (origins.some((origin) => origin.length === 0)) {
+    throw new Error(`${name} must not contain an empty origin.`);
+  }
+  const validOrigins = origins.map((origin) => readValidHttpsOrigin(origin, name));
+  if (!validOrigins.includes(authOrigin)) {
+    throw new Error(`${name} must include ORANGE_REPLAY_PROD_BETTER_AUTH_URL.`);
+  }
+  return validOrigins.join(",");
+}
+
+function readValidHttpsOrigin(value, name) {
   if (typeof value !== "string" || value.length === 0 || value.trim() !== value) {
     throw new Error(`${name} is required before production deploy.`);
   }

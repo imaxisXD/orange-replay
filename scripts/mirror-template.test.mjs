@@ -39,10 +39,13 @@ describe("mirror-template", () => {
           "/internal/*",
           "/v1/*",
           "/login",
+          "/_admin",
+          "/_admin/*",
           "/demo",
           "/demo/*",
           "/projects",
           "/projects/*",
+          "/p/*",
         ],
       });
 

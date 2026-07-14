@@ -18,6 +18,7 @@ export const liveProjectId = "api_live_project";
 export const installProjectId = "api_install_project";
 export const configProjectId = "api_config_project";
 export const keysProjectId = "api_keys_project";
+export const keyLimitProjectId = "api_key_limit_project";
 export const ticketProjectId = "api_ticket_project";
 export const ticketSessionId = "api_ticket_session";
 export const demoProjectId = "api_demo_project";
@@ -33,6 +34,7 @@ export const apiProjectIds = [
   installProjectId,
   configProjectId,
   keysProjectId,
+  keyLimitProjectId,
   ticketProjectId,
 ].join(",");
 export const segmentName = "seg-000001.ors";

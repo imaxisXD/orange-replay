@@ -2,7 +2,7 @@ import { Outlet } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { BrandMark } from "@/components/brand-mark";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
+import { LoadingArea } from "@/components/ui/loading-indicator";
 import { fetchDemoWorkspace } from "@/lib/api";
 import { DemoWorkspaceProvider } from "@/lib/dashboard-workspace";
 import { DemoUnavailableStateContent } from "@/lib/demo-unavailable-state";
@@ -45,11 +45,9 @@ function DemoLoadingState() {
       <div className="lit flex w-full flex-col gap-4 overflow-hidden rounded-lg p-6">
         <div className="flex items-center gap-2.5">
           <BrandMark className="size-7" />
-          <Skeleton className="h-4 w-28" />
+          <span className="text-[14px] font-medium">Orange Replay</span>
         </div>
-        <Skeleton className="h-6 w-44" />
-        <Skeleton className="h-4 w-full" />
-        <Skeleton className="h-8 w-24" />
+        <LoadingArea className="min-h-32" label="Loading the demo workspace" />
       </div>
     </section>
   );

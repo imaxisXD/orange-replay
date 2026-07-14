@@ -10,11 +10,18 @@ import type {
   MaskRule,
   ProjectConfig,
   ProjectConfigUpdate,
-  ProjectKeyAudit,
   StoredProjectConfig,
 } from "@orange-replay/shared";
 import { shardDb } from "../env.ts";
 import type { Env } from "../env.ts";
+import {
+  beginActiveKeyCacheWrite,
+  finishActiveKeyCacheWrite,
+  keyCacheFinalCheckTime,
+  syncRevokedKeyCache,
+} from "./project-key-cache.ts";
+
+const CACHE_REPAIR_LIMIT = 200;
 
 const defaultCapture: CaptureToggles = {
   heatmaps: false,
@@ -74,11 +81,16 @@ interface KeyRow {
   active: number;
 }
 
-interface ProjectKeyAuditRow {
+interface ActiveKeyRow {
+  [key: string]: unknown;
+  active: number;
+}
+
+interface ActiveCacheRepairRow {
   [key: string]: unknown;
   key_hash: string;
-  active: number;
-  created_at: number;
+  project_id: string;
+  cache_final_check_at: number | null;
 }
 
 export function parseProjectConfigUpdate(
@@ -164,24 +176,6 @@ export async function writeStoredProjectConfig(
   return { status: "saved", config: stored };
 }
 
-export async function readProjectKeys(env: Env, projectId: string): Promise<ProjectKeyAudit[]> {
-  const rows = await shardDb(env, 0)
-    .prepare(
-      `SELECT key_hash, active, created_at
-        FROM keys
-        WHERE project_id = ?
-        ORDER BY created_at DESC, key_hash ASC`,
-    )
-    .bind(projectId)
-    .all<ProjectKeyAuditRow>();
-
-  return (rows.results ?? []).map((row) => ({
-    key_hash: row.key_hash,
-    active: row.active === 1,
-    created_at: row.created_at,
-  }));
-}
-
 async function ensureProjectConfigColumns(db: D1Database): Promise<void> {
   if (projectConfigColumnsEnsured) {
     return;
@@ -207,18 +201,157 @@ async function ensureProjectConfigColumns(db: D1Database): Promise<void> {
 }
 
 async function writeConfigCacheForProject(env: Env, config: StoredProjectConfig): Promise<void> {
-  const rows = await shardDb(env, 0)
+  const database = shardDb(env, 0);
+  await database
+    .prepare(
+      `UPDATE keys
+      SET cache_synced = 0, cache_final_check_at = ?
+      WHERE project_id = ? AND active = 1`,
+    )
+    .bind(keyCacheFinalCheckTime(Date.now()), config.projectId)
+    .run();
+  const rows = await database
     .prepare("SELECT key_hash, active FROM keys WHERE project_id = ?")
     .bind(config.projectId)
     .all<KeyRow>();
 
   for (const row of rows.results ?? []) {
-    const cachedConfig: ProjectConfig = {
-      ...config,
-      active: row.active === 1,
-    };
-    await env.CONFIG.put(configKvKey(row.key_hash), JSON.stringify(cachedConfig));
+    const wasActive = row.active === 1;
+    if (wasActive) {
+      await refreshActiveKeyCache(env, database, row.key_hash, config, false);
+    } else {
+      await syncRevokedKeyCache(env, database, row.key_hash);
+    }
   }
+}
+
+export async function repairActiveProjectKeyCache(env: Env, now = Date.now()): Promise<number> {
+  const database = shardDb(env, 0);
+  const rows = await database
+    .prepare(
+      `SELECT key_hash, project_id, cache_final_check_at
+      FROM keys
+      WHERE active = 1
+        AND (
+          cache_synced = 0
+          OR (cache_final_check_at IS NOT NULL AND cache_final_check_at <= ?)
+          OR (
+            cache_final_check_at IS NULL
+            AND EXISTS (SELECT 1 FROM key_cache_writes w WHERE w.key_hash = keys.key_hash)
+          )
+        )
+      ORDER BY
+        CASE WHEN cache_synced = 0 THEN 0 ELSE 1 END,
+        cache_final_check_at ASC,
+        key_hash ASC
+      LIMIT ?`,
+    )
+    .bind(now, CACHE_REPAIR_LIMIT)
+    .all<ActiveCacheRepairRow>();
+
+  const configs = new Map<string, StoredProjectConfig | null>();
+  for (const row of rows.results ?? []) {
+    let config = configs.get(row.project_id);
+    if (config === undefined) {
+      config = await readStoredProjectConfig(env, row.project_id);
+      configs.set(row.project_id, config);
+    }
+    if (config === null) {
+      await env.CONFIG.delete(configKvKey(row.key_hash));
+      await database
+        .prepare(
+          `UPDATE keys
+          SET cache_synced = 1,
+            cache_final_check_at = CASE
+              WHEN EXISTS (
+                SELECT 1 FROM key_cache_writes w WHERE w.key_hash = keys.key_hash
+              ) THEN ?
+              ELSE NULL
+            END
+          WHERE key_hash = ? AND active = 1`,
+        )
+        .bind(keyCacheFinalCheckTime(now), row.key_hash)
+        .run();
+      continue;
+    }
+    const finalCheckIsDue = row.cache_final_check_at !== null && row.cache_final_check_at <= now;
+    await refreshActiveKeyCache(env, database, row.key_hash, config, finalCheckIsDue);
+  }
+
+  return rows.results?.length ?? 0;
+}
+
+async function refreshActiveKeyCache(
+  env: Env,
+  database: D1Database,
+  keyHash: string,
+  config: StoredProjectConfig,
+  clearFinalCheck: boolean,
+): Promise<void> {
+  const writeId = await beginActiveKeyCacheWrite(database, keyHash);
+  if (writeId === null) {
+    await syncRevokedKeyCache(env, database, keyHash);
+    return;
+  }
+
+  try {
+    await database
+      .prepare("UPDATE keys SET cache_synced = 0 WHERE key_hash = ? AND active = 1")
+      .bind(keyHash)
+      .run();
+    await writeKeyConfig(env, keyHash, config);
+
+    // Mark pending again after the KV write. This prevents another cache writer
+    // from leaving a successful marker behind when this write used older data.
+    await database
+      .prepare("UPDATE keys SET cache_synced = 0 WHERE key_hash = ? AND active = 1")
+      .bind(keyHash)
+      .run();
+    const followUpAt = keyCacheFinalCheckTime(Date.now());
+    const synced = await database
+      .prepare(
+        `UPDATE keys
+        SET cache_synced = 1,
+          cache_final_check_at = CASE
+          WHEN EXISTS (
+            SELECT 1 FROM key_cache_writes w
+            WHERE w.key_hash = keys.key_hash AND w.id <> ?
+          ) THEN ?
+          WHEN ? = 1 THEN NULL
+          ELSE cache_final_check_at
+        END
+        WHERE key_hash = ?
+          AND active = 1
+          AND EXISTS (
+            SELECT 1 FROM projects
+            WHERE projects.id = keys.project_id AND projects.config_version = ?
+          )`,
+      )
+      .bind(writeId, followUpAt, clearFinalCheck ? 1 : 0, keyHash, config.version)
+      .run();
+    if ((synced.meta.changes ?? 0) < 1) {
+      await env.CONFIG.delete(configKvKey(keyHash));
+    }
+
+    const current = await database
+      .prepare("SELECT active FROM keys WHERE key_hash = ?")
+      .bind(keyHash)
+      .first<ActiveKeyRow>();
+    if (current !== null && current.active !== 1) {
+      await syncRevokedKeyCache(env, database, keyHash);
+    }
+  } finally {
+    await finishActiveKeyCacheWrite(database, writeId);
+  }
+}
+
+async function writeKeyConfig(
+  env: Env,
+  keyHash: string,
+  config: StoredProjectConfig,
+): Promise<void> {
+  const cachedConfig: ProjectConfig = { ...config, active: true };
+  await env.CONFIG.put(configKvKey(keyHash), JSON.stringify(cachedConfig));
 }
 
 function mapProjectConfigRow(row: ProjectConfigRow): StoredProjectConfig | null {

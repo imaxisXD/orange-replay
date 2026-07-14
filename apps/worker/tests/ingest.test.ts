@@ -143,9 +143,9 @@ describe("ingest route", () => {
     });
   });
 
-  it("accepts a key seeded only in D1 by reading through and backfilling", async () => {
+  it("uses D1 on a cache miss without letting an ingest request rewrite key state", async () => {
     const key = testWriteKey("d1");
-    await seedKey(key, makeConfig(), false);
+    const { keyHash } = await seedKey(key, makeConfig(), false);
     const sessionId = nextSessionId("d1");
     const res = await postIngest({
       key,
@@ -161,6 +161,12 @@ describe("ingest route", () => {
       live: false,
       flushMs: SDK_FLUSH_DEFAULT_MS,
     });
+
+    const cached = await worker.fetch(
+      `/__test/ingest/config-cache?keyHash=${encodeURIComponent(keyHash)}`,
+    );
+    expect(cached.status).toBe(200);
+    expect(await cached.json()).toEqual({ config: null });
   });
 
   it("enforces the origin allowlist", async () => {

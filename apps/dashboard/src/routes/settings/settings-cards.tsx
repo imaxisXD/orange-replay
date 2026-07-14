@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { CaptureToggles, MaskRule } from "@orange-replay/shared/types";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,7 +20,7 @@ import {
   type MaskRuleActionValue,
   type ProjectSettingsDraft,
 } from "@/lib/project-settings";
-import { Plus, Trash2, X } from "@/lib/icon-map";
+import { AlertCircle, Plus, Trash2, X } from "@/lib/icon-map";
 import { CardHeader, NumberWithSuffix, SettingRow, TextInput } from "./settings-fields";
 
 const captureRows: {
@@ -262,6 +263,15 @@ export function OriginsCard({
         title="Allowed origins"
         body="Add the sites that can send SDK data to this project."
       />
+      {origins.length === 0 && (
+        <Alert className="mt-4">
+          <AlertCircle aria-hidden />
+          <AlertTitle>Recorder is blocked</AlertTitle>
+          <AlertDescription>
+            Recorder requests are blocked until you add your website origin.
+          </AlertDescription>
+        </Alert>
+      )}
       <div className="mt-4 flex flex-wrap gap-2">
         {origins.map((origin) => (
           <span

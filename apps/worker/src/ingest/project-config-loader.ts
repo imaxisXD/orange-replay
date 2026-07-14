@@ -23,7 +23,7 @@ export interface ProjectConfigResult {
 
 export async function loadProjectConfig(
   env: Env,
-  ctx: ExecutionContext,
+  _ctx: ExecutionContext,
   keyHash: string,
   request: Request,
   requireRecorderFields = false,
@@ -43,9 +43,6 @@ export async function loadProjectConfig(
     .bind(keyHash)
     .first<ProjectConfigRow>();
   const d1Config = mapConfigRowToProjectConfig(row ?? null);
-  if (d1Config !== null) {
-    ctx.waitUntil(env.CONFIG.put(configKvKey(keyHash), JSON.stringify(d1Config)));
-  }
 
   return { config: d1Config, kvHit: false, lookupRateLimited: false };
 }

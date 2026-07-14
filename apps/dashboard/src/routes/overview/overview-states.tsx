@@ -6,7 +6,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
-import { Skeleton } from "@/components/ui/skeleton";
+import { LoadingArea } from "@/components/ui/loading-indicator";
 import { ApiError } from "@/lib/api";
 import { AlertCircle, Inbox } from "@/lib/icon-map";
 
@@ -34,44 +34,7 @@ export function CardEmpty({ description }: { description: string }) {
 }
 
 export function OverviewLoading() {
-  return (
-    <>
-      <section className="lit grid overflow-hidden rounded-lg sm:grid-cols-2 lg:grid-cols-4">
-        {Array.from({ length: 4 }, (_, index) => (
-          <div
-            className="border-r border-dashed border-dash px-4.5 py-4 last:border-r-0"
-            key={index}
-          >
-            <Skeleton className="h-3 w-20" />
-            <Skeleton className="mt-2 h-7 w-24" />
-            <Skeleton className="mt-2 h-3 w-32" />
-          </div>
-        ))}
-      </section>
-      <section className="lit overflow-hidden rounded-lg p-4">
-        <Skeleton className="h-4 w-24" />
-        <Skeleton className="mt-2 h-3 w-44" />
-        <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {Array.from({ length: 4 }, (_unused, index) => (
-            <Skeleton className="h-16 w-full" key={index} />
-          ))}
-        </div>
-      </section>
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        {Array.from({ length: 4 }, (_, index) => (
-          <section className="lit min-h-80 rounded-lg p-4" key={index}>
-            <Skeleton className="h-4 w-28" />
-            <Skeleton className="mt-2 h-3 w-48" />
-            <div className="mt-6 flex flex-col gap-4">
-              {Array.from({ length: 4 }, (_unused, rowIndex) => (
-                <Skeleton className="h-9 w-full" key={rowIndex} />
-              ))}
-            </div>
-          </section>
-        ))}
-      </div>
-    </>
-  );
+  return <LoadingArea className="lit min-h-105 rounded-lg" label="Loading overview analytics" />;
 }
 
 export function StatsError({ error }: { error: unknown }) {

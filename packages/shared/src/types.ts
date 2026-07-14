@@ -166,13 +166,91 @@ export interface ProjectConfigUpdate {
 }
 
 export interface ProjectKeyAudit {
-  key_hash: string;
+  id: string;
+  name: string;
+  keyHashPrefix: string;
   active: boolean;
-  created_at: number;
+  createdAt: number;
+  createdBy: string | null;
+  revokedAt: number | null;
+  revokedBy: string | null;
 }
 
 export interface ProjectKeysResponse {
   keys: ProjectKeyAudit[];
+}
+
+export interface PublicPageBreakdownItem {
+  label: string;
+  count: number;
+  share: number;
+}
+
+export interface PublicPageRecording {
+  replayId: string;
+  position: number;
+  startedAt: number;
+  durationMs: number;
+  entryPath: string;
+  country: string | null;
+  device: string | null;
+  browser: string | null;
+  operatingSystem: string | null;
+  clicks: number;
+  errors: number;
+  rages: number;
+  pages: number | null;
+}
+
+export interface PublicPageSelectedRecording extends PublicPageRecording {
+  sessionId: string;
+}
+
+export interface PublicPageAnalytics {
+  sessions: number;
+  averageDurationMs: number;
+  p50DurationMs: number;
+  clicks: number;
+  pagesPerSession: number | null;
+  pagesCoveredSessions: number;
+  ragePercent: number | null;
+  quickBackPercent: number | null;
+  countries: PublicPageBreakdownItem[];
+  devices: PublicPageBreakdownItem[];
+  browsers: PublicPageBreakdownItem[];
+  operatingSystems: PublicPageBreakdownItem[];
+  entryPages: PublicPageBreakdownItem[];
+}
+
+/** Safe, anonymous data returned by the public page API. */
+export interface PublicPageData {
+  version: 1;
+  publicId: string;
+  publicUrl: string;
+  projectName: string;
+  generatedAt: number;
+  analytics: PublicPageAnalytics;
+  recordings: PublicPageRecording[];
+}
+
+/** Authenticated settings response. This is never returned by a public route. */
+export interface PublicPageSettings {
+  enabled: boolean;
+  publicId: string | null;
+  publicUrl: string | null;
+  revision: number;
+  recordings: PublicPageSelectedRecording[];
+}
+
+export interface PublicPageSettingsUpdate {
+  enabled: boolean;
+  sessionIds: string[];
+}
+
+/** Returned only at key creation. The secret is never persisted or returned again. */
+export interface CreatedProjectKeyResponse {
+  key: ProjectKeyAudit;
+  secret: string;
 }
 
 export interface LiveTicketResponse {

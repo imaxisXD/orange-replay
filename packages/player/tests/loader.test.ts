@@ -405,6 +405,23 @@ describe("manifest and segment loading", () => {
     );
   });
 
+  it("mints live tickets with the same-origin session cookie when no token is set", async () => {
+    const fetchCalls: Array<{ headers: Headers; method?: string }> = [];
+    const api = {
+      fetch: async (_url: string | URL | Request, init?: RequestInit) => {
+        fetchCalls.push({ headers: new Headers(init?.headers), method: init?.method });
+        return Response.json({ ticket: "session-ticket", expiresAt: 1234 });
+      },
+    };
+
+    await expect(
+      mintLiveTicket(api, { projectId: "project", sessionId: "session" }),
+    ).resolves.toEqual({ ticket: "session-ticket", expiresAt: 1234 });
+    expect(fetchCalls).toHaveLength(1);
+    expect(fetchCalls[0]?.method).toBe("POST");
+    expect(fetchCalls[0]?.headers.get("authorization")).toBeNull();
+  });
+
   it("mints a fresh live ticket on reconnect", async () => {
     const sockets: FakeWebSocket[] = [];
     const ticketUrls: string[] = [];

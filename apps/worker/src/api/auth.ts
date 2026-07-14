@@ -1,3 +1,5 @@
+import { getAuthMode } from "../auth/config.ts";
+import { getHostedSession, isGlobalAdmin, type HostedSession } from "../auth/server.ts";
 import { isDevTestMode, type Env } from "../env.ts";
 import { isValidPathId } from "./helpers.ts";
 import { jsonError } from "./http.ts";
@@ -6,19 +8,36 @@ const encoder = new TextEncoder();
 const MIN_API_TOKEN_LENGTH = 32;
 const PLACEHOLDER_PREFIX = "REPLACE_WITH_";
 
-export type ApiAuthMode = "bearer" | "demo";
-export type ApiAuthContext = {
+export type ApiAuthMode = "bearer" | "demo" | "session";
+export type ProjectRole = "owner" | "admin" | "member";
+
+type TokenAuthContext = {
   ok: true;
   projects: ReadonlySet<string>;
-  mode: ApiAuthMode;
+  mode: "bearer" | "demo";
 };
+
+export type SessionAuthContext = {
+  ok: true;
+  mode: "session";
+  projects: ReadonlySet<string>;
+  projectRoles: ReadonlyMap<string, ProjectRole>;
+  hostedSession: HostedSession;
+  globalAdmin: boolean;
+};
+
+export type ApiAuthContext = TokenAuthContext | SessionAuthContext;
+
 export type ApiRouteName =
   | "sessions_list"
   | "session_heads"
   | "session_state"
   | "project_stats"
   | "project_live"
-  | "project_config"
+  | "project_config_read"
+  | "project_config_write"
+  | "public_page_read"
+  | "public_page_write"
   | "install_status"
   | "project_keys"
   | "manifest"
@@ -35,6 +54,19 @@ const DEMO_READABLE_ROUTES = new Set<ApiRouteName>([
   "segment",
   "live_ticket",
 ]);
+
+const MANAGER_ROUTES = new Set<ApiRouteName>([
+  "project_config_write",
+  "project_keys",
+  "public_page_read",
+  "public_page_write",
+]);
+
+interface ProjectMembershipRow {
+  [key: string]: unknown;
+  project_id: string;
+  role: string;
+}
 
 export async function demoRateLimitAllows(env: Env, request: Request): Promise<boolean> {
   if (env.DEMO_API_RATE_LIMITER === undefined) {
@@ -54,45 +86,50 @@ export async function checkAuth(
   request: Request,
   env: Env,
   routeProjectId: string | null,
+  executionContext?: ExecutionContext,
 ): Promise<ApiAuthContext | { ok: false; status: 401 | 503; error: string }> {
   const header = request.headers.get("authorization");
-  if (header === null) {
-    const demo = readDemoConfig(env);
-    if (demo !== null && routeProjectId === demo.projectId) {
-      return { ok: true, projects: new Set([demo.projectId]), mode: "demo" };
+  const authMode = getAuthMode(env);
+
+  // An explicit Authorization header is always treated as an attempt to use
+  // the local token. A bad token must never fall through to a demo or session.
+  if (header !== null) {
+    if (authMode !== "token") {
+      return { ok: false, status: 401, error: "unauthorized" };
     }
+    return checkBearerAuth(header, env);
   }
 
-  const apiAuth = readApiAuthConfig(env);
-  if (apiAuth === null) {
+  const demo = readDemoConfig(env);
+  if (demo !== null && routeProjectId === demo.projectId) {
+    return { ok: true, projects: new Set([demo.projectId]), mode: "demo" };
+  }
+
+  if (authMode === "unavailable") {
     return { ok: false, status: 503, error: "auth_not_configured" };
   }
 
-  const prefix = "Bearer ";
-  let actualToken: string | null = null;
-
-  if (header !== null) {
-    if (!header.startsWith(prefix)) {
-      return { ok: false, status: 401, error: "unauthorized" };
+  if (authMode === "token") {
+    if (readApiAuthConfig(env) === null) {
+      return { ok: false, status: 503, error: "auth_not_configured" };
     }
-    actualToken = header.slice(prefix.length);
-  }
-
-  if (actualToken === null) {
     return { ok: false, status: 401, error: "unauthorized" };
   }
 
-  const expected = encoder.encode(apiAuth.token);
-  const actual = encoder.encode(actualToken);
-  if (expected.byteLength !== actual.byteLength) {
+  const hostedSession = await getHostedSession(request, env, executionContext);
+  if (hostedSession === null || hostedSession.user.banned) {
     return { ok: false, status: 401, error: "unauthorized" };
   }
 
-  if (!timingSafeEqual(expected, actual)) {
-    return { ok: false, status: 401, error: "unauthorized" };
-  }
-
-  return { ok: true, projects: apiAuth.projects, mode: "bearer" };
+  const projectRoles = await readProjectRoles(env.IDX_00, hostedSession.user.id);
+  return {
+    ok: true,
+    mode: "session",
+    projects: new Set(projectRoles.keys()),
+    projectRoles,
+    hostedSession,
+    globalAdmin: isGlobalAdmin(hostedSession, env),
+  };
 }
 
 export function projectAuthError(
@@ -108,7 +145,22 @@ export function projectAuthError(
     return jsonError("forbidden", 403);
   }
 
+  if (auth.mode === "session" && MANAGER_ROUTES.has(route)) {
+    const role = auth.projectRoles.get(projectId);
+    if (role !== "owner" && role !== "admin") {
+      return jsonError("forbidden", 403);
+    }
+  }
+
   return null;
+}
+
+export function globalAdminAuthError(auth: ApiAuthContext): Response | null {
+  return auth.mode === "session" && auth.globalAdmin ? null : jsonError("forbidden", 403);
+}
+
+export function isSessionAuth(auth: ApiAuthContext): auth is SessionAuthContext {
+  return auth.mode === "session";
 }
 
 export function readDemoConfig(
@@ -121,6 +173,56 @@ export function readDemoConfig(
   }
 
   return { projectId, writeKey };
+}
+
+async function readProjectRoles(
+  database: D1Database,
+  userId: string,
+): Promise<ReadonlyMap<string, ProjectRole>> {
+  const rows = await database
+    .prepare(
+      `SELECT p.id AS project_id, m.role AS role
+        FROM members m
+        JOIN projects p ON p.org_id = m.org_id
+        WHERE m.user_id = ?`,
+    )
+    .bind(userId)
+    .all<ProjectMembershipRow>();
+
+  const roles = new Map<string, ProjectRole>();
+  for (const row of rows.results ?? []) {
+    if (isProjectRole(row.role)) {
+      roles.set(row.project_id, row.role);
+    }
+  }
+  return roles;
+}
+
+function checkBearerAuth(
+  header: string,
+  env: Env,
+): TokenAuthContext | { ok: false; status: 401 | 503; error: string } {
+  const apiAuth = readApiAuthConfig(env);
+  if (apiAuth === null) {
+    return { ok: false, status: 503, error: "auth_not_configured" };
+  }
+
+  const prefix = "Bearer ";
+  if (!header.startsWith(prefix)) {
+    return { ok: false, status: 401, error: "unauthorized" };
+  }
+
+  const expected = encoder.encode(apiAuth.token);
+  const actual = encoder.encode(header.slice(prefix.length));
+  if (!timingSafeEqual(expected, actual)) {
+    return { ok: false, status: 401, error: "unauthorized" };
+  }
+
+  return { ok: true, projects: apiAuth.projects, mode: "bearer" };
+}
+
+function isProjectRole(value: string): value is ProjectRole {
+  return value === "owner" || value === "admin" || value === "member";
 }
 
 function readDemoString(value: string | undefined): string | null {

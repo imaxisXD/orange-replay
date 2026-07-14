@@ -234,9 +234,9 @@ async function seedProject(request: Request, env: Env): Promise<Response> {
   const now = Date.now();
   await env.IDX_00.batch([
     env.IDX_00.prepare(
-      `INSERT OR IGNORE INTO orgs (id, name, shard, created_at)
-      VALUES (?, ?, 0, ?)`,
-    ).bind(orgId, orgId, now),
+      `INSERT OR IGNORE INTO orgs (id, name, slug, shard, created_at)
+      VALUES (?, ?, ?, 0, ?)`,
+    ).bind(orgId, orgId, `slug-${projectId}`, now),
     env.IDX_00.prepare(
       `INSERT OR REPLACE INTO projects (
         id, org_id, name, jurisdiction, retention_days, sample_rate,

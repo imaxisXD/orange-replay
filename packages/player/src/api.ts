@@ -107,7 +107,7 @@ export function liveSocketUrl(api: PlayerApiInput, options: LiveRequest): string
 
 export async function mintLiveTicket(
   api: PlayerApiInput,
-  options: SessionRequest & { token: string; signal?: AbortSignal },
+  options: SessionRequest & { signal?: AbortSignal },
 ): Promise<LiveTicketResponse> {
   const resolved = resolveApi(api);
   const response = await resolved.fetchFn(resolved.liveTicketUrl(options), {

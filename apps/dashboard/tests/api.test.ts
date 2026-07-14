@@ -7,6 +7,11 @@ import {
   buildStatsUrl,
   checkApiToken,
   clearApiToken,
+  createProjectKey,
+  fetchAccount,
+  fetchAdminStats,
+  fetchAdminUsers,
+  fetchAuthConfig,
   fetchLiveSessions,
   fetchProjectStats,
   fetchSessionHeads,
@@ -14,6 +19,7 @@ import {
   getApiToken,
   health,
   listSessions,
+  revokeProjectKey,
   segmentUrl,
   setApiToken,
   setAuthRedirectHandler,
@@ -153,6 +159,91 @@ describe("api client", () => {
     expect(headers.get("authorization")).toBeNull();
   });
 
+  it("loads hosted auth settings without leaking the saved local token", async () => {
+    setApiToken("local-only-token");
+    fetchMock.mockResolvedValue(jsonResponse({ mode: "github" }));
+
+    await expect(fetchAuthConfig()).resolves.toEqual({ mode: "github" });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/auth/config", {
+      headers: expect.any(Headers),
+    });
+    expect(readFetchHeaders().get("authorization")).toBeNull();
+  });
+
+  it("uses the hosted session cookie without adding a bearer token", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        user: { id: "u1", name: "Sunny", email: "sunny@example.com" },
+        workspaces: [],
+        isAdmin: false,
+      }),
+    );
+
+    await fetchAccount();
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/account", {
+      headers: expect.any(Headers),
+    });
+    expect(readFetchHeaders().get("authorization")).toBeNull();
+  });
+
+  it("creates and revokes a named write key without storing its secret", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          key: {
+            id: "key_one",
+            name: "Production",
+            active: true,
+            createdAt: 1,
+            createdBy: "u1",
+            revokedAt: null,
+            revokedBy: null,
+            keyHashPrefix: "abc123",
+          },
+          secret: "or_live_secret",
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ key: { id: "key_one", name: "Production", active: false } }),
+      );
+
+    await createProjectKey("project one", "Production");
+    await revokeProjectKey("project one", "key/one");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/v1/projects/project%20one/keys", {
+      headers: expect.any(Headers),
+      method: "POST",
+      body: JSON.stringify({ name: "Production" }),
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/v1/projects/project%20one/keys/key%2Fone", {
+      headers: expect.any(Headers),
+      method: "DELETE",
+    });
+    expect(readFetchHeaders(0).get("authorization")).toBeNull();
+    expect(readFetchHeaders(1).get("authorization")).toBeNull();
+    expect(window.localStorage.length).toBe(0);
+  });
+
+  it("loads operator totals and an encoded user page", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ users: 1, newUsers: 1 }))
+      .mockResolvedValueOnce(jsonResponse({ users: [], total: 0, limit: 25, offset: 25 }));
+
+    await fetchAdminStats();
+    await fetchAdminUsers({ limit: 25, offset: 25, search: "Sunny + team" });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/v1/admin/stats", {
+      headers: expect.any(Headers),
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/v1/admin/users?limit=25&offset=25&search=Sunny+%2B+team",
+      { headers: expect.any(Headers) },
+    );
+  });
+
   it("checks a typed token without saving it", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ sessions: [], nextBefore: null }));
 
@@ -284,8 +375,8 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-function readFetchHeaders(): Headers {
-  const init = fetchMock.mock.calls[0]?.[1];
+function readFetchHeaders(callIndex = 0): Headers {
+  const init = fetchMock.mock.calls[callIndex]?.[1];
   const headers = init?.headers;
   expect(headers).toBeInstanceOf(Headers);
   if (!(headers instanceof Headers)) {

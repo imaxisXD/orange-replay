@@ -63,11 +63,6 @@ export interface ReplayPlayerState {
   };
 }
 
-// OrangePlayer currently uses a non-empty token as the signal that live
-// follow is allowed. Demo routes are allowed to mint tickets without bearer
-// auth, so this marker stays inside the player and is removed before fetch.
-const demoPlayerAccessMarker = "demo-read-only";
-
 export function useReplayPlayer({
   manifest,
   isDemo,
@@ -342,7 +337,7 @@ export function useReplayPlayer({
       api: dashboardPlayerApi(initialManifest, isDemo),
       projectId,
       sessionId,
-      token: isDemo ? demoPlayerAccessMarker : (getApiToken() ?? undefined),
+      token: isDemo ? undefined : (getApiToken() ?? undefined),
       speed: speedRef.current,
       skipInactivity: skipIdleRef.current,
       overlay: overlayColors,

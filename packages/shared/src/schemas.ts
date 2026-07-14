@@ -188,7 +188,9 @@ const projectConfigObject = z
     shard: z.number().int().nonnegative(),
     active: z.boolean(),
     sampleRate: z.number().min(0).max(1),
-    allowedOrigins: z.array(z.string()).min(1),
+    // A brand-new hosted project starts fail-closed until its owner adds the
+    // website origin. Updates still require at least one explicit origin.
+    allowedOrigins: z.array(z.string()),
     maskPolicyVersion: z.number().int().nonnegative(),
     maskRules: maskRulesSchema.optional(),
     capture: captureTogglesSchema.optional(),

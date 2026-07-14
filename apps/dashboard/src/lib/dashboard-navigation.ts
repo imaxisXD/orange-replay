@@ -21,6 +21,8 @@ const allNavItems: DashboardNavItem[] = [
   { label: "Install", projectTo: "/projects/$projectId/install" },
 ];
 
-export function dashboardNavItems(isDemo: boolean): DashboardNavItem[] {
-  return isDemo ? allNavItems.filter((item) => item.demoTo !== undefined) : allNavItems;
+export function dashboardNavItems(isDemo: boolean, canManageProject = true): DashboardNavItem[] {
+  if (isDemo) return allNavItems.filter((item) => item.demoTo !== undefined);
+  if (canManageProject) return allNavItems;
+  return allNavItems.filter((item) => item.label !== "Settings" && item.label !== "Install");
 }

@@ -1,0 +1,335 @@
+--- a/apps/dashboard/src/routes/session-detail/replay-playback/replay-controls.tsx
++++ b/apps/dashboard/src/routes/session-detail/replay-playback/replay-controls.tsx
+@@ -1,6 +1,5 @@
+ import type { ActivityBucket } from "@orange-replay/player";
+ import { Button } from "@/components/ui/button";
+-import { IconSwap } from "@/components/ui/icon-swap";
+ import { ScrollArea } from "@/components/ui/scroll-area";
+ import { Switch } from "@/components/ui/switch";
+ import { formatDuration } from "@/lib/format";
+@@ -44,9 +43,7 @@
+             onClick={player.actions.togglePlayback}
+             type="button"
+           >
+-            <IconSwap swapKey={playing ? "pause" : "play"}>
+-              <PlayPauseShape playing={playing} />
+-            </IconSwap>
++            <PlayPauseShape playing={playing} />
+           </button>
+         )}
+ 
+--- a/apps/dashboard/src/components/ui/select.tsx
++++ b/apps/dashboard/src/components/ui/select.tsx
+@@ -10,7 +10,7 @@
+   type ReactNode,
+   type HTMLAttributes,
+ } from "react";
+-import { AnimatePresence, m } from "@/lib/motion";
++import { AnimatePresence, m, useReducedMotion } from "@/lib/motion";
+ import { cva, type VariantProps } from "class-variance-authority";
+ import { Select as SelectPrimitive } from "@base-ui/react/select";
+ import type { IconComponent } from "@/lib/icon-map";
+@@ -256,6 +256,7 @@
+   ({ className, children }, ref) => {
+     const { open, value, unmount } = useSelectContext();
+     const shape = useShape();
++    const reduce = useReducedMotion();
+     const containerRef = useRef<HTMLDivElement>(null);
+ 
+     const {
+@@ -327,10 +328,20 @@
+           className="z-50"
+         >
+           <m.div
+-            initial={{ opacity: 0, y: -4, scaleY: 0.96 }}
+-            animate={open ? { opacity: 1, y: 0, scaleY: 1 } : { opacity: 0, y: -4, scaleY: 0.96 }}
++            initial={
++              reduce ? { opacity: 0 } : { opacity: 0, transform: "translateY(-4px) scaleY(0.96)" }
++            }
++            animate={
++              open
++                ? reduce
++                  ? { opacity: 1 }
++                  : { opacity: 1, transform: "translateY(0px) scaleY(1)" }
++                : reduce
++                  ? { opacity: 0 }
++                  : { opacity: 0, transform: "translateY(-4px) scaleY(0.96)" }
++            }
+             transition={open ? spring.fast : spring.fast.exit}
+-            style={{ transformOrigin: "top center" }}
++            style={{ transformOrigin: "var(--transform-origin)" }}
+             // Base UI keeps the popup mounted while the exit motion runs;
+             // release it after the animation completes.
+             // spring has finished.
+@@ -570,7 +581,7 @@
+                 }}
+                 exit={{
+                   pathLength: 0,
+-                  transition: { duration: 0.04, ease: "easeIn" },
++                  transition: { duration: 0.04, ease: "easeOut" },
+                 }}
+               />
+             </m.svg>
+--- a/apps/dashboard/src/components/ui/switch.tsx
++++ b/apps/dashboard/src/components/ui/switch.tsx
+@@ -1,7 +1,7 @@
+ "use client";
+ 
+ import { forwardRef, useRef, useState, useEffect, useId, type HTMLAttributes } from "react";
+-import { animate, m, useMotionValue, type Transition } from "@/lib/motion";
++import { animate, m, useMotionValue, useReducedMotion, type Transition } from "@/lib/motion";
+ import { Switch as SwitchPrimitive } from "@base-ui/react/switch";
+ import { cn } from "@/lib/utils";
+ import { spring } from "@/lib/springs";
+@@ -27,6 +27,10 @@
+ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
+   ({ label, checked, onToggle, disabled = false, thumbTransition, className, ...props }, ref) => {
+     const labelId = useId();
++    const reduceMotion = useReducedMotion();
++    const thumbSpring: Transition = reduceMotion
++      ? { duration: 0 }
++      : (thumbTransition ?? spring.moderate);
+     const hasMounted = useRef(false);
+     const [hovered, setHovered] = useState(false);
+     const [pressed, setPressed] = useState(false);
+@@ -63,9 +67,9 @@
+       if (!hasMounted.current) {
+         motionX.set(thumbX);
+       } else {
+-        animate(motionX, thumbX, thumbTransition ?? spring.moderate);
++        animate(motionX, thumbX, thumbSpring);
+       }
+-    }, [thumbX, motionX, thumbTransition]);
++    }, [thumbX, motionX, thumbSpring]);
+ 
+     // --- Pointer handlers ---
+ 
+@@ -119,7 +123,7 @@
+         } else {
+           // Snap back to current resting position (un-pressed)
+           const snapTarget = checked ? THUMB_OFFSET + THUMB_TRAVEL : THUMB_OFFSET;
+-          animate(motionX, snapTarget, thumbTransition ?? spring.moderate);
++          animate(motionX, snapTarget, thumbSpring);
+         }
+ 
+         requestAnimationFrame(() => {
+@@ -138,7 +142,7 @@
+         dragging.current = false;
+         // Gesture cancelled by the system — snap back without toggling
+         const snapTarget = checked ? THUMB_OFFSET + THUMB_TRAVEL : THUMB_OFFSET;
+-        animate(motionX, snapTarget, thumbTransition ?? spring.moderate);
++        animate(motionX, snapTarget, thumbSpring);
+       }
+ 
+       pointerStart.current = null;
+--- a/apps/dashboard/src/components/ui/tabs.tsx
++++ b/apps/dashboard/src/components/ui/tabs.tsx
+@@ -14,7 +14,7 @@
+       ref={ref}
+       {...props}
+     >
+-      <TabsPrimitive.Indicator className="pointer-events-none absolute top-(--active-tab-top) left-(--active-tab-left) h-(--active-tab-height) w-(--active-tab-width) rounded-md bg-card transition-[top,left,width,height] duration-200 ease-out motion-reduce:transition-none" />
++      <TabsPrimitive.Indicator className="pointer-events-none absolute top-0 left-0 h-(--active-tab-height) w-(--active-tab-width) [transform:translate(var(--active-tab-left),var(--active-tab-top))] rounded-md bg-card transition-[transform,width,height] duration-200 ease-in-out motion-reduce:transition-none" />
+       {children}
+     </TabsPrimitive.List>
+   ),
+--- a/apps/dashboard/src/components/ui/tooltip.tsx
++++ b/apps/dashboard/src/components/ui/tooltip.tsx
+@@ -2,7 +2,7 @@
+ 
+ import { createContext, useContext, useState, type ReactNode } from "react";
+ import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip";
+-import { AnimatePresence, m } from "@/lib/motion";
++import { AnimatePresence, m, useReducedMotion } from "@/lib/motion";
+ import { cn } from "@/lib/utils";
+ import { spring } from "@/lib/springs";
+ import { fontWeights } from "@/lib/font-weight";
+@@ -99,13 +99,13 @@
+ function getSlideOffset(side: TooltipSide) {
+   switch (side) {
+     case "top":
+-      return { y: 4 };
++      return { from: "translateY(4px)", to: "translateY(0px)" };
+     case "bottom":
+-      return { y: -4 };
++      return { from: "translateY(-4px)", to: "translateY(0px)" };
+     case "left":
+-      return { x: 4 };
++      return { from: "translateX(4px)", to: "translateX(0px)" };
+     case "right":
+-      return { x: -4 };
++      return { from: "translateX(-4px)", to: "translateX(0px)" };
+   }
+ }
+ 
+@@ -126,6 +126,7 @@
+   const [internalOpen, setInternalOpen] = useState(false);
+   const open = forceOpen !== undefined ? forceOpen : internalOpen;
+   const shape = useShape();
++  const reduce = useReducedMotion();
+   const portalContainer = useContext(TooltipPortalContainerContext);
+   const hasAmbientProvider = useContext(TooltipGroupContext);
+ 
+@@ -163,9 +164,9 @@
+                   className,
+                 )}
+                 style={{ fontVariationSettings: fontWeights.medium }}
+-                initial={{ opacity: 0, ...slideOffset }}
+-                animate={{ opacity: 1, x: 0, y: 0 }}
+-                exit={{ opacity: 0, ...slideOffset }}
++                initial={reduce ? { opacity: 0 } : { opacity: 0, transform: slideOffset.from }}
++                animate={reduce ? { opacity: 1 } : { opacity: 1, transform: slideOffset.to }}
++                exit={reduce ? { opacity: 0 } : { opacity: 0, transform: slideOffset.from }}
+                 transition={open ? spring.fast : spring.fast.exit}
+               >
+                 {content}
+--- a/apps/dashboard/src/components/ui/icon-swap.tsx
++++ b/apps/dashboard/src/components/ui/icon-swap.tsx
+@@ -28,9 +28,15 @@
+         <m.span
+           key={swapKey}
+           className="col-start-1 row-start-1 inline-grid place-items-center"
+-          initial={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.25, filter: "blur(4px)" }}
+-          animate={reduce ? { opacity: 1 } : { opacity: 1, scale: 1, filter: "blur(0px)" }}
+-          exit={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.25, filter: "blur(4px)" }}
++          initial={
++            reduce ? { opacity: 0 } : { opacity: 0, transform: "scale(0.25)", filter: "blur(4px)" }
++          }
++          animate={
++            reduce ? { opacity: 1 } : { opacity: 1, transform: "scale(1)", filter: "blur(0px)" }
++          }
++          exit={
++            reduce ? { opacity: 0 } : { opacity: 0, transform: "scale(0.25)", filter: "blur(4px)" }
++          }
+           transition={reduce ? { duration: 0 } : { type: "spring", duration: 0.3, bounce: 0 }}
+         >
+           {children}
+--- a/apps/dashboard/src/components/ui/scroll-area.tsx
++++ b/apps/dashboard/src/components/ui/scroll-area.tsx
+@@ -129,13 +129,13 @@
+       <ScrollAreaPrimitive.Thumb
+         data-slot="scroll-area-thumb"
+         className={cn(
+-          "relative bg-foreground/25 transition-[background-color,width,height] duration-160 ease-in-out",
++          "relative bg-foreground/25 transition-[background-color,scale] duration-160 ease-in-out",
+           "group-hover/scrollbar:bg-foreground/45 active:!bg-foreground/60",
+           shape.bg,
+           orientation === "vertical" &&
+-            "mx-auto my-1 w-1 h-[var(--scroll-area-thumb-height)] group-hover/scrollbar:w-1.5",
++            "mx-auto my-1 w-1.5 scale-x-[0.667] h-[var(--scroll-area-thumb-height)] group-hover/scrollbar:scale-x-100",
+           orientation === "horizontal" &&
+-            "my-auto mx-1 h-1 w-[var(--scroll-area-thumb-width)] group-hover/scrollbar:h-1.5",
++            "my-auto mx-1 h-1.5 scale-y-[0.667] w-[var(--scroll-area-thumb-width)] group-hover/scrollbar:scale-y-100",
+         )}
+       />
+     </ScrollAreaPrimitive.Scrollbar>
+--- a/apps/dashboard/src/index.css
++++ b/apps/dashboard/src/index.css
+@@ -282,6 +282,7 @@
+ @theme inline {
+   --font-sans: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
+   --font-mono: "Uncut Plan8", ui-monospace, "SF Mono", Menlo, monospace;
++  --ease-out-strong: cubic-bezier(0.22, 1, 0.36, 1);
+   --color-background: var(--background);
+   --color-foreground: var(--foreground);
+   --color-card: var(--card);
+@@ -402,7 +403,7 @@
+     oklch(0 0 0 / 0.07) 100%
+   );
+   opacity: 0.85;
+-  transition: opacity 140ms ease;
++  transition: opacity 150ms ease;
+ }
+ .lit::before {
+   content: "";
+@@ -465,7 +466,7 @@
+    hand-off uses the identical button. Hover feedback is the arrow rotating
+    from ↗ to → (no lift). */
+ .demo-cta {
+-  transition: box-shadow 140ms ease;
++  transition: box-shadow 150ms ease;
+ }
+ .demo-cta:hover {
+   box-shadow: 0 8px 24px oklch(1 0 0 / 0.12);
+@@ -520,7 +521,7 @@
+ }
+ 
+ .timeline-playhead-flash {
+-  animation: timeline-playhead-flash 520ms ease-out;
++  animation: timeline-playhead-flash 240ms ease-out;
+ }
+ 
+ /* ─────────────────────────────────────────────────────────
+@@ -542,13 +543,13 @@
+ }
+ 
+ .stage-in {
+-  animation: stage-in 200ms cubic-bezier(0.22, 1, 0.36, 1);
++  animation: stage-in 200ms var(--ease-out-strong);
+ }
+ 
+ .watched-dot {
+   transition:
+-    opacity 200ms cubic-bezier(0.22, 1, 0.36, 1),
+-    transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
++    opacity 200ms var(--ease-out-strong),
++    transform 200ms var(--ease-out-strong);
+ }
+ 
+ .watched-dot[data-watched="true"] {
+--- a/landing/index.html
++++ b/landing/index.html
+@@ -87,6 +87,7 @@
+ 
+         /* quiver-inspired: framed column + gutter texture */
+         --rule: #1e1e22;
++        --ease-out-strong: cubic-bezier(0.22, 1, 0.36, 1);
+ 
+         --sans: "Uncut Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+         --mono: "Uncut Plan8", ui-monospace, "SF Mono", Menlo, monospace;
+@@ -271,8 +272,10 @@
+       .cta-pill .circ .huge-icon {
+         transition: transform 200ms ease-out;
+       }
+-      .cta-pill:hover .circ .huge-icon {
+-        transform: rotate(45deg);
++      @media (hover: hover) and (pointer: fine) {
++        .cta-pill:hover .circ .huge-icon {
++          transform: rotate(45deg);
++        }
+       }
+       .cta-pill .circ {
+         width: 24px;
+@@ -1735,10 +1738,10 @@
+         }
+       }
+       .lv-page.roll-out {
+-        animation: lv-rollout 200ms ease-in forwards;
++        animation: lv-rollout 200ms ease-out forwards;
+       }
+       .lv-page.roll-in {
+-        animation: lv-rollin 260ms cubic-bezier(0.22, 1, 0.36, 1);
++        animation: lv-rollin 260ms var(--ease-out-strong);
+       }
+       .lv-meta {
+         font-size: 11.5px;
+@@ -1769,7 +1772,7 @@
+       }
+       .lv-odo .reel.min-tens {
+         max-width: 0;
+-        transition: max-width 0.32s cubic-bezier(0.22, 1, 0.36, 1);
++        transition: max-width 0.32s var(--ease-out-strong);
+       }
+       .lv-odo .reel.min-tens.show {
+         max-width: 0.62em;
+@@ -2329,8 +2332,8 @@
+         opacity: 0;
+         transform: translateY(20px);
+         transition:
+-          opacity 0.8s cubic-bezier(0.22, 1, 0.36, 1),
+-          transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
++          opacity 0.8s var(--ease-out-strong),
++          transform 0.8s var(--ease-out-strong);
+       }
+       .reveal.in {
+         opacity: 1;

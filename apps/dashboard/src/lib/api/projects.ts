@@ -1,8 +1,10 @@
 import type {
   ProjectConfigUpdate,
-  ProjectKeysResponse,
+  PublicPageSettings,
+  PublicPageSettingsUpdate,
   StoredProjectConfig,
 } from "@orange-replay/shared/types";
+import type { ProjectKeysResponse } from "./account";
 import type { DemoWorkspaceResponse } from "../demo-mode";
 import { defaultProjectId } from "../routes";
 import { requestJson, encodePathPart } from "./client";
@@ -65,5 +67,22 @@ export async function fetchInstallStatus(projectId: string): Promise<InstallStat
   return requestJson<InstallStatusResponse>(
     `/api/v1/projects/${encodePathPart(projectId)}/install-status`,
     { auth: true },
+  );
+}
+
+export async function fetchPublicPageSettings(projectId: string): Promise<PublicPageSettings> {
+  return requestJson<PublicPageSettings>(
+    `/api/v1/projects/${encodePathPart(projectId)}/public-page`,
+    { auth: true },
+  );
+}
+
+export async function savePublicPageSettings(
+  projectId: string,
+  update: PublicPageSettingsUpdate,
+): Promise<PublicPageSettings> {
+  return requestJson<PublicPageSettings>(
+    `/api/v1/projects/${encodePathPart(projectId)}/public-page`,
+    { auth: true, method: "PUT", body: update },
   );
 }

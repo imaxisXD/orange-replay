@@ -39,6 +39,11 @@ describe("demo routes", () => {
       "Settings",
       "Install",
     ]);
+    expect(dashboardNavItems(false, false).map((item) => item.label)).toEqual([
+      "Overview",
+      "Sessions",
+      "Live",
+    ]);
   });
 
   it("renders the unavailable state for a missing demo", () => {

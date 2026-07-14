@@ -3,11 +3,16 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
+  lazyRouteComponent,
   redirect,
   type ErrorComponentProps,
 } from "@tanstack/react-router";
-import { defaultProjectId } from "@/lib/routes";
-import { requireProjectToken } from "@/lib/route-guard";
+import {
+  openProjectsHome,
+  requireAdminAccess,
+  requireProjectAccess,
+  requireProjectManager,
+} from "@/lib/route-guard";
 import { DashboardWorkspaceProvider } from "@/lib/dashboard-workspace";
 import { AppShell } from "@/routes/app-shell";
 import { DemoRoute } from "@/routes/demo";
@@ -15,6 +20,7 @@ import { InstallPage } from "@/routes/install";
 import { LivePage } from "@/routes/live";
 import { LoginPage } from "@/routes/login";
 import { OverviewPage } from "@/routes/overview";
+import { ProjectsPage } from "@/routes/projects";
 import { RouteError } from "@/routes/route-error";
 import { SessionDetailPage } from "@/routes/session-detail";
 import { SessionsPage } from "@/routes/sessions";
@@ -34,6 +40,8 @@ const rootRoute = createRootRoute({
   notFoundComponent: () => <RouteError notFound />,
 });
 
+const AdminPage = lazyRouteComponent(() => import("@/routes/admin"), "AdminPage");
+
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/login",
@@ -49,19 +57,32 @@ const rootIndexRoute = createRoute({
   path: "/",
   beforeLoad: () => {
     throw redirect({
-      to: "/projects/$projectId/overview",
-      params: { projectId: defaultProjectId },
+      to: "/projects",
       replace: true,
     });
   },
 });
 
+const projectsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/projects",
+  beforeLoad: ({ location }) => openProjectsHome(location),
+  component: ProjectsPage,
+  errorComponent: RouteErrorBoundary,
+});
+
+const adminRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/_admin",
+  beforeLoad: ({ location }) => requireAdminAccess(location),
+  component: AdminPage,
+  errorComponent: RouteErrorBoundary,
+});
+
 const projectRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/projects/$projectId",
-  beforeLoad: ({ location }) => {
-    requireProjectToken(location);
-  },
+  beforeLoad: ({ location, params }) => requireProjectAccess(location, params.projectId),
   component: ProjectAppShell,
   errorComponent: RouteErrorBoundary,
   notFoundComponent: () => <RouteError notFound />,
@@ -108,12 +129,14 @@ const liveRoute = createRoute({
 const settingsRoute = createRoute({
   getParentRoute: () => projectRoute,
   path: "settings",
+  beforeLoad: ({ location, params }) => requireProjectManager(location, params.projectId),
   component: SettingsPage,
 });
 
 const installRoute = createRoute({
   getParentRoute: () => projectRoute,
   path: "install",
+  beforeLoad: ({ location, params }) => requireProjectManager(location, params.projectId),
   component: InstallPage,
 });
 
@@ -171,6 +194,8 @@ const demoLiveRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   loginRoute,
   rootIndexRoute,
+  projectsRoute,
+  adminRoute,
   demoRoute.addChildren([
     demoIndexRoute,
     demoOverviewRoute,

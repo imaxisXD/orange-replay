@@ -41,7 +41,7 @@ export function SettingsHealthAlert() {
   );
 }
 
-export function SettingsEnvironmentCards() {
+export function SettingsEnvironmentCards({ hosted = false }: { hosted?: boolean }) {
   const hasToken = getApiToken() !== null;
   const { healthQuery, healthState } = useWorkerHealth();
 
@@ -50,13 +50,15 @@ export function SettingsEnvironmentCards() {
       <section className="lit flex flex-col gap-4 overflow-hidden rounded-lg p-5">
         <div className="flex items-start justify-between gap-3">
           <div className="flex flex-col gap-1">
-            <h2 className="text-[15px] font-medium">API token</h2>
-            <p className="text-[13px] text-muted-foreground">Stored in this browser only.</p>
+            <h2 className="text-[15px] font-medium">{hosted ? "Account session" : "Dev token"}</h2>
+            <p className="text-[13px] text-muted-foreground">
+              {hosted ? "Protected by your signed-in account." : "Stored in this browser only."}
+            </p>
           </div>
           <KeyRound aria-hidden className="size-5 text-muted-foreground" />
         </div>
-        <Badge color={hasToken ? "green" : "amber"} size="sm" variant="dot">
-          {hasToken ? "Token saved" : "Token missing"}
+        <Badge color={hosted || hasToken ? "green" : "amber"} size="sm" variant="dot">
+          {hosted ? "Signed in" : hasToken ? "Token saved" : "Token missing"}
         </Badge>
       </section>
 

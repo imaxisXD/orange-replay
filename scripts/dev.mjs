@@ -193,7 +193,18 @@ async function writeLocalWorkerConfig() {
   config.assets = {
     directory: localAssetsDir,
     binding: "ASSETS",
-    run_worker_first: ["/api/*", "/v1/*", "/login", "/demo", "/demo/*", "/projects", "/projects/*"],
+    run_worker_first: [
+      "/api/*",
+      "/v1/*",
+      "/login",
+      "/demo",
+      "/demo/*",
+      "/projects",
+      "/projects/*",
+      "/p/*",
+      "/_admin",
+      "/_admin/*",
+    ],
   };
   await writeFile(localWorkerConfigPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
 }

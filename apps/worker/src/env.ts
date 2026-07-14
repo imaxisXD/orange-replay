@@ -32,6 +32,8 @@ export interface Env {
   INGEST_PROJECT_RATE_LIMITER?: RateLimitBinding;
   INGEST_SESSION_RATE_LIMITER?: RateLimitBinding;
   DEMO_API_RATE_LIMITER?: RateLimitBinding;
+  KEY_MANAGEMENT_RATE_LIMITER?: RateLimitBinding;
+  PUBLIC_PAGE_RATE_LIMITER?: RateLimitBinding;
   CF_VERSION_METADATA?: WorkerVersionMetadata;
   /** Deployment environment name. Production disables all dev-only test gates. */
   WORKER_ENV?: string;
@@ -49,12 +51,24 @@ export interface Env {
   DEV_API_TOKEN?: string;
   /** Comma-separated project ids that DEV_API_TOKEN may access. */
   DEV_API_PROJECT_IDS?: string;
+  /** Public origin for Better Auth, without a path. */
+  BETTER_AUTH_URL?: string;
+  /** At least 32 characters. Used to sign cookies and encrypt OAuth tokens. */
+  BETTER_AUTH_SECRET?: string;
+  /** Comma-separated exact dashboard origins. Wildcards are not accepted. */
+  BETTER_AUTH_TRUSTED_ORIGINS?: string;
+  /** GitHub OAuth App client id. */
+  GITHUB_CLIENT_ID?: string;
+  /** GitHub OAuth App client secret. */
+  GITHUB_CLIENT_SECRET?: string;
   /** Server-only HMAC secret for live WebSocket tickets. */
   LIVE_TICKET_SECRET?: string;
   /** Public read-only demo project id. Demo is disabled unless this and DEMO_WRITE_KEY are set. */
   DEMO_PROJECT_ID?: string;
   /** Public SDK write key for the demo landing page recorder. */
   DEMO_WRITE_KEY?: string;
+  /** Exact public origin used to build share links, for example https://public.example.com. */
+  PUBLIC_PAGE_ORIGIN?: string;
   /** "1" enables /__test/* routes. Never set in production config. */
   DEV_TEST_ROUTES?: string;
   /**

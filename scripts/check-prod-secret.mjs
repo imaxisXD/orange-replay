@@ -21,7 +21,9 @@ try {
   }
 
   readProductionSecretValues();
-  console.log("Production API and analytics secrets passed validation. Nothing was uploaded.");
+  console.log(
+    "Production hosted-auth, demo, API, and analytics secrets passed validation. Nothing was uploaded.",
+  );
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
@@ -45,14 +47,12 @@ function readOptions(args) {
       if (value === undefined || value.startsWith("--") || value.trim().length === 0) {
         throw new Error("--config needs a file path.");
       }
-      options.config = path.resolve(process.cwd(), value);
+      options.config = path.resolve(process.cwd(), value.trim());
       index += 1;
       continue;
     }
     if (argument === "--help" || argument === "-h") {
-      console.log(
-        "Usage: node scripts/check-prod-secret.mjs [--validate-only | --check-uploaded] [--config FILE]",
-      );
+      printHelp();
       process.exit(0);
     }
     throw new Error(`Unknown option: ${argument}`);
@@ -73,16 +73,17 @@ async function confirmUploadedSecrets(options) {
     "wrangler",
     "secret",
     "list",
+    "--format",
+    "json",
     "--config",
     options.config,
     "--env",
     "production",
   ]);
   const uploaded = readUploadedSecretNames(output);
-  for (const name of productionWorkerSecretNames) {
-    if (!uploaded.has(name)) {
-      throw new Error(`${name} was not visible after secret upload.`);
-    }
+  const missingNames = productionWorkerSecretNames.filter((name) => !uploaded.has(name));
+  if (missingNames.length > 0) {
+    throw new Error(`Missing Worker secret names: ${missingNames.join(", ")}.`);
   }
 }
 
@@ -119,15 +120,35 @@ function runCapture(command, args) {
 }
 
 function readUploadedSecretNames(output) {
+  let values;
   try {
-    const parsed = JSON.parse(output);
-    if (!Array.isArray(parsed)) throw new Error("not an array");
-    return new Set(
-      parsed
-        .map((item) => (item !== null && typeof item === "object" ? item.name : undefined))
-        .filter((name) => typeof name === "string"),
-    );
-  } catch {
-    throw new Error("Wrangler returned an unreadable production secret list.");
+    values = JSON.parse(output);
+  } catch (error) {
+    throw new Error("Wrangler returned an unreadable production secret list.", { cause: error });
   }
+  if (!Array.isArray(values)) {
+    throw new Error("Wrangler returned an invalid production secret list.");
+  }
+
+  const names = new Set();
+  for (const value of values) {
+    if (typeof value?.name !== "string" || value.name.length === 0) {
+      throw new Error("Wrangler returned an invalid production secret entry.");
+    }
+    names.add(value.name);
+  }
+  return names;
+}
+
+function printHelp() {
+  console.log(`Usage: node scripts/check-prod-secret.mjs [options]
+
+Validates every production hosted-auth, demo, API, and analytics value without uploading it.
+The reviewed deploy uploads the full set only after the analytics gate passes.
+
+Options:
+  --validate-only       Validate local values without contacting or changing Cloudflare.
+  --check-uploaded      Check that all required secret names already exist on the Worker.
+  --config VALUE        Wrangler config to inspect. Default: apps/worker/wrangler.jsonc.
+  --help, -h            Show this help.`);
 }

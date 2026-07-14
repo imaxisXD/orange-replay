@@ -76,6 +76,12 @@ describe("new project analytics receipt", () => {
       expect(output).toContain(`'${projectId}'`);
       expect(output).toContain(`'${reportId}'`);
       expect(output).toContain("WHERE changes() = 1");
+      expect(output).toContain(
+        "INSERT INTO orgs (id, name, slug, logo, metadata, shard, created_at)",
+      );
+      expect(output).toContain("cache_synced, cache_final_check_at");
+      expect(output).toContain("The Worker cache repair will add this key to KV.");
+      expect(output).not.toContain("KV value:");
     },
   );
 });

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { InputField, InputGroup } from "@/components/ui/input-group";
-import { Skeleton } from "@/components/ui/skeleton";
+import { LoadingArea } from "@/components/ui/loading-indicator";
 import { cn } from "@/lib/utils";
 
 export function CardHeader({
@@ -116,19 +116,5 @@ export function TextInput({
 }
 
 export function SettingsLoading() {
-  return (
-    <div className="grid gap-4 md:grid-cols-2">
-      {Array.from({ length: 4 }, (_item, index) => (
-        <section className="lit rounded-lg p-5" key={index}>
-          <Skeleton className="h-5 w-32" />
-          <Skeleton className="mt-2 h-4 w-64 max-w-full" />
-          <div className="mt-5 flex flex-col gap-3">
-            <Skeleton className="h-10 w-full rounded-[7px]" />
-            <Skeleton className="h-10 w-full rounded-[7px]" />
-            <Skeleton className="h-10 w-full rounded-[7px]" />
-          </div>
-        </section>
-      ))}
-    </div>
-  );
+  return <LoadingArea className="lit min-h-80 rounded-lg" label="Loading project settings" />;
 }

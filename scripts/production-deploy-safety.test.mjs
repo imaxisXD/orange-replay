@@ -28,15 +28,25 @@ import {
 } from "./deploy-production.mjs";
 
 const longSecret = "x".repeat(40);
+const demoWriteKey = `or_live_${"d".repeat(32)}`;
 
 function validEnvironment() {
   return {
     ORANGE_REPLAY_PROD_API_TOKEN: `${longSecret}api`,
     ORANGE_REPLAY_PROD_API_PROJECT_IDS: "project_one, project_two,project_one",
+    ORANGE_REPLAY_PROD_BETTER_AUTH_SECRET: `${longSecret}auth`,
+    ORANGE_REPLAY_PROD_BETTER_AUTH_URL: "https://replay.example.com",
+    ORANGE_REPLAY_PROD_BETTER_AUTH_TRUSTED_ORIGINS:
+      "https://replay.example.com, https://admin.example.com,https://replay.example.com",
+    ORANGE_REPLAY_PROD_GITHUB_CLIENT_ID: "github-client-id-12345",
+    ORANGE_REPLAY_PROD_GITHUB_CLIENT_SECRET: `${longSecret}github`,
     ORANGE_REPLAY_PROD_LIVE_TICKET_SECRET: `${longSecret}ticket`,
+    ORANGE_REPLAY_DEMO_PROJECT_ID: "demo_project",
+    ORANGE_REPLAY_DEMO_WRITE_KEY: demoWriteKey,
     ORANGE_REPLAY_PROD_R2_SQL_TOKEN: `${longSecret}r2`,
     ORANGE_REPLAY_PROD_ANALYTICS_PURGE_RUNNER_TOKEN: `${longSecret}purge`,
     ORANGE_REPLAY_PROD_WORKER_URL: "https://replay.example.com",
+    ORANGE_REPLAY_PROD_PUBLIC_PAGE_ORIGIN: "https://public.example.com",
     CLOUDFLARE_API_TOKEN: "cloudflare-deploy-token",
     CLOUDFLARE_ACCESS_CLIENT_SECRET: "cloudflare-access-secret",
     SAFE_VALUE: "keep",
@@ -49,11 +59,19 @@ describe("production deploy secret safety", () => {
     const values = readProductionSecretValues(validEnvironment());
     expect(values).toEqual({
       ANALYTICS_PURGE_RUNNER_TOKEN: `${longSecret}purge`,
+      BETTER_AUTH_SECRET: `${longSecret}auth`,
+      BETTER_AUTH_TRUSTED_ORIGINS: "https://replay.example.com,https://admin.example.com",
+      BETTER_AUTH_URL: "https://replay.example.com",
+      DEMO_PROJECT_ID: "demo_project",
+      DEMO_WRITE_KEY: demoWriteKey,
       DEV_API_PROJECT_IDS: "project_one,project_two",
       DEV_API_TOKEN: `${longSecret}api`,
+      GITHUB_CLIENT_ID: "github-client-id-12345",
+      GITHUB_CLIENT_SECRET: `${longSecret}github`,
       LIVE_TICKET_SECRET: `${longSecret}ticket`,
       R2_SQL_TOKEN: `${longSecret}r2`,
     });
+    expect(readWorkerDeploySecrets(validEnvironment())).toEqual(values);
   });
 
   it("rejects short secrets and unsafe project ids", () => {
@@ -69,6 +87,21 @@ describe("production deploy secret safety", () => {
         ORANGE_REPLAY_PROD_API_PROJECT_IDS: "project_one,bad project",
       }),
     ).toThrow("ORANGE_REPLAY_PROD_API_PROJECT_IDS contains an invalid project id");
+    expect(() =>
+      readProductionSecretValues({
+        ...validEnvironment(),
+        ORANGE_REPLAY_PROD_BETTER_AUTH_URL: "https://auth.example.com",
+        ORANGE_REPLAY_PROD_BETTER_AUTH_TRUSTED_ORIGINS: "https://auth.example.com",
+      }),
+    ).toThrow(
+      "ORANGE_REPLAY_PROD_BETTER_AUTH_URL must exactly match ORANGE_REPLAY_PROD_WORKER_URL",
+    );
+    expect(() =>
+      readProductionSecretValues({
+        ...validEnvironment(),
+        ORANGE_REPLAY_DEMO_WRITE_KEY: "or_live_not-a-generated-key",
+      }),
+    ).toThrow("ORANGE_REPLAY_DEMO_WRITE_KEY must be a generated key that starts with or_live_");
   });
 
   it("checks hosted-build smoke credentials before any deploy step", async () => {
@@ -132,6 +165,13 @@ describe("production deploy secret safety", () => {
       ORANGE_REPLAY_R2_SQL_READ_TOKEN: "reader",
       ORANGE_REPLAY_PROD_WRITE_KEY: "write-key",
       WRANGLER_R2_SQL_AUTH_TOKEN: "wrangler-reader",
+      BETTER_AUTH_SECRET: "direct-auth",
+      BETTER_AUTH_URL: "direct-auth-url",
+      BETTER_AUTH_TRUSTED_ORIGINS: "direct-trusted-origins",
+      GITHUB_CLIENT_ID: "direct-github-id",
+      GITHUB_CLIENT_SECRET: "direct-github-secret",
+      DEMO_PROJECT_ID: "direct-demo-project",
+      DEMO_WRITE_KEY: "direct-demo-write-key",
       DEV_API_TOKEN: "direct-api",
       DEV_API_PROJECT_IDS: "direct-projects",
       LIVE_TICKET_SECRET: "direct-ticket",
@@ -139,6 +179,7 @@ describe("production deploy secret safety", () => {
       ANALYTICS_PURGE_RUNNER_TOKEN: "direct-purge",
     });
     expect(clean.SAFE_VALUE).toBe("keep");
+    expect(clean.ORANGE_REPLAY_PROD_PUBLIC_PAGE_ORIGIN).toBe("https://public.example.com");
     for (const name of productionSecretEnvironmentNames) expect(clean[name]).toBeUndefined();
     for (const name of productionWorkerSecretNames) expect(clean[name]).toBeUndefined();
     for (const name of [
@@ -299,6 +340,9 @@ ${secretBlock}      "vars": { "ANALYTICS_READ_BACKEND": "d1" }
 
     for (const step of steps) {
       const childEnvironment = productionStepEnvironment(step, environment, "r2_sql");
+      expect(childEnvironment.ORANGE_REPLAY_PROD_PUBLIC_PAGE_ORIGIN).toBe(
+        environment.ORANGE_REPLAY_PROD_PUBLIC_PAGE_ORIGIN,
+      );
       expect(childEnvironment.DEV_API_TOKEN).toBeUndefined();
       expect(childEnvironment.ORANGE_REPLAY_CATALOG_TOKEN).toBeUndefined();
       expect(childEnvironment.ORANGE_REPLAY_PROD_WRITE_KEY).toBeUndefined();

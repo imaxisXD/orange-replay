@@ -4,7 +4,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { CountryFlag } from "@/components/country-flag";
-import { Skeleton } from "@/components/ui/skeleton";
+import { LoadingArea } from "@/components/ui/loading-indicator";
 import { ApiError, fetchLiveSessions, type LiveSessionItem } from "@/lib/api";
 import { useDashboardWorkspace } from "@/lib/dashboard-workspace";
 import { AlertCircle, RotateCcw } from "@/lib/icon-map";
@@ -143,21 +143,10 @@ function LiveRow({
 
 function LiveLoadingRows() {
   return (
-    <div>
-      {Array.from({ length: 3 }, (_unused, index) => (
-        <div
-          className="flex items-center gap-2.5 border-b border-dashed border-dash py-2.25 last:border-b-0"
-          key={index}
-        >
-          <Skeleton className="size-1.75 flex-none rounded-full" />
-          <div className="min-w-0 max-w-85 flex-1">
-            <Skeleton className="h-3.75 w-55 max-w-full" />
-            <Skeleton className="mt-1.25 h-3.25 w-40 max-w-full" />
-          </div>
-          <Skeleton className="ml-auto h-3.5 w-9.5 flex-none" />
-        </div>
-      ))}
-    </div>
+    <LoadingArea
+      className="min-h-26 rounded-lg border border-dashed border-dash"
+      label="Loading live sessions"
+    />
   );
 }
 

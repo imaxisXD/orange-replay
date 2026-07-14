@@ -1,4 +1,5 @@
-import { type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { BrandMark } from "@/components/brand-mark";
 import { Badge } from "@/components/ui/badge";
@@ -12,11 +13,20 @@ import {
   SelectLabel,
   SelectTrigger,
 } from "@/components/ui/select";
-import { clearApiToken } from "@/lib/api";
+import {
+  accountQueryKey,
+  canManageProject,
+  clearApiToken,
+  fetchAccount,
+  findAccountProject,
+  getApiToken,
+} from "@/lib/api";
+import { authClient, readAuthClientError, signOutHosted } from "@/lib/auth-client";
 import { getDashboardEnvironmentLabel } from "@/lib/dashboard-environment";
-import { ArrowUpRight } from "@/lib/icon-map";
+import { ArrowUpRight, ShieldUser } from "@/lib/icon-map";
 import { dashboardNavItems, type DashboardNavItem } from "@/lib/dashboard-navigation";
 import { useDashboardWorkspace } from "@/lib/dashboard-workspace";
+import { queryClient } from "@/lib/query";
 import { cn } from "@/lib/utils";
 
 export function AppShell({ children }: { children?: ReactNode }) {
@@ -26,15 +36,44 @@ export function AppShell({ children }: { children?: ReactNode }) {
     import.meta.env.VITE_DASHBOARD_ENVIRONMENT,
   );
   const navigate = useNavigate();
-  const projectOptions = [{ id: projectId, label: `Project ${projectId}` }];
+  const [isSigningOut, setIsSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState("");
+  const usesLocalToken = !isDemo && getApiToken() !== null;
+  const accountQuery = useQuery({
+    queryKey: accountQueryKey,
+    queryFn: fetchAccount,
+    enabled: !isDemo && !usesLocalToken,
+    staleTime: 30_000,
+  });
+  const account = accountQuery.data;
+  const projectOptions = account?.workspaces.flatMap((workspace) =>
+    workspace.projects.map((project) => ({
+      id: project.id,
+      label: account.workspaces.length > 1 ? `${workspace.name} / ${project.name}` : project.name,
+    })),
+  ) ?? [{ id: projectId, label: `Project ${projectId}` }];
+  const activeProject = findAccountProject(account, projectId);
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   // The two-pane sessions triage needs a real player viewport; every other
   // screen keeps the design language's 1200px column.
   const wideMain = /\/sessions\/?$/.test(pathname);
 
-  function handleLogout(): void {
-    clearApiToken();
-    void navigate({ to: "/login", replace: true });
+  async function handleLogout(): Promise<void> {
+    setIsSigningOut(true);
+    setSignOutError("");
+    try {
+      if (usesLocalToken) {
+        clearApiToken();
+      } else {
+        await signOutHosted(authClient);
+      }
+      queryClient.clear();
+      void navigate({ to: "/login", replace: true });
+    } catch (error) {
+      setSignOutError(readAuthClientError(error, "Could not sign out. Try again."));
+    } finally {
+      setIsSigningOut(false);
+    }
   }
 
   return (
@@ -89,26 +128,43 @@ export function AppShell({ children }: { children?: ReactNode }) {
             </Badge>
 
             <div className="ml-auto flex items-center gap-4">
-              {!isDemo && (
-                <Button
-                  className="h-auto px-0 py-0 text-[12.5px] text-muted-foreground hover:text-foreground"
-                  onClick={handleLogout}
-                  variant="ghost"
-                >
-                  Log out
+              {!isDemo && account?.isAdmin === true && (
+                <Button asChild leadingIcon={ShieldUser} size="sm" variant="ghost">
+                  <Link to="/_admin">Operator</Link>
                 </Button>
               )}
-              <span
-                aria-hidden="true"
-                className="size-6.5 rounded-full border border-border bg-[linear-gradient(135deg,var(--teal-soft),var(--teal))]"
-              />
+              {!isDemo && (
+                <div className="flex items-center gap-2">
+                  {signOutError.length > 0 && (
+                    <p className="max-w-48 text-right text-[11.5px] text-danger" role="alert">
+                      {signOutError}
+                    </p>
+                  )}
+                  <Button
+                    className="h-auto px-0 py-0 text-[12.5px] text-muted-foreground hover:text-foreground"
+                    loading={isSigningOut}
+                    onClick={() => void handleLogout()}
+                    variant="ghost"
+                  >
+                    Log out
+                  </Button>
+                </div>
+              )}
+              {isDemo || usesLocalToken ? (
+                <span
+                  aria-hidden="true"
+                  className="size-6.5 rounded-full border border-border bg-[linear-gradient(135deg,var(--teal-soft),var(--teal))]"
+                />
+              ) : (
+                <AccountAvatar image={account?.user.image} name={account?.user.name} />
+              )}
             </div>
           </nav>
         </ScrollArea>
 
         <ScrollArea orientation="horizontal" viewportClassName="scroll-fade-x">
           <nav className="flex min-w-max gap-1 border-b border-border bg-chrome px-4 sm:px-7">
-            {dashboardNavItems(isDemo).map((item) => (
+            {dashboardNavItems(isDemo, canManageProject(activeProject)).map((item) => (
               <TopNavTab isDemo={isDemo} item={item} key={item.label} projectId={projectId} />
             ))}
           </nav>
@@ -129,6 +185,43 @@ export function AppShell({ children }: { children?: ReactNode }) {
       </ScrollArea>
     </div>
   );
+}
+
+function AccountAvatar({ image, name }: { image?: string | null; name?: string }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const initials = readInitials(name);
+
+  if (image !== undefined && image !== null && image.length > 0 && !imageFailed) {
+    return (
+      <img
+        alt={name === undefined ? "Account" : name}
+        className="size-6.5 rounded-full border border-border bg-secondary object-cover"
+        onError={() => setImageFailed(true)}
+        referrerPolicy="no-referrer"
+        src={image}
+      />
+    );
+  }
+
+  return (
+    <span
+      aria-label={name === undefined ? "Account" : name}
+      className="flex size-6.5 items-center justify-center rounded-full border border-border bg-[linear-gradient(135deg,var(--teal-soft),var(--teal))] text-[10px] font-semibold text-background"
+      role="img"
+    >
+      {initials}
+    </span>
+  );
+}
+
+function readInitials(name: string | undefined): string {
+  if (name === undefined || name.trim().length === 0) return "OR";
+  return name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toUpperCase())
+    .join("");
 }
 
 function TopNavTab({

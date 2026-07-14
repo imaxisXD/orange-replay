@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { ClientLabel } from "@/components/client-label";
 import { CountryFlag } from "@/components/country-flag";
 import { IconSwap } from "@/components/ui/icon-swap";
-import { Skeleton } from "@/components/ui/skeleton";
+import { LoadingArea } from "@/components/ui/loading-indicator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { StatusPill } from "@/components/status-pill";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -320,27 +320,7 @@ function Metric({
 }
 
 function DetailLoading() {
-  return (
-    <section className="lit overflow-hidden rounded-lg">
-      <ScrollArea orientation="horizontal" viewportClassName="scroll-fade-x">
-        <div className="flex min-w-full w-max">
-          {Array.from({ length: 4 }, (_unused, index) => (
-            <div
-              className="min-w-45 flex-1 border-r border-dashed border-dash px-4.5 py-3.75 last:border-r-0"
-              key={index}
-            >
-              <Skeleton className="mb-1.5 h-3 w-20" />
-              <Skeleton className="h-7 w-24" />
-            </div>
-          ))}
-        </div>
-      </ScrollArea>
-      <div className="flex gap-2 px-4.5 pb-3.75">
-        <Skeleton className="h-6 w-24 rounded-full" />
-        <Skeleton className="h-6 w-28 rounded-full" />
-      </div>
-    </section>
-  );
+  return <LoadingArea className="lit min-h-28 rounded-lg" label="Loading session details" />;
 }
 
 function readErrorMessage(error: unknown): string {

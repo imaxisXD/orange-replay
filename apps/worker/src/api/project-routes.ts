@@ -23,10 +23,10 @@ import { demoRateLimitAllows, readDemoConfig } from "./auth.ts";
 import { jsonError, jsonResponse, readJsonBodyCapped } from "./http.ts";
 import {
   parseProjectConfigUpdate,
-  readProjectKeys,
   readStoredProjectConfig,
   writeStoredProjectConfig,
 } from "./project-config.ts";
+import { getProjectKeys as readProjectKeys } from "./project-keys.ts";
 import {
   countFilteredLiveSessions,
   parseStatsFilter,
@@ -114,9 +114,14 @@ export async function getProjectKeys(
   projectId: string,
   wideEvent: ReturnType<typeof startWideEvent>,
 ): Promise<Response> {
-  const keys = await readProjectKeys(env, projectId);
+  let keys;
+  try {
+    keys = await readProjectKeys(env, projectId);
+  } catch {
+    return jsonError("key_cache_unavailable", 503);
+  }
   wideEvent.set({ key_count: keys.length });
-  return jsonResponse({ keys });
+  return jsonResponse({ keys }, { headers: { "cache-control": "private, no-store" } });
 }
 
 export async function getProjectStats(
@@ -126,6 +131,7 @@ export async function getProjectStats(
   projectId: string,
   requestId: string,
   wideEvent: ReturnType<typeof startWideEvent>,
+  includeLive = true,
 ): Promise<Response> {
   wideEvent.set({ cache_hit: false });
   const parsed = parseStatsFilter(url.searchParams);
@@ -140,12 +146,15 @@ export async function getProjectStats(
   if (backend === "d1") {
     const [finalized, presence] = await Promise.all([
       readFinalizedProjectStats(env, projectId, filter),
-      listProjectPresence(env, projectId, requestId, now),
+      includeLive ? listProjectPresence(env, projectId, requestId, now) : Promise.resolve(null),
     ]);
-    if (presence === null) return jsonError("presence_unavailable", 503);
-    const liveNow = countFilteredLiveSessions(presence.sessions, filter, now);
+    if (includeLive && presence === null) return jsonError("presence_unavailable", 503);
+    const stats =
+      includeLive && presence !== null
+        ? withLiveNow(finalized, countFilteredLiveSessions(presence.sessions, filter, now))
+        : finalized;
     return jsonResponse(
-      { ...withLiveNow(finalized, liveNow), analyticsState: readMode.state },
+      { ...stats, analyticsState: readMode.state },
       { headers: { "cache-control": "private, no-store" } },
     );
   }
@@ -162,9 +171,9 @@ export async function getProjectStats(
     const compareFilter = snapshot.ok ? { ...filter, warehouse_version: snapshot.version } : filter;
     const [d1Stats, presence] = await Promise.all([
       readFinalizedProjectStats(env, projectId, compareFilter),
-      listProjectPresence(env, projectId, requestId, now),
+      includeLive ? listProjectPresence(env, projectId, requestId, now) : Promise.resolve(null),
     ]);
-    if (presence === null) return jsonError("presence_unavailable", 503);
+    if (includeLive && presence === null) return jsonError("presence_unavailable", 503);
 
     runAnalyticsCompareInBackground(
       ctx,
@@ -192,11 +201,14 @@ export async function getProjectStats(
         );
       },
     );
-    const liveNow = countFilteredLiveSessions(presence.sessions, compareFilter, now);
+    const stats =
+      includeLive && presence !== null
+        ? withLiveNow(d1Stats, countFilteredLiveSessions(presence.sessions, compareFilter, now))
+        : d1Stats;
 
     return jsonResponse(
       {
-        ...withLiveNow(d1Stats, liveNow),
+        ...stats,
         ...(snapshot.ok ? { warehouseVersion: snapshot.version } : {}),
         analyticsState: "compare",
       },
@@ -260,6 +272,17 @@ export async function getProjectStats(
       analytics_cache_state: "stale",
       warehouse_version: responseWarehouseVersion,
     });
+  }
+
+  if (!includeLive) {
+    return jsonResponse(
+      {
+        ...finalized,
+        warehouseVersion: responseWarehouseVersion,
+        analyticsState,
+      },
+      { headers: { "cache-control": "private, no-store" } },
+    );
   }
 
   const presence = await listProjectPresence(env, projectId, requestId, now);

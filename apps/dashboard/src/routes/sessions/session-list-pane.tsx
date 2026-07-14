@@ -16,7 +16,7 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
+import { LoadingArea } from "@/components/ui/loading-indicator";
 import { Switch } from "@/components/ui/switch";
 import type { SessionDisplayItem } from "@/lib/session-list";
 import { Check, Inbox, Search } from "@/lib/icon-map";
@@ -170,19 +170,7 @@ export function SessionListPane({
 }
 
 function LoadingCards() {
-  return Array.from({ length: 5 }, (_, index) => (
-    <div className="border-b border-dashed border-dash px-4 py-3 last:border-b-0" key={index}>
-      <div className="flex items-center justify-between gap-2">
-        <Skeleton className="h-4 w-40" />
-        <Skeleton className="h-4 w-12" />
-      </div>
-      {/* Most real rows carry no pills — the skeleton promises only the spark. */}
-      <div className="mt-2 flex items-center justify-end gap-2">
-        <Skeleton className="h-4 w-21" />
-      </div>
-      <Skeleton className="mt-2 h-3.5 w-52" />
-    </div>
-  ));
+  return <LoadingArea className="min-h-80" label="Loading sessions" />;
 }
 
 function FilteredEmptyState({ count, onClear }: { count: number; onClear: () => void }) {

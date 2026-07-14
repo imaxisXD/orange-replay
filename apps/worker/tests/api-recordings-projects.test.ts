@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { StoredProjectConfig } from "@orange-replay/shared";
 import { describe, expect, it } from "vite-plus/test";
 import {
@@ -8,6 +9,7 @@ import {
   configProjectId,
   getProjectConfig,
   installProjectId,
+  keyLimitProjectId,
   keysProjectId,
   liveProjectId,
   makeManifest,
@@ -319,11 +321,321 @@ describe("dashboard api", () => {
     expect(await res.json()).toEqual({
       keys: [
         {
-          key_hash: keyHash,
+          id: expect.any(String),
+          name: "Legacy key",
+          keyHashPrefix: keyHash.slice(0, 12),
           active: true,
-          created_at: expect.any(Number),
+          createdAt: expect.any(Number),
+          createdBy: null,
+          revokedAt: null,
+          revokedBy: null,
         },
       ],
     });
+  });
+
+  it("shows a new write key once and durably revokes it before removing its cache", async () => {
+    await seedIngestKey(
+      testWriteKey("api_key_project"),
+      makeProjectConfig({ projectId: keysProjectId }),
+      false,
+    );
+
+    const created = await worker.fetch(`/api/v1/projects/${keysProjectId}/keys`, {
+      method: "POST",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({ name: "Production website" }),
+    });
+    expect(created.status).toBe(200);
+    expect(created.headers.get("cache-control")).toBe("private, no-store");
+    expect(created.headers.get("pragma")).toBe("no-cache");
+    const createdBody = (await created.json()) as {
+      key: { id: string; name: string; keyHashPrefix: string; active: boolean };
+      secret: string;
+    };
+    expect(createdBody.secret).toMatch(/^or_live_[A-Za-z0-9_-]{32}$/);
+    expect(createdBody.key).toMatchObject({
+      id: expect.stringMatching(/^key_[A-Za-z0-9-]+$/),
+      name: "Production website",
+      active: true,
+    });
+
+    const keyHash = createHash("sha256").update(createdBody.secret).digest("hex");
+    expect(createdBody.key.keyHashPrefix).toBe(keyHash.slice(0, 12));
+    expect(await readConfigCache(keyHash)).toMatchObject({ active: true });
+
+    const listed = await worker.fetch(`/api/v1/projects/${keysProjectId}/keys`, {
+      headers: authHeaders(),
+    });
+    const listedText = await listed.text();
+    expect(listed.status).toBe(200);
+    expect(listedText).not.toContain(createdBody.secret);
+    expect(listedText).not.toContain(keyHash);
+
+    const revoked = await worker.fetch(
+      `/api/v1/projects/${keysProjectId}/keys/${createdBody.key.id}`,
+      { method: "DELETE", headers: authHeaders() },
+    );
+    expect(revoked.status).toBe(200);
+    expect(await revoked.json()).toMatchObject({
+      key: {
+        id: createdBody.key.id,
+        active: false,
+        revokedAt: expect.any(Number),
+      },
+    });
+    expect(await readConfigCache(keyHash)).toBeNull();
+
+    const afterRevoke = await worker.fetch(`/api/v1/projects/${keysProjectId}/keys`, {
+      headers: authHeaders(),
+    });
+    expect(afterRevoke.status).toBe(200);
+    const afterRevokeBody = (await afterRevoke.json()) as {
+      keys: Array<{ id: string; active: boolean }>;
+    };
+    expect(afterRevokeBody.keys).toContainEqual(
+      expect.objectContaining({ id: createdBody.key.id, active: false }),
+    );
+  });
+
+  it("repairs a pending revoked-key cache before showing the key list", async () => {
+    const writeKey = testWriteKey("api_pending_key_cache");
+    const keyHash = await seedIngestKey(
+      writeKey,
+      makeProjectConfig({ projectId: keysProjectId }),
+      true,
+    );
+    expect(await readConfigCache(keyHash)).toMatchObject({ active: true });
+
+    const pending = await worker.fetch(
+      `/__test/ingest/mark-key-cache-pending?keyHash=${encodeURIComponent(keyHash)}`,
+      { method: "POST" },
+    );
+    expect(pending.status).toBe(200);
+    expect(await pending.json()).toEqual({ changed: 1 });
+
+    const listed = await worker.fetch(`/api/v1/projects/${keysProjectId}/keys`, {
+      headers: authHeaders(),
+    });
+    expect(listed.status).toBe(200);
+    expect(await readConfigCache(keyHash)).toBeNull();
+
+    const state = await worker.fetch(
+      `/__test/ingest/key-state?keyHash=${encodeURIComponent(keyHash)}`,
+    );
+    expect(state.status).toBe(200);
+    expect(await state.json()).toEqual({
+      state: {
+        active: 0,
+        cacheSynced: 1,
+        cacheFinalCheckAt: expect.any(Number),
+        cacheWriteCount: 0,
+      },
+    });
+  });
+
+  it("keeps a final revoked-key cache check durable until its delete succeeds", async () => {
+    const writeKey = testWriteKey("api_final_key_cache_check");
+    const keyHash = await seedIngestKey(
+      writeKey,
+      makeProjectConfig({ projectId: keysProjectId }),
+      true,
+    );
+    const pending = await worker.fetch(
+      `/__test/ingest/mark-key-cache-pending?keyHash=${encodeURIComponent(keyHash)}&finalCheck=due`,
+      { method: "POST" },
+    );
+    expect(pending.status).toBe(200);
+
+    const listed = await worker.fetch(`/api/v1/projects/${keysProjectId}/keys`, {
+      headers: authHeaders(),
+    });
+    expect(listed.status).toBe(200);
+    expect(await readConfigCache(keyHash)).toBeNull();
+
+    const state = await worker.fetch(
+      `/__test/ingest/key-state?keyHash=${encodeURIComponent(keyHash)}`,
+    );
+    expect(await state.json()).toEqual({
+      state: { active: 0, cacheSynced: 1, cacheFinalCheckAt: null, cacheWriteCount: 0 },
+    });
+  });
+
+  it("repairs an active key cache from current D1 config and finishes its final check", async () => {
+    const writeKey = testWriteKey("api_active_key_cache_repair");
+    const activeCacheProjectId = "api_active_cache_project";
+    const keyHash = await seedIngestKey(
+      writeKey,
+      makeProjectConfig({ projectId: activeCacheProjectId, sampleRate: 1 }),
+      true,
+    );
+    const pending = await worker.fetch(
+      `/__test/ingest/mark-active-key-cache-pending?keyHash=${encodeURIComponent(keyHash)}&finalCheck=due`,
+      { method: "POST" },
+    );
+    expect(pending.status).toBe(200);
+    expect(await readConfigCache(keyHash)).toMatchObject({ sampleRate: 1, version: 1 });
+
+    const repaired = await worker.fetch("/__test/ingest/repair-active-key-cache", {
+      method: "POST",
+    });
+    expect(repaired.status).toBe(200);
+    expect(await readConfigCache(keyHash)).toMatchObject({ sampleRate: 0.5, version: 2 });
+
+    const state = await worker.fetch(
+      `/__test/ingest/key-state?keyHash=${encodeURIComponent(keyHash)}`,
+    );
+    expect(await state.json()).toEqual({
+      state: { active: 1, cacheSynced: 1, cacheFinalCheckAt: null, cacheWriteCount: 0 },
+    });
+  });
+
+  it("keeps repairing a revoked key while an older cache writer is unfinished", async () => {
+    const writeKey = testWriteKey("api_unfinished_cache_writer");
+    const keyHash = await seedIngestKey(
+      writeKey,
+      makeProjectConfig({ projectId: keysProjectId }),
+      true,
+    );
+    const started = await worker.fetch(
+      `/__test/ingest/start-key-cache-write?keyHash=${encodeURIComponent(keyHash)}`,
+      { method: "POST" },
+    );
+    const { writeId } = (await started.json()) as { writeId: string };
+    expect(started.status).toBe(200);
+
+    const pending = await worker.fetch(
+      `/__test/ingest/mark-key-cache-pending?keyHash=${encodeURIComponent(keyHash)}&finalCheck=due`,
+      { method: "POST" },
+    );
+    expect(pending.status).toBe(200);
+    const repairedAt = Date.now();
+    await worker.fetch(`/api/v1/projects/${keysProjectId}/keys`, { headers: authHeaders() });
+
+    const guardedState = await worker.fetch(
+      `/__test/ingest/key-state?keyHash=${encodeURIComponent(keyHash)}`,
+    );
+    const guardedBody = (await guardedState.json()) as {
+      state: {
+        active: number;
+        cacheSynced: number;
+        cacheFinalCheckAt: number;
+        cacheWriteCount: number;
+      };
+    };
+    expect(guardedBody.state).toMatchObject({
+      active: 0,
+      cacheSynced: 1,
+      cacheWriteCount: 1,
+    });
+    expect(guardedBody.state.cacheFinalCheckAt).toBeGreaterThan(repairedAt);
+
+    const finished = await worker.fetch(
+      `/__test/ingest/finish-key-cache-write?writeId=${encodeURIComponent(writeId)}`,
+      { method: "POST" },
+    );
+    expect(finished.status).toBe(200);
+    await worker.fetch(
+      `/__test/ingest/mark-key-cache-pending?keyHash=${encodeURIComponent(keyHash)}&finalCheck=due`,
+      { method: "POST" },
+    );
+    await worker.fetch(`/api/v1/projects/${keysProjectId}/keys`, { headers: authHeaders() });
+
+    const finishedState = await worker.fetch(
+      `/__test/ingest/key-state?keyHash=${encodeURIComponent(keyHash)}`,
+    );
+    expect(await finishedState.json()).toEqual({
+      state: { active: 0, cacheSynced: 1, cacheFinalCheckAt: null, cacheWriteCount: 0 },
+    });
+  });
+
+  it("gives other active keys a repair turn while an older cache writer is unfinished", async () => {
+    const writeKey = testWriteKey("api_unfinished_active_cache_writer");
+    const activeCacheProjectId = "api_unfinished_active_cache_project";
+    const keyHash = await seedIngestKey(
+      writeKey,
+      makeProjectConfig({ projectId: activeCacheProjectId, sampleRate: 1 }),
+      true,
+    );
+    const started = await worker.fetch(
+      `/__test/ingest/start-key-cache-write?keyHash=${encodeURIComponent(keyHash)}`,
+      { method: "POST" },
+    );
+    const { writeId } = (await started.json()) as { writeId: string };
+    expect(started.status).toBe(200);
+
+    const pending = await worker.fetch(
+      `/__test/ingest/mark-active-key-cache-pending?keyHash=${encodeURIComponent(keyHash)}&finalCheck=due`,
+      { method: "POST" },
+    );
+    expect(pending.status).toBe(200);
+    const repairedAt = Date.now();
+    const repaired = await worker.fetch("/__test/ingest/repair-active-key-cache", {
+      method: "POST",
+    });
+    expect(repaired.status).toBe(200);
+
+    const guardedState = await worker.fetch(
+      `/__test/ingest/key-state?keyHash=${encodeURIComponent(keyHash)}`,
+    );
+    const guardedBody = (await guardedState.json()) as {
+      state: {
+        active: number;
+        cacheSynced: number;
+        cacheFinalCheckAt: number;
+        cacheWriteCount: number;
+      };
+    };
+    expect(guardedBody.state).toMatchObject({
+      active: 1,
+      cacheSynced: 1,
+      cacheWriteCount: 1,
+    });
+    expect(guardedBody.state.cacheFinalCheckAt).toBeGreaterThan(repairedAt);
+
+    const finished = await worker.fetch(
+      `/__test/ingest/finish-key-cache-write?writeId=${encodeURIComponent(writeId)}`,
+      { method: "POST" },
+    );
+    expect(finished.status).toBe(200);
+    await worker.fetch(
+      `/__test/ingest/mark-active-key-cache-pending?keyHash=${encodeURIComponent(keyHash)}&finalCheck=due`,
+      { method: "POST" },
+    );
+    await worker.fetch("/__test/ingest/repair-active-key-cache", { method: "POST" });
+
+    const finishedState = await worker.fetch(
+      `/__test/ingest/key-state?keyHash=${encodeURIComponent(keyHash)}`,
+    );
+    expect(await finishedState.json()).toEqual({
+      state: { active: 1, cacheSynced: 1, cacheFinalCheckAt: null, cacheWriteCount: 0 },
+    });
+  });
+
+  it("keeps the active key limit exact when creates arrive together", async () => {
+    await seedIngestKey(
+      testWriteKey("api_key_limit_seed"),
+      makeProjectConfig({ projectId: keyLimitProjectId }),
+      false,
+    );
+
+    const responses = await Promise.all(
+      Array.from({ length: 10 }, (_, index) =>
+        worker.fetch(`/api/v1/projects/${keyLimitProjectId}/keys`, {
+          method: "POST",
+          headers: { ...authHeaders(), "content-type": "application/json" },
+          body: JSON.stringify({ name: `Concurrent key ${index + 1}` }),
+        }),
+      ),
+    );
+
+    expect(responses.filter((response) => response.status === 200)).toHaveLength(9);
+    expect(responses.filter((response) => response.status === 409)).toHaveLength(1);
+
+    const listed = await worker.fetch(`/api/v1/projects/${keyLimitProjectId}/keys`, {
+      headers: authHeaders(),
+    });
+    const body = (await listed.json()) as { keys: { active: boolean }[] };
+    expect(body.keys.filter((key) => key.active)).toHaveLength(10);
   });
 });

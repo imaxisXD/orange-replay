@@ -250,7 +250,6 @@ describe("ingest config row mapping", () => {
   it("rejects invalid allowed origins from stored config rows", () => {
     const invalidAllowedOrigins: unknown[] = [
       "not json",
-      JSON.stringify([]),
       JSON.stringify(["https://app.example", 1]),
       ["https://app.example"],
     ];
@@ -271,6 +270,23 @@ describe("ingest config row mapping", () => {
         }),
       ).toBeNull();
     }
+  });
+
+  it("keeps a new project's empty origin list as deny-all", () => {
+    expect(
+      mapConfigRowToProjectConfig({
+        projectId: "project_new",
+        active: 1,
+        orgId: "org_new",
+        retentionDays: 30,
+        jurisdiction: null,
+        sampleRate: 1,
+        allowedOrigins: "[]",
+        maskPolicyVersion: 1,
+        quotaState: "ok",
+        shard: 0,
+      })?.allowedOrigins,
+    ).toEqual([]);
   });
 
   it("does not turn empty allowed origins into wildcard CORS", () => {
@@ -398,7 +414,11 @@ describe("ingest sidecar event sanitizing", () => {
       t1: 4,
       u: `https://shop.example/checkout?token=${secret}#payment`,
       e: [
-        { t: 2, k: "nav", d: `/account?access_token=${secret}#security` },
+        {
+          t: 2,
+          k: "nav",
+          d: `/account?access_token=${secret}#security`,
+        },
         {
           t: 3,
           k: "vital",

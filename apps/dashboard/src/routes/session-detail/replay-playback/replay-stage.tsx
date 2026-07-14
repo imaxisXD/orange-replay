@@ -2,6 +2,7 @@ import type { RefObject } from "react";
 import type { PlayerErrorEvent } from "@orange-replay/player";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { LoadingIndicator } from "@/components/ui/loading-indicator";
 import { AlertCircle } from "@/lib/icon-map";
 
 export function ReplayStage({
@@ -33,7 +34,6 @@ export function ReplayStage({
 
       {isFollowing && waitingForKeyframe && playerError === null && (
         <ReplayOverlay
-          dotClassName="live-pulse size-2.25 rounded-full bg-success"
           label={
             liveConnected ? "Connected live — waiting for the next keyframe…" : "Connecting live…"
           }
@@ -41,10 +41,7 @@ export function ReplayStage({
       )}
 
       {ready && buffering && !waitingForKeyframe && playerError === null && (
-        <ReplayOverlay
-          dotClassName="size-8 animate-spin rounded-full border border-dash border-t-amber"
-          label="Buffering…"
-        />
+        <ReplayOverlay label="Buffering replay…" />
       )}
 
       {playerError !== null && (
@@ -65,15 +62,13 @@ export function ReplayStage({
   );
 }
 
-function ReplayOverlay({ dotClassName, label }: { dotClassName: string; label: string }) {
+function ReplayOverlay({ label }: { label: string }) {
   return (
-    <div
-      aria-live="polite"
-      className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-background/72"
-      role="status"
-    >
-      <span className={dotClassName} />
-      <span className="text-[13px] text-muted-foreground">{label}</span>
+    <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-background/72">
+      <LoadingIndicator label={label} />
+      <span aria-hidden className="text-[13px] text-muted-foreground">
+        {label}
+      </span>
     </div>
   );
 }

@@ -13,7 +13,9 @@
     "build": "wrangler deploy --dry-run --outdir dist"
   },
   "dependencies": {
-    "@orange-replay/shared": "workspace:*"
+    "@orange-replay/public-page": "workspace:*",
+    "@orange-replay/shared": "workspace:*",
+    "better-auth": "1.6.23"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250620.0",
