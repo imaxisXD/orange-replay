@@ -6,10 +6,13 @@ import { LoadingIndicator } from "@/components/ui/loading-indicator";
 import { fetchInstallStatus } from "@/lib/api";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/format";
 import { RotateCcw } from "@/lib/icon-map";
+import { AnimatePresence, m, useReducedMotion } from "@/lib/motion";
 import { installStatusPollIntervalMs, shouldPollInstallStatus } from "@/lib/project-settings";
+import { spring } from "@/lib/springs";
 import { readInstallErrorMessage } from "./install-helpers";
 
 export function InstallStatus({ projectId }: { projectId: string }) {
+  const reduceMotion = useReducedMotion();
   const installStatusQuery = useQuery({
     queryKey: ["install-status", projectId],
     queryFn: () => fetchInstallStatus(projectId),
@@ -56,31 +59,51 @@ export function InstallStatus({ projectId }: { projectId: string }) {
         </Alert>
       )}
 
-      {firstEventAt === null ? (
-        <div className="mt-5 flex items-start gap-3">
-          <LoadingIndicator
-            className="mt-0.5"
-            label={loading ? "Checking install status" : "Waiting for the first event"}
-          />
-          <div>
-            <div className="text-[13px]">
-              {loading ? "Checking install status..." : "Waiting for the first event…"}
-            </div>
-            <div className="mt-1 text-[11.5px] text-dim">
-              Open a page with the snippet installed — this updates the moment data arrives.
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="mt-5 flex flex-col items-start gap-3">
-          <Badge color="green" size="sm" variant="dot">
-            Installed
-          </Badge>
-          <div className="text-[13px]" title={formatAbsoluteTime(firstEventAt)}>
-            First event seen {formatRelativeTime(firstEventAt)}
-          </div>
-        </div>
-      )}
+      <div className="mt-5 min-h-15">
+        <AnimatePresence initial={false} mode="wait">
+          <m.div
+            animate={{ opacity: 1, transform: "translateY(0px) scale(1)" }}
+            exit={
+              reduceMotion
+                ? { opacity: 0 }
+                : { opacity: 0, transform: "translateY(-4px) scale(0.97)" }
+            }
+            initial={
+              reduceMotion ? false : { opacity: 0, transform: "translateY(4px) scale(0.97)" }
+            }
+            key={firstEventAt === null ? "waiting" : "installed"}
+            transition={
+              reduceMotion ? { duration: 0 } : firstEventAt === null ? spring.moderate : spring.slow
+            }
+          >
+            {firstEventAt === null ? (
+              <div className="flex items-start gap-3">
+                <LoadingIndicator
+                  className="mt-0.5"
+                  label={loading ? "Checking install status" : "Waiting for the first event"}
+                />
+                <div>
+                  <div className="text-[13px]">
+                    {loading ? "Checking install status..." : "Waiting for the first event…"}
+                  </div>
+                  <div className="mt-1 text-[11.5px] text-dim">
+                    Open a page with the snippet installed — this updates the moment data arrives.
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col items-start gap-3">
+                <Badge color="green" size="sm" variant="dot">
+                  Installed
+                </Badge>
+                <div className="text-[13px]" title={formatAbsoluteTime(firstEventAt)}>
+                  First event seen {formatRelativeTime(firstEventAt)}
+                </div>
+              </div>
+            )}
+          </m.div>
+        </AnimatePresence>
+      </div>
     </section>
   );
 }

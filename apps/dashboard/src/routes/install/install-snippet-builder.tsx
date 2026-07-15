@@ -10,6 +10,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip } from "@/components/ui/tooltip";
 import { fetchProjectKeys } from "@/lib/api";
 import { AlertCircle, Check, Code2, Copy, RotateCcw } from "@/lib/icon-map";
+import { AnimatePresence, m, useReducedMotion } from "@/lib/motion";
+import { spring } from "@/lib/springs";
 import { matchesActiveProjectWriteKey, readInstallErrorMessage } from "./install-helpers";
 
 type KeyMatchStatus = "idle" | "checking" | "matched" | "unmatched" | "error";
@@ -26,6 +28,7 @@ export function InstallSnippetBuilder({ projectId }: { projectId: string }) {
 }
 
 function ProjectInstallSnippetBuilder({ projectId }: { projectId: string }) {
+  const reduceMotion = useReducedMotion();
   const [writeKeyInput, setWriteKeyInput] = useState("");
   const [originInput, setOriginInput] = useState(readDefaultOrigin);
   const [copied, setCopied] = useState(false);
@@ -260,11 +263,26 @@ function ProjectInstallSnippetBuilder({ projectId }: { projectId: string }) {
             </IconSwap>
           </Button>
         </Tooltip>
-        <ScrollArea className={showFullCode ? "h-105" : "h-24"} viewportClassName="scroll-fade">
-          <pre className="whitespace-pre-wrap wrap-break-word font-mono text-[11.5px] leading-relaxed text-muted-foreground">
-            {shownSnippet}
-          </pre>
-        </ScrollArea>
+        <m.div
+          className={showFullCode ? "h-105" : "h-24"}
+          layout="size"
+          transition={reduceMotion ? { duration: 0 } : spring.moderate}
+        >
+          <ScrollArea className="h-full" viewportClassName="scroll-fade">
+            <AnimatePresence initial={false} mode="wait">
+              <m.pre
+                animate={{ opacity: 1, transform: "translateY(0px)" }}
+                className="whitespace-pre-wrap wrap-break-word font-mono text-[11.5px] leading-relaxed text-muted-foreground"
+                exit={reduceMotion ? { opacity: 1 } : { opacity: 0, transform: "translateY(-4px)" }}
+                initial={reduceMotion ? false : { opacity: 0, transform: "translateY(4px)" }}
+                key={showFullCode ? "full" : "preview"}
+                transition={reduceMotion ? { duration: 0 } : spring.moderate}
+              >
+                {shownSnippet}
+              </m.pre>
+            </AnimatePresence>
+          </ScrollArea>
+        </m.div>
       </div>
       <div className="mt-3 flex justify-end">
         <Button

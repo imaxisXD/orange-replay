@@ -22,6 +22,8 @@ import {
   type ProjectSettingsDraft,
 } from "@/lib/project-settings";
 import { AlertCircle, Plus, Trash2, X } from "@/lib/icon-map";
+import { AnimatePresence, m, useReducedMotion } from "@/lib/motion";
+import { spring } from "@/lib/springs";
 import { CardHeader, NumberWithSuffix, SettingRow, TextInput } from "./settings-fields";
 
 const captureRows: {
@@ -116,6 +118,8 @@ export function MaskingCard({
   onSetSelector: (index: number, selector: string) => void;
   rules: readonly DraftMaskRule[];
 }) {
+  const reduceMotion = useReducedMotion();
+
   return (
     <section className="lit rounded-lg p-5">
       <CardHeader
@@ -128,22 +132,50 @@ export function MaskingCard({
         body="Custom rules run after the default input masking policy."
       />
       <div className="mt-4 flex flex-col gap-2">
-        {rules.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-dash px-4 py-8 text-center text-[13px] text-muted-foreground">
-            No custom rules — inputs are masked by default.
-          </div>
-        ) : (
-          rules.map((rule, index) => (
-            <MaskRuleRow
-              index={index}
-              key={rule.uiId}
-              onRemove={() => onRemoveRule(index)}
-              onSetAction={(action) => onSetAction(index, action)}
-              onSetSelector={(selector) => onSetSelector(index, selector)}
-              rule={rule}
-            />
-          ))
-        )}
+        <AnimatePresence initial={false} mode="popLayout">
+          {rules.length === 0 ? (
+            <m.div
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              initial={reduceMotion ? false : { opacity: 0 }}
+              key="empty"
+              transition={reduceMotion ? { duration: 0 } : spring.fast}
+            >
+              <div className="rounded-lg border border-dashed border-dash px-4 py-8 text-center text-[13px] text-muted-foreground">
+                No custom rules — inputs are masked by default.
+              </div>
+            </m.div>
+          ) : (
+            rules.map((rule, index) => (
+              <m.div
+                animate={{ opacity: 1, transform: "translateY(0px) scale(1)" }}
+                exit={
+                  reduceMotion
+                    ? { opacity: 0, pointerEvents: "none" }
+                    : {
+                        opacity: 0,
+                        pointerEvents: "none",
+                        transform: "translateY(-4px) scale(0.98)",
+                      }
+                }
+                initial={
+                  reduceMotion ? false : { opacity: 0, transform: "translateY(-4px) scale(0.98)" }
+                }
+                key={rule.uiId}
+                layout
+                transition={reduceMotion ? { duration: 0 } : spring.moderate}
+              >
+                <MaskRuleRow
+                  index={index}
+                  onRemove={() => onRemoveRule(index)}
+                  onSetAction={(action) => onSetAction(index, action)}
+                  onSetSelector={(selector) => onSetSelector(index, selector)}
+                  rule={rule}
+                />
+              </m.div>
+            ))
+          )}
+        </AnimatePresence>
         {error !== null && <div className="text-[12px] text-danger">{error}</div>}
         <div>
           <Button
