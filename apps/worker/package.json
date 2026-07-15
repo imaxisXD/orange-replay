@@ -18,13 +18,13 @@
     "better-auth": "1.6.23"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20250620.0",
+    "@cloudflare/workers-types": "^5.20260708.1",
     "@types/node": "catalog:",
     "drizzle-kit": "catalog:",
     "drizzle-orm": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:",
-    "wrangler": "4.106.0"
+    "wrangler": "catalog:"
   }
 }
