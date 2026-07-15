@@ -30,7 +30,8 @@
     "mirror-template": "node scripts/mirror-template.mjs",
     "workspace:link-owner": "node scripts/link-workspace-owner.mjs",
     "ready": "vp check && vp run -r test && vp run -r build",
-    "prepare": "vp config"
+    "prepare": "vp config",
+    "doctor": "npx react-doctor@latest"
   },
   "devDependencies": {
     "@babel/core": "catalog:",
@@ -39,6 +40,7 @@
     "@types/node": "catalog:",
     "@typescript/native-preview": "7.0.0-dev.20260704.1",
     "babel-plugin-react-compiler": "catalog:",
+    "react-doctor": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:"
   },
