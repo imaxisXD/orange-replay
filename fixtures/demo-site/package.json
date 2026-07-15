@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "e2e": "playwright test --config playwright.config.ts"
+    "e2e": "playwright test --config playwright.config.ts",
+    "profile:dashboard": "node scripts/profile-dashboard.mjs"
   },
   "dependencies": {
     "@orange-replay/sdk": "workspace:*",

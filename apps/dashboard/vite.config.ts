@@ -13,6 +13,33 @@ export default defineConfig({
       "@": path.resolve(import.meta.dirname, "src"),
     },
   },
+  build: {
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            {
+              name: "react-runtime",
+              test: /node_modules[\\/](?:react|react-dom|scheduler)[\\/]/,
+              priority: 20,
+              includeDependenciesRecursively: false,
+            },
+            {
+              name: "replay-engine",
+              test: (moduleId) =>
+                /[\\/]packages[\\/]player[\\/]/.test(moduleId) ||
+                /node_modules[\\/](?:@rrweb[\\/]|@xstate[\\/]fsm[\\/]|base64-arraybuffer[\\/]|css-tree[\\/]|mitt[\\/]|rrdom[\\/]|rrweb[\\/]|rrweb-snapshot[\\/]|source-map-js[\\/])/.test(
+                  moduleId,
+                ),
+              priority: 10,
+              maxSize: 350 * 1024,
+              includeDependenciesRecursively: false,
+            },
+          ],
+        },
+      },
+    },
+  },
   server: {
     proxy: {
       "/api": {
