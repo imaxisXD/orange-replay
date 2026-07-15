@@ -1,23 +1,20 @@
 import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { parseJsonc } from "./mirror-template/jsonc.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const workerDir = path.join(repoRoot, "apps", "worker");
 const dashboardDir = path.join(repoRoot, "apps", "dashboard");
 const dashboardDistDir = path.join(dashboardDir, "dist");
 const localAssetsDir = path.join(workerDir, ".wrangler", "dev-assets");
-const sourceWorkerConfigPath = path.join(workerDir, "wrangler.jsonc");
-const localWorkerConfigPath = path.join(workerDir, "wrangler.dev.jsonc");
-const defaultWorkerPort = 8787;
-const defaultDashboardPort = 5200;
+const oldLocalWorkerConfig = path.join(workerDir, "wrangler.dev.jsonc");
+const defaultDevPort = 8787;
+const oldDashboardPort = 5200;
 
-const workerPort = readPort("WORKER_PORT", defaultWorkerPort);
-const dashboardPort = readPort("DASHBOARD_PORT", defaultDashboardPort);
+const devPort = readPort("DEV_PORT", defaultDevPort);
 const shouldClearPorts = process.env["CLEAR_DEV_PORTS"] === "1";
 const canClearCustomPorts = process.env["CLEAR_CUSTOM_DEV_PORTS"] === "1";
 
@@ -37,17 +34,16 @@ if (!migrationResult.ok) {
 }
 if (migrationResult.stdout.trim().length > 0) console.log(migrationResult.stdout.trim());
 
+await rm(oldLocalWorkerConfig, { force: true });
+
 if (shouldClearPorts) {
-  if (
-    !canClearCustomPorts &&
-    (workerPort !== defaultWorkerPort || dashboardPort !== defaultDashboardPort)
-  ) {
+  if (!canClearCustomPorts && devPort !== defaultDevPort) {
     console.error("CLEAR_CUSTOM_DEV_PORTS=1 is required when clearing custom dev ports.");
     process.exit(1);
   }
-  console.log("CLEAR_DEV_PORTS=1 set. Stopping existing listeners on dev ports.");
-  await clearPort(workerPort);
-  await clearPort(dashboardPort);
+  console.log("CLEAR_DEV_PORTS=1 set. Stopping the existing local app.");
+  await clearPort(devPort);
+  if (devPort !== oldDashboardPort) await clearPort(oldDashboardPort);
 }
 
 console.log("Building the local landing page, demo dashboard, and recorder.");
@@ -62,39 +58,28 @@ if (!assetBuildSucceeded) {
 await rm(localAssetsDir, { force: true, recursive: true });
 await mkdir(path.dirname(localAssetsDir), { recursive: true });
 await cp(dashboardDistDir, localAssetsDir, { recursive: true });
-await writeLocalWorkerConfig();
-console.log("Local website assets are ready.");
-
-const workerArgs = [
-  "exec",
-  "--filter",
-  "@orange-replay/worker",
-  "--",
-  "wrangler",
-  "dev",
-  "--config",
-  localWorkerConfigPath,
-  "--port",
-  String(workerPort),
-];
+await rm(path.join(localAssetsDir, "index.html"), { force: true });
+await rm(path.join(localAssetsDir, "dashboard"), { force: true, recursive: true });
+console.log("Local static assets are ready. The dashboard will use live source files.");
 
 const localWorkerEnv = path.join(workerDir, ".env");
 const exampleWorkerEnv = path.join(workerDir, ".env.example");
+const devEnvironment = { ...process.env, ORANGE_REPLAY_INTEGRATED_DEV: "1" };
 if (!existsSync(localWorkerEnv) && existsSync(exampleWorkerEnv)) {
-  workerArgs.push("--env-file", ".env.example");
+  devEnvironment["ORANGE_REPLAY_USE_EXAMPLE_WORKER_ENV"] = "1";
   console.log("Using apps/worker/.env.example for local Worker secrets.");
 }
 
-startServer("worker", "vp", workerArgs, repoRoot, process.env);
+startServer(
+  "app",
+  "vp",
+  ["dev", "--port", String(devPort), "--strictPort"],
+  dashboardDir,
+  devEnvironment,
+);
 
-startServer("dashboard", "vp", ["dev", "--port", String(dashboardPort)], dashboardDir, {
-  ...process.env,
-  VITE_WORKER_URL: process.env["VITE_WORKER_URL"] ?? `http://127.0.0.1:${workerPort}`,
-});
-
-console.log(`Landing page and live demo: http://localhost:${workerPort}`);
-console.log(`Dashboard with hot reload: http://localhost:${dashboardPort}`);
-console.log("Press Ctrl+C to stop both servers.");
+console.log(`Orange Replay with hot reload: http://localhost:${devPort}`);
+console.log("Press Ctrl+C to stop the local app.");
 
 process.on("SIGINT", () => stopServers("SIGINT"));
 process.on("SIGTERM", () => stopServers("SIGTERM"));
@@ -185,28 +170,6 @@ function runForeground(command, args) {
     child.on("error", () => resolve(false));
     child.on("exit", (code) => resolve(code === 0));
   });
-}
-
-async function writeLocalWorkerConfig() {
-  const source = await readFile(sourceWorkerConfigPath, "utf8");
-  const config = parseJsonc(source, "apps/worker/wrangler.jsonc");
-  config.assets = {
-    directory: localAssetsDir,
-    binding: "ASSETS",
-    run_worker_first: [
-      "/api/*",
-      "/v1/*",
-      "/login",
-      "/demo",
-      "/demo/*",
-      "/projects",
-      "/projects/*",
-      "/p/*",
-      "/_admin",
-      "/_admin/*",
-    ],
-  };
-  await writeFile(localWorkerConfigPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
 }
 
 function startServer(name, command, args, cwd, env) {

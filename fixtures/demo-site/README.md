@@ -26,11 +26,11 @@ its URL. When local test routes are enabled, the script creates a temporary test
 project; otherwise pass a signed-in Playwright storage-state file.
 
 ```bash
-DASHBOARD_PERF_URL=http://localhost:5200/projects/project_id/overview \
+DASHBOARD_PERF_URL=http://localhost:8787/projects/project_id/overview \
   vp run @orange-replay/demo-site#profile:dashboard
 
 DASHBOARD_PERF_STORAGE_STATE=/absolute/path/to/storage-state.json \
-  DASHBOARD_PERF_URL=http://localhost:5200/projects/project_id/overview \
+  DASHBOARD_PERF_URL=http://localhost:8787/projects/project_id/overview \
   vp run @orange-replay/demo-site#profile:dashboard -- --assert
 ```
 

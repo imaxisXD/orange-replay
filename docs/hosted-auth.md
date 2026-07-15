@@ -8,7 +8,7 @@ The public `/demo` route stays anonymous. A guest can watch the demo, but cannot
 
 Create a GitHub OAuth App just for local development:
 
-- Homepage: `http://localhost:5200`
+- Homepage: `http://localhost:8787`
 - Callback: `http://localhost:8787/api/auth/callback/github`
 
 Copy `apps/worker/.env.example` to the ignored `apps/worker/.env`, then uncomment and fill these values:
@@ -16,7 +16,7 @@ Copy `apps/worker/.env.example` to the ignored `apps/worker/.env`, then uncommen
 ```dotenv
 BETTER_AUTH_SECRET=at-least-32-random-characters
 BETTER_AUTH_URL=http://localhost:8787
-BETTER_AUTH_TRUSTED_ORIGINS=http://localhost:8787,http://localhost:5200
+BETTER_AUTH_TRUSTED_ORIGINS=http://localhost:8787
 GITHUB_CLIENT_ID=your-local-client-id
 GITHUB_CLIENT_SECRET=your-local-client-secret
 ```
@@ -27,7 +27,7 @@ Start the full local app:
 vp run dev
 ```
 
-Open `http://localhost:5200/login`. The first sign-in creates a personal workspace and a default project. Add the website origin in Settings before creating the first key; new projects block recorder requests until that origin is saved. To test the operator console locally, promote that account after the first sign-in:
+Open `http://localhost:8787/login`. The first sign-in creates a personal workspace and a default project. Add the website origin in Settings before creating the first key; new projects block recorder requests until that origin is saved. To test the operator console locally, promote that account after the first sign-in:
 
 ```sh
 vp run auth:promote-admin -- --email you@example.com --local

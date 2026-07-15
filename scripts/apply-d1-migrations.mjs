@@ -26,7 +26,8 @@ import {
 } from "./local-d1-migration-repair.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const migrationsDirectory = path.join(repoRoot, "apps", "worker", "migrations");
+const workerDirectory = path.join(repoRoot, "apps", "worker");
+const migrationsDirectory = path.join(workerDirectory, "migrations");
 const requireFromHere = createRequire(import.meta.url);
 const commandArgs = process.argv.slice(2).filter((argument) => argument !== "--");
 const databaseName = commandArgs.shift();
@@ -40,6 +41,11 @@ if (databaseName === undefined || databaseName.startsWith("-")) {
 
 const wranglerOptions = resolvePathOptions(commandArgs, process.cwd());
 const shouldRepairLocalHistory = shouldRepairLocalMigrationHistory(wranglerOptions);
+// Local commands must match the Vite plugin that writes local state. Remote commands keep the
+// production Worker's pinned Wrangler version.
+const wranglerWorkspace = shouldRepairLocalHistory
+  ? "@orange-replay/dashboard"
+  : "@orange-replay/worker";
 const hasMigrationsTable = queryNumber(migrationsTableExistsSql) > 0;
 if (shouldRepairLocalHistory && hasMigrationsTable) {
   repairKnownLocalMigrationDrift();
@@ -311,7 +317,7 @@ function runWrangler(args, outputMode) {
   const stdio = outputMode === "inherit" ? "inherit" : ["ignore", "pipe", "inherit"];
   const output = execFileSync(
     "vp",
-    ["exec", "--filter", "@orange-replay/worker", "--", "wrangler", ...args],
+    ["exec", "--filter", wranglerWorkspace, "--", "wrangler", "--cwd", workerDirectory, ...args],
     { cwd: repoRoot, encoding: "utf8", stdio },
   );
   return typeof output === "string" ? output : "";

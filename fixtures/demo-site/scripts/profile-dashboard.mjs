@@ -2,9 +2,9 @@ import { access, writeFile } from "node:fs/promises";
 import process from "node:process";
 import { chromium } from "playwright";
 
-const defaultUrl = "http://localhost:5200/demo/overview";
+const defaultUrl = "http://localhost:8787/demo/overview";
 const targetUrl = process.env["DASHBOARD_PERF_URL"] ?? defaultUrl;
-const workerUrl = process.env["DASHBOARD_PERF_WORKER_URL"] ?? "http://127.0.0.1:8787";
+const workerUrl = process.env["DASHBOARD_PERF_WORKER_URL"] ?? new URL(targetUrl).origin;
 const runCount = readPositiveInteger("DASHBOARD_PERF_RUNS", 3);
 const shouldAssert =
   process.argv.includes("--assert") || process.env["DASHBOARD_PERF_ASSERT"] === "1";

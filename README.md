@@ -21,21 +21,12 @@ vp install
 vp run dev
 ```
 
-This builds the local website assets, then starts the combined Worker on
-`http://localhost:8787` and the dashboard development server on
-`http://localhost:5200`. Use port `8787` to test the real landing page and its
-public `/demo` workspace together. Port `5200` keeps dashboard hot reload for
-normal dashboard work. Set `CLEAR_DEV_PORTS=1` only when you want the dev script
-to stop existing listeners on those ports first. It uses `apps/worker/.env`
-when present, otherwise it uses `apps/worker/.env.example`.
-
-To run the dashboard only:
-
-```sh
-export PATH="$HOME/.vite-plus/bin:$PATH"
-cd apps/dashboard
-vp dev --port 5200
-```
+This builds the required local assets, then starts one integrated Cloudflare and
+Vite development server at `http://localhost:8787`. The landing page, dashboard,
+public `/demo`, Worker APIs, local Cloudflare bindings, and hot reload all use
+that same origin. Set `CLEAR_DEV_PORTS=1` only when you want the dev script to
+replace an existing local app first. It uses `apps/worker/.env` when present,
+otherwise it uses `apps/worker/.env.example`.
 
 For the demo site:
 

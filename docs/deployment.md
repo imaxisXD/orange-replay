@@ -2,9 +2,9 @@
 
 Orange Replay has two environments only:
 
-- **Dev**: `vp run dev`, local storage, and `apps/worker/.env`. The Worker serves
-  the landing page and integrated `/demo` on port `8787`; the dashboard hot-reload
-  server remains on port `5200`.
+- **Dev**: `vp run dev`, local storage, and `apps/worker/.env`. One integrated
+  Cloudflare and Vite server on port `8787` serves the landing page, dashboard,
+  `/demo`, Worker APIs, bindings, and hot reload.
 - **Prod**: real Cloudflare resources in the `production` Wrangler environment.
 
 There is no staging environment. Run these commands from the repo root after `vp install`.

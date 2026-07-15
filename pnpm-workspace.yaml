@@ -8,6 +8,7 @@ catalogMode: prefer
 
 catalog:
   "@babel/core": ^8.0.1
+  "@cloudflare/vite-plugin": ^1.44.0
   "@hugeicons/core-free-icons": ^4.2.2
   "@hugeicons/react": ^1.1.9
   "@rolldown/plugin-babel": ^0.2.3
@@ -26,6 +27,7 @@ catalog:
   typescript: ^5
   vite: npm:@voidzero-dev/vite-plus-core@0.2.2
   vite-plus: 0.2.2
+  wrangler: ^4.110.0
 overrides:
   vite: "catalog:"
 peerDependencyRules:
