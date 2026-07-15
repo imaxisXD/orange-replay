@@ -273,9 +273,12 @@ function collectBrowserBatches(page: Page): BrowserBatch[] {
 }
 
 async function readSessionId(page: Page): Promise<string> {
-  const value = await page.evaluate(() => window.sessionStorage.getItem("or:s"));
-  expect(value).toMatch(/^[A-Za-z0-9_-]{16,64}$/);
-  return value ?? "";
+  await expect
+    .poll(() => page.evaluate(() => window.__orangeReplay?.getSessionUrl() ?? ""))
+    .toMatch(/\/sessions\/[^/]+\/[A-Za-z0-9_-]{16,64}$/);
+
+  const sessionUrl = await page.evaluate(() => window.__orangeReplay?.getSessionUrl() ?? "");
+  return new URL(sessionUrl).pathname.split("/").at(-1) ?? "";
 }
 
 async function waitForFinalize(state: ServerState, sessionId: string): Promise<void> {

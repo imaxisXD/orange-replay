@@ -198,13 +198,29 @@ async function putRows(env: Env, keyHash: string, config: ProjectConfig): Promis
   const now = Date.now();
 
   await db
-    .prepare(`INSERT OR REPLACE INTO orgs (id, name, shard, created_at) VALUES (?, ?, ?, ?)`)
+    .prepare(
+      `INSERT INTO orgs (id, name, shard, created_at) VALUES (?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET name = excluded.name, shard = excluded.shard`,
+    )
     .bind(config.orgId, config.orgId, config.shard, now)
     .run();
 
   await db
     .prepare(
-      `INSERT OR REPLACE INTO projects (id, org_id, name, jurisdiction, retention_days, sample_rate, allowed_origins, mask_policy_version, mask_rules, capture_toggles, quota_state, config_version, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO projects (id, org_id, name, jurisdiction, retention_days, sample_rate, allowed_origins, mask_policy_version, mask_rules, capture_toggles, quota_state, config_version, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        org_id = excluded.org_id,
+        name = excluded.name,
+        jurisdiction = excluded.jurisdiction,
+        retention_days = excluded.retention_days,
+        sample_rate = excluded.sample_rate,
+        allowed_origins = excluded.allowed_origins,
+        mask_policy_version = excluded.mask_policy_version,
+        mask_rules = excluded.mask_rules,
+        capture_toggles = excluded.capture_toggles,
+        quota_state = excluded.quota_state,
+        config_version = excluded.config_version`,
     )
     .bind(
       config.projectId,
@@ -232,7 +248,10 @@ async function putRows(env: Env, keyHash: string, config: ProjectConfig): Promis
 
   await db
     .prepare(
-      `INSERT OR REPLACE INTO keys (key_hash, project_id, active, created_at) VALUES (?, ?, ?, ?)`,
+      `INSERT INTO keys (key_hash, project_id, active, created_at) VALUES (?, ?, ?, ?)
+      ON CONFLICT(key_hash) DO UPDATE SET
+        project_id = excluded.project_id,
+        active = excluded.active`,
     )
     .bind(keyHash, config.projectId, config.active ? 1 : 0, now)
     .run();
