@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link, useParams } from "@tanstack/react-router";
 import type { SessionManifest } from "@orange-replay/shared/types";
+import { AnimatedDuration, AnimatedNumber } from "@/components/animated-number";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { ClientLabel } from "@/components/client-label";
@@ -14,7 +15,7 @@ import { ApiError, type SessionActivity, type SessionDetailsState } from "@/lib/
 import { formatCountryCode } from "@/lib/country";
 import { useDashboardWorkspace } from "@/lib/dashboard-workspace";
 import { entryPath } from "@/lib/entry-path";
-import { formatAbsoluteTime, formatDuration, formatShortRelativeTime } from "@/lib/format";
+import { formatAbsoluteTime, formatShortRelativeTime } from "@/lib/format";
 import {
   AlertCircle,
   Angry,
@@ -124,7 +125,7 @@ function SessionHeader({
   if (manifest === null) {
     return (
       <div className="flex flex-col gap-2">
-        <h1 className="text-[18px] font-semibold tracking-[-0.015em]">Session</h1>
+        <h1 className="text-[18px] font-semibold leading-[1.1] tracking-[-0.015em]">Session</h1>
         <div className="flex items-center gap-2">
           <span className="font-mono text-[13px] text-muted-foreground">{sessionId}</span>
           <CopySessionId sessionId={sessionId} />
@@ -141,7 +142,10 @@ function SessionHeader({
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div className="min-w-0">
         {/* The page a human recognizes leads; the machine id is a chip. */}
-        <h1 className="truncate text-[18px] font-semibold tracking-[-0.015em]">
+        <h1
+          className="truncate text-[18px] font-semibold leading-[1.1] tracking-[-0.015em]"
+          title={entryPath(attrs.entryUrl ?? null)}
+        >
           {entryPath(attrs.entryUrl ?? null)}
         </h1>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[12px] text-muted-foreground">
@@ -245,6 +249,7 @@ function ManifestHeader({
   const errors = manifest.counts.errors;
   const rageClicks = manifest.counts.rages;
   const pageCount = manifest.attrs.pageCount;
+  const animateMetrics = activity !== "live";
 
   // Every number appears exactly once: warm tiles ARE the frustration signal,
   // so no pill row repeats them, and context lives in the page header.
@@ -261,23 +266,59 @@ function ManifestHeader({
       ) : null}
       <ScrollArea orientation="horizontal" viewportClassName="scroll-fade-x">
         <div className="flex min-w-full w-max">
-          <Metric label="Duration" value={formatDuration(manifest.durationMs)} />
+          <Metric
+            label="Duration"
+            value={
+              <AnimatedDuration
+                animated={animateMetrics}
+                startFromZero
+                value={manifest.durationMs}
+              />
+            }
+          />
           {detailsState === "exact" && pageCount !== undefined && (
-            <Metric label="Pages" value={String(pageCount)} />
+            <Metric
+              label="Pages"
+              value={<AnimatedNumber animated={animateMetrics} startFromZero value={pageCount} />}
+            />
           )}
           {detailsState === "exact" && (
             <>
-              <Metric label="Events" value={String(manifest.counts.events)} />
-              <Metric icon={AlertCircle} label="Errors" value={String(errors)} warm={errors > 0} />
+              <Metric
+                label="Events"
+                value={
+                  <AnimatedNumber
+                    animated={animateMetrics}
+                    startFromZero
+                    value={manifest.counts.events}
+                  />
+                }
+              />
+              <Metric
+                icon={AlertCircle}
+                label="Errors"
+                value={<AnimatedNumber animated={animateMetrics} startFromZero value={errors} />}
+                warm={errors > 0}
+              />
               <Metric
                 icon={Angry}
                 label="Rage clicks"
-                value={String(rageClicks)}
+                value={
+                  <AnimatedNumber animated={animateMetrics} startFromZero value={rageClicks} />
+                }
                 warm={rageClicks > 0}
               />
             </>
           )}
-          {deadClickCount > 0 && <Metric label="Dead clicks" value={String(deadClickCount)} warm />}
+          {deadClickCount > 0 && (
+            <Metric
+              label="Dead clicks"
+              value={
+                <AnimatedNumber animated={animateMetrics} startFromZero value={deadClickCount} />
+              }
+              warm
+            />
+          )}
         </div>
       </ScrollArea>
     </section>
@@ -292,7 +333,7 @@ function Metric({
 }: {
   icon?: IconComponent;
   label: string;
-  value: string;
+  value: ReactNode;
   warm?: boolean;
 }) {
   return (

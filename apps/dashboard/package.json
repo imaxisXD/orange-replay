@@ -14,6 +14,7 @@
     "@fontsource-variable/inter": "^5.2.8",
     "@hugeicons/core-free-icons": "catalog:",
     "@hugeicons/react": "catalog:",
+    "@number-flow/react": "catalog:",
     "@orange-replay/player": "workspace:*",
     "@orange-replay/sdk": "workspace:*",
     "@orange-replay/shared": "workspace:*",

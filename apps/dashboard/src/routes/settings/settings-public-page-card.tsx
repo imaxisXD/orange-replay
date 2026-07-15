@@ -2,6 +2,7 @@ import { MAX_PUBLIC_PAGE_RECORDINGS } from "@orange-replay/shared";
 import type { PublicPageSelectedRecording } from "@orange-replay/shared/types";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { AnimatedNumber } from "@/components/animated-number";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -181,7 +182,7 @@ export function PublicPageCard({ projectId }: { projectId: string }) {
                   ) : (
                     <input
                       aria-label="Public page address"
-                      className="mt-1 h-8 w-full rounded-[7px] border border-border bg-background px-2.5 font-mono text-[12px] text-foreground outline-none focus-visible:ring-1 focus-visible:ring-amber"
+                      className="mt-1 h-8 w-full rounded-[7px] border border-border bg-background px-2.5 font-mono text-base text-foreground outline-none focus-visible:ring-1 focus-visible:ring-amber sm:text-[12px]"
                       onFocus={(event) => event.currentTarget.select()}
                       readOnly
                       value={settings.publicUrl}
@@ -220,8 +221,8 @@ export function PublicPageCard({ projectId }: { projectId: string }) {
               <div>
                 <p className="text-[13px] font-medium text-foreground">Shared recordings</p>
                 <p className="mt-1 text-[12px] text-muted-foreground">
-                  {settings.recordings.length}/{MAX_PUBLIC_PAGE_RECORDINGS} finalized recordings
-                  selected. Analytics can be public with none selected.
+                  <AnimatedNumber value={settings.recordings.length} />/{MAX_PUBLIC_PAGE_RECORDINGS}{" "}
+                  finalized recordings selected. Analytics can be public with none selected.
                 </p>
               </div>
               <Button leadingIcon={Eye} onClick={openRecordingPicker} size="sm" variant="secondary">

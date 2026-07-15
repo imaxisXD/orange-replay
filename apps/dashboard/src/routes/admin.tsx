@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { AnimatedNumber } from "@/components/animated-number";
 import { BrandMark } from "@/components/brand-mark";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -152,7 +153,9 @@ export function AdminPage() {
 
       <main className="mx-auto flex w-full max-w-350 flex-col gap-5 px-4 py-6 sm:px-7">
         <div>
-          <h1 className="text-[18px] font-semibold tracking-[-0.015em]">Operator console</h1>
+          <h1 className="text-[18px] font-semibold leading-[1.1] tracking-[-0.015em]">
+            Operator console
+          </h1>
           <p className="mt-1 text-[12px] text-muted-foreground">
             Manage Orange Replay accounts. Every change is checked again by the server.
           </p>
@@ -168,7 +171,7 @@ export function AdminPage() {
         <section className="lit overflow-hidden rounded-lg">
           <div className="flex flex-col gap-3 border-b border-dashed border-dash px-5 py-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h2 className="text-[15px] font-medium">Users</h2>
+              <h2 className="text-[15px] font-medium leading-tight">Users</h2>
               <p className="mt-1 text-[12px] text-muted-foreground">
                 Search by name or email, then choose a real account action.
               </p>
@@ -400,7 +403,9 @@ function AdminStats({
             <p className="text-[11.5px] text-muted-foreground">{item.label}</p>
             <item.icon aria-hidden className="text-dim" />
           </div>
-          <p className="mt-1 font-numeric text-[21px]">{(item.value ?? 0).toLocaleString()}</p>
+          <p className="mt-1 font-numeric text-[21px]">
+            <AnimatedNumber startFromZero value={item.value} />
+          </p>
         </div>
       ))}
     </section>
@@ -429,10 +434,12 @@ function AdminUserRow({
         <div className="flex min-w-48 items-center gap-2.5">
           <AdminAvatar image={user.image} name={user.name} />
           <div className="min-w-0">
-            <p className="truncate text-[13px] font-medium text-foreground">
+            <p className="truncate text-[13px] font-medium text-foreground" title={user.name}>
               {user.name} {isCurrentUser ? <span className="text-dim">(you)</span> : null}
             </p>
-            <p className="truncate text-[11.5px] text-muted-foreground">{user.email}</p>
+            <p className="truncate text-[11.5px] text-muted-foreground" title={user.email}>
+              {user.email}
+            </p>
           </div>
         </div>
       </TableCell>

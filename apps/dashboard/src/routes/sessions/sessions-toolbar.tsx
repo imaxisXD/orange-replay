@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { SessionFilter } from "@orange-replay/shared";
+import { AnimatedNumber } from "@/components/animated-number";
 import { Button } from "@/components/ui/button";
 import { InputField, InputGroup } from "@/components/ui/input-group";
 import {
@@ -13,7 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tooltip } from "@/components/ui/tooltip";
 import type { StatsBreakdownRow } from "@/lib/api/stats";
 import { RotateCcw, Search } from "@/lib/icon-map";
-import { dateRangeShorthand, formatSessionCount } from "@/lib/session-count";
+import { dateRangeShorthand, sessionCountNoun } from "@/lib/session-count";
 
 const minDurationOptions = [
   { label: "Any duration", value: "any", ms: undefined },
@@ -123,7 +124,18 @@ export function SessionsToolbar({
 
       <div className="col-span-2 flex items-center justify-end gap-2 sm:contents">
         <span className="font-mono text-[12px] text-muted-foreground sm:text-[11.5px]">
-          {isRefreshing ? "Refreshing…" : formatSessionCount(sessionCount, hasMore)}
+          {isRefreshing ? (
+            "Refreshing…"
+          ) : (
+            <>
+              <AnimatedNumber
+                startFromZero
+                suffix={hasMore ? "+" : undefined}
+                value={sessionCount}
+              />{" "}
+              {sessionCountNoun(sessionCount, hasMore)}
+            </>
+          )}
           {!isRefreshing && rangeSuffix(filter)}
         </span>
         <Tooltip content={isRefreshing ? "Refreshing sessions" : "Refresh"}>

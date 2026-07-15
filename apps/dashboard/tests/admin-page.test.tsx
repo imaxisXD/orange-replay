@@ -24,6 +24,10 @@ vi.mock("@tanstack/react-router", () => ({
   Link: ({ children }: { children?: ReactNode }) => <a href="/projects">{children}</a>,
   useNavigate: () => navigate,
 }));
+vi.mock("@number-flow/react", () => ({
+  default: ({ value }: { value: number }) => <span>{value.toLocaleString()}</span>,
+  NumberFlowGroup: ({ children }: { children: ReactNode }) => children,
+}));
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/lib/api")>();
   return { ...actual, ...apiMocks };

@@ -20,7 +20,7 @@ import {
   withDefaultDateRange,
   type DateRangeValue,
 } from "@/lib/session-filters";
-import { OverviewContent } from "./overview/overview-content";
+import { OverviewContent, OverviewSummary } from "./overview/overview-content";
 import { OverviewLoading, StatsError } from "./overview/overview-states";
 
 export function OverviewPage() {
@@ -57,13 +57,13 @@ export function OverviewPage() {
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-[18px] font-semibold tracking-[-0.015em]">
-          Overview
-          <span className="ml-2.5 text-[12px] font-normal text-dim">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-[18px] font-semibold leading-[1.1] tracking-[-0.015em]">Overview</h1>
+          <p className="mt-1 text-[12px] leading-normal text-muted-foreground">
             See completed sessions and how people used your product.
-          </span>
-        </h1>
+          </p>
+        </div>
         <Select onValueChange={changeDateRange} value={range === "custom" ? undefined : range}>
           <SelectTrigger
             aria-label="Date range"
@@ -82,15 +82,23 @@ export function OverviewPage() {
         </Select>
       </div>
 
+      {statsQuery.data?.analyticsState === "stale" && <AnalyticsStaleAlert />}
+
+      {(statsQuery.data !== undefined || !statsQuery.isError) && (
+        <OverviewSummary
+          filter={filter}
+          isDemo={isDemo}
+          projectId={projectId}
+          stats={statsQuery.data}
+        />
+      )}
+
       {statsQuery.isPending ? (
         <OverviewLoading />
       ) : statsQuery.isError ? (
         <StatsError error={statsQuery.error} />
       ) : (
-        <>
-          {statsQuery.data.analyticsState === "stale" && <AnalyticsStaleAlert />}
-          <OverviewContent isDemo={isDemo} projectId={projectId} stats={statsQuery.data} />
-        </>
+        <OverviewContent isDemo={isDemo} projectId={projectId} stats={statsQuery.data} />
       )}
     </div>
   );

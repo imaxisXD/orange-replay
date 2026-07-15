@@ -1,6 +1,10 @@
 export function formatSessionCount(count: number, hasMore: boolean): string {
-  const noun = count === 1 && !hasMore ? "session" : "sessions";
+  const noun = sessionCountNoun(count, hasMore);
   return `${count}${hasMore ? "+" : ""} ${noun}`;
+}
+
+export function sessionCountNoun(count: number, hasMore: boolean): "session" | "sessions" {
+  return count === 1 && !hasMore ? "session" : "sessions";
 }
 
 /**

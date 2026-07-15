@@ -13,8 +13,8 @@ import { AlertCircle, Inbox } from "@/lib/icon-map";
 export function CardTitle({ description, title }: { description: string; title: string }) {
   return (
     <div>
-      <h2 className="text-[13px] font-semibold text-foreground">{title}</h2>
-      <p className="mt-0.5 text-[11.5px] text-dim">{description}</p>
+      <h2 className="text-[13px] font-semibold leading-tight text-foreground">{title}</h2>
+      <p className="mt-0.5 text-[11.5px] text-muted-foreground">{description}</p>
     </div>
   );
 }
@@ -34,7 +34,7 @@ export function CardEmpty({ description, title }: { description: string; title: 
 }
 
 export function OverviewLoading() {
-  return <LoadingArea className="lit min-h-105 rounded-lg" label="Loading your overview" />;
+  return <LoadingArea className="lit min-h-80 rounded-lg" label="Loading overview breakdowns" />;
 }
 
 export function StatsError({ error }: { error: unknown }) {

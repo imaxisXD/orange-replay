@@ -18,9 +18,9 @@ export function InsightDoorway({
   filter: SessionFilter;
   isDemo: boolean;
   label: string;
-  numericValue: number | null;
+  numericValue: number | null | undefined;
   projectId: string;
-  value: string;
+  value: ReactNode;
 }) {
   return (
     <SessionDoorway
@@ -33,18 +33,17 @@ export function InsightDoorway({
       <span
         className={cn(
           "mt-1 block font-numeric text-[21px] text-foreground",
-          accent === "amber" && numericValue !== null && numericValue > 0 && "text-amber",
+          accent === "amber" && numericValue != null && numericValue > 0 && "text-amber",
         )}
       >
         {value}
       </span>
-      <span className="mt-1 block text-[11.5px] text-dim">{detail}</span>
+      <span className="mt-1 block text-[11.5px] text-muted-foreground">{detail}</span>
     </SessionDoorway>
   );
 }
 
 export function KpiDoorway({
-  accent,
   detail,
   filter,
   isDemo,
@@ -52,13 +51,12 @@ export function KpiDoorway({
   projectId,
   value,
 }: {
-  accent?: "teal";
   detail: string;
   filter: SessionFilter;
   isDemo: boolean;
   label: string;
   projectId: string;
-  value: string;
+  value: ReactNode;
 }) {
   return (
     <SessionDoorway
@@ -68,31 +66,26 @@ export function KpiDoorway({
       projectId={projectId}
     >
       <span className="block text-[11.5px] text-muted-foreground">{label}</span>
-      <span
-        className={cn(
-          "mt-1 block font-numeric text-[21px] text-foreground",
-          accent === "teal" && value !== "0" && "text-teal",
-        )}
-      >
-        {value}
-      </span>
-      <span className="mt-1 block text-[11.5px] text-dim">{detail}</span>
+      <span className="mt-1 block font-numeric text-[21px] text-foreground">{value}</span>
+      <span className="mt-1 block text-[11.5px] text-muted-foreground">{detail}</span>
     </SessionDoorway>
   );
 }
 
 export function LiveKpiDoorway({
+  active,
   detail,
   isDemo,
   label,
   projectId,
   value,
 }: {
+  active: boolean;
   detail: string;
   isDemo: boolean;
   label: string;
   projectId: string;
-  value: string;
+  value: ReactNode;
 }) {
   return (
     <LiveDoorway
@@ -102,14 +95,11 @@ export function LiveKpiDoorway({
     >
       <span className="block text-[11.5px] text-muted-foreground">{label}</span>
       <span
-        className={cn(
-          "mt-1 block font-numeric text-[21px] text-foreground",
-          value !== "0" && "text-teal",
-        )}
+        className={cn("mt-1 block font-numeric text-[21px] text-foreground", active && "text-teal")}
       >
         {value}
       </span>
-      <span className="mt-1 block text-[11.5px] text-dim">{detail}</span>
+      <span className="mt-1 block text-[11.5px] text-muted-foreground">{detail}</span>
     </LiveDoorway>
   );
 }

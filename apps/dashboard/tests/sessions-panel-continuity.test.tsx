@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act } from "react";
+import { act, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
@@ -8,6 +8,26 @@ import { ShapeProvider } from "../src/lib/shape-context";
 import { SessionsPanel } from "../src/routes/sessions/sessions-panel";
 
 const navigate = vi.fn();
+
+// Number Flow relies on browser custom-element animation hooks that happy-dom
+// does not implement. Keep this integration test focused on session continuity.
+vi.mock("@number-flow/react", () => ({
+  default: ({
+    format,
+    suffix,
+    value,
+  }: {
+    format?: Intl.NumberFormatOptions;
+    suffix?: string;
+    value: number;
+  }) => (
+    <span>
+      {new Intl.NumberFormat(undefined, format).format(value)}
+      {suffix}
+    </span>
+  ),
+  NumberFlowGroup: ({ children }: { children: ReactNode }) => children,
+}));
 
 // happy-dom does not provide this Web Animations API method. Base UI checks
 // it after scroll-area layout, even when the test has already asserted.

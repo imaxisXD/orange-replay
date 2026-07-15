@@ -1,4 +1,5 @@
 import { MAX_PUBLIC_PAGE_RECORDINGS } from "@orange-replay/shared";
+import { AnimatedNumber } from "@/components/animated-number";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -106,7 +107,8 @@ export function PublicRecordingPickerDialog({
 
         <div className="mt-4 flex items-center justify-between">
           <span className="text-[12px] text-muted-foreground">
-            {selectedSessionIds.length}/{MAX_PUBLIC_PAGE_RECORDINGS} selected
+            <AnimatedNumber value={selectedSessionIds.length} />/{MAX_PUBLIC_PAGE_RECORDINGS}{" "}
+            selected
           </span>
           <Button
             disabled={selectedSessionIds.length === 0}
@@ -134,10 +136,16 @@ export function PublicRecordingPickerDialog({
               {choices.map((choice) => (
                 <div className="flex items-center gap-3 px-4 py-3" key={choice.sessionId}>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-[13px] font-medium text-foreground">
+                    <p
+                      className="truncate text-[13px] font-medium text-foreground"
+                      title={choice.entryPath}
+                    >
                       {choice.entryPath}
                     </p>
-                    <p className="mt-1 truncate text-[11.5px] text-dim">
+                    <p
+                      className="mt-1 truncate text-[11.5px] text-muted-foreground"
+                      title={`${formatAbsoluteTime(choice.startedAt)} · ${formatDuration(choice.durationMs)}${choice.device ? ` · ${choice.device}` : ""}${choice.browser ? ` · ${choice.browser}` : ""}${choice.country ? ` · ${choice.country}` : ""}`}
+                    >
                       {formatAbsoluteTime(choice.startedAt)} · {formatDuration(choice.durationMs)}
                       {choice.device ? ` · ${choice.device}` : ""}
                       {choice.browser ? ` · ${choice.browser}` : ""}
