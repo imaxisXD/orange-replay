@@ -104,6 +104,8 @@ const InputField = forwardRef<HTMLDivElement, InputFieldProps>(
       className,
       endContent,
       hideLabel = false,
+      onBlur: onInputBlur,
+      onFocus: onInputFocus,
       ...props
     },
     ref,
@@ -209,8 +211,14 @@ const InputField = forwardRef<HTMLDivElement, InputFieldProps>(
             type="text"
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            onFocus={handleFocus}
-            onBlur={handleBlur}
+            onFocus={(event) => {
+              handleFocus();
+              onInputFocus?.(event);
+            }}
+            onBlur={(event) => {
+              handleBlur();
+              onInputBlur?.(event);
+            }}
             placeholder={placeholder}
             className="w-full bg-transparent text-[12px] text-foreground placeholder:text-dim outline-none font-[inherit]"
             style={{ fontVariationSettings: fontWeights.normal }}

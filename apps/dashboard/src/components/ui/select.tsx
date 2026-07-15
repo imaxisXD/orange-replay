@@ -7,8 +7,6 @@ import {
   useRef,
   useEffect,
   useState,
-  useCallback,
-  useMemo,
   createContext,
   useContext,
   type ReactNode,
@@ -103,18 +101,15 @@ function Select({
   const [open, setOpen] = useState(false);
   const actionsRef = useRef<{ unmount: () => void } | null>(null);
   const currentValue = value !== undefined ? value : internalValue;
-  const items = useMemo(() => collectSelectItems(children), [children]);
+  const items = collectSelectItems(children);
 
-  const handleValueChange = useCallback(
-    (next: string | null) => {
-      const nextValue = next ?? "";
-      if (value === undefined) setInternalValue(nextValue);
-      onValueChange?.(nextValue);
-    },
-    [onValueChange, value],
-  );
+  function handleValueChange(next: string | null): void {
+    const nextValue = next ?? "";
+    if (value === undefined) setInternalValue(nextValue);
+    onValueChange?.(nextValue);
+  }
 
-  const ctx = useMemo(() => ({ value: currentValue, open, actionsRef }), [currentValue, open]);
+  const ctx = { value: currentValue, open, actionsRef };
 
   return (
     <SelectContext.Provider value={ctx}>
@@ -363,10 +358,11 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
     const focusRect = focusedIndex !== null ? itemRects[focusedIndex] : null;
     const isHoveringOther = activeIndex !== null && activeIndex !== checkedIndex;
 
-    const contentCtx = useMemo(
-      () => ({ registerItem, activeIndex, checkedIndex }),
-      [activeIndex, checkedIndex, registerItem],
-    );
+    // Inset the hover/selected pills within their row so adjacent highlights
+    // keep a visible gutter instead of butting edge-to-edge.
+    const PILL_INSET = 2;
+
+    const contentCtx = { registerItem, activeIndex, checkedIndex };
 
     return (
       <SelectPrimitive.Portal>
@@ -437,9 +433,9 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
                 <AnimatePresence>
                   {checkedRect && (
                     <m.div
-                      className={`absolute ${shape.bg} bg-active pointer-events-none`}
+                      className={`absolute ${shape.bg} bg-active-overlay pointer-events-none`}
                       style={{
-                        height: checkedRect.height,
+                        height: checkedRect.height - PILL_INSET * 2,
                         left: 0,
                         top: 0,
                         width: checkedRect.width,
@@ -447,7 +443,7 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
                       initial={false}
                       animate={{
                         x: checkedRect.left,
-                        y: checkedRect.top,
+                        y: checkedRect.top + PILL_INSET,
                         opacity: isHoveringOther ? 0.8 : 1,
                       }}
                       exit={{ opacity: 0, transition: spring.moderate.exit }}
@@ -464,9 +460,9 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
                   {activeRect && (
                     <m.div
                       key={sessionKey}
-                      className={`absolute ${shape.bg} bg-hover pointer-events-none`}
+                      className={`absolute ${shape.bg} bg-hover-overlay pointer-events-none`}
                       style={{
-                        height: activeRect.height,
+                        height: activeRect.height - PILL_INSET * 2,
                         left: 0,
                         top: 0,
                         width: activeRect.width,
@@ -474,12 +470,12 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
                       initial={{
                         opacity: 0,
                         x: checkedRect?.left ?? activeRect.left,
-                        y: checkedRect?.top ?? activeRect.top,
+                        y: (checkedRect?.top ?? activeRect.top) + PILL_INSET,
                       }}
                       animate={{
                         opacity: 1,
                         x: activeRect.left,
-                        y: activeRect.top,
+                        y: activeRect.top + PILL_INSET,
                       }}
                       exit={{ opacity: 0, transition: spring.fast.exit }}
                       transition={{
@@ -544,11 +540,6 @@ const SelectItem = forwardRef<HTMLDivElement, SelectItemProps>(
     const contentCtx = useContext(SelectContentContext);
     const internalRef = useRef<HTMLDivElement>(null);
     const shape = useShape();
-    const hasMounted = useRef(false);
-
-    useEffect(() => {
-      hasMounted.current = true;
-    }, []);
 
     // Register with proximity hover
     useEffect(() => {
@@ -558,7 +549,6 @@ const SelectItem = forwardRef<HTMLDivElement, SelectItemProps>(
 
     const isActive = contentCtx?.activeIndex === index;
     const isChecked = selectCtx.value === value;
-    const skipAnimation = !hasMounted.current;
 
     return (
       <SelectPrimitive.Item
@@ -579,7 +569,7 @@ const SelectItem = forwardRef<HTMLDivElement, SelectItemProps>(
               // the text-box trim on the item text doesn't shrink the row.
               `relative z-10 flex h-9 items-center gap-2 ${shape.item} px-2 text-[13px] cursor-pointer outline-none select-none`,
               "transition-[color] duration-80",
-              isActive || isChecked ? "text-foreground" : "text-muted-foreground",
+              isActive || isChecked ? "text-foreground" : "text-foreground/75",
               disabled && "opacity-50 pointer-events-none",
               className,
             )}
@@ -605,7 +595,7 @@ const SelectItem = forwardRef<HTMLDivElement, SelectItemProps>(
           {children}
         </SelectPrimitive.ItemText>
 
-        <AnimatePresence>
+        <AnimatePresence initial={false}>
           {isChecked && (
             <m.svg
               key="check"
@@ -624,7 +614,7 @@ const SelectItem = forwardRef<HTMLDivElement, SelectItemProps>(
             >
               <m.path
                 d="M4 12L9 17L20 6"
-                initial={{ pathLength: skipAnimation ? 1 : 0 }}
+                initial={{ pathLength: 0 }}
                 animate={{
                   pathLength: 1,
                   transition: { duration: 0.08, ease: "easeOut" },

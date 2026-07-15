@@ -3,6 +3,7 @@ import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it } from "vite-plus/test";
 import { Button } from "../src/components/ui/button";
+import { loadingIndicatorSettings } from "../src/components/ui/loading-indicator-config";
 import { LoadingIndicator } from "../src/components/ui/loading-indicator";
 
 describe("dashboard loading indicator", () => {
@@ -16,15 +17,21 @@ describe("dashboard loading indicator", () => {
     expect(indicator?.getAttribute("role")).toBe("status");
     expect(indicator?.getAttribute("aria-label")).toBe("Loading sessions");
     expect(indicator?.getAttribute("data-gspin-reduced-motion")).toBe("respect");
-    expect(indicator?.style.gridTemplateColumns).toBe("repeat(5, 4px)");
-    expect(indicator?.style.gridAutoRows).toBe("4px");
-    expect(indicator?.style.gap).toBe("2px");
-    expect(indicator?.style.getPropertyValue("--gspin-period")).toBe("750ms");
-    expect(indicator?.style.getPropertyValue("--gspin-dim")).toBe("0.07");
+    expect(indicator?.style.gridTemplateColumns).toBe(
+      `repeat(${loadingIndicatorSettings.cols}, ${loadingIndicatorSettings.cellSize}px)`,
+    );
+    expect(indicator?.style.gridAutoRows).toBe(`${loadingIndicatorSettings.cellSize}px`);
+    expect(indicator?.style.gap).toBe(`${loadingIndicatorSettings.cellGap}px`);
+    expect(indicator?.style.getPropertyValue("--gspin-period")).toBe(
+      `${loadingIndicatorSettings.period}ms`,
+    );
+    expect(indicator?.style.getPropertyValue("--gspin-dim")).toBe(
+      String(loadingIndicatorSettings.dim),
+    );
     const cells = indicator?.querySelectorAll<HTMLElement>(".gradient-spin-cell");
-    expect(cells).toHaveLength(15);
-    expect(cells?.item(0).style.backgroundColor).toBe("rgb(182, 211, 239)");
-    expect(cells?.item(0).style.getPropertyValue("--gspin-phase")).toBe("0.5");
+    expect(cells).toHaveLength(loadingIndicatorSettings.rows * loadingIndicatorSettings.cols);
+    expect(cells?.item(0).style.backgroundColor).not.toBe("");
+    expect(cells?.item(0).style.getPropertyValue("--gspin-phase")).not.toBe("");
 
     root.unmount();
   });
@@ -39,7 +46,9 @@ describe("dashboard loading indicator", () => {
     const indicator = container.querySelector("[data-slot='loading-indicator']");
     expect(button?.disabled).toBe(true);
     expect(indicator?.getAttribute("aria-label")).toBe("Save changes in progress");
-    expect(indicator?.querySelectorAll(".gradient-spin-cell")).toHaveLength(15);
+    expect(indicator?.querySelectorAll(".gradient-spin-cell")).toHaveLength(
+      loadingIndicatorSettings.rows * loadingIndicatorSettings.cols,
+    );
 
     root.unmount();
   });

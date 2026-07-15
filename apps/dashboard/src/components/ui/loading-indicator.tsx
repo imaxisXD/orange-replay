@@ -1,20 +1,7 @@
 import type { CSSProperties } from "react";
-import { GradientSpin, type GradientSpinProps } from "gradient-spin";
+import { GradientSpin } from "gradient-spin";
 import { cn } from "@/lib/utils";
-
-const loadingIndicatorSettings = {
-  gradient: "sunrise",
-  pattern: "snake",
-  period: 750,
-  dim: 0.07,
-  rows: 3,
-  cols: 5,
-  cellSize: 4,
-  cellGap: 2,
-} satisfies Pick<
-  GradientSpinProps,
-  "gradient" | "pattern" | "period" | "dim" | "rows" | "cols" | "cellSize" | "cellGap"
->;
+import { loadingIndicatorSettings } from "./loading-indicator-config";
 
 interface LoadingIndicatorProps {
   className?: string;
@@ -26,7 +13,7 @@ function LoadingIndicator({ className, label, style }: LoadingIndicatorProps) {
   return (
     <GradientSpin
       {...loadingIndicatorSettings}
-      className={cn("shrink-0", className)}
+      className={className}
       data-slot="loading-indicator"
       label={label}
       style={style}

@@ -261,7 +261,7 @@ function ProjectInstallSnippetBuilder({ projectId }: { projectId: string }) {
           </Button>
         </Tooltip>
         <ScrollArea className={showFullCode ? "h-105" : "h-24"} viewportClassName="scroll-fade">
-          <pre className="whitespace-pre-wrap break-words font-mono text-[11.5px] leading-relaxed text-muted-foreground">
+          <pre className="whitespace-pre-wrap wrap-break-word font-mono text-[11.5px] leading-relaxed text-muted-foreground">
             {shownSnippet}
           </pre>
         </ScrollArea>

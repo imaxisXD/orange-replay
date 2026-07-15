@@ -28,10 +28,6 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
   ({ label, checked, onToggle, disabled = false, thumbTransition, className, ...props }, ref) => {
     const labelId = useId();
     const reduceMotion = useReducedMotion();
-    const thumbSpring: Transition = reduceMotion
-      ? { duration: 0 }
-      : (thumbTransition ?? spring.moderate);
-    const hasMounted = useRef(false);
     const [hovered, setHovered] = useState(false);
     const [pressed, setPressed] = useState(false);
 
@@ -45,10 +41,6 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
 
     // Motion value for thumb x-axis
     const motionX = useMotionValue(checked ? THUMB_OFFSET + THUMB_TRAVEL : THUMB_OFFSET);
-
-    useEffect(() => {
-      hasMounted.current = true;
-    }, []);
 
     // Compute thumb shape
     const thumbWidth = pressed
@@ -64,12 +56,8 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
     // Sync motionX when thumbX changes (hover/press/checked) and not dragging
     useEffect(() => {
       if (dragging.current) return;
-      if (!hasMounted.current) {
-        motionX.set(thumbX);
-      } else {
-        animate(motionX, thumbX, thumbSpring);
-      }
-    }, [thumbX, motionX, thumbSpring]);
+      animate(motionX, thumbX, resolveThumbTransition(reduceMotion, thumbTransition));
+    }, [motionX, reduceMotion, thumbTransition, thumbX]);
 
     // --- Pointer handlers ---
 
@@ -123,7 +111,7 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
         } else {
           // Snap back to current resting position (un-pressed)
           const snapTarget = checked ? THUMB_OFFSET + THUMB_TRAVEL : THUMB_OFFSET;
-          animate(motionX, snapTarget, thumbSpring);
+          animate(motionX, snapTarget, resolveThumbTransition(reduceMotion, thumbTransition));
         }
 
         requestAnimationFrame(() => {
@@ -142,7 +130,7 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
         dragging.current = false;
         // Gesture cancelled by the system — snap back without toggling
         const snapTarget = checked ? THUMB_OFFSET + THUMB_TRAVEL : THUMB_OFFSET;
-        animate(motionX, snapTarget, thumbSpring);
+        animate(motionX, snapTarget, resolveThumbTransition(reduceMotion, thumbTransition));
       }
 
       pointerStart.current = null;
@@ -219,7 +207,6 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
                 <m.span
                   {...thumbProps}
                   className="absolute top-0 left-0 block rounded-full bg-white shadow-sm"
-                  initial={false}
                   style={{
                     ...(baseStyle as React.CSSProperties | undefined),
                     height: thumbHeight,
@@ -227,7 +214,8 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
                     x: motionX,
                   }}
                   animate={{ y: thumbY }}
-                  transition={hasMounted.current ? thumbSpring : { duration: 0 }}
+                  initial={false}
+                  transition={resolveThumbTransition(reduceMotion, thumbTransition)}
                 />
               );
             }}
@@ -250,6 +238,13 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
     );
   },
 );
+
+function resolveThumbTransition(
+  reduceMotion: boolean | null,
+  thumbTransition: Transition | undefined,
+): Transition {
+  return reduceMotion ? { duration: 0 } : (thumbTransition ?? spring.moderate);
+}
 
 Switch.displayName = "Switch";
 

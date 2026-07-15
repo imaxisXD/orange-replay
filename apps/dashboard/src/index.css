@@ -37,6 +37,11 @@
     --focus-ring: var(--amber);
     --hover: oklch(0.194 0.01 285.427);
     --active: oklch(0.207 0.01 285.508);
+    /* State overlays for popover-level surfaces. --hover/--active are tuned
+       for page/card backgrounds and sit at or below --popover's lightness,
+       so inside menus they are invisible (~1.01:1). */
+    --hover-overlay: oklch(0.26 0.011 285.5);
+    --active-overlay: oklch(0.243 0.01 285.6);
     --overlay: var(--foreground);
     --radius: 0.5rem;
 
@@ -304,6 +309,8 @@
   --color-ring: var(--ring);
   --color-hover: var(--hover);
   --color-active: var(--active);
+  --color-hover-overlay: var(--hover-overlay);
+  --color-active-overlay: var(--active-overlay);
   --color-dash: var(--dash);
   --color-dim: var(--dim);
   --color-amber: var(--amber);
