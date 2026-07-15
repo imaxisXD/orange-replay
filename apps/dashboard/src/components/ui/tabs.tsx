@@ -385,17 +385,17 @@ const TabItem = forwardRef<HTMLButtonElement, TabItemProps>(
           <span
             aria-hidden="true"
             className="invisible col-start-1 row-start-1 [text-box:trim-both_cap_alphabetic]"
-            style={{ fontVariationSettings: fontWeights.semibold }}
+            style={{ fontWeight: fontWeights.semibold }}
           >
             {label}
           </span>
           <span
             className={cn(
-              "col-start-1 row-start-1 transition-[color,font-variation-settings] duration-80 [text-box:trim-both_cap_alphabetic] motion-reduce:transition-none",
+              "col-start-1 row-start-1 transition-[color,font-weight] duration-80 [text-box:trim-both_cap_alphabetic] motion-reduce:transition-none",
               isActive ? "text-foreground" : "text-muted-foreground",
             )}
             style={{
-              fontVariationSettings: isSelected ? fontWeights.semibold : fontWeights.normal,
+              fontWeight: isSelected ? fontWeights.semibold : fontWeights.normal,
             }}
           >
             {label}

@@ -43,7 +43,9 @@ export function ClientLabel({ browser, os }: { browser: string | null; os: strin
                 strokeWidth={2}
               />
             )}
-            <span className="truncate">{part.value}</span>
+            <span className="truncate" title={part.value ?? undefined}>
+              {part.value}
+            </span>
           </span>
         );
       })}

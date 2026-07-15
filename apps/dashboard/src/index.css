@@ -1,4 +1,4 @@
-@import "@fontsource-variable/inter";
+@import "@fontsource-variable/inter/opsz.css";
 @import "tailwindcss";
 
 @font-face {
@@ -140,6 +140,7 @@
     color: var(--foreground);
     font-family:
       "Departure Mono Numerals", "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
+    font-optical-sizing: auto;
     font-synthesis: none;
     /* Light text on the near-black canvas renders heavy on macOS/retina
        without this — antialiased thins the stems back to the design weight. */

@@ -35,14 +35,12 @@ export function LivePage() {
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex items-center justify-between gap-4">
-        <h1 className="text-[18px] font-semibold tracking-[-0.015em]">
-          Live
-          <span className="ml-2.5 text-[12px] font-normal text-dim">
-            Sessions happening right now.
-          </span>
-        </h1>
-      </div>
+      <header className="flex max-w-2xl flex-col gap-1">
+        <h1 className="text-[18px] font-semibold leading-[1.1] tracking-[-0.015em]">Live</h1>
+        <p className="text-[12px] leading-normal text-muted-foreground">
+          Sessions happening right now.
+        </p>
+      </header>
 
       <section className="lit rounded-lg px-4.5 py-4">
         <div className="mb-3.5 flex items-baseline justify-between">
@@ -134,10 +132,14 @@ function LiveRow({
     >
       <LiveDot size="sm" />
       <div className="min-w-0 max-w-85">
-        <div className="truncate text-[12.5px] font-medium">{row.entryPath}</div>
-        <div className="mt-0.25 flex items-center gap-1.5 text-[11.5px] text-dim">
+        <div className="truncate text-[12.5px] font-medium" title={row.entryPath}>
+          {row.entryPath}
+        </div>
+        <div className="mt-0.25 flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
           <CountryFlag country={row.countryCode} />
-          <span className="truncate">{row.placeText}</span>
+          <span className="truncate" title={row.placeText}>
+            {row.placeText}
+          </span>
         </div>
       </div>
       <span className="ml-auto flex-none font-mono text-[11.5px] tabular-nums text-muted-foreground">

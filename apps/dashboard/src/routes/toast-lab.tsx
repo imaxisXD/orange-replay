@@ -141,7 +141,7 @@ export function ToastLabPage() {
   return (
     <div className="flex flex-col gap-5">
       <header className="flex max-w-2xl flex-col gap-1.5">
-        <h1 className="text-[18px] font-semibold tracking-[-0.015em]">Toast lab</h1>
+        <h1 className="text-[18px] font-semibold leading-[1.1] tracking-[-0.015em]">Toast lab</h1>
         <p className="text-[13px] text-muted-foreground">
           Test every notification state with the same Orange Replay structure, logo fragments, and
           measured motion.
@@ -151,7 +151,9 @@ export function ToastLabPage() {
       <section className="lit overflow-hidden rounded-lg">
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border px-5 py-4">
           <div>
-            <h2 className="text-[13px] font-semibold text-foreground">Notification variants</h2>
+            <h2 className="text-[13px] font-semibold leading-tight text-foreground">
+              Notification variants
+            </h2>
             <p className="mt-1 max-w-2xl text-[13px] text-muted-foreground">
               Semantic color is limited to the signal cell and dashed edge. The surface, typography,
               action shape, and particle language stay consistent.
@@ -197,7 +199,9 @@ export function ToastLabPage() {
 
       <section className="lit overflow-visible rounded-lg">
         <div className="border-b border-border px-5 py-4">
-          <h2 className="text-[13px] font-semibold text-foreground">Always-visible previews</h2>
+          <h2 className="text-[13px] font-semibold leading-tight text-foreground">
+            Always-visible previews
+          </h2>
           <p className="mt-1 max-w-2xl text-[13px] text-muted-foreground">
             Every variant stays open here, so its resting UI can be reviewed without a timer.
           </p>
@@ -211,7 +215,9 @@ export function ToastLabPage() {
                   className={`mt-1.5 h-2 w-2 shrink-0 rounded-[2px] ${example.signalClassName}`}
                 />
                 <div className="min-w-0">
-                  <h3 className="text-[13px] font-medium text-foreground">{example.label}</h3>
+                  <h3 className="text-[13px] font-medium leading-tight text-foreground">
+                    {example.label}
+                  </h3>
                   <p className="mt-1 text-[12px] text-muted-foreground">{example.description}</p>
                 </div>
               </div>
@@ -229,7 +235,7 @@ export function ToastLabPage() {
 
       <section className="lit overflow-visible rounded-lg">
         <div className="border-b border-border px-5 py-4">
-          <h2 className="text-[13px] font-semibold text-foreground">V2 previews</h2>
+          <h2 className="text-[13px] font-semibold leading-tight text-foreground">V2 previews</h2>
           <p className="mt-1 max-w-2xl text-[13px] text-muted-foreground">
             Proposed redesign on the same 48px geometry: the signal fills a full-height rail, the
             dashed edge moves inside as the rail divider, and the action takes the variant color.
@@ -244,7 +250,9 @@ export function ToastLabPage() {
                   className={`mt-1.5 h-2 w-2 shrink-0 rounded-[2px] ${example.signalClassName}`}
                 />
                 <div className="min-w-0">
-                  <h3 className="text-[13px] font-medium text-foreground">{example.label}</h3>
+                  <h3 className="text-[13px] font-medium leading-tight text-foreground">
+                    {example.label}
+                  </h3>
                   <p className="mt-1 text-[12px] text-muted-foreground">{example.description}</p>
                 </div>
               </div>
@@ -262,7 +270,7 @@ export function ToastLabPage() {
 
       <section className="lit overflow-visible rounded-lg">
         <div className="border-b border-border px-5 py-4">
-          <h2 className="text-[13px] font-semibold text-foreground">V3 previews</h2>
+          <h2 className="text-[13px] font-semibold leading-tight text-foreground">V3 previews</h2>
           <p className="mt-1 max-w-2xl text-[13px] text-muted-foreground">
             Evolved from both: the surface goes near-black with the landing grain, V1&apos;s dashed
             edge becomes a signal-tinted bloom, and V2&apos;s rail carries a glow over the dot-grid
@@ -278,7 +286,9 @@ export function ToastLabPage() {
                   className={`mt-1.5 h-2 w-2 shrink-0 rounded-[2px] ${example.signalClassName}`}
                 />
                 <div className="min-w-0">
-                  <h3 className="text-[13px] font-medium text-foreground">{example.label}</h3>
+                  <h3 className="text-[13px] font-medium leading-tight text-foreground">
+                    {example.label}
+                  </h3>
                   <p className="mt-1 text-[12px] text-muted-foreground">{example.description}</p>
                 </div>
               </div>
@@ -296,7 +306,7 @@ export function ToastLabPage() {
 
       <section className="lit overflow-visible rounded-lg">
         <div className="border-b border-border px-5 py-4">
-          <h2 className="text-[13px] font-semibold text-foreground">V4 previews</h2>
+          <h2 className="text-[13px] font-semibold leading-tight text-foreground">V4 previews</h2>
           <p className="mt-1 max-w-2xl text-[13px] text-muted-foreground">
             The toast fragments: the signal breaks off into its own pixel-glyph tile and every drop
             of color moves there, leaving the body quiet. The lineage stays as traces — V1&apos;s
@@ -312,7 +322,9 @@ export function ToastLabPage() {
                   className={`mt-1.5 h-2 w-2 shrink-0 rounded-[2px] ${example.signalClassName}`}
                 />
                 <div className="min-w-0">
-                  <h3 className="text-[13px] font-medium text-foreground">{example.label}</h3>
+                  <h3 className="text-[13px] font-medium leading-tight text-foreground">
+                    {example.label}
+                  </h3>
                   <p className="mt-1 text-[12px] text-muted-foreground">{example.description}</p>
                 </div>
               </div>
@@ -330,7 +342,7 @@ export function ToastLabPage() {
 
       <section className="lit overflow-visible rounded-lg">
         <div className="border-b border-border px-5 py-4">
-          <h2 className="text-[13px] font-semibold text-foreground">V5 previews</h2>
+          <h2 className="text-[13px] font-semibold leading-tight text-foreground">V5 previews</h2>
           <p className="mt-1 max-w-2xl text-[13px] text-muted-foreground">
             The mature form: one 6px logo pixel carries all the color, typography carries the
             meaning, and the toast speaks the dashboard&apos;s own status-dot language. Loading uses
@@ -346,7 +358,9 @@ export function ToastLabPage() {
                   className={`mt-1.5 h-2 w-2 shrink-0 rounded-[2px] ${example.signalClassName}`}
                 />
                 <div className="min-w-0">
-                  <h3 className="text-[13px] font-medium text-foreground">{example.label}</h3>
+                  <h3 className="text-[13px] font-medium leading-tight text-foreground">
+                    {example.label}
+                  </h3>
                   <p className="mt-1 text-[12px] text-muted-foreground">{example.description}</p>
                 </div>
               </div>
@@ -364,7 +378,7 @@ export function ToastLabPage() {
 
       <section className="lit overflow-visible rounded-lg">
         <div className="border-b border-border px-5 py-4">
-          <h2 className="text-[13px] font-semibold text-foreground">V6 previews</h2>
+          <h2 className="text-[13px] font-semibold leading-tight text-foreground">V6 previews</h2>
           <p className="mt-1 max-w-2xl text-[13px] text-muted-foreground">
             V3&apos;s bloom edge returns, but the rail dissolves: the icon floats bare, the buttons
             take the standard surface lift, and the dot grid becomes a faint ember field —
@@ -380,7 +394,9 @@ export function ToastLabPage() {
                   className={`mt-1.5 h-2 w-2 shrink-0 rounded-[2px] ${example.signalClassName}`}
                 />
                 <div className="min-w-0">
-                  <h3 className="text-[13px] font-medium text-foreground">{example.label}</h3>
+                  <h3 className="text-[13px] font-medium leading-tight text-foreground">
+                    {example.label}
+                  </h3>
                   <p className="mt-1 text-[12px] text-muted-foreground">{example.description}</p>
                 </div>
               </div>

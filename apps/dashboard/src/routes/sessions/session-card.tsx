@@ -68,6 +68,7 @@ export function SessionCard({
           className={`min-w-0 flex-1 truncate text-[13px] font-medium ${
             isSelected ? "text-amber" : "text-foreground"
           }`}
+          title={entryPath(session.entry_url)}
         >
           {entryPath(session.entry_url)}
         </span>
@@ -140,7 +141,9 @@ export function SessionCard({
 
       <div className="mt-[9px] flex min-w-0 items-center gap-1.5 text-[11.5px] text-muted-foreground">
         <CountryFlag country={countryCode} />
-        <span className="min-w-0 truncate">{location}</span>
+        <span className="min-w-0 truncate" title={location}>
+          {location}
+        </span>
         {hasClient && (
           <>
             <span className="text-dim">·</span>

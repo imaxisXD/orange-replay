@@ -15,7 +15,7 @@ export function CardHeader({
   return (
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0">
-        <h2 className="text-[15px] font-medium">{title}</h2>
+        <h2 className="text-[15px] font-medium leading-tight">{title}</h2>
         <p className="mt-1 text-[13px] text-muted-foreground">{body}</p>
       </div>
       {right}
@@ -36,7 +36,7 @@ export function SettingRow({
     <div className="flex items-center justify-between gap-4 border-b border-dashed border-dash py-2.25 last:border-b-0">
       <div className="min-w-0">
         <div className="text-[13px] font-medium">{label}</div>
-        <div className="mt-0.25 text-[11.5px] text-dim">{description}</div>
+        <div className="mt-0.25 text-[11.5px] text-muted-foreground">{description}</div>
       </div>
       <div className="flex-none">{children}</div>
     </div>

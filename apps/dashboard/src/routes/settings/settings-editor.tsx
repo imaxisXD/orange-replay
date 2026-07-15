@@ -23,12 +23,12 @@ export function SettingsEditor({
   return (
     <div className="flex flex-col gap-5">
       <div className="flex items-center justify-between gap-4">
-        <h1 className="text-[18px] font-semibold tracking-[-0.015em]">
-          Settings
-          <span className="ml-2.5 text-[12px] font-normal text-dim">
+        <div>
+          <h1 className="text-[18px] font-semibold leading-[1.1] tracking-[-0.015em]">Settings</h1>
+          <p className="mt-1 text-[12px] leading-normal text-muted-foreground">
             Project configuration and keys.
-          </span>
-        </h1>
+          </p>
+        </div>
         <span
           className={cn(
             "transition-opacity duration-200",
@@ -96,7 +96,7 @@ export function SettingsEditor({
                 initial={{ opacity: 0, y: 8 }}
                 transition={spring.moderate}
               >
-                <div className="mr-auto text-[12px] text-dim">Unsaved changes</div>
+                <div className="mr-auto text-[12px] text-muted-foreground">Unsaved changes</div>
                 {(state.saveError.length > 0 || state.maskRulesError !== null) && (
                   <div className="text-[12px] text-danger">
                     {state.saveError || state.maskRulesError}

@@ -29,6 +29,8 @@ Codified from `design-final.html` (the UI visual authority — a static mock at 
 | body                                | dotted grid: `radial-gradient(circle,#1b1b21 1px,transparent 1px)` 26px, `font-size:13px` |                                                                                      |
 
 Mono stack: `"Uncut Plan8", ui-monospace, "SF Mono", Menlo, monospace`.
+Inter loads its optical-size variable build. Use `font-weight` plus root-level
+`font-optical-sizing: auto`; do not use raw `wght` or `opsz` axis tags.
 
 ## The `.lit` card (signature surface — defined once in `index.css`)
 
@@ -42,7 +44,7 @@ Grain texture + long-dash 1px SVG border (`stroke-dasharray '12 4'`, `stroke-opa
 - **Tier-1 nav** (sticky, `rgba(10,10,12,0.85)` + blur, `border-b border-border`, 12px×28px padding): brand mark (24px rounded square, `bg-secondary border-dash`, inner 2.5px teal→amber→red gradient bar — component `src/components/brand-mark.tsx`) · wordmark 14px semibold · `/` in `#33333b` · project switcher (Select: `bg-card border-border rounded-lg` 12.5px) · env badge (amber text on `rgba(245,166,35,0.09)`, 1px _dashed_ `rgba(245,166,35,0.35)`, full-radius pill, 11px) · right: ghost "Log out", decorative teal-gradient avatar.
 - **Tier-2 tabs** (same bg, `px-[28px] border-b`): 13px, `text-muted-foreground`, `py-[10px] px-[13px]`, `border-b-2 -mb-px`; active = `text-foreground border-amber font-medium`. Only real routes get tabs.
 - **Main**: `max-w-[1200px] mx-auto px-[28px] py-6`.
-- **Page header**: title 18px semibold `tracking-[-0.015em]`; supporting sentences are separate 12px `text-muted-foreground` copy so the heading name stays clean and the text meets the body-adjacent contrast floor. Actions sit right on wide screens and stack below the title when space is tight.
+- **Page header**: title 18px semibold `leading-[1.1] tracking-[-0.015em]`; supporting sentences are separate 12px `leading-normal text-muted-foreground` copy so the heading name stays clean and the text meets the body-adjacent contrast floor. Actions sit right on wide screens and stack below the title when space is tight.
 
 ## Icon vocabulary (Hugeicons free set only, via `src/lib/icon-map.tsx` — one family, no exceptions)
 
@@ -56,10 +58,10 @@ Contrast rule: `--muted-foreground` is the floor for body-adjacent text ≤12px 
 
 - **Buttons**: default `bg-card border border-border text-[12.5px] font-medium rounded-lg px-[13px] py-[7px]`; **primary = light-filled** (`bg-foreground text-background font-semibold`) — never amber-filled; ghost = borderless muted → foreground on hover. Focus rings amber.
 - **Status pills** (`src/components/status-pill.tsx` — single source of truth): full-radius, 11px medium, 6px dot, tinted 1px borders (err `rgba(244,83,78,0.35)`, rage `rgba(245,166,35,0.35)`). `ok` (border-border, muted text, green dot) · `err` (`#ffb3b0` on `rgba(244,83,78,0.07)`, red dot) · `rage` (`#ffd9a0` on `rgba(245,166,35,0.07)`, amber dot) · `neutral` chip (no dot). Copy: "1 error"/"N errors" (pluralize), "N rage" (never pluralized). **Signal rule (2026-07-10): pills render only when there is something to say — healthy rows show no pill** ("clean" was retired; absence is the signal), **and every number appears exactly once per surface** (no pill repeating a stat tile).
-- **Table**: `th` 11px uppercase `tracking-[0.06em] text-dim` medium, `border-b border-border`; `td` `px-4 py-3 border-b border-[#1a1a1f]` (last row borderless), hover `bg-[#141419]`; numerals `font-mono text-[12px]` muted (emphasized: foreground). Primary cell = 13px medium path + meta line `text-[11.5px] text-dim` (`{flag} {city} · {n} clicks`). Rows navigate: `role="link"` + keyboard + hover chevron in a 24px end gutter.
+- **Table**: `th` 11px uppercase `tracking-[0.06em] text-dim` medium, `border-b border-border`; `td` `px-4 py-3 border-b border-[#1a1a1f]` (last row borderless), hover `bg-[#141419]`; numerals `font-mono text-[12px]` muted (emphasized: foreground). Primary cell = 13px medium path + meta line `text-[11.5px] text-muted-foreground` (`{flag} {city} · {n} clicks`). Rows navigate: `role="link"` + keyboard + hover chevron in a 24px end gutter.
 - **Formats** (`src/lib/format.ts`): durations `m:ss` / `h:mm:ss` (`10:12`, `0:22`); bytes compact `512K`, `1.1M` (one decimal < 10M); relative times short (`48m`, `2h`) with full timestamp in `title`.
-- **Inputs / input-group**: `bg-secondary border-border rounded-[7px]` 12px, placeholder dim, amber focus ring. Selects/tooltips: popover surface + border. Switch: amber when on. Loading: the shared `GradientSpin` matrix. Empty states: `border-dashed border-dash` box.
-- **Stat strip** (see mock + session-detail): `.lit` flex row; cells `flex-1 px-[18px] py-[15px] border-r border-dashed border-dash`; label 11.5px muted; value 21px mono semibold `tracking-[-0.02em]`, **amber when it's a nonzero warning count** (errors, rages).
+- **Inputs / input-group**: `bg-secondary border-border rounded-[7px]`, `text-base sm:text-[12px]` so editable text stays 16px on mobile and 12px on wider screens, placeholder dim, amber focus ring. Selects/tooltips: popover surface + border. Switch: amber when on. Loading: the shared `GradientSpin` matrix. Empty states: `border-dashed border-dash` box.
+- **Stat strip** (see mock + session-detail): `.lit` flex row; cells `flex-1 px-[18px] py-[15px] border-r border-dashed border-dash`; label 11.5px muted; value 21px Departure Mono regular with normal tracking, **amber when it's a nonzero warning count** (errors, rages). Never synthesize a heavier Departure Mono weight.
 
 ## Mock patterns not yet built (for T3.4/T3.5 — match the mock exactly when implementing)
 

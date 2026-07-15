@@ -49,7 +49,7 @@ export function SettingsEnvironmentCards() {
       <section className="lit flex flex-col gap-4 overflow-hidden rounded-lg p-5">
         <div className="flex items-start justify-between gap-3">
           <div className="flex flex-col gap-1">
-            <h2 className="text-[15px] font-medium">Account session</h2>
+            <h2 className="text-[15px] font-medium leading-tight">Account session</h2>
             <p className="text-[13px] text-muted-foreground">
               Protected by your signed-in account.
             </p>
@@ -64,7 +64,7 @@ export function SettingsEnvironmentCards() {
       <section className="lit flex flex-col gap-4 overflow-hidden rounded-lg p-5">
         <div className="flex items-start justify-between gap-3">
           <div className="flex flex-col gap-1">
-            <h2 className="text-[15px] font-medium">Worker health</h2>
+            <h2 className="text-[15px] font-medium leading-tight">Worker health</h2>
             <p className="text-[13px] text-muted-foreground">Checks the connected API worker.</p>
           </div>
           <Server aria-hidden className="size-5 text-muted-foreground" />

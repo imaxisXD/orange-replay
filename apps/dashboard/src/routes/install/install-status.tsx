@@ -34,10 +34,10 @@ export function InstallStatus({ projectId }: { projectId: string }) {
     <section className="lit rounded-lg p-5">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-[15px] font-medium">Live verify</h2>
+          <h2 className="text-[15px] font-medium leading-tight">Live verify</h2>
           <p className="mt-1 text-[13px] text-muted-foreground">Checks for the first event.</p>
         </div>
-        <span className="text-[11.5px] text-dim">every 3s</span>
+        <span className="text-[11.5px] text-muted-foreground">every 3s</span>
       </div>
 
       {verifyError.length > 0 && (
@@ -86,7 +86,7 @@ export function InstallStatus({ projectId }: { projectId: string }) {
                   <div className="text-[13px]">
                     {loading ? "Checking install status..." : "Waiting for the first event…"}
                   </div>
-                  <div className="mt-1 text-[11.5px] text-dim">
+                  <div className="mt-1 text-[11.5px] text-muted-foreground">
                     Open a page with the snippet installed — this updates the moment data arrives.
                   </div>
                 </div>

@@ -245,7 +245,10 @@ function StageHeader({
   return (
     <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
       <div className="flex min-w-0 flex-wrap items-center gap-x-3.5 gap-y-1">
-        <span className="truncate text-[13px] font-medium text-foreground">
+        <span
+          className="truncate text-[13px] font-medium text-foreground"
+          title={entryPath(manifest.attrs.entryUrl ?? null)}
+        >
           {entryPath(manifest.attrs.entryUrl ?? null)}
         </span>
         <span className="flex shrink-0 items-center gap-1.5" title="Session duration">

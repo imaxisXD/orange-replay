@@ -10,7 +10,7 @@ export function RouteError({ error, notFound = false }: { error?: unknown; notFo
   return (
     <section className="mx-auto flex min-h-105 w-full max-w-md items-center justify-center">
       <div className="lit flex w-full flex-col gap-4 overflow-hidden rounded-lg p-6 text-center">
-        <h1 className="text-[18px] font-semibold tracking-[-0.015em]">
+        <h1 className="text-[18px] font-semibold leading-[1.1] tracking-[-0.015em]">
           {is404 ? "Page not found" : "This page hit an error"}
         </h1>
         <p className="text-[13px] text-muted-foreground">
@@ -19,7 +19,7 @@ export function RouteError({ error, notFound = false }: { error?: unknown; notFo
             : "Sometimes this happens. Head back to sessions and try again."}
         </p>
         {!is404 && message.length > 0 && (
-          <p className="font-mono text-[12px] text-dim">{message}</p>
+          <p className="font-mono text-[12px] text-muted-foreground">{message}</p>
         )}
         <Button asChild>
           {projectId === undefined ? (

@@ -37,6 +37,9 @@ describe("InputField events", () => {
     await act(async () => root.render(<Example />));
     const input = container.querySelector("input");
     const frame = input?.closest('[role="presentation"]');
+    expect(input?.className).toContain("text-base");
+    expect(input?.className).toContain("sm:text-[12px]");
+    expect(input?.style.fontWeight).toBe("400");
 
     await act(async () => input?.focus());
     expect(onFocus).toHaveBeenCalledOnce();

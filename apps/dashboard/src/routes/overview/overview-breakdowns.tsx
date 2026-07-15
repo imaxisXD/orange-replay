@@ -265,7 +265,7 @@ function ErrorRow({
         >
           {error.detail}
         </span>
-        <span className="mt-0.5 block text-[11.5px] text-dim">
+        <span className="mt-0.5 block text-[11.5px] text-muted-foreground">
           {numberFormatter.format(error.affectedSessions.value)} affected sessions
         </span>
       </span>

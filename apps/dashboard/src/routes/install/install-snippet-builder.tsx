@@ -169,7 +169,7 @@ function ProjectInstallSnippetBuilder({ projectId }: { projectId: string }) {
   return (
     <section className="lit rounded-lg p-5">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-[15px] font-medium">Loader snippet</h2>
+        <h2 className="text-[15px] font-medium leading-tight">Loader snippet</h2>
         {keysQuery.isPending && <LoadingIndicator label="Checking project keys" />}
       </div>
       <p className="mt-1 text-[13px] text-muted-foreground">

@@ -267,7 +267,7 @@ export function KeysCard({ projectId }: { projectId: string }) {
             </p>
             <textarea
               aria-label="New write key secret"
-              className="mt-2 block min-h-16 w-full resize-none bg-transparent font-mono text-[12px] leading-relaxed text-foreground outline-none focus-visible:ring-1 focus-visible:ring-amber"
+              className="mt-2 block min-h-16 w-full resize-none bg-transparent font-mono text-base leading-relaxed text-foreground outline-none focus-visible:ring-1 focus-visible:ring-amber sm:text-[12px]"
               onFocus={(event) => event.currentTarget.select()}
               readOnly
               rows={3}

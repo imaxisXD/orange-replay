@@ -151,7 +151,7 @@ const TableRow = forwardRef<HTMLTableRowElement, TableRowProps>(
         )}
         style={{
           ...style,
-          fontVariationSettings: isBodyRow ? fontWeights.normal : fontWeights.semibold,
+          fontWeight: isBodyRow ? fontWeights.normal : fontWeights.semibold,
         }}
         {...props}
       />

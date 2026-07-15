@@ -163,7 +163,7 @@ const InputField = forwardRef<HTMLDivElement, InputFieldProps>(
         >
           <span
             className="col-start-1 row-start-1 invisible"
-            style={{ fontVariationSettings: fontWeights.semibold }}
+            style={{ fontWeight: fontWeights.semibold }}
             aria-hidden="true"
           >
             {label}
@@ -171,7 +171,7 @@ const InputField = forwardRef<HTMLDivElement, InputFieldProps>(
           <span
             className={cn("col-start-1 row-start-1", error ? "text-danger" : "text-foreground")}
             style={{
-              fontVariationSettings: fontWeights.normal,
+              fontWeight: fontWeights.normal,
             }}
           >
             {label}
@@ -220,8 +220,8 @@ const InputField = forwardRef<HTMLDivElement, InputFieldProps>(
               onInputBlur?.(event);
             }}
             placeholder={placeholder}
-            className="w-full bg-transparent text-[12px] text-foreground placeholder:text-dim outline-none font-[inherit]"
-            style={{ fontVariationSettings: fontWeights.normal }}
+            className="w-full bg-transparent text-base text-foreground placeholder:text-dim outline-none font-[inherit] sm:text-[12px]"
+            style={{ fontWeight: fontWeights.normal }}
             {...props}
           />
           {endContent}
@@ -233,7 +233,7 @@ const InputField = forwardRef<HTMLDivElement, InputFieldProps>(
           <Field.Error
             match
             className="pl-0 text-[13px] text-danger"
-            style={{ fontVariationSettings: fontWeights.medium }}
+            style={{ fontWeight: fontWeights.medium }}
           >
             {error}
           </Field.Error>

@@ -101,7 +101,9 @@ export function LoginPage() {
           ) : (
             <div className="flex flex-col gap-3">
               <div>
-                <h1 className="text-[16px] font-semibold">Sign in to your workspace</h1>
+                <h1 className="text-[16px] font-semibold leading-[1.1]">
+                  Sign in to your workspace
+                </h1>
                 <p className="mt-1 text-[13px] text-muted-foreground">
                   Use GitHub to manage projects and write keys.
                 </p>

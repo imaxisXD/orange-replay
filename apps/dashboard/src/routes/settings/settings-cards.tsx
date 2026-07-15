@@ -335,7 +335,7 @@ export function OriginsCard({
         </Button>
       </div>
       {error.length > 0 && <div className="mt-2 text-[12px] text-danger">{error}</div>}
-      <p className="mt-3 text-[11.5px] text-dim">
+      <p className="mt-3 text-[11.5px] text-muted-foreground">
         Requests from other origins are rejected at ingest.
       </p>
     </section>

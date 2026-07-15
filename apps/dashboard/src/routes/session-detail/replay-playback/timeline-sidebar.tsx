@@ -21,7 +21,7 @@ export const TimelineSidebar = memo(function TimelineSidebar({
   return (
     <aside className="lit flex h-full min-h-0 flex-col rounded-lg px-4 py-4 max-lg:max-h-90">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-[13px] font-semibold">Timeline</h2>
+        <h2 className="text-[13px] font-semibold leading-tight">Timeline</h2>
         <span className="text-[11.5px] text-dim">{rows.length} events</span>
       </div>
 
@@ -41,6 +41,7 @@ export const TimelineSidebar = memo(function TimelineSidebar({
                 key={row.id}
                 onClick={() => onSeek(row.offsetMs)}
                 style={{ contentVisibility: "auto", containIntrinsicSize: "auto 44px" }}
+                title={row.detail === undefined ? row.label : `${row.label} — ${row.detail}`}
                 type="button"
               >
                 {/* Shape + color double-encode the event kind — never color alone. */}
@@ -48,7 +49,7 @@ export const TimelineSidebar = memo(function TimelineSidebar({
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[12.5px] text-foreground">{row.label}</span>
                   {row.detail !== undefined && (
-                    <span className="block truncate font-mono text-[11px] text-dim">
+                    <span className="block truncate font-mono text-[11px] text-muted-foreground">
                       {row.detail}
                     </span>
                   )}

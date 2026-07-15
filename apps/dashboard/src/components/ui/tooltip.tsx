@@ -171,7 +171,7 @@ function Tooltip({
                   )}
                   style={{
                     ...(baseStyle as React.CSSProperties | undefined),
-                    fontVariationSettings: fontWeights.medium,
+                    fontWeight: fontWeights.medium,
                   }}
                   initial={reduce ? { opacity: 0 } : { opacity: 0, transform: slideOffset.from }}
                   animate={
