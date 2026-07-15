@@ -102,6 +102,7 @@ function makeSession(sessionId: string): SessionListItem {
     max_scroll_depth: null,
     quick_backs: null,
     interaction_time_ms: null,
+    activity_hist: null,
     clicks: 0,
     errors: 0,
     rages: 0,
