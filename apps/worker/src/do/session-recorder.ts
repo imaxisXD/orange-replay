@@ -41,6 +41,7 @@ interface SessionFenceRow {
 
 interface DebugState {
   hasState: boolean;
+  schemaReady: boolean;
   finalized: boolean;
   bufferedBytes: number;
   pendingBatches: number;
@@ -63,13 +64,13 @@ export class SessionRecorder extends DurableObject<Env> {
   private activeFlush: Promise<SegmentFlushResult | null> | null = null;
   private activeFinalize: Promise<void> | null = null;
   private readonly appendRateLimit: AppendRateLimitState = { windowStartedAt: 0, count: 0 };
+  private schemaReady = false;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     setWorkerLoggerVersion(env);
     this.store = new SessionRecorderStore(ctx.storage.sql);
     this.segmentWriter = new SessionSegmentWriter(this.store, env.RECORDINGS);
-    this.store.createSchema();
     this.liveHub = new SessionLiveHub({
       ctx,
       getSessionState: () => this.sessionState,
@@ -78,6 +79,8 @@ export class SessionRecorder extends DurableObject<Env> {
       getPendingBatches: () => this.pendingLiveBatches(),
       getLiveSnapshot: () => this.buildLiveSnapshot(),
       requestCheckpointOnNextAppend: () => this.requestCheckpointOnNextAppend(),
+      consumeLiveTicket: (nonce, expiresAt, now) =>
+        this.store.consumeLiveTicket(nonce, expiresAt, now),
     });
     this.finalizer = new SessionFinalizer({
       recordings: env.RECORDINGS,
@@ -101,9 +104,13 @@ export class SessionRecorder extends DurableObject<Env> {
       },
     });
     void ctx.blockConcurrencyWhile(async () => {
-      const stored = this.store.loadStoredState();
-      this.sessionState = stored.state;
-      this.finalizedTombstone = stored.tombstone;
+      if (this.store.hasSchema()) {
+        this.store.createSchema();
+        this.schemaReady = true;
+        const stored = this.store.loadStoredState();
+        this.sessionState = stored.state;
+        this.finalizedTombstone = stored.tombstone;
+      }
       this.alarmAt = await ctx.storage.getAlarm();
     });
   }
@@ -174,6 +181,18 @@ export class SessionRecorder extends DurableObject<Env> {
     let checkpoint = false;
 
     try {
+      if (trackAppendRateLimit(this.appendRateLimit, args.receivedAt, timing)) {
+        outcome = "rate_limited";
+        rateLimited = true;
+        result = {
+          live: this.liveHub.viewerCount() > 0,
+          closed: false,
+          flushMs: sdkFlushMs(this.liveHub.viewerCount() > 0, timing),
+          rateLimited: true,
+        };
+        return result;
+      }
+
       let state = this.sessionState;
       if (this.finalizedTombstone !== null) {
         outcome = "dropped";
@@ -207,6 +226,7 @@ export class SessionRecorder extends DurableObject<Env> {
           return result;
         }
 
+        this.ensureSchema();
         state = this.sessionState ?? createFreshState(args);
       }
 
@@ -233,6 +253,16 @@ export class SessionRecorder extends DurableObject<Env> {
           segmentCount: state.segmentCount,
           payloadBytes: args.payload.byteLength,
           eventBytes,
+        }) ||
+        !this.segmentWriter.hasCapacityForBatch(state, {
+          tab: args.tab,
+          seq: args.seq,
+          t0: clampedIndex.t0,
+          t1: clampedIndex.t1,
+          bytes: args.payload.byteLength,
+          flags: args.flags,
+          events: eventsJson,
+          body: args.payload,
         })
       ) {
         outcome = "dropped";
@@ -242,18 +272,6 @@ export class SessionRecorder extends DurableObject<Env> {
           closed: false,
           flushMs: sdkFlushMs(viewerCount > 0, timing),
           drop: true,
-        };
-        return result;
-      }
-
-      if (trackAppendRateLimit(this.appendRateLimit, args.receivedAt, timing)) {
-        outcome = "rate_limited";
-        rateLimited = true;
-        result = {
-          live: viewerCount > 0,
-          closed: false,
-          flushMs: sdkFlushMs(viewerCount > 0, timing),
-          rateLimited: true,
         };
         return result;
       }
@@ -371,10 +389,12 @@ export class SessionRecorder extends DurableObject<Env> {
     const stateBytes = this.stateBytes();
     return {
       hasState: this.sessionState !== null,
+      schemaReady: this.schemaReady,
       finalized: this.finalizedTombstone !== null,
       bufferedBytes: this.sessionState?.bufferedBytes ?? 0,
-      pendingBatches: this.store.pendingBatchCount(),
-      segmentCount: this.sessionState?.segmentCount ?? this.store.segmentRows().length,
+      pendingBatches: this.schemaReady ? this.store.pendingBatchCount() : 0,
+      segmentCount:
+        this.sessionState?.segmentCount ?? (this.schemaReady ? this.store.segmentRows().length : 0),
       stateBytes,
       firstRequestId: this.sessionState?.firstRequestId ?? this.finalizedTombstone?.firstRequestId,
       ...(this.finalizedTombstone === null
@@ -397,6 +417,7 @@ export class SessionRecorder extends DurableObject<Env> {
       return this.debug();
     }
 
+    this.ensureSchema();
     this.sessionState = this.store.seedBatchesForTest(this.sessionState, args);
     return this.debug();
   }
@@ -431,7 +452,7 @@ export class SessionRecorder extends DurableObject<Env> {
           this.sessionState = null;
           this.finalizedTombstone = null;
           this.alarmAt = null;
-          this.store.createSchema();
+          this.schemaReady = false;
           return;
         }
 
@@ -508,6 +529,12 @@ export class SessionRecorder extends DurableObject<Env> {
     state.checkpointRequested = true;
     this.sessionState = state;
     this.store.persistState(state);
+  }
+
+  private ensureSchema(): void {
+    if (this.schemaReady) return;
+    this.store.createSchema();
+    this.schemaReady = true;
   }
 
   private async sessionIsDeletionFenced(

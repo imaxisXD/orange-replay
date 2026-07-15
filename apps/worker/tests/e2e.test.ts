@@ -1,4 +1,4 @@
-import { createHmac, randomBytes } from "node:crypto";
+import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import {
   decodeIngestBody,
@@ -26,7 +26,8 @@ const timings = {
 };
 const pollIntervalMs = 250;
 const dayMs = 86_400_000;
-const apiToken = "e2e-token-0000000000000000000000";
+const betterAuthSecret = "e2e-better-auth-secret-0000000000000000";
+const betterAuthOrigin = "http://localhost:8787";
 const liveTicketSecret = "e2e-live-ticket-secret-0000000000";
 const ingestKey = testWriteKey("e2e");
 const projectId = "pe2e";
@@ -43,14 +44,18 @@ let sentBatches: SentBatch[] = [];
 let r2Manifest: SessionManifest | undefined;
 let indexedSession: ConsumerSessionBody | undefined;
 let firstIngestRequestId: string | undefined;
+let dashboardSessionCookie = "";
 
 beforeAll(async () => {
   worker = await unstable_dev(`${workerDir}src/index.ts`, {
     config: `${workerDir}wrangler.jsonc`,
     vars: {
       DEV_TEST_ROUTES: "1",
-      DEV_API_TOKEN: apiToken,
-      DEV_API_PROJECT_IDS: projectId,
+      BETTER_AUTH_SECRET: betterAuthSecret,
+      BETTER_AUTH_URL: betterAuthOrigin,
+      BETTER_AUTH_TRUSTED_ORIGINS: betterAuthOrigin,
+      GITHUB_CLIENT_ID: "github-e2e-client-id",
+      GITHUB_CLIENT_SECRET: "github-e2e-client-secret-0000000000",
       LIVE_TICKET_SECRET: liveTicketSecret,
       TEST_TIMINGS: JSON.stringify(timings),
     },
@@ -76,6 +81,14 @@ describe("a session lives and is replayed", () => {
     });
 
     expect(res.status).toBe(200);
+    const sessionResponse = await worker.fetch("/__test/api/hosted/session", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ projectIds: [projectId] }),
+    });
+    expect(sessionResponse.status).toBe(200);
+    const sessionBody = (await sessionResponse.json()) as { cookie: string };
+    dashboardSessionCookie = sessionBody.cookie;
   }, 30_000);
 
   it("records batches and accepts an idempotent duplicate", async () => {
@@ -198,7 +211,7 @@ describe("a session lives and is replayed", () => {
 
       expect(segmentRes.status).toBe(200);
       expect(segmentRes.headers.get("cache-control")).toBe("private, max-age=300, must-revalidate");
-      expect(segmentRes.headers.get("vary")).toBe("Authorization");
+      expect(segmentRes.headers.get("vary")).toBe("Cookie");
 
       const parsed = parseSegment(new Uint8Array(await segmentRes.arrayBuffer()));
       for (let index = 0; index < parsed.count; index += 1) {
@@ -582,7 +595,7 @@ function requireFirstIngestRequestId(): string {
 }
 
 function authHeaders(): Record<string, string> {
-  return { authorization: `Bearer ${apiToken}` };
+  return { cookie: dashboardSessionCookie };
 }
 
 async function poll<T>(fn: () => Promise<T | null>, deadlineMs: number): Promise<T> {
@@ -656,10 +669,16 @@ function signLiveTicket(
   targetSessionId: string,
   expiresAt: number,
 ): string {
+  const claimsText = JSON.stringify({
+    v: 2,
+    e: expiresAt,
+    n: randomUUID(),
+    a: "a".repeat(64),
+  });
   const signature = createHmac("sha256", liveTicketSecret)
-    .update(`${targetProjectId}:${targetSessionId}:${expiresAt}`)
+    .update(`${targetProjectId}:${targetSessionId}:${claimsText}`)
     .digest("base64url");
-  return Buffer.from(`${expiresAt}.${signature}`).toString("base64url");
+  return `${Buffer.from(claimsText).toString("base64url")}.${signature}`;
 }
 
 function readWebSocketConstructor(): LiveSocketConstructor {

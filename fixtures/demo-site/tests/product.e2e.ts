@@ -412,7 +412,7 @@ interface ServerState {
   workerUrl: string;
   demoUrl: string;
   dashboardUrl: string;
-  apiToken: string;
+  sessionCookie: string;
   ingestKey: string;
   projectId: string;
   orgId: string;
@@ -626,11 +626,15 @@ async function openDashboardPage(
   state: ServerState,
   path: string,
 ): Promise<Page> {
+  const [name, ...valueParts] = state.sessionCookie.split("=");
+  const value = valueParts.join("=");
+  if (name === undefined || name.length === 0 || value.length === 0) {
+    throw new Error("The browser Better Auth cookie is invalid.");
+  }
+  await context.addCookies([{ name, value, url: state.dashboardUrl }]);
   const page = await context.newPage();
-  await page.addInitScript((token) => {
-    window.localStorage.setItem("or:token", token);
-  }, state.apiToken);
-  await page.goto(`${state.dashboardUrl}${path}`);
+  await page.goto(new URL(path, state.dashboardUrl).href);
+  await page.waitForURL(new URL(path, state.dashboardUrl).href);
   return page;
 }
 

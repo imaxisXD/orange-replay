@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,8 +26,17 @@ describe("mirror-template", () => {
       expect(wrangler).toContain("REPLACE_WITH_D1_ID");
       expect(wrangler).toContain("REPLACE_WITH_KV_ID");
       expect(wrangler).toContain("# created by setup docs");
-      expect(wrangler).toContain("DEV_API_TOKEN");
+      expect(wrangler).toContain("Better Auth and GitHub OAuth values");
       expect(wrangler).toContain("LIVE_TICKET_SECRET");
+      expect(wrangler).toContain("ANALYTICS_ACTOR_RATE_LIMITER");
+      expect(wrangler).toContain("ANALYTICS_PROJECT_RATE_LIMITER");
+      expect(wrangler).toContain("ANALYTICS_GLOBAL_RATE_LIMITER");
+      expect(wrangler).toContain("LIVE_TICKET_RATE_LIMITER");
+      expect(
+        wranglerConfig.ratelimits.find(
+          (rateLimit) => rateLimit.name === "ANALYTICS_PROJECT_RATE_LIMITER",
+        )?.simple,
+      ).toEqual({ limit: 300, period: 60 });
       expect(wrangler).toContain('"crons": ["*/5 * * * *", "7,22,37,52 * * * *"]');
       expect(wrangler).not.toContain("DEV_TEST_ROUTES");
       expect(wrangler).not.toContain("TEST_TIMINGS");
@@ -112,6 +121,89 @@ describe("mirror-template", () => {
       await expect(readFile(markerPath, "utf8")).resolves.toBe("keep me\n");
     } finally {
       await rm(tempRepo, { force: true, recursive: true });
+    }
+  });
+
+  it("rejects symbolic links in source and generated template files", async () => {
+    const tempParent = await mkdtemp(join(tmpdir(), "orange-replay-template-test-links-"));
+    const tempRepo = join(tempParent, "repo");
+    const outDir = join(tempParent, "output");
+    const workerDir = join(tempRepo, "apps/worker");
+    const migrationsDir = join(workerDir, "migrations");
+
+    try {
+      await mkdir(migrationsDir, { recursive: true });
+      await writeFile(
+        join(workerDir, "wrangler.jsonc"),
+        await readFile(join(repoRoot, "apps/worker/wrangler.jsonc"), "utf8"),
+        "utf8",
+      );
+      await writeFile(join(tempParent, "outside.sql"), "SELECT 1;\n", "utf8");
+      await symlink(join(tempParent, "outside.sql"), join(migrationsDir, "0001_link.sql"));
+
+      const sourceLinkResult = await runMirror([
+        "--root",
+        tempRepo,
+        "--out",
+        outDir,
+        "--allow-test-output",
+      ]);
+      expect(sourceLinkResult.code).not.toBe(0);
+      expect(`${sourceLinkResult.stdout}\n${sourceLinkResult.stderr}`).toContain(
+        "Symbolic links are not allowed",
+      );
+
+      await rm(join(migrationsDir, "0001_link.sql"));
+      await writeFile(join(migrationsDir, "0001_init.sql"), "SELECT 1;\n", "utf8");
+      const sourceWrangler = join(workerDir, "wrangler.jsonc");
+      const outsideWrangler = join(tempParent, "outside-wrangler.jsonc");
+      await writeFile(
+        outsideWrangler,
+        await readFile(join(repoRoot, "apps/worker/wrangler.jsonc"), "utf8"),
+        "utf8",
+      );
+      await rm(sourceWrangler);
+      await symlink(outsideWrangler, sourceWrangler);
+
+      const wranglerLinkResult = await runMirror([
+        "--root",
+        tempRepo,
+        "--out",
+        outDir,
+        "--allow-test-output",
+      ]);
+      expect(wranglerLinkResult.code).not.toBe(0);
+      expect(`${wranglerLinkResult.stdout}\n${wranglerLinkResult.stderr}`).toContain(
+        "Template path must be a regular file",
+      );
+
+      await rm(sourceWrangler);
+      await writeFile(sourceWrangler, await readFile(outsideWrangler, "utf8"), "utf8");
+      const generated = await runMirror([
+        "--root",
+        tempRepo,
+        "--out",
+        outDir,
+        "--allow-test-output",
+      ]);
+      expect(generated.code).toBe(0);
+      await rm(join(outDir, "README.md"));
+      await symlink(join(tempParent, "outside.sql"), join(outDir, "README.md"));
+
+      const outputLinkResult = await runMirror([
+        "--root",
+        tempRepo,
+        "--out",
+        outDir,
+        "--allow-test-output",
+        "--check",
+      ]);
+      expect(outputLinkResult.code).not.toBe(0);
+      expect(`${outputLinkResult.stdout}\n${outputLinkResult.stderr}`).toContain(
+        "Symbolic links are not allowed",
+      );
+    } finally {
+      await rm(tempParent, { force: true, recursive: true });
     }
   });
 });

@@ -7,7 +7,12 @@ import {
   updateStateWithBatch,
 } from "./session-logic.ts";
 import type { SegmentForManifest, SessionState } from "./session-logic.ts";
-import { encodeStoredBatchMetadata, parseStoredSegmentMetadata } from "./session-batch-metadata.ts";
+import {
+  encodeStoredBatchMetadata,
+  parseStoredBatchMetadata,
+  parseStoredSegmentMetadata,
+} from "./session-batch-metadata.ts";
+import type { StoredPageBatch } from "./session-page-tracking.ts";
 
 type SqlRowValue = ArrayBuffer | string | number | null;
 
@@ -42,6 +47,13 @@ interface PagedStoredEventRow extends StoredEventRow {
   t0: number;
   tab: string;
   seq: number;
+}
+
+interface StoredPageBatchRow extends StoredEventRow {
+  tab: string;
+  seq: number;
+  t0: number;
+  t1: number;
 }
 
 export interface SegmentRow {
@@ -136,6 +148,16 @@ export interface TestSeedBatchesArgs {
 export class SessionRecorderStore {
   constructor(private readonly sql: SqlStorage) {}
 
+  hasSchema(): boolean {
+    return (
+      this.sql
+        .exec<CountRow>(
+          "SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'state'",
+        )
+        .one().count > 0
+    );
+  }
+
   createSchema(): void {
     this.sql.exec(`
       CREATE TABLE IF NOT EXISTS state (
@@ -174,7 +196,22 @@ export class SessionRecorderStore {
         body BLOB NOT NULL,
         batch_bytes INTEGER NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS used_live_tickets (
+        nonce TEXT PRIMARY KEY,
+        expires_at INTEGER NOT NULL
+      );
     `);
+  }
+
+  consumeLiveTicket(nonce: string, expiresAt: number, now: number): boolean {
+    this.sql.exec("DELETE FROM used_live_tickets WHERE expires_at <= ?", now);
+    return (
+      this.sql.exec(
+        "INSERT OR IGNORE INTO used_live_tickets (nonce, expires_at) VALUES (?, ?)",
+        nonce,
+        expiresAt,
+      ).rowsWritten > 0
+    );
   }
 
   loadStoredState(): StoredSessionState {
@@ -340,6 +377,28 @@ export class SessionRecorderStore {
     };
   }
 
+  finalPageBatches(): StoredPageBatch[] {
+    return this.sql
+      .exec<StoredPageBatchRow>(
+        `SELECT tab, seq, t0, t1, events
+        FROM batches
+        ORDER BY tab, seq`,
+      )
+      .toArray()
+      .map((row) => {
+        const metadata = parseStoredBatchMetadata(row.events);
+        return {
+          tab: row.tab,
+          seq: row.seq,
+          t0: row.t0,
+          t1: row.t1,
+          events: metadata.events,
+          pageAnalyticsVersion: metadata.pageAnalyticsVersion,
+          ...(metadata.url === undefined ? {} : { url: metadata.url }),
+        };
+      });
+  }
+
   segmentRows(): SegmentRow[] {
     return this.sql
       .exec<SegmentRow>("SELECT n, key, bytes, t0, t1, batches, events FROM segments ORDER BY n")
@@ -466,6 +525,10 @@ export class SessionRecorderStore {
   }
 
   replaceStateWithTombstone(tombstone: FinalizedTombstone): void {
+    // Cloudflare SQLite Durable Objects coalesce consecutive synchronous
+    // sql.exec writes with no intervening await into one atomic implicit
+    // transaction. Verified 2026-07-15 against:
+    // https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/#write-coalescing
     this.sql.exec("DELETE FROM batches");
     this.sql.exec("DELETE FROM segments");
     this.sql.exec("DELETE FROM segment_intents");

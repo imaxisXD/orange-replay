@@ -1,3 +1,4 @@
+import type { AccountResponse, AccountWorkspace } from "@orange-replay/shared";
 import type { Env } from "../env.ts";
 import {
   hostedProjectBootstrapReportId,
@@ -21,33 +22,7 @@ interface MembershipCountRow {
   membership_count: number;
 }
 
-export interface AccountProject {
-  id: string;
-  name: string;
-  role: ProjectRole;
-}
-
-export interface AccountWorkspace {
-  id: string;
-  name: string;
-  slug: string;
-  role: ProjectRole;
-  projects: AccountProject[];
-}
-
-export interface AccountResponse {
-  user: {
-    id: string;
-    name: string;
-    email: string;
-    emailVerified: boolean;
-    image: string | null;
-    role: string;
-  };
-  workspaces: AccountWorkspace[];
-  activeWorkspaceId: string | null;
-  isAdmin: boolean;
-}
+export type { AccountResponse } from "@orange-replay/shared";
 
 export async function getAccount(env: Env, auth: SessionAuthContext): Promise<Response> {
   const body = await readAccount(env, auth);

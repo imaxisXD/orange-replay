@@ -4,7 +4,6 @@ import { afterAll, beforeAll, expect } from "vite-plus/test";
 import { unstable_dev } from "wrangler";
 import type { SessionRow } from "../src/api/helpers.ts";
 import {
-  apiProjectIds,
   assetProjectId,
   assetSessionId,
   demoProjectId,
@@ -18,23 +17,26 @@ import {
   sameTimeProjectId,
   segmentBytes,
   segmentName,
-  token,
+  betterAuthOrigin,
+  betterAuthSecret,
+  privateProjectIds,
 } from "./api-test-fixtures.ts";
 
 const workerDir = fileURLToPath(new URL("..", import.meta.url));
 type TestWorker = Awaited<ReturnType<typeof unstable_dev>>;
 
 export let worker: TestWorker;
-export let workerWithoutToken: TestWorker;
-export let workerWithEmptyToken: TestWorker;
+export let workerWithoutAuth: TestWorker;
+export let workerWithoutLiveTicketSecret: TestWorker;
 export let workerWithDemo: TestWorker;
 export let workerWithPresenceHeadFailure: TestWorker;
 export let assetManifestJson = "";
 export let demoManifestJson = "";
+export let dashboardSessionCookie = "";
 
 interface SetupApiTestWorkersOptions {
-  withoutToken?: boolean;
-  emptyToken?: boolean;
+  withoutAuth?: boolean;
+  withoutLiveTicketSecret?: boolean;
   demo?: boolean;
   presenceHeadFailure?: boolean;
 }
@@ -45,8 +47,7 @@ export function setupApiTestWorkers(options: SetupApiTestWorkersOptions = {}): v
       config: `${workerDir}wrangler.jsonc`,
       vars: {
         DEV_TEST_ROUTES: "1",
-        DEV_API_TOKEN: token,
-        DEV_API_PROJECT_IDS: apiProjectIds,
+        ...betterAuthVars(),
         LIVE_TICKET_SECRET: liveTicketSecret,
       },
       persist: false,
@@ -64,11 +65,12 @@ export function setupApiTestWorkers(options: SetupApiTestWorkersOptions = {}): v
       entryUrl: "/checkout/live",
     });
     assetManifestJson = await seedAssetSession();
+    dashboardSessionCookie = await seedBetterAuthSession(worker, privateProjectIds);
   }, 120_000);
 
-  if (options.withoutToken === true) {
+  if (options.withoutAuth === true) {
     beforeAll(async () => {
-      workerWithoutToken = await unstable_dev(`${workerDir}src/index.ts`, {
+      workerWithoutAuth = await unstable_dev(`${workerDir}src/index.ts`, {
         config: `${workerDir}wrangler.jsonc`,
         vars: { DEV_TEST_ROUTES: "1" },
         persist: false,
@@ -77,15 +79,13 @@ export function setupApiTestWorkers(options: SetupApiTestWorkersOptions = {}): v
     }, 120_000);
   }
 
-  if (options.emptyToken === true) {
+  if (options.withoutLiveTicketSecret === true) {
     beforeAll(async () => {
-      workerWithEmptyToken = await unstable_dev(`${workerDir}src/index.ts`, {
+      workerWithoutLiveTicketSecret = await unstable_dev(`${workerDir}src/index.ts`, {
         config: `${workerDir}wrangler.jsonc`,
         vars: {
           DEV_TEST_ROUTES: "1",
-          DEV_API_TOKEN: "",
-          DEV_API_PROJECT_IDS: apiProjectIds,
-          LIVE_TICKET_SECRET: liveTicketSecret,
+          ...betterAuthVars(),
         },
         persist: false,
         experimental: { disableExperimentalWarning: true },
@@ -99,8 +99,7 @@ export function setupApiTestWorkers(options: SetupApiTestWorkersOptions = {}): v
         config: `${workerDir}wrangler.jsonc`,
         vars: {
           DEV_TEST_ROUTES: "1",
-          DEV_API_TOKEN: token,
-          DEV_API_PROJECT_IDS: apiProjectIds,
+          ...betterAuthVars(),
           LIVE_TICKET_SECRET: liveTicketSecret,
           DEMO_PROJECT_ID: demoProjectId,
           DEMO_WRITE_KEY: demoWriteKey,
@@ -119,24 +118,50 @@ export function setupApiTestWorkers(options: SetupApiTestWorkersOptions = {}): v
         config: `${workerDir}wrangler.jsonc`,
         vars: {
           DEV_TEST_ROUTES: "1",
-          DEV_API_TOKEN: token,
-          DEV_API_PROJECT_IDS: apiProjectIds,
+          ...betterAuthVars(),
           LIVE_TICKET_SECRET: liveTicketSecret,
           TEST_FAIL_PRESENCE_HEAD_SHARD: "0",
         },
         persist: false,
         experimental: { disableExperimentalWarning: true },
       });
+      await seedBetterAuthSession(workerWithPresenceHeadFailure, [listProjectId]);
     }, 120_000);
   }
 
   afterAll(async () => {
     await worker?.stop();
-    await workerWithoutToken?.stop();
-    await workerWithEmptyToken?.stop();
+    await workerWithoutAuth?.stop();
+    await workerWithoutLiveTicketSecret?.stop();
     await workerWithDemo?.stop();
     await workerWithPresenceHeadFailure?.stop();
   });
+}
+
+function betterAuthVars(): Record<string, string> {
+  return {
+    BETTER_AUTH_SECRET: betterAuthSecret,
+    BETTER_AUTH_URL: betterAuthOrigin,
+    BETTER_AUTH_TRUSTED_ORIGINS: betterAuthOrigin,
+    GITHUB_CLIENT_ID: "github-test-client-id",
+    GITHUB_CLIENT_SECRET: "github-test-client-secret-0000000000",
+  };
+}
+
+async function seedBetterAuthSession(
+  targetWorker: TestWorker,
+  projectIds: readonly string[],
+): Promise<string> {
+  const response = await targetWorker.fetch("/__test/api/hosted/session", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ projectIds }),
+  });
+  expect(response.status).toBe(200);
+  const body = (await response.json()) as { cookie?: unknown };
+  expect(body.cookie).toEqual(expect.any(String));
+  if (typeof body.cookie !== "string") throw new Error("Test Better Auth cookie was not created.");
+  return body.cookie;
 }
 
 async function seedListSessions(): Promise<void> {

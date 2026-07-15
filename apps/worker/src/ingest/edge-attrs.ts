@@ -52,23 +52,35 @@ function browserFromUserAgent(userAgent: string): string | undefined {
 
 function osFromUserAgent(userAgent: string): string | undefined {
   if (userAgent.includes("Windows NT")) return "Windows";
-  if (userAgent.includes("Mac OS X")) return "macOS";
   if (userAgent.includes("Android")) return "Android";
-  if (userAgent.includes("iPhone") || userAgent.includes("iPad")) return "iOS";
+  if (isIosUserAgent(userAgent)) return "iOS";
+  if (userAgent.includes("Mac OS X")) return "macOS";
   if (userAgent.includes("Linux")) return "Linux";
   return undefined;
 }
 
 function deviceFromUserAgent(userAgent: string): string | undefined {
-  if (userAgent.includes("iPad") || userAgent.includes("Tablet")) return "tablet";
   if (
-    userAgent.includes("Mobile") ||
-    userAgent.includes("Android") ||
-    userAgent.includes("iPhone")
+    userAgent.includes("iPad") ||
+    (userAgent.includes("Macintosh") && userAgent.includes("Mobile/")) ||
+    userAgent.includes("Tablet") ||
+    (userAgent.includes("Android") && !userAgent.includes("Mobile"))
   ) {
+    return "tablet";
+  }
+  if (userAgent.includes("Mobile") || userAgent.includes("iPhone") || userAgent.includes("iPod")) {
     return "mobile";
   }
   return "desktop";
+}
+
+function isIosUserAgent(userAgent: string): boolean {
+  return (
+    userAgent.includes("iPhone") ||
+    userAgent.includes("iPad") ||
+    userAgent.includes("iPod") ||
+    (userAgent.includes("Macintosh") && userAgent.includes("Mobile/"))
+  );
 }
 
 function readString(value: unknown): string | undefined {

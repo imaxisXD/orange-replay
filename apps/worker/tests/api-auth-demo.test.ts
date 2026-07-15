@@ -1,5 +1,11 @@
+import {
+  authConfigResponseSchema,
+  listSessionsResponseSchema,
+  liveSessionsResponseSchema,
+  projectStatsResponseSchema,
+  sessionManifestSchema,
+} from "@orange-replay/shared";
 import { describe, expect, it } from "vite-plus/test";
-import type { ProjectStats } from "../src/api/stats.ts";
 import {
   authHeaders,
   demoManifestJson,
@@ -11,13 +17,12 @@ import {
   segmentBytes,
   segmentName,
   setupApiTestWorkers,
-  type SessionsResponse,
   worker,
   workerWithDemo,
-  workerWithoutToken,
+  workerWithoutAuth,
 } from "./api-test-helpers.ts";
 
-setupApiTestWorkers({ withoutToken: true, demo: true });
+setupApiTestWorkers({ withoutAuth: true, demo: true });
 
 describe("dashboard api", () => {
   it("serves health without auth", async () => {
@@ -29,33 +34,33 @@ describe("dashboard api", () => {
     expect(await res.json()).toEqual({ ok: true });
   });
 
-  it("reports whether this install uses a local token", async () => {
-    const local = await worker.fetch("/api/v1/auth/config");
-    expect(local.status).toBe(200);
-    expect(local.headers.get("cache-control")).toBe("no-store");
-    expect(await local.json()).toEqual({ mode: "token" });
+  it("reports whether Better Auth is ready", async () => {
+    const configured = await worker.fetch("/api/v1/auth/config");
+    expect(configured.status).toBe(200);
+    expect(configured.headers.get("cache-control")).toBe("no-store");
+    expect(authConfigResponseSchema.parse(await configured.json())).toEqual({ mode: "github" });
 
-    const missing = await workerWithoutToken.fetch("/api/v1/auth/config");
+    const missing = await workerWithoutAuth.fetch("/api/v1/auth/config");
     expect(missing.status).toBe(200);
-    expect(await missing.json()).toEqual({ mode: "unavailable" });
+    expect(authConfigResponseSchema.parse(await missing.json())).toEqual({ mode: "unavailable" });
   });
 
   it("routes Better Auth before project authorization", async () => {
-    const res = await worker.fetch("/api/auth/get-session");
-    expect(res.status).toBe(404);
+    const res = await workerWithoutAuth.fetch("/api/auth/get-session");
+    expect(res.status).toBe(503);
     expect(await res.json()).toMatchObject({ error: "hosted_auth_not_enabled" });
   });
 
-  it("fails closed when the dev token is not configured", async () => {
-    const health = await workerWithoutToken.fetch("/api/v1/health");
+  it("fails closed when Better Auth is not configured", async () => {
+    const health = await workerWithoutAuth.fetch("/api/v1/health");
     expect(health.status).toBe(200);
 
-    const res = await workerWithoutToken.fetch(`/api/v1/projects/${listProjectId}/sessions`);
+    const res = await workerWithoutAuth.fetch(`/api/v1/projects/${listProjectId}/sessions`);
     expect(res.status).toBe(503);
     expect(await res.json()).toEqual({ error: "auth_not_configured" });
   });
 
-  it("rejects missing or wrong bearer tokens", async () => {
+  it("rejects missing sessions and unsupported authorization headers", async () => {
     const missing = await worker.fetch(`/api/v1/projects/${listProjectId}/sessions`);
     expect(missing.status).toBe(401);
     expect(await missing.json()).toEqual({ error: "unauthorized" });
@@ -88,16 +93,17 @@ describe("dashboard api", () => {
     });
   });
 
-  it("allows only demo-readable routes without bearer auth", async () => {
+  it("allows only demo-readable routes without an account session", async () => {
     const sessions = await workerWithDemo.fetch(
       `/api/v1/projects/${demoProjectId}/sessions?limit=1`,
     );
     expect(sessions.status).toBe(200);
-    expect(((await sessions.json()) as SessionsResponse).sessions).toHaveLength(1);
+    expect(listSessionsResponseSchema.parse(await sessions.json()).sessions).toHaveLength(1);
 
     const live = await workerWithDemo.fetch(`/api/v1/projects/${demoProjectId}/live`);
     expect(live.status).toBe(200);
-    expect(await live.json()).toEqual({
+    expect(liveSessionsResponseSchema.parse(await live.json())).toEqual({
+      truncated: false,
       sessions: [
         {
           session_id: "api_demo_live",
@@ -116,13 +122,15 @@ describe("dashboard api", () => {
 
     const stats = await workerWithDemo.fetch(`/api/v1/projects/${demoProjectId}/stats`);
     expect(stats.status).toBe(200);
-    expect(((await stats.json()) as ProjectStats).sessions.value).toBe(61);
+    expect(projectStatsResponseSchema.parse(await stats.json()).sessions.value).toBe(61);
 
     const manifest = await workerWithDemo.fetch(
       `/api/v1/projects/${demoProjectId}/sessions/${demoSessionId}/manifest`,
     );
     expect(manifest.status).toBe(200);
-    expect(await manifest.text()).toBe(demoManifestJson);
+    const manifestText = await manifest.text();
+    expect(manifestText).toBe(demoManifestJson);
+    expect(() => sessionManifestSchema.parse(JSON.parse(manifestText))).not.toThrow();
 
     const segment = await workerWithDemo.fetch(
       `/api/v1/projects/${demoProjectId}/sessions/${demoSessionId}/segments/${segmentName}`,
@@ -177,7 +185,7 @@ describe("dashboard api", () => {
     expect(await body.json()).toEqual({ error: "unauthorized" });
   });
 
-  it("does not fall back to demo when a bearer token is invalid", async () => {
+  it("does not fall back to demo when an authorization header is present", async () => {
     const res = await workerWithDemo.fetch(`/api/v1/projects/${demoProjectId}/sessions`, {
       headers: { authorization: "Bearer wrong-token" },
     });
@@ -190,10 +198,10 @@ describe("dashboard api", () => {
     const res = await workerWithDemo.fetch(`/api/v1/projects/${demoProjectId}/sessions?limit=100`);
 
     expect(res.status).toBe(200);
-    expect(((await res.json()) as SessionsResponse).sessions).toHaveLength(50);
+    expect(listSessionsResponseSchema.parse(await res.json()).sessions).toHaveLength(50);
   });
 
-  it("rejects valid bearer tokens outside their project scope", async () => {
+  it("rejects signed-in users outside their project membership", async () => {
     const forbidden = await worker.fetch("/api/v1/projects/other_project/sessions", {
       headers: authHeaders(),
     });
@@ -202,7 +210,7 @@ describe("dashboard api", () => {
     expect(await forbidden.json()).toEqual({ error: "forbidden" });
   });
 
-  it("rejects missing or wrong bearer tokens for live, config, and install status", async () => {
+  it("rejects missing sessions and authorization headers for private routes", async () => {
     const paths = [
       `/api/v1/projects/${listProjectId}/stats`,
       `/api/v1/projects/${listProjectId}/live`,

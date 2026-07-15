@@ -2,7 +2,9 @@ import {
   CLOSE_SESSION_AFTER_IDLE_MS,
   manifestKey,
   sessionManifestSchema,
+  type ListSessionHeadsResponse,
   type SessionFilter,
+  type SessionHead,
   type SessionManifest,
 } from "@orange-replay/shared";
 import { shardDb, type Env } from "../env.ts";
@@ -16,6 +18,7 @@ import {
   buildSessionWhere,
   isValidPathId,
   parseSessionListQuery,
+  sessionRowToListItem,
   sessionRowColumns,
   type SessionListOptions,
   type SessionRow,
@@ -23,19 +26,15 @@ import {
 } from "./helpers.ts";
 import { jsonError, jsonResponse } from "./http.ts";
 
-export type SessionHeadActivity = "live" | "idle" | "finalizing" | "complete";
-export type SessionHeadDetails = "provisional" | "exact";
-export type SessionHeadReplaySource = "live" | "recorded";
-
-export interface SessionHead extends SessionRow {
-  activity: SessionHeadActivity;
-  details_state: SessionHeadDetails;
-  replay_source: SessionHeadReplaySource;
-}
+export type {
+  SessionActivity as SessionHeadActivity,
+  SessionDetailsState as SessionHeadDetails,
+  SessionHead,
+  SessionReplaySource as SessionHeadReplaySource,
+} from "@orange-replay/shared";
 
 const NO_STORE_HEADERS = {
   "cache-control": "private, no-store",
-  vary: "Authorization",
 } as const;
 
 const SESSION_HEAD_CANDIDATE_LIMIT = 100;
@@ -95,7 +94,8 @@ export async function listSessionHeads(
   if (!controls.ok) return jsonError(controls.error, 400);
 
   if (!provisionalRowsAreUseful(parsed.options)) {
-    return jsonResponse({ sessions: [] }, { headers: NO_STORE_HEADERS });
+    const response = { sessions: [] } satisfies ListSessionHeadsResponse;
+    return jsonResponse(response, { headers: NO_STORE_HEADERS });
   }
 
   const now = Date.now();
@@ -138,7 +138,8 @@ export async function listSessionHeads(
     parsed.options.limit,
     controls.value.trackedSessionIds,
   );
-  return jsonResponse({ sessions }, { headers: NO_STORE_HEADERS });
+  const response = { sessions } satisfies ListSessionHeadsResponse;
+  return jsonResponse(response, { headers: NO_STORE_HEADERS });
 }
 
 export async function getSessionState(
@@ -219,7 +220,7 @@ function provisionalHead(projectId: string, row: PresenceSessionHead, orgId: str
 
 function exactHead(row: SessionRow): SessionHead {
   return {
-    ...row,
+    ...sessionRowToListItem(row),
     activity: "complete",
     details_state: "exact",
     replay_source: "recorded",

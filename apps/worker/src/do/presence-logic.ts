@@ -4,6 +4,7 @@ import {
   PRESENCE_SHARD_COUNT,
   PRESENCE_TTL_MS,
   hashToUnit,
+  type LiveSessionItem,
 } from "@orange-replay/shared";
 
 export const SESSION_HEAD_HANDOFF_GRACE_MS = 5 * 60 * 1000;
@@ -63,20 +64,7 @@ export interface PresenceHeadQuery {
   minDurationMs?: number;
 }
 
-export interface LiveSession extends Pick<
-  PresenceSession,
-  | "session_id"
-  | "started_at"
-  | "last_seen"
-  | "entry_url"
-  | "country"
-  | "city"
-  | "browser"
-  | "os"
-  | "device"
-> {
-  duration_ms: number;
-}
+export type LiveSession = LiveSessionItem;
 
 export const defaultPresenceTiming: PresenceTiming = {
   ttlMs: PRESENCE_TTL_MS,

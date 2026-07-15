@@ -11,13 +11,14 @@ import { chunkList } from "./helpers.ts";
 
 const SESSION_SELECT_LIMIT = 200;
 const R2_DELETE_LIMIT = 1_000;
-// The deletion job statement binds five values per session. D1 accepts at
+// The deletion job statement binds six values per session. D1 accepts at
 // most 100 values, so 15 sessions leaves room for future fixed bindings.
 const D1_DELETE_CHUNK_SIZE = 15;
 
 export interface ExpiredSessionRow {
   sessionId: string;
   projectId: string;
+  startedAt: number;
   deleteReason: "retention_expired" | "delete_requested";
   requiresWarehouseTombstone: number;
 }
@@ -95,6 +96,7 @@ export async function selectExpiredSessions(
   const result = await db
     .prepare(
       `SELECT sessions.session_id AS sessionId, sessions.project_id AS projectId,
+        sessions.started_at AS startedAt,
         CASE WHEN sessions.expires_at < ? THEN 'retention_expired' ELSE 'delete_requested' END AS deleteReason,
         CASE
           WHEN p.id IS NULL OR p.jurisdiction IS NULL THEN 1
@@ -179,11 +181,15 @@ export async function markRowsForDeletion(
         .prepare(
           `INSERT INTO analytics_deletion_jobs (
             project_id, session_id, requested_at, delete_reason,
-            requires_warehouse_tombstone
-          ) VALUES ${chunk.map(() => "(?, ?, ?, ?, ?)").join(", ")}
+            requires_warehouse_tombstone, session_started_at
+          ) VALUES ${chunk.map(() => "(?, ?, ?, ?, ?, ?)").join(", ")}
           ON CONFLICT(project_id, session_id) DO UPDATE SET
             requested_at = MIN(analytics_deletion_jobs.requested_at, excluded.requested_at),
             delete_reason = excluded.delete_reason,
+            session_started_at = COALESCE(
+              analytics_deletion_jobs.session_started_at,
+              excluded.session_started_at
+            ),
             requires_warehouse_tombstone = CASE
               WHEN analytics_deletion_jobs.requires_warehouse_tombstone = 1
                 OR excluded.requires_warehouse_tombstone = 1
@@ -199,6 +205,7 @@ export async function markRowsForDeletion(
             now,
             row.deleteReason,
             row.requiresWarehouseTombstone,
+            row.startedAt,
           ]),
         ),
       db

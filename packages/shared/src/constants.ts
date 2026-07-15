@@ -39,9 +39,11 @@ export const PRESENCE_SHARD_COUNT = 16;
 export const SESSION_APPEND_RATE_LIMIT_COUNT = 30;
 export const SESSION_APPEND_RATE_LIMIT_WINDOW_MS = 10_000;
 export const LIVE_TICKET_TTL_MS = 60_000;
-// Bounds per-viewer broadcast fan-out on a session DO; live tickets are reusable
-// within their TTL, so this cap is what prevents unbounded socket replay.
+// Bounds aggregate broadcast fan-out on a session DO. The actor cap below
+// separately prevents one signed-in viewer from taking every slot.
 export const MAX_LIVE_VIEWERS_PER_SESSION = 32;
+export const MAX_LIVE_VIEWERS_PER_ACTOR = 4;
+export const MAX_LIVE_SESSIONS_PER_PROJECT = 100;
 export const PROJECT_CONFIG_CACHE_TTL_SECONDS = 60;
 
 export function sessionPrefix(projectId: string, sessionId: string): string {

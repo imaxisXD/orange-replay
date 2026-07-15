@@ -324,6 +324,7 @@ describe("stats api decisions", () => {
         last_seen: 1900,
         entry_url: "/checkout/start",
         country: "US",
+        region: "TX",
         city: "Austin",
         browser: "Chrome",
         os: "macOS",
@@ -335,6 +336,7 @@ describe("stats api decisions", () => {
         last_seen: 1900,
         entry_url: "/pricing",
         country: "IN",
+        region: "KA",
         city: "Bengaluru",
         browser: "Firefox",
         os: "Android",
@@ -349,6 +351,7 @@ describe("stats api decisions", () => {
         2000,
       ),
     ).toBe(1);
+    expect(countFilteredLiveSessions(sessions, { region: "TX" }, 2000)).toBe(1);
     expect(countFilteredLiveSessions(sessions, { region: "CA" }, 2000)).toBe(0);
     expect(countFilteredLiveSessions(sessions, { has_rage: true }, 2000)).toBe(0);
   });
@@ -361,11 +364,7 @@ describe("api wide events", () => {
       "https://replay.test/api/v1/projects/project_1/sessions/session_1/live?token=secret-token",
     );
 
-    const response = await handleApi(
-      request,
-      { DEV_API_TOKEN: "different" } as Env,
-      {} as Parameters<typeof handleApi>[2],
-    );
+    const response = await handleApi(request, {} as Env, {} as Parameters<typeof handleApi>[2]);
 
     expect(response.status).toBe(401);
     expect(log).toHaveBeenCalledTimes(1);
@@ -409,32 +408,33 @@ describe("api wide events", () => {
     expect(parsed["auth_mode"]).toBe("demo");
   });
 
-  it("logs bearer auth mode for bearer-checked API routes", async () => {
+  it("rejects unsupported authorization before choosing an auth mode", async () => {
     const log = vi.spyOn(globalThis["console"], "log").mockImplementation(() => undefined);
-    const bearerToken = "test-token-0000000000000000000000";
 
     const response = await handleApi(
       new Request("https://replay.test/api/v1/projects/other_project/sessions", {
-        headers: { authorization: `Bearer ${bearerToken}` },
+        headers: { authorization: "Bearer old-dashboard-credential" },
       }),
-      { DEV_API_TOKEN: bearerToken, DEV_API_PROJECT_IDS: "demo_project" } as Env,
+      {} as Env,
       {} as Parameters<typeof handleApi>[2],
     );
 
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(401);
     const parsed = JSON.parse(String(log.mock.calls[0]?.[0])) as Record<string, unknown>;
-    expect(parsed["auth_mode"]).toBe("bearer");
+    expect(parsed["auth_mode"]).toBeUndefined();
   });
 
   it("logs stats cache state even when its filter is invalid", async () => {
     const log = vi.spyOn(globalThis["console"], "log").mockImplementation(() => undefined);
-    const bearerToken = "test-token-0000000000000000000000";
 
     const response = await handleApi(
-      new Request("https://replay.test/api/v1/projects/project_1/stats?limit=5", {
-        headers: { authorization: `Bearer ${bearerToken}` },
-      }),
-      { DEV_API_TOKEN: bearerToken, DEV_API_PROJECT_IDS: "project_1" } as Env,
+      new Request("https://replay.test/api/v1/projects/project_1/stats?limit=5"),
+      {
+        WORKER_ENV: "test",
+        DEV_TEST_ROUTES: "1",
+        DEMO_PROJECT_ID: "project_1",
+        DEMO_WRITE_KEY: "or_live_demo0000000000000000000000000000",
+      } as Env,
       {} as Parameters<typeof handleApi>[2],
     );
 

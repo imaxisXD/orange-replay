@@ -62,7 +62,7 @@ describe("new project analytics receipt", () => {
           encoding: "utf8",
           env: {
             ...process.env,
-            ORANGE_REPLAY_PROD_API_PROJECT_IDS: "production_script_project",
+            ORANGE_REPLAY_PROD_PROJECT_ID: "production_script_project",
           },
         },
       );

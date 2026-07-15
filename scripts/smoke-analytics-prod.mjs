@@ -1,20 +1,20 @@
 #!/usr/bin/env node
 import process from "node:process";
-import { readAnalyticsDeployMode, readAnalyticsSmokeProjectId } from "./analytics/deploy-mode.mjs";
+import { readAnalyticsDeployMode } from "./analytics/deploy-mode.mjs";
 import { readStatsAfterDeploy } from "./analytics/smoke-state.mjs";
 
 const MAX_PAGES = 100;
 
 try {
   const baseUrl = httpsOrigin("ORANGE_REPLAY_PROD_WORKER_URL");
-  const token = requiredText("ORANGE_REPLAY_PROD_API_TOKEN");
-  const projectId = readAnalyticsSmokeProjectId();
+  const demo = await apiJson(baseUrl, "/api/v1/demo");
+  const projectId = readProjectId(demo.projectId);
   const { expectedState } = readAnalyticsDeployMode();
 
   const statsPath = `/api/v1/projects/${projectId}/stats`;
   const stats = await readStatsAfterDeploy({
     expectedState,
-    readStats: () => apiJson(baseUrl, token, statsPath),
+    readStats: () => apiJson(baseUrl, statsPath),
   });
   const warehouseVersion = optionalWholeNumber(stats.warehouseVersion, "warehouse version");
   if ((expectedState === "compare" || expectedState === "fresh") && warehouseVersion === null) {
@@ -25,7 +25,6 @@ try {
   const baseFilter = readFilter(sessionMetric.filter, "sessions filter");
   const sessionIds = await readEverySessionId(
     baseUrl,
-    token,
     projectId,
     baseFilter,
     warehouseVersion,
@@ -41,7 +40,6 @@ try {
   if (doorway !== null) {
     const doorwayIds = await readEverySessionId(
       baseUrl,
-      token,
       projectId,
       doorway.filter,
       warehouseVersion,
@@ -69,14 +67,7 @@ try {
   process.exit(1);
 }
 
-async function readEverySessionId(
-  baseUrl,
-  token,
-  projectId,
-  filter,
-  warehouseVersion,
-  expectedState,
-) {
+async function readEverySessionId(baseUrl, projectId, filter, warehouseVersion, expectedState) {
   const ids = new Set();
   let before = null;
   for (let page = 0; page < MAX_PAGES; page += 1) {
@@ -89,7 +80,6 @@ async function readEverySessionId(
 
     const body = await apiJson(
       baseUrl,
-      token,
       `/api/v1/projects/${projectId}/sessions?${params.toString()}`,
     );
     if (body.analyticsState !== expectedState) {
@@ -141,9 +131,8 @@ function firstCountDoorway(stats) {
   return null;
 }
 
-async function apiJson(baseUrl, token, path) {
+async function apiJson(baseUrl, path) {
   const response = await fetch(new URL(path, baseUrl), {
-    headers: { authorization: `Bearer ${token}` },
     redirect: "manual",
   });
   let body;
@@ -156,6 +145,13 @@ async function apiJson(baseUrl, token, path) {
     throw new Error(`${path} returned an unexpected ${response.status} response.`);
   }
   return body;
+}
+
+function readProjectId(value) {
+  if (typeof value !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(value)) {
+    throw new Error("Demo discovery returned an invalid project id.");
+  }
+  return value;
 }
 
 function readMetric(value, label) {

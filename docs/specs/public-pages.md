@@ -55,12 +55,12 @@ The API validates the ten-recording limit and replaces the ordered selection in 
 
 `GET /api/v1/projects/:projectId/public-page`
 
-- Owner/admin or configured local bearer token only.
+- Better Auth owner/admin session only.
 - Returns enabled state, current public address, revision, and selected recording summaries.
 
 `PUT /api/v1/projects/:projectId/public-page`
 
-- Owner/admin or configured local bearer token only.
+- Better Auth owner/admin session only.
 - Hosted session mutations require an exact trusted origin.
 - Body is capped at 8 KiB and accepts only `{ enabled, sessionIds }`.
 - `sessionIds` must be unique, valid path IDs, finalized, readable, in the same project, and at most
@@ -134,7 +134,7 @@ Analytics can be published with zero selected recordings.
 
 1. Migration and Drizzle schema match.
 2. Anonymous callers cannot read or update settings.
-3. Members cannot update public settings; owners/admins and the local token can.
+3. Members cannot update public settings; owners and admins can.
 4. More than ten, duplicate, missing, cross-project, live, or deleted sessions are rejected.
 5. Disabled and unknown pages return 404 from HTML, JSON, manifest, and segment routes.
 6. Removing a selected recording immediately makes its public manifest and segments return 404.

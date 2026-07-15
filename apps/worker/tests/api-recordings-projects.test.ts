@@ -1,5 +1,12 @@
 import { createHash } from "node:crypto";
-import type { StoredProjectConfig } from "@orange-replay/shared";
+import {
+  createdProjectKeyResponseSchema,
+  liveSessionsResponseSchema,
+  projectKeyResponseSchema,
+  projectKeysResponseSchema,
+  sessionManifestSchema,
+  type StoredProjectConfig,
+} from "@orange-replay/shared";
 import { describe, expect, it } from "vite-plus/test";
 import {
   assetManifestJson,
@@ -7,6 +14,7 @@ import {
   assetSessionId,
   authHeaders,
   configProjectId,
+  configRaceProjectId,
   getProjectConfig,
   installProjectId,
   keyLimitProjectId,
@@ -39,10 +47,14 @@ describe("dashboard api", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("application/json");
     expect(res.headers.get("cache-control")).toBe("private, max-age=300, must-revalidate");
-    expect(res.headers.get("vary")).toBe("Authorization");
+    expect(res.headers.get("vary")).toBe("Cookie");
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
     expect(res.headers.get("referrer-policy")).toBe("no-referrer");
-    expect(await res.text()).toBe(assetManifestJson);
+    const responseText = await res.text();
+    expect(responseText).toBe(assetManifestJson);
+    expect(sessionManifestSchema.parse(JSON.parse(responseText))).toEqual(
+      JSON.parse(assetManifestJson),
+    );
   });
 
   it("streams segments with immutable cache headers", async () => {
@@ -54,7 +66,7 @@ describe("dashboard api", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("application/octet-stream");
     expect(res.headers.get("cache-control")).toBe("private, max-age=300, must-revalidate");
-    expect(res.headers.get("vary")).toBe("Authorization");
+    expect(res.headers.get("vary")).toBe("Cookie");
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
     expect(res.headers.get("referrer-policy")).toBe("no-referrer");
     expect(Array.from(new Uint8Array(await res.arrayBuffer()))).toEqual(Array.from(segmentBytes));
@@ -160,7 +172,8 @@ describe("dashboard api", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({
+    expect(liveSessionsResponseSchema.parse(await res.json())).toEqual({
+      truncated: false,
       sessions: [
         {
           session_id: "api_live_session",
@@ -253,6 +266,23 @@ describe("dashboard api", () => {
     expect(await emptyOrigins.json()).toEqual({ error: "invalid_project_config" });
     expect((await getProjectConfig(configProjectId)).version).toBe(1);
 
+    const unstableSelector = await worker.fetch(`/api/v1/projects/${configProjectId}/config`, {
+      method: "PUT",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({
+        expectedVersion: before.version,
+        sampleRate: 1,
+        retentionDays: 30,
+        allowedOrigins: ["*"],
+        maskPolicyVersion: 99,
+        maskRules: [{ selector: "button:hover", action: "block" }],
+        capture: before.capture,
+      }),
+    });
+    expect(unstableSelector.status).toBe(400);
+    expect(await unstableSelector.json()).toEqual({ error: "invalid_project_config" });
+    expect((await getProjectConfig(configProjectId)).version).toBe(1);
+
     const update = {
       expectedVersion: before.version,
       sampleRate: 0.25,
@@ -293,6 +323,43 @@ describe("dashboard api", () => {
     const cached = await readConfigCache(keyHash);
     expect(cached).toEqual(savedConfig);
 
+    const sameRules = await worker.fetch(`/api/v1/projects/${configProjectId}/config`, {
+      method: "PUT",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({
+        ...update,
+        expectedVersion: savedConfig.version,
+        maskPolicyVersion: 500,
+        maskRules: [{ selector: "  .secret  ", action: "block" }],
+      }),
+    });
+    expect(sameRules.status).toBe(200);
+    const sameRulesConfig = (await sameRules.json()) as StoredProjectConfig;
+    expect(sameRulesConfig).toMatchObject({
+      version: 3,
+      maskPolicyVersion: 2,
+      maskRules: [{ selector: ".secret", action: "block" }],
+    });
+
+    const changedRules = await worker.fetch(`/api/v1/projects/${configProjectId}/config`, {
+      method: "PUT",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({
+        ...update,
+        expectedVersion: sameRulesConfig.version,
+        maskPolicyVersion: 0,
+        maskRules: [{ selector: ".payment-card", action: "block" }],
+      }),
+    });
+    expect(changedRules.status).toBe(200);
+    const changedRulesConfig = (await changedRules.json()) as StoredProjectConfig;
+    expect(changedRulesConfig).toMatchObject({
+      version: 4,
+      maskPolicyVersion: 3,
+      maskRules: [{ selector: ".payment-card", action: "block" }],
+    });
+    expect(await readConfigCache(keyHash)).toEqual(changedRulesConfig);
+
     const stale = await worker.fetch(`/api/v1/projects/${configProjectId}/config`, {
       method: "PUT",
       headers: { ...authHeaders(), "content-type": "application/json" },
@@ -304,6 +371,52 @@ describe("dashboard api", () => {
     });
     expect(stale.status).toBe(409);
     expect(await stale.json()).toEqual({ error: "config_version_conflict" });
+  });
+
+  it("converges a key create racing a project config change to the latest D1 version", async () => {
+    await seedIngestKey(
+      testWriteKey("api_config_race"),
+      makeProjectConfig({ projectId: configRaceProjectId, sampleRate: 1 }),
+      true,
+    );
+    const before = await getProjectConfig(configRaceProjectId);
+    const update = {
+      expectedVersion: before.version,
+      sampleRate: 0.25,
+      retentionDays: before.retentionDays,
+      allowedOrigins: before.allowedOrigins,
+      maskPolicyVersion: before.maskPolicyVersion + 1,
+      maskRules: before.maskRules,
+      capture: before.capture,
+    };
+
+    const [saved, created] = await Promise.all([
+      worker.fetch(`/api/v1/projects/${configRaceProjectId}/config`, {
+        method: "PUT",
+        headers: { ...authHeaders(), "content-type": "application/json" },
+        body: JSON.stringify(update),
+      }),
+      worker.fetch(`/api/v1/projects/${configRaceProjectId}/keys`, {
+        method: "POST",
+        headers: { ...authHeaders(), "content-type": "application/json" },
+        body: JSON.stringify({ name: "Racing key" }),
+      }),
+    ]);
+    expect(saved.status).toBe(200);
+    expect(created.status).toBe(200);
+    const createdBody = (await created.json()) as { secret: string };
+    const keyHash = createHash("sha256").update(createdBody.secret).digest("hex");
+
+    const repaired = await worker.fetch(
+      "/__test/ingest/repair-active-key-cache?advanceFinalCheck=1",
+      { method: "POST" },
+    );
+    expect(repaired.status).toBe(200);
+    expect(await readConfigCache(keyHash)).toMatchObject({
+      active: true,
+      sampleRate: 0.25,
+      version: before.version + 1,
+    });
   });
 
   it("lists write key audit rows without plaintext keys", async () => {
@@ -318,7 +431,7 @@ describe("dashboard api", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({
+    expect(projectKeysResponseSchema.parse(await res.json())).toEqual({
       keys: [
         {
           id: expect.any(String),
@@ -349,10 +462,7 @@ describe("dashboard api", () => {
     expect(created.status).toBe(200);
     expect(created.headers.get("cache-control")).toBe("private, no-store");
     expect(created.headers.get("pragma")).toBe("no-cache");
-    const createdBody = (await created.json()) as {
-      key: { id: string; name: string; keyHashPrefix: string; active: boolean };
-      secret: string;
-    };
+    const createdBody = createdProjectKeyResponseSchema.parse(await created.json());
     expect(createdBody.secret).toMatch(/^or_live_[A-Za-z0-9_-]{32}$/);
     expect(createdBody.key).toMatchObject({
       id: expect.stringMatching(/^key_[A-Za-z0-9-]+$/),
@@ -371,13 +481,14 @@ describe("dashboard api", () => {
     expect(listed.status).toBe(200);
     expect(listedText).not.toContain(createdBody.secret);
     expect(listedText).not.toContain(keyHash);
+    expect(() => projectKeysResponseSchema.parse(JSON.parse(listedText))).not.toThrow();
 
     const revoked = await worker.fetch(
       `/api/v1/projects/${keysProjectId}/keys/${createdBody.key.id}`,
       { method: "DELETE", headers: authHeaders() },
     );
     expect(revoked.status).toBe(200);
-    expect(await revoked.json()).toMatchObject({
+    expect(projectKeyResponseSchema.parse(await revoked.json())).toMatchObject({
       key: {
         id: createdBody.key.id,
         active: false,
@@ -390,9 +501,7 @@ describe("dashboard api", () => {
       headers: authHeaders(),
     });
     expect(afterRevoke.status).toBe(200);
-    const afterRevokeBody = (await afterRevoke.json()) as {
-      keys: Array<{ id: string; active: boolean }>;
-    };
+    const afterRevokeBody = projectKeysResponseSchema.parse(await afterRevoke.json());
     expect(afterRevokeBody.keys).toContainEqual(
       expect.objectContaining({ id: createdBody.key.id, active: false }),
     );

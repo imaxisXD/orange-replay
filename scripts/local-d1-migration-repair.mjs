@@ -370,26 +370,24 @@ export function planAnalyticsDeletionJobRepair({
   }
 
   const tombstoneColumn = columns.find((column) => column.name === "requires_warehouse_tombstone");
-  const expectedColumns =
-    tombstoneColumn === undefined
-      ? oldAnalyticsDeletionJobColumnShapes
-      : [...oldAnalyticsDeletionJobColumnShapes, analyticsTombstoneColumnShape];
-  if (!columnShapesMatch(expectedColumns, columns)) {
-    throw repairError("analytics migration 0009 has an unexpected deletion-job column shape.");
-  }
-
   const normalizedTableSql = normalizeSchemaSql(tableSql);
   if (tombstoneColumn !== undefined) {
-    const knownCurrentDefinitions = [
-      normalizeSchemaSql(canonicalAnalyticsDeletionJobSql),
-      normalizeSchemaSql(repairedAnalyticsDeletionJobSql),
-    ];
-    if (!knownCurrentDefinitions.includes(normalizedTableSql)) {
+    if (!columnShapesMatch([analyticsTombstoneColumnShape], [tombstoneColumn])) {
+      throw repairError("analytics migration 0009 has an unexpected deletion-job column shape.");
+    }
+    const expectedTombstoneDefinition = normalizeSchemaSql(`
+      requires_warehouse_tombstone INTEGER NOT NULL DEFAULT 1
+        CHECK (requires_warehouse_tombstone IN (0, 1))
+    `);
+    if (!normalizedTableSql.includes(expectedTombstoneDefinition)) {
       throw repairError("analytics migration 0009 has an unexpected deletion-job definition.");
     }
     return "none";
   }
 
+  if (!columnShapesMatch(oldAnalyticsDeletionJobColumnShapes, columns)) {
+    throw repairError("analytics migration 0009 has an unexpected deletion-job column shape.");
+  }
   if (normalizedTableSql !== normalizeSchemaSql(oldAnalyticsDeletionJobSql)) {
     throw repairError("analytics migration 0009 has an unexpected older deletion-job definition.");
   }

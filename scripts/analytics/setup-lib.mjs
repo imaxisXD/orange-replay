@@ -222,8 +222,8 @@ function requirePipelineName(value) {
 }
 
 function requireSinks(value) {
-  if (!Array.isArray(value) || value.length !== 3) {
-    throw new Error("Analytics config must define exactly three sinks.");
+  if (!Array.isArray(value) || value.length < 1 || value.length > 3) {
+    throw new Error("Analytics config must define between one and three sinks.");
   }
   return value.map((sink, index) => {
     if (sink === null || typeof sink !== "object") {

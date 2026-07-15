@@ -8,7 +8,7 @@ import {
   segmentKey,
 } from "@orange-replay/shared";
 import type { AppendArgs } from "./contract.ts";
-import type { BatchRow, SegmentIntent } from "./session-recorder-store.ts";
+import type { BatchRow, SegmentIntent, StoredBatchInput } from "./session-recorder-store.ts";
 import { SessionRecorderStore } from "./session-recorder-store.ts";
 import { encodeStoredSegmentMetadata, parseStoredBatchMetadata } from "./session-batch-metadata.ts";
 import {
@@ -67,6 +67,39 @@ export class SessionSegmentWriter {
     }
   }
 
+  hasCapacityForBatch(state: SessionState, candidate: StoredBatchInput): boolean {
+    const pendingIntent = this.store.pendingSegmentIntent();
+    const intentRows = new Set(
+      (pendingIntent?.rows ?? []).map((row) => `${row.tab}\u0000${String(row.seq)}`),
+    );
+    const pendingRows = this.store
+      .pendingBatchRows()
+      .filter(
+        (row) =>
+          row.bytes > 0 &&
+          row.body.byteLength > 0 &&
+          !intentRows.has(`${row.tab}\u0000${String(row.seq)}`),
+      );
+    const rows = (
+      candidate.bytes > 0 && candidate.body.byteLength > 0
+        ? [...pendingRows, candidate]
+        : pendingRows
+    ).toSorted(
+      (left, right) =>
+        left.t0 - right.t0 || left.tab.localeCompare(right.tab) || left.seq - right.seq,
+    );
+    const requiredSegments = chunkForSegments(rows, {
+      maxEncodedSegmentBytes: MAX_SEGMENT_INTENT_BODY_BYTES,
+      readBatchBytes: (row) => encodedSegmentBatchBytes(state.sessionId, row),
+    }).length;
+    const reservedThrough = Math.max(
+      state.segmentCount,
+      this.store.maxSegmentNumber(),
+      pendingIntent?.n ?? 0,
+    );
+    return reservedThrough + requiredSegments <= MAX_MANIFEST_SEGMENTS;
+  }
+
   async flushSegment(
     state: SessionState,
     reason: SegmentFlushReason,
@@ -123,13 +156,7 @@ export class SessionSegmentWriter {
       },
     })) {
       if (state.segmentCount >= MAX_MANIFEST_SEGMENTS) {
-        for (const row of chunk) {
-          this.store.markBatchBodyFlushed(row.tab, row.seq);
-        }
-        state.bufferedBytes = this.store.pendingBatchBytes();
-        state.lastFlushAt = Date.now();
-        this.store.persistState(state);
-        continue;
+        throw new Error("Accepted replay data exceeds the manifest segment limit.");
       }
 
       const batchMetadata = chunk.map((row) => parseStoredBatchMetadata(row.events));
@@ -211,7 +238,7 @@ export class SessionSegmentWriter {
 
 function batchIndexForSegmentRow(
   sessionId: string,
-  row: BatchRow,
+  row: Pick<BatchRow, "tab" | "seq" | "t0" | "t1" | "events"> | StoredBatchInput,
   metadata = parseStoredBatchMetadata(row.events),
 ): AppendArgs["index"] {
   return {
@@ -226,6 +253,17 @@ function batchIndexForSegmentRow(
       ? { checkpointTimestamps: metadata.checkpointTimestamps }
       : {}),
   };
+}
+
+function encodedSegmentBatchBytes(
+  sessionId: string,
+  row: Pick<BatchRow, "tab" | "seq" | "t0" | "t1" | "events" | "body"> | StoredBatchInput,
+): number {
+  const metadata = parseStoredBatchMetadata(row.events);
+  return encodedIngestBodyByteLength(
+    batchIndexForSegmentRow(sessionId, row, metadata),
+    row.body.byteLength,
+  );
 }
 
 async function byteStreamsEqual(

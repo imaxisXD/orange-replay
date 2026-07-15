@@ -21,6 +21,7 @@ import {
   readPresenceInstallStatus,
   readPresenceList,
   readR2Bytes,
+  waitForSocketClose,
   waitForSocketMessage,
 } from "./do-test-helpers.ts";
 
@@ -69,6 +70,31 @@ describe("SessionRecorder Durable Object", () => {
     } finally {
       conn.socket.close();
     }
+  });
+
+  it("closes a live viewer that sends a client frame", async () => {
+    const projectId = "project-live-read-only";
+    const sessionId = "session-live-read-only";
+    await append({
+      projectId,
+      sessionId,
+      tab: "tab-a",
+      seq: 0,
+      payload: bytes("live-read-only"),
+      t0: Date.now(),
+    });
+
+    const connection = openDoLiveSocket(projectId, sessionId);
+    await waitForSocketMessage(connection, "hello", 5_000);
+    await waitForSocketMessage(connection, "pending batch", 5_000);
+    connection.socket.send("unexpected client frame");
+    await waitForSocketClose(connection, 5_000);
+
+    expect(connection.status).toMatchObject({
+      closed: true,
+      closeCode: 1008,
+      closeReason: "client messages are not accepted",
+    });
   });
 
   it("pings presence on start and throttles heartbeat updates", async () => {
@@ -221,11 +247,11 @@ describe("SessionRecorder Durable Object", () => {
     expect(await readPresenceHeads(projectId, expiresAt)).toEqual({ sessions: [] });
   });
 
-  it("filters before each shard limit and returns every live row", async () => {
+  it("returns only the newest 100 live rows and reports truncation", async () => {
     const projectId = "project-presence-large-list";
     const now = Date.now();
     const sessionIds: string[] = [];
-    for (let candidate = 0; sessionIds.length < 101; candidate += 1) {
+    for (let candidate = 0; sessionIds.length < 102; candidate += 1) {
       const sessionId = `same_shard_${String(candidate).padStart(4, "0")}`;
       if (presenceShardIndex(sessionId) === 0) sessionIds.push(sessionId);
     }
@@ -245,7 +271,10 @@ describe("SessionRecorder Durable Object", () => {
       ),
     );
 
-    expect((await readPresenceList(projectId, now)).sessions).toHaveLength(101);
+    const list = await readPresenceList(projectId, now);
+    expect(list.sessions).toHaveLength(100);
+    expect(list.truncated).toBe(true);
+    expect(list.sessions.some((session) => session.session_id === targetSessionId)).toBe(false);
     expect(
       await readPresenceHeads(projectId, now, { browser: "Firefox", limit: 10 }),
     ).toMatchObject({ sessions: [{ session_id: targetSessionId, browser: "Firefox" }] });

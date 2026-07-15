@@ -1,5 +1,11 @@
+import {
+  listSessionHeadsResponseSchema,
+  liveSessionsResponseSchema,
+  sessionHeadSchema,
+  type ListSessionHeadsResponse,
+  type SessionHead,
+} from "@orange-replay/shared";
 import { describe, expect, it } from "vite-plus/test";
-import type { SessionHead } from "../src/api/session-head-routes.ts";
 import { presenceShardIndex } from "../src/do/presence-logic.ts";
 import {
   appendActiveSession,
@@ -98,7 +104,7 @@ describe("session continuity api", () => {
 
     const response = await pollHeads(`entry_url=${encodeURIComponent(entryUrl)}`);
     expect(response.headers.get("cache-control")).toBe("private, no-store");
-    expect(response.headers.get("vary")).toBe("Authorization");
+    expect(response.headers.get("vary")).toBe("Cookie");
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
     expect(await response.json()).toMatchObject({
       sessions: [
@@ -137,7 +143,7 @@ describe("session continuity api", () => {
       headers: authHeaders(),
     });
     expect(live.status).toBe(200);
-    expect((await live.json()) as { sessions: Array<{ session_id: string }> }).not.toMatchObject({
+    expect(liveSessionsResponseSchema.parse(await live.json())).not.toMatchObject({
       sessions: [{ session_id: sessionId }],
     });
     expect(await readHeads(`entry_url=${encodeURIComponent(entryUrl)}`)).toMatchObject({
@@ -372,7 +378,7 @@ async function pollHeads(query: string): Promise<Response> {
   for (;;) {
     const response = await worker.fetch(headsPath(query), { headers: authHeaders() });
     if (response.status === 200) {
-      const body = (await response.clone().json()) as { sessions: SessionHead[] };
+      const body = listSessionHeadsResponseSchema.parse(await response.clone().json());
       if (body.sessions.length > 0) return response;
     }
     if (Date.now() - startedAt >= 3_000) return response;
@@ -383,10 +389,10 @@ async function pollHeads(query: string): Promise<Response> {
 async function readHeads(
   query: string,
   controls: HeadControls = { openedAt: Date.now() },
-): Promise<{ sessions: SessionHead[] }> {
+): Promise<ListSessionHeadsResponse> {
   const response = await worker.fetch(headsPath(query, controls), { headers: authHeaders() });
   expect(response.status).toBe(200);
-  return (await response.json()) as { sessions: SessionHead[] };
+  return listSessionHeadsResponseSchema.parse(await response.json());
 }
 
 function headsPath(query: string, controls: HeadControls = { openedAt: Date.now() }): string {
@@ -408,7 +414,7 @@ async function readState(sessionId: string): Promise<SessionHead> {
   );
   expect(response.status).toBe(200);
   expect(response.headers.get("cache-control")).toBe("private, no-store");
-  return (await response.json()) as SessionHead;
+  return sessionHeadSchema.parse(await response.json());
 }
 
 async function seedSessionExport(

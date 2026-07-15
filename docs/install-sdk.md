@@ -4,7 +4,7 @@ Paste the loader snippet before `</head>`. The dashboard Install page is the sou
 
 The Install page does not copy placeholder credentials. Paste the raw write key that was shown when you created it, confirm the Worker URL or custom domain, then copy the generated snippet. Production write keys use the `or_live_` prefix followed by 32 base64url characters.
 
-The SDK write key is a public browser credential, not a server secret. It identifies the project for ingest and is still checked on every batch, but any browser page that loads the SDK can see it. Use exact allowed origins for browser CORS, and rely on server-side lookup limits, project limits, session limits, quotas, payload caps, and session caps for abuse control. Sampling is an honest-client optimization, not an abuse control. Do not put dashboard API tokens or Cloudflare tokens in browser code.
+The SDK write key is a public browser credential, not a server secret. It identifies the project for ingest and is still checked on every batch, but any browser page that loads the SDK can see it. Use exact allowed origins for browser CORS, and rely on server-side lookup limits, project limits, session limits, quotas, payload caps, and session caps for abuse control. Sampling is an honest-client optimization, not an abuse control. Do not put dashboard account credentials or Cloudflare tokens in browser code.
 
 The dashboard builds the same snippet with:
 

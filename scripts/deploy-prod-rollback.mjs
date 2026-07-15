@@ -53,12 +53,7 @@ export async function runProductionD1Rollback({
 
 export function rollbackStepEnvironment(step, environment) {
   const cleanEnvironment = withoutCloudflareAuth(withoutProductionSecrets(environment));
-  const names =
-    step.kind === "deploy_tagged"
-      ? cloudflareAuthEnvironmentNames
-      : step.kind === "smoke"
-        ? ["ORANGE_REPLAY_PROD_API_TOKEN", "ORANGE_REPLAY_PROD_API_PROJECT_IDS"]
-        : [];
+  const names = step.kind === "deploy_tagged" ? cloudflareAuthEnvironmentNames : [];
   for (const name of names) {
     const value = environment[name];
     if (value !== undefined) cleanEnvironment[name] = value;

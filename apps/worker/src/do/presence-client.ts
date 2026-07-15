@@ -1,4 +1,4 @@
-import { HDR_REQUEST_ID } from "@orange-replay/shared";
+import { HDR_REQUEST_ID, MAX_LIVE_SESSIONS_PER_PROJECT } from "@orange-replay/shared";
 import { isDevTestMode, type Env } from "../env.ts";
 import {
   presenceShardIndex,
@@ -61,7 +61,7 @@ export async function listProjectPresence(
   projectId: string,
   requestId: string,
   now: number,
-): Promise<{ sessions: PresenceSession[] } | null> {
+): Promise<{ sessions: PresenceSession[]; truncated: boolean } | null> {
   const bodies = await readPresenceShards<PresenceListBody>(env, projectId, "/list", requestId, {
     projectId,
     now,
@@ -78,11 +78,13 @@ export async function listProjectPresence(
     }
   }
 
+  const sorted = [...bySession.values()].toSorted(
+    (left, right) =>
+      right.last_seen - left.last_seen || left.session_id.localeCompare(right.session_id),
+  );
   return {
-    sessions: [...bySession.values()].toSorted(
-      (left, right) =>
-        right.last_seen - left.last_seen || left.session_id.localeCompare(right.session_id),
-    ),
+    sessions: sorted.slice(0, MAX_LIVE_SESSIONS_PER_PROJECT),
+    truncated: sorted.length > MAX_LIVE_SESSIONS_PER_PROJECT,
   };
 }
 

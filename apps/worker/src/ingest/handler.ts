@@ -25,13 +25,17 @@ import {
   validateIngestHeaders,
 } from "./helpers.ts";
 import { gzipPayload, indexMismatchError, validatePayloadSize } from "./payload.ts";
-import { loadProjectConfig } from "./project-config-loader.ts";
+import { lookupProjectConfig } from "./project-config-lookup.ts";
 import { ingestRateLimitAllows } from "./rate-limit.ts";
 import { ingestAckForAppendResult, jsonResponse } from "./response.ts";
 
 export { handleRecorderConfig } from "./recorder-config.ts";
 
-export function handleIngest(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+export function handleIngest(
+  request: Request,
+  env: Env,
+  _ctx: ExecutionContext,
+): Promise<Response> {
   setWorkerLoggerVersion(env);
 
   if (request.method === "OPTIONS") {
@@ -57,14 +61,10 @@ export function handleIngest(request: Request, env: Env, ctx: ExecutionContext):
     );
   }
 
-  return handleIngestPost(request, env, ctx);
+  return handleIngestPost(request, env);
 }
 
-async function handleIngestPost(
-  request: Request,
-  env: Env,
-  ctx: ExecutionContext,
-): Promise<Response> {
+async function handleIngestPost(request: Request, env: Env): Promise<Response> {
   const requestId = uuidv7();
   const event = startWideEvent("worker", "ingest.batch", requestId);
   let statusCode = 500;
@@ -104,7 +104,7 @@ async function handleIngestPost(
     }
 
     const keyHash = await sha256Hex(key);
-    const configResult = await loadProjectConfig(env, ctx, keyHash, request);
+    const configResult = await lookupProjectConfig(env, keyHash, request);
     event.set({ kv_hit: configResult.kvHit });
     if (configResult.lookupRateLimited) {
       event.set({ rate_limit: "lookup" });

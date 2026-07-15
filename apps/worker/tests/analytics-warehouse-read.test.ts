@@ -60,6 +60,8 @@ describe("analytics warehouse queries", () => {
     expect(count(query.sql, '"analytics_sessions"')).toBe(1);
     expect(count(query.sql, '"analytics_events"')).toBe(1);
     expect(count(query.sql, '"analytics_deletions"')).toBe(1);
+    expect(query.sql).not.toContain("session_started_at");
+    expect(query.sql).not.toContain("analytics_deletions_v2");
     // Pipeline sink SQL is the required-field gate. Repeating every null
     // check here makes live R2 SQL exceed its expression-depth limit.
     expect(query.sql).not.toContain("s.org_id IS NOT NULL");
@@ -68,6 +70,17 @@ describe("analytics warehouse queries", () => {
     expect(query.sql).toContain("MEDIAN(s.duration_ms)");
     expect(query.sql).toContain("UNION ALL");
     expect(query.sql).not.toContain(";");
+  });
+
+  it("uses the date-pruned v2 table only when the caller selects it", () => {
+    const query = buildWarehouseStatsQuery("project_1", 73, { from: 100, to: 200 }, "v2");
+
+    expect(query.sql).toContain('FROM "default"."analytics_deletions_v2" d');
+    expect(query.sql).not.toContain('FROM "default"."analytics_deletions" d');
+    expect(query.sql).toContain("(d.session_started_at IS NULL OR d.session_started_at >= 100)");
+    expect(query.sql).toContain("(d.session_started_at IS NULL OR d.session_started_at <= 200)");
+    expect(query.sql).toContain("ORDER BY d.export_sequence DESC, d.recorded_at DESC");
+    expect(query.sql).not.toContain("d.export_sequence <= 73");
   });
 
   it("compiles all filters and quote-heavy text without changing SQL structure", () => {

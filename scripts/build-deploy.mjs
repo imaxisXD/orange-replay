@@ -28,16 +28,10 @@ const landingFiles = [
   "site.webmanifest",
 ];
 const landingDirectories = ["brand", "flags", "fonts"];
-const allowedProjectIds = readProjectIds(process.env["ORANGE_REPLAY_PROD_API_PROJECT_IDS"]);
-const defaultProjectId = readDefaultProjectId(
-  process.env["VITE_DEFAULT_PROJECT_ID"],
-  allowedProjectIds,
-);
 const dashboardEnvironment = readDashboardEnvironment(process.argv.slice(2));
 const dashboardEnv = {
   ...process.env,
   VITE_DASHBOARD_ENVIRONMENT: dashboardEnvironment,
-  VITE_DEFAULT_PROJECT_ID: defaultProjectId,
 };
 
 await run(process.execPath, ["packages/sdk/scripts/build-browser.mjs"], repoRoot);
@@ -101,38 +95,6 @@ async function copyLandingAssets() {
     const source = path.join(landingDir, directory);
     await cp(source, path.join(dashboardDist, directory), { recursive: true });
   }
-}
-
-function readProjectIds(value) {
-  const projectIds = [];
-  for (const part of value?.split(",") ?? []) {
-    const projectId = part.trim();
-    if (projectId.length === 0) continue;
-    if (!isProjectId(projectId)) {
-      throw new Error("ORANGE_REPLAY_PROD_API_PROJECT_IDS contains an invalid project id.");
-    }
-    if (!projectIds.includes(projectId)) {
-      projectIds.push(projectId);
-    }
-  }
-  return projectIds;
-}
-
-function readDefaultProjectId(value, allowedProjectIds) {
-  const projectId = value?.trim() || allowedProjectIds[0] || "project_demo";
-  if (!isProjectId(projectId)) {
-    throw new Error("VITE_DEFAULT_PROJECT_ID must be letters, numbers, _, or -.");
-  }
-  if (allowedProjectIds.length > 0 && !allowedProjectIds.includes(projectId)) {
-    throw new Error(
-      "VITE_DEFAULT_PROJECT_ID must be listed in ORANGE_REPLAY_PROD_API_PROJECT_IDS.",
-    );
-  }
-  return projectId;
-}
-
-function isProjectId(value) {
-  return /^[A-Za-z0-9_-]{1,64}$/.test(value);
 }
 
 function readDashboardEnvironment(argumentsList) {

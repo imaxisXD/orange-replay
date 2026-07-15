@@ -3,7 +3,6 @@ export {
   getHostedAuthStatus,
   getTrustedOrigins,
   isHostedAuthConfigured,
-  isTokenAuthConfigured,
   isTrustedMutationOrigin,
   type AuthMode,
   type HostedAuthStatus,

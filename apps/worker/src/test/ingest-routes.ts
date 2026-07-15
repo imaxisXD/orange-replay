@@ -1,14 +1,9 @@
 import { configKvKey, projectConfigSchema } from "@orange-replay/shared";
 import type { ProjectConfig } from "@orange-replay/shared";
-import { repairActiveProjectKeyCache } from "../api/project-config.ts";
-import {
-  beginActiveKeyCacheWrite,
-  finishActiveKeyCacheWrite,
-  keyCacheFinalCheckTime,
-} from "../api/project-key-cache.ts";
 import { shardDb } from "../env.ts";
 import type { Env } from "../env.ts";
 import { sha256Hex } from "../ingest/helpers.ts";
+import { projectConfigDeliveryTestHooks } from "../project-config/delivery.ts";
 import { createTestDatabaseSchema } from "./database-schema.ts";
 
 interface SeedRequest {
@@ -42,7 +37,7 @@ export function handleIngestTestRoutes(
     return markActiveKeyCachePending(url, env);
   }
   if (url.pathname === "/__test/ingest/repair-active-key-cache" && request.method === "POST") {
-    return repairActiveKeyCache(env);
+    return repairActiveKeyCache(url, env);
   }
   if (url.pathname === "/__test/ingest/start-key-cache-write" && request.method === "POST") {
     return startKeyCacheWrite(url, env);
@@ -83,7 +78,9 @@ async function markKeyCachePending(url: URL, env: Env): Promise<Response> {
   if (keyHash instanceof Response) return keyHash;
   const now = Date.now();
   const finalCheckAt =
-    url.searchParams.get("finalCheck") === "due" ? 0 : keyCacheFinalCheckTime(now);
+    url.searchParams.get("finalCheck") === "due"
+      ? 0
+      : projectConfigDeliveryTestHooks.keyCacheFinalCheckTime(now);
   const result = await shardDb(env, 0)
     .prepare(
       `UPDATE keys
@@ -100,7 +97,9 @@ async function markActiveKeyCachePending(url: URL, env: Env): Promise<Response> 
   if (keyHash instanceof Response) return keyHash;
   const now = Date.now();
   const finalCheckAt =
-    url.searchParams.get("finalCheck") === "due" ? 0 : keyCacheFinalCheckTime(now);
+    url.searchParams.get("finalCheck") === "due"
+      ? 0
+      : projectConfigDeliveryTestHooks.keyCacheFinalCheckTime(now);
   const results = await shardDb(env, 0).batch([
     shardDb(env, 0)
       .prepare(
@@ -120,15 +119,20 @@ async function markActiveKeyCachePending(url: URL, env: Env): Promise<Response> 
   return Response.json({ changed: results[1]?.meta.changes ?? 0 });
 }
 
-async function repairActiveKeyCache(env: Env): Promise<Response> {
-  const repaired = await repairActiveProjectKeyCache(env);
+async function repairActiveKeyCache(url: URL, env: Env): Promise<Response> {
+  const now =
+    url.searchParams.get("advanceFinalCheck") === "1" ? Date.now() + 16 * 60 * 1_000 : Date.now();
+  const repaired = await projectConfigDeliveryTestHooks.repairActiveProjectKeyCache(env, now);
   return Response.json({ repaired });
 }
 
 async function startKeyCacheWrite(url: URL, env: Env): Promise<Response> {
   const keyHash = readKeyHash(url);
   if (keyHash instanceof Response) return keyHash;
-  const writeId = await beginActiveKeyCacheWrite(shardDb(env, 0), keyHash);
+  const writeId = await projectConfigDeliveryTestHooks.beginActiveKeyCacheWrite(
+    shardDb(env, 0),
+    keyHash,
+  );
   if (writeId === null) return Response.json({ error: "key_not_active" }, { status: 409 });
   return Response.json({ writeId });
 }
@@ -138,7 +142,7 @@ async function finishKeyCacheWrite(url: URL, env: Env): Promise<Response> {
   if (writeId === null || !/^cache_write_[a-f0-9-]{36}$/.test(writeId)) {
     return Response.json({ error: "writeId is not valid" }, { status: 400 });
   }
-  await finishActiveKeyCacheWrite(shardDb(env, 0), writeId);
+  await projectConfigDeliveryTestHooks.finishActiveKeyCacheWrite(shardDb(env, 0), writeId);
   return Response.json({ ok: true });
 }
 

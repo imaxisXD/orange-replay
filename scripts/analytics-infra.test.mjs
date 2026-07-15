@@ -52,6 +52,13 @@ import { productionDeploySteps } from "./deploy-production.mjs";
 const scriptsDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptsDirectory, "..");
 const resourcePath = path.join(repoRoot, "infra", "analytics", "resources.production.json");
+const deletionV2ResourcePath = path.join(
+  repoRoot,
+  "infra",
+  "analytics",
+  "deletion-v2",
+  "resources.production.json",
+);
 
 describe("analytics resource setup", () => {
   it("defines one stream and exactly three Data Catalog tables", async () => {
@@ -100,6 +107,37 @@ describe("analytics resource setup", () => {
       stream: true,
     });
     expect(missingSinkPlan.needsPipelineCatalogToken).toBe(true);
+  });
+
+  it("keeps v1 unchanged and provisions deletion v2 as a separate stream and table", async () => {
+    const v1Schema = await readFile(
+      path.join(repoRoot, "infra", "analytics", "stream-schema.json"),
+      "utf8",
+    );
+    const v1Pipeline = await readFile(
+      path.join(repoRoot, "infra", "analytics", "pipeline.sql"),
+      "utf8",
+    );
+    expect(v1Schema).not.toContain("session_started_at");
+    expect(v1Pipeline).not.toContain("session_started_at");
+    expect(v1Pipeline).not.toContain("analytics_deletions_v2");
+
+    const resources = await loadAnalyticsResources(deletionV2ResourcePath);
+    expect(resources.stream).toBe("orange_replay_analytics_deletion_v2_stream");
+    expect(resources.pipeline).toBe("orange_replay_analytics_deletion_v2_prod");
+    expect(resources.sinks).toEqual([
+      {
+        name: "orange_replay_analytics_deletions_v2_sink",
+        table: "analytics_deletions_v2",
+      },
+    ]);
+    expect(resources.streamSchema.fields).toContainEqual({
+      name: "session_started_at",
+      required: false,
+      type: "int64",
+    });
+    expect(resources.pipelineSql).toContain("FROM orange_replay_analytics_deletion_v2_stream");
+    expect(resources.pipelineSql).not.toContain("orange_replay_analytics_stream");
   });
 
   it("keeps Pipeline sink and bucket maintenance credentials separate", () => {
@@ -196,20 +234,14 @@ describe("analytics production deploy safety", () => {
     ).toEqual({ backend: "r2_sql", expectedState: "fresh" });
   });
 
-  it("uses the explicit smoke project or the first allowed project", () => {
+  it("requires one explicit analytics project", () => {
     expect(
       readAnalyticsSmokeProjectId({
-        ORANGE_REPLAY_PROD_API_PROJECT_IDS: "project_first,project_second",
-      }),
-    ).toBe("project_first");
-    expect(
-      readAnalyticsSmokeProjectId({
-        ORANGE_REPLAY_PROD_API_PROJECT_IDS: "project_first,project_second",
         ORANGE_REPLAY_PROD_PROJECT_ID: "project_second",
       }),
     ).toBe("project_second");
     expect(() => readAnalyticsSmokeProjectId({})).toThrow(
-      "ORANGE_REPLAY_PROD_API_PROJECT_IDS must include a valid project id",
+      "ORANGE_REPLAY_PROD_PROJECT_ID must include a valid project id",
     );
   });
 
@@ -308,9 +340,17 @@ describe("analytics production deploy safety", () => {
     expect(workerConfig).toContain(
       '"ANALYTICS_READ_BACKEND": "REPLACE_WITH_PRODUCTION_ANALYTICS_READ_BACKEND"',
     );
-    expect(generator).toContain("readAnalyticsDeployMode()");
+    expect(workerConfig).toContain(
+      '"ANALYTICS_DELETION_READ_VERSION": "REPLACE_WITH_PRODUCTION_ANALYTICS_DELETION_READ_VERSION"',
+    );
+    expect(workerConfig).toContain('"binding": "ANALYTICS_DELETION_V2_STREAM"');
+    expect(workerConfig).toContain(
+      '"stream": "REPLACE_WITH_PRODUCTION_ANALYTICS_DELETION_V2_STREAM_ID"',
+    );
+    expect(generator).toContain("readAnalyticsDeployMode(environment)");
     expect(generator).toContain("ORANGE_REPLAY_PROD_PUBLIC_PAGE_ORIGIN");
-    expect(generator).toContain("readPublicPageConfig()");
+    expect(generator).toContain("readPublicPageConfig(environment)");
+    expect(generator).toContain("ORANGE_REPLAY_PROD_ANALYTICS_DELETION_V2_STREAM_ID");
     expect(packageJson.scripts["analytics:smoke:prod"]).toBe(
       "node scripts/smoke-analytics-prod.mjs",
     );
@@ -406,8 +446,7 @@ describe("analytics production deploy safety", () => {
       environment: {
         KEEP_REMOTE_SETTINGS: "yes",
         ORANGE_REPLAY_PROD_ANALYTICS_READ_BACKEND: "r2_sql",
-        ORANGE_REPLAY_PROD_API_PROJECT_IDS: "p1",
-        ORANGE_REPLAY_PROD_API_TOKEN: "api-secret",
+        ORANGE_REPLAY_PROD_PROJECT_ID: "p1",
         CLOUDFLARE_API_TOKEN: "cloudflare-secret",
         ORANGE_REPLAY_PROD_ANALYTICS_PURGE_RUNNER_TOKEN: "purge-secret",
         ORANGE_REPLAY_PROD_LIVE_TICKET_SECRET: "ticket-secret",
@@ -428,11 +467,8 @@ describe("analytics production deploy safety", () => {
       expect(call[1].ORANGE_REPLAY_PROD_R2_SQL_TOKEN).toBeUndefined();
     }
     expect(runStep.mock.calls[0]?.[1].CLOUDFLARE_API_TOKEN).toBe("cloudflare-secret");
-    expect(runStep.mock.calls[0]?.[1].ORANGE_REPLAY_PROD_API_TOKEN).toBeUndefined();
     for (const call of runStep.mock.calls.slice(1)) {
       expect(call[1].CLOUDFLARE_API_TOKEN).toBeUndefined();
-      expect(call[1].ORANGE_REPLAY_PROD_API_TOKEN).toBe("api-secret");
-      expect(call[1].ORANGE_REPLAY_PROD_API_PROJECT_IDS).toBe("p1");
     }
     expect(report).toHaveBeenLastCalledWith(
       "The prepared D1 rollback passed the production API and analytics smoke checks.",
@@ -449,8 +485,7 @@ describe("analytics production deploy safety", () => {
     ]);
     const environment = {
       CLOUDFLARE_API_TOKEN: "cloudflare-secret",
-      ORANGE_REPLAY_PROD_API_PROJECT_IDS: "p1",
-      ORANGE_REPLAY_PROD_API_TOKEN: "api-secret",
+      ORANGE_REPLAY_PROD_PROJECT_ID: "p1",
     };
     expect(
       rebuildRollbackStepEnvironment(D1_REBUILD_ROLLBACK_STEPS[0], environment)
@@ -460,24 +495,24 @@ describe("analytics production deploy safety", () => {
       rebuildRollbackStepEnvironment(D1_REBUILD_ROLLBACK_STEPS[2], environment)
         .CLOUDFLARE_API_TOKEN,
     ).toBe("cloudflare-secret");
-    expect(
-      rebuildRollbackStepEnvironment(D1_REBUILD_ROLLBACK_STEPS[3], environment)
-        .ORANGE_REPLAY_PROD_API_TOKEN,
-    ).toBe("api-secret");
+    expect(rebuildRollbackStepEnvironment(D1_REBUILD_ROLLBACK_STEPS[3], environment)).toMatchObject(
+      {
+        ORANGE_REPLAY_PROD_PROJECT_ID: "p1",
+      },
+    );
   });
 
-  it("gives only smoke checks the local dashboard credential", () => {
+  it("does not give rollback smoke checks private dashboard credentials", () => {
     const environment = {
-      ORANGE_REPLAY_PROD_API_PROJECT_IDS: "p1",
-      ORANGE_REPLAY_PROD_API_TOKEN: "api-secret",
+      ORANGE_REPLAY_PROD_PROJECT_ID: "p1",
       ORANGE_REPLAY_PROD_R2_SQL_TOKEN: "r2-secret",
     };
-    expect(
-      rollbackStepEnvironment(D1_ROLLBACK_STEPS[0], environment).ORANGE_REPLAY_PROD_API_TOKEN,
-    ).toBeUndefined();
-    expect(
-      rollbackStepEnvironment(D1_ROLLBACK_STEPS[1], environment).ORANGE_REPLAY_PROD_API_TOKEN,
-    ).toBe("api-secret");
+    expect(rollbackStepEnvironment(D1_ROLLBACK_STEPS[0], environment)).toMatchObject({
+      ORANGE_REPLAY_PROD_PROJECT_ID: "p1",
+    });
+    expect(rollbackStepEnvironment(D1_ROLLBACK_STEPS[1], environment)).toMatchObject({
+      ORANGE_REPLAY_PROD_PROJECT_ID: "p1",
+    });
   });
 
   it("requires the full verifier for compare and R2 while keeping D1 open", () => {

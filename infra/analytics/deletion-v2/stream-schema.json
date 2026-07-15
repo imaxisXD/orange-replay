@@ -1,0 +1,19 @@
+{
+  "fields": [
+    { "name": "schema_version", "type": "int32", "required": true },
+    { "name": "record_kind", "type": "string", "required": true },
+    { "name": "export_id", "type": "string", "required": true },
+    { "name": "export_sequence", "type": "int64", "required": true },
+    { "name": "project_id", "type": "string", "required": true },
+    { "name": "session_id", "type": "string", "required": true },
+    {
+      "name": "recorded_at",
+      "type": "timestamp",
+      "unit": "millisecond",
+      "required": true
+    },
+    { "name": "deleted_at", "type": "int64", "required": true },
+    { "name": "delete_reason", "type": "string", "required": true },
+    { "name": "session_started_at", "type": "int64", "required": false }
+  ]
+}

@@ -133,6 +133,60 @@ describe("analytics outbox compaction", () => {
     database.close();
   });
 
+  it("removes an old deletion identity only after warehouse cleanup is complete", async () => {
+    const database = await createDatabase();
+    const now = Date.UTC(2026, 6, 13, 12, 0, 0);
+    const oldVerifiedAt = now - ANALYTICS_OUTBOX_SAFETY_MS;
+    database.run(
+      `INSERT INTO analytics_export_ledger (
+        export_id, export_sequence, project_id, session_id, record_kind, sent_at,
+        first_seen_verified_at
+      ) VALUES (?, ?, ?, ?, 'deletion', ?, ?), (?, ?, ?, ?, 'deletion', ?, ?),
+        (?, ?, ?, ?, 'deletion', ?, ?)`,
+      "deletion:project:complete",
+      1,
+      "project",
+      "complete",
+      1,
+      oldVerifiedAt,
+      "deletion:project:pending",
+      2,
+      "project",
+      "pending",
+      1,
+      oldVerifiedAt,
+      "deletion:project:recent",
+      3,
+      "project",
+      "recent",
+      1,
+      oldVerifiedAt + 1,
+    );
+    for (const sessionId of ["complete", "pending", "recent"]) {
+      database.run(
+        "INSERT INTO session_deletions (project_id, session_id, requested_at) VALUES (?, ?, ?)",
+        "project",
+        sessionId,
+        1,
+      );
+    }
+    database.run(
+      `INSERT INTO analytics_deletion_jobs (
+        project_id, session_id, requested_at, delete_reason, completed_at
+      ) VALUES ('project', 'complete', 1, 'delete_requested', 2),
+        ('project', 'pending', 1, 'delete_requested', NULL),
+        ('project', 'recent', 1, 'delete_requested', 2)`,
+    );
+
+    const result = await compact(database, { now });
+
+    expect(result.deletedDeniedLedgerRows).toBe(1);
+    expect(
+      database.values("SELECT export_id FROM analytics_export_ledger ORDER BY export_id"),
+    ).toEqual(["deletion:project:pending", "deletion:project:recent"]);
+    database.close();
+  });
+
   it("keeps versioned D1 comparisons working across outbox and ledger rows", async () => {
     const database = await createDatabase();
     database.run(

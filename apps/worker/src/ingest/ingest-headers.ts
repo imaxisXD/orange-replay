@@ -6,6 +6,7 @@ import {
   HDR_SESSION,
   HDR_TAB,
   INGEST_HEADER_FLAG_MASK,
+  isValidSessionId,
   MAX_SEQ,
 } from "@orange-replay/shared";
 
@@ -67,7 +68,6 @@ export type HeaderValidationResult =
   | { ok: true; value: ValidIngestHeaders }
   | { ok: false; error: string };
 
-const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
 const TAB_ID_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
 const WRITE_KEY_PATTERN = /^or_live_[A-Za-z0-9_-]{32}$/;
 const INTEGER_PATTERN = /^[0-9]+$/;
@@ -78,7 +78,7 @@ export function validateIngestHeaders(headers: Headers): HeaderValidationResult 
   const key = writeKey.value;
 
   const sessionId = headers.get(HDR_SESSION);
-  if (sessionId === null || !SESSION_ID_PATTERN.test(sessionId)) {
+  if (sessionId === null || !isValidSessionId(sessionId)) {
     return {
       ok: false,
       error: `${HDR_SESSION} must be 16 to 64 letters, numbers, underscores, or dashes`,

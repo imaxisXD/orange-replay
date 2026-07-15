@@ -1,13 +1,14 @@
-import type { SessionFilter } from "@orange-replay/shared";
-import { encodeSessionCursor, type SessionListOptions, type SessionRow } from "../api/helpers.ts";
 import type {
   FilteredNumber,
   FilteredOptionalNumber,
   FinalizedProjectStats,
+  SessionFilter,
+  SessionListItem,
   StatsBreakdownRow,
-  StatsDimension,
   StatsErrorGroup,
-} from "../api/stats.ts";
+} from "@orange-replay/shared";
+import { encodeSessionCursor, type SessionListOptions } from "../query/session-query.ts";
+import type { StatsDimension } from "./d1-stats.ts";
 import {
   AnalyticsReadError,
   runR2SqlProjectQuery,
@@ -18,12 +19,13 @@ import {
   buildWarehouseErrorEvidenceQuery,
   buildWarehouseSessionsQuery,
   buildWarehouseStatsQuery,
+  type AnalyticsDeletionTableVersion,
   type WarehouseErrorEvidenceRow,
   type WarehouseStatsRow,
 } from "./warehouse-query.ts";
 
 export interface WarehouseSessionPage {
-  sessions: SessionRow[];
+  sessions: SessionListItem[];
   nextBefore: string | null;
   warehouseVersion: number;
   metrics: R2SqlMetrics;
@@ -45,8 +47,14 @@ export async function readWarehouseSessionPage(
   projectId: string,
   warehouseVersion: number,
   options: SessionListOptions,
+  deletionTableVersion: AnalyticsDeletionTableVersion = "v1",
 ): Promise<WarehouseSessionPage> {
-  const query = buildWarehouseSessionsQuery(projectId, warehouseVersion, options);
+  const query = buildWarehouseSessionsQuery(
+    projectId,
+    warehouseVersion,
+    options,
+    deletionTableVersion,
+  );
   const result = await runR2SqlProjectQuery<Record<string, unknown>>(
     settings,
     projectId,
@@ -71,8 +79,9 @@ export async function readWarehouseProjectStats(
   projectId: string,
   warehouseVersion: number,
   filter: SessionFilter,
+  deletionTableVersion: AnalyticsDeletionTableVersion = "v1",
 ): Promise<WarehouseStatsResult> {
-  const query = buildWarehouseStatsQuery(projectId, warehouseVersion, filter);
+  const query = buildWarehouseStatsQuery(projectId, warehouseVersion, filter, deletionTableVersion);
   const result = await runR2SqlProjectQuery<WarehouseStatsRow>(settings, projectId, query.sql);
 
   return {
@@ -88,8 +97,15 @@ export async function readWarehouseErrorEvidence(
   warehouseVersion: number,
   filter: SessionFilter,
   details: readonly string[],
+  deletionTableVersion: AnalyticsDeletionTableVersion = "v1",
 ): Promise<WarehouseErrorEvidenceResult> {
-  const query = buildWarehouseErrorEvidenceQuery(projectId, warehouseVersion, filter, details);
+  const query = buildWarehouseErrorEvidenceQuery(
+    projectId,
+    warehouseVersion,
+    filter,
+    details,
+    deletionTableVersion,
+  );
   const result = await runR2SqlProjectQuery<WarehouseErrorEvidenceRow>(
     settings,
     projectId,
@@ -252,7 +268,7 @@ function breakdownFilter(filter: SessionFilter, groupName: string, label: string
   return { ...filter, [dimension]: label };
 }
 
-function readSessionRow(row: Record<string, unknown>): SessionRow {
+function readSessionRow(row: Record<string, unknown>): SessionListItem {
   return {
     session_id: requiredText(row.session_id),
     project_id: requiredText(row.project_id),

@@ -23,15 +23,10 @@ export function readAnalyticsDeployMode(environment = process.env) {
 }
 
 export function readAnalyticsSmokeProjectId(environment = process.env) {
-  const explicitProjectId = environment.ORANGE_REPLAY_PROD_PROJECT_ID;
-  if (explicitProjectId !== undefined && explicitProjectId.length > 0) {
-    return checkedProjectId(explicitProjectId, "ORANGE_REPLAY_PROD_PROJECT_ID");
-  }
-
-  const allowedProjectIds = environment.ORANGE_REPLAY_PROD_API_PROJECT_IDS;
-  const firstAllowedProjectId =
-    typeof allowedProjectIds === "string" ? allowedProjectIds.split(",")[0]?.trim() : undefined;
-  return checkedProjectId(firstAllowedProjectId, "ORANGE_REPLAY_PROD_API_PROJECT_IDS");
+  return checkedProjectId(
+    environment.ORANGE_REPLAY_PROD_PROJECT_ID,
+    "ORANGE_REPLAY_PROD_PROJECT_ID",
+  );
 }
 
 function checkedProjectId(value, name) {

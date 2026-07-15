@@ -17,62 +17,47 @@ try {
 }
 
 function linkOwner(options) {
-  const userRows = queryRows(
-    `SELECT id, email FROM users WHERE lower(email) = lower(${sqlText(options.email)})`,
-    options,
-  );
-  if (userRows.length === 0) {
-    throw new Error("No signed-in user has that email. Sign in with GitHub once, then retry.");
-  }
-  if (userRows.length !== 1) {
-    throw new Error("More than one user has that email. Stop and inspect the users table.");
-  }
-
-  const user = userRows[0];
-  if (typeof user?.id !== "string") {
-    throw new Error("The matching user row is invalid.");
-  }
-
-  const workspaceRows = queryRows(
-    `SELECT id, name FROM orgs WHERE id = ${sqlText(options.workspaceId)}`,
-    options,
-  );
-  if (workspaceRows.length !== 1) {
-    throw new Error("The workspace ID was not found. No membership was changed.");
-  }
-
-  const ownerRows = queryRows(
-    `SELECT user_id FROM members WHERE org_id = ${sqlText(options.workspaceId)} AND (role = 'owner' OR ',' || role || ',' LIKE '%,owner,%')`,
-    options,
-  );
-  const otherOwner = ownerRows.find((row) => row?.user_id !== user.id);
-  if (otherOwner !== undefined) {
-    throw new Error("This workspace already has a different owner. No membership was changed.");
-  }
-
-  const membershipRows = queryRows(
-    `SELECT id, role FROM members WHERE org_id = ${sqlText(options.workspaceId)} AND user_id = ${sqlText(user.id)}`,
-    options,
-  );
-  if (membershipRows.length > 1) {
-    throw new Error("This user has duplicate workspace memberships. Stop and repair them first.");
-  }
-  if (membershipRows[0]?.role === "owner") {
-    console.log(`Workspace ${options.workspaceId} is already linked to ${options.email} as owner.`);
-    return;
-  }
-
   const now = Date.now();
-  const command =
-    membershipRows.length === 1
-      ? `UPDATE members SET role = 'owner' WHERE org_id = ${sqlText(options.workspaceId)} AND user_id = ${sqlText(user.id)}`
-      : `INSERT INTO members (id, org_id, user_id, role, created_at) VALUES (${sqlText(`member_${randomUUID().replaceAll("-", "")}`)}, ${sqlText(options.workspaceId)}, ${sqlText(user.id)}, 'owner', ${now})`;
-
-  runWrangler([...databaseArgs(options), "--command", command]);
+  const memberId = `member_${randomUUID().replaceAll("-", "")}`;
+  const command = `WITH matching_users AS (
+    SELECT id FROM users WHERE lower(email) = lower(${sqlText(options.email)})
+  )
+  INSERT INTO members (id, org_id, user_id, role, created_at)
+  SELECT ${sqlText(memberId)}, orgs.id, matching_users.id, 'owner', ${now}
+  FROM orgs
+  CROSS JOIN matching_users
+  WHERE orgs.id = ${sqlText(options.workspaceId)}
+    AND (SELECT COUNT(*) FROM matching_users) = 1
+    AND NOT EXISTS (
+      SELECT 1 FROM members existing_owner
+      WHERE existing_owner.org_id = orgs.id
+        AND existing_owner.user_id <> matching_users.id
+        AND (
+          existing_owner.role = 'owner'
+          OR ',' || existing_owner.role || ',' LIKE '%,owner,%'
+        )
+    )
+  ON CONFLICT(org_id, user_id) DO UPDATE SET role = 'owner'
+  WHERE NOT EXISTS (
+    SELECT 1 FROM members existing_owner
+    WHERE existing_owner.org_id = excluded.org_id
+      AND existing_owner.user_id <> excluded.user_id
+      AND (
+        existing_owner.role = 'owner'
+        OR ',' || existing_owner.role || ',' LIKE '%,owner,%'
+      )
+  )
+  RETURNING id, org_id, user_id, role`;
+  const changedRows = sqlRows(command, options);
+  if (changedRows.length !== 1 || changedRows[0]?.role !== "owner") {
+    throw new Error(
+      "No membership was changed. Check that the user signed in once, the workspace exists, and no different owner is linked.",
+    );
+  }
   console.log(`Linked workspace ${options.workspaceId} to ${options.email} as owner.`);
 }
 
-function queryRows(sql, options) {
+function sqlRows(sql, options) {
   const output = runWrangler([...databaseArgs(options), "--command", sql, "--json"], "capture");
   let parsed;
   try {

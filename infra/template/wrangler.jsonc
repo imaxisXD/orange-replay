@@ -92,6 +92,30 @@
       "namespace_id": "1006",
       "simple": { "limit": 600, "period": 60 },
     },
+    // # created by setup docs: ANALYTICS_ACTOR_RATE_LIMITER limits analytics reads per signed-in person.
+    {
+      "name": "ANALYTICS_ACTOR_RATE_LIMITER",
+      "namespace_id": "1007",
+      "simple": { "limit": 30, "period": 60 },
+    },
+    // # created by setup docs: ANALYTICS_PROJECT_RATE_LIMITER limits analytics reads per project.
+    {
+      "name": "ANALYTICS_PROJECT_RATE_LIMITER",
+      "namespace_id": "1008",
+      "simple": { "limit": 300, "period": 60 },
+    },
+    // # created by setup docs: ANALYTICS_GLOBAL_RATE_LIMITER adds a fast per-location guard before the exact shared D1 budget.
+    {
+      "name": "ANALYTICS_GLOBAL_RATE_LIMITER",
+      "namespace_id": "1009",
+      "simple": { "limit": 600, "period": 60 },
+    },
+    // # created by setup docs: LIVE_TICKET_RATE_LIMITER limits one-use live ticket minting per viewer.
+    {
+      "name": "LIVE_TICKET_RATE_LIMITER",
+      "namespace_id": "1010",
+      "simple": { "limit": 30, "period": 60 },
+    },
   ],
   "queues": {
     "producers": [
@@ -112,8 +136,7 @@
   "triggers": {
     "crons": ["*/5 * * * *", "7,22,37,52 * * * *"],
   },
-  // DEV_API_TOKEN is created with `wrangler secret put DEV_API_TOKEN`.
-  // DEV_API_PROJECT_IDS is created with `wrangler secret put DEV_API_PROJECT_IDS`.
+  // Better Auth and GitHub OAuth values are created with `wrangler secret put`.
   // LIVE_TICKET_SECRET is created with `wrangler secret put LIVE_TICKET_SECRET`.
   // Do not put secret values in this file.
 }

@@ -137,7 +137,7 @@ describe("local analytics 0009 repair", () => {
     ).toBe("add_tombstone_column");
   });
 
-  it("accepts the canonical tombstone column", () => {
+  it("accepts the tombstone column after later migrations add columns", () => {
     expect(
       planAnalyticsDeletionJobRepair({
         migrationApplied: true,
@@ -151,10 +151,69 @@ describe("local analytics 0009 repair", () => {
             defaultValue: "1",
             primaryKey: 0,
           },
+          {
+            name: "session_started_at",
+            type: "INTEGER",
+            notNull: 0,
+            defaultValue: null,
+            primaryKey: 0,
+          },
+          {
+            name: "deletion_v2_sent_at",
+            type: "INTEGER",
+            notNull: 0,
+            defaultValue: null,
+            primaryKey: 0,
+          },
         ],
-        tableSql: canonicalAnalyticsDeletionJobSql,
+        tableSql: canonicalAnalyticsDeletionJobSql.replace(
+          "  PRIMARY KEY",
+          "  session_started_at INTEGER, deletion_v2_sent_at INTEGER,\n  PRIMARY KEY",
+        ),
       }),
     ).toBe("none");
+  });
+
+  it("rejects an invalid tombstone column without rejecting later columns", () => {
+    const currentColumns = [
+      ...oldColumns,
+      {
+        name: "requires_warehouse_tombstone",
+        type: "INTEGER",
+        notNull: 0,
+        defaultValue: "1",
+        primaryKey: 0,
+      },
+      {
+        name: "session_started_at",
+        type: "INTEGER",
+        notNull: 0,
+        defaultValue: null,
+        primaryKey: 0,
+      },
+    ];
+    expect(() =>
+      planAnalyticsDeletionJobRepair({
+        migrationApplied: true,
+        baseSchemaMissing: [],
+        columns: currentColumns,
+        tableSql: canonicalAnalyticsDeletionJobSql,
+      }),
+    ).toThrow("unexpected deletion-job column shape");
+
+    expect(() =>
+      planAnalyticsDeletionJobRepair({
+        migrationApplied: true,
+        baseSchemaMissing: [],
+        columns: currentColumns.map((column) =>
+          column.name === "requires_warehouse_tombstone" ? { ...column, notNull: 1 } : column,
+        ),
+        tableSql: canonicalAnalyticsDeletionJobSql.replace(
+          "CHECK (requires_warehouse_tombstone IN (0, 1))",
+          "",
+        ),
+      }),
+    ).toThrow("unexpected deletion-job definition");
   });
 
   it("stops instead of repairing an unknown table shape", () => {

@@ -1,5 +1,4 @@
 import type { AnalyticsWarehouseRecord } from "./export-record.ts";
-import type { AnalyticsPipelineAdapter } from "./exporter.ts";
 
 export const ANALYTICS_PIPELINE_BYTES_PER_SECOND = 4_000_000;
 const MAX_PIPELINE_REQUEST_BYTES = 5_000_000;
@@ -9,6 +8,10 @@ interface AnalyticsStreamSender {
   send(records: readonly Record<string, unknown>[]): Promise<void>;
 }
 
+export interface RateLimitedAnalyticsPipeline<RecordType extends object> {
+  send(records: readonly RecordType[]): Promise<void>;
+}
+
 interface RateLimitOptions {
   bytesPerSecond?: number;
   now?: () => number;
@@ -16,10 +19,12 @@ interface RateLimitOptions {
   beforeSend?: (requestBytes: number) => Promise<number | void>;
 }
 
-export function createRateLimitedAnalyticsPipeline(
+export function createRateLimitedAnalyticsPipeline<
+  RecordType extends object = AnalyticsWarehouseRecord,
+>(
   stream: AnalyticsStreamSender,
   options: RateLimitOptions = {},
-): AnalyticsPipelineAdapter {
+): RateLimitedAnalyticsPipeline<RecordType> {
   const bytesPerSecond = options.bytesPerSecond ?? ANALYTICS_PIPELINE_BYTES_PER_SECOND;
   if (!Number.isSafeInteger(bytesPerSecond) || bytesPerSecond <= 0) {
     throw new Error("Analytics Pipeline rate must be a positive whole number.");
@@ -30,7 +35,7 @@ export function createRateLimitedAnalyticsPipeline(
   let nextSendAt = 0;
 
   return {
-    async send(records: readonly AnalyticsWarehouseRecord[]): Promise<void> {
+    async send(records: readonly RecordType[]): Promise<void> {
       const requestBytes = encoder.encode(JSON.stringify(records)).byteLength;
       if (requestBytes > MAX_PIPELINE_REQUEST_BYTES) {
         throw new Error("Analytics Pipeline request is larger than 5 MB.");

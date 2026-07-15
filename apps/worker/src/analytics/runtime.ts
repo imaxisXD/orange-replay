@@ -1,5 +1,7 @@
 import type { Env } from "../env.ts";
+import type { AnalyticsDeletionReadVersion } from "../env.ts";
 import type { R2SqlSettings } from "./r2-sql-client.ts";
+import type { AnalyticsDeletionTableVersion } from "./warehouse-query.ts";
 
 interface WarehouseStateRow {
   verified_sequence: number;
@@ -17,7 +19,12 @@ interface PrivacyVersionRow {
 }
 
 export type WarehouseSnapshotResult =
-  | { ok: true; version: number; privacyVersion: number }
+  | {
+      ok: true;
+      version: number;
+      privacyVersion: number;
+      deletionTableVersion: AnalyticsDeletionTableVersion;
+    }
   | {
       ok: false;
       error:
@@ -42,6 +49,7 @@ export async function readWarehouseSnapshot(
   db: D1Database,
   projectId: string,
   requestedVersion?: number,
+  requestedDeletionVersion: AnalyticsDeletionReadVersion = "v1",
 ): Promise<WarehouseSnapshotResult> {
   const [state, backfillCompletion, pendingDeletion, privacyState, quarantinedExport] =
     await Promise.all([
@@ -116,6 +124,8 @@ export async function readWarehouseSnapshot(
   if (requestedVersion !== undefined && requestedVersion < backfillCompletion.required_sequence) {
     return { ok: false, error: "invalid_warehouse_version", status: 400 };
   }
+  const deletionTableVersion =
+    requestedDeletionVersion === "v2" && (await deletionV2IsReady(db)) ? "v2" : "v1";
   return {
     ok: true,
     version: requestedVersion ?? verified,
@@ -123,7 +133,36 @@ export async function readWarehouseSnapshot(
     // useful last-good result. A verified deletion advances this separate
     // privacy epoch, including for an explicitly requested old data version.
     privacyVersion,
+    deletionTableVersion,
   };
+}
+
+async function deletionV2IsReady(db: D1Database): Promise<boolean> {
+  try {
+    const row = await db
+      .prepare(
+        `SELECT CASE WHEN
+        s.backfill_completed_at IS NOT NULL
+        AND s.last_error IS NULL
+        AND s.required_job_count = s.visible_job_count
+        AND NOT EXISTS (
+          SELECT 1
+          FROM analytics_deletion_jobs
+          WHERE requires_warehouse_tombstone = 1
+            AND deletion_v2_visible_at IS NULL
+        )
+      THEN 1 ELSE 0 END AS ready
+      FROM analytics_deletion_v2_state s
+      WHERE s.shard = 0`,
+      )
+      .bind()
+      .first<{ ready: number }>();
+    return row?.ready === 1;
+  } catch {
+    // A deployment that has not applied the v2 D1 migration is not ready.
+    // The existing v1 table remains a complete, safe fallback.
+    return false;
+  }
 }
 
 function isValidBackfillCompletion(row: BackfillCompletionRow): boolean {

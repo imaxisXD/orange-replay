@@ -1,6 +1,12 @@
-import { describe, expect, it } from "vite-plus/test";
-import type { SessionRecorderStore } from "../src/do/session-recorder-store.ts";
+import { MAX_MANIFEST_SEGMENTS } from "@orange-replay/shared";
+import { describe, expect, it, vi } from "vite-plus/test";
+import type {
+  BatchRow,
+  SessionRecorderStore,
+  StoredBatchInput,
+} from "../src/do/session-recorder-store.ts";
 import { SessionSegmentWriter } from "../src/do/session-segment-writer.ts";
+import type { SessionState } from "../src/do/session-state.ts";
 
 describe("R2 create-only conflict checks", () => {
   it("compares a large sidecar as streams without buffering either object", async () => {
@@ -49,6 +55,95 @@ describe("R2 create-only conflict checks", () => {
     ).rejects.toThrow("does not match expected object");
   });
 });
+
+describe("segment capacity", () => {
+  it("rejects a batch when pending data needs more slots than remain", () => {
+    const pendingRow = batchRow("old", 800_000);
+    const store = {
+      maxSegmentNumber: () => MAX_MANIFEST_SEGMENTS - 1,
+      pendingBatchRows: () => [pendingRow],
+      pendingSegmentIntent: () => null,
+    } as unknown as SessionRecorderStore;
+    const writer = new SessionSegmentWriter(
+      store,
+      {} as ConstructorParameters<typeof SessionSegmentWriter>[1],
+    );
+    const candidate: StoredBatchInput = {
+      tab: "tab",
+      seq: 2,
+      t0: 2,
+      t1: 2,
+      bytes: 800_000,
+      flags: 0,
+      events: "[]",
+      body: new Uint8Array(800_000),
+    };
+
+    expect(writer.hasCapacityForBatch(sessionState(MAX_MANIFEST_SEGMENTS - 1), candidate)).toBe(
+      false,
+    );
+  });
+
+  it("never clears an accepted batch when the segment invariant is violated", async () => {
+    const markBatchBodyFlushed = vi.fn();
+    const store = {
+      maxSegmentNumber: () => MAX_MANIFEST_SEGMENTS,
+      pendingBatchRows: () => [batchRow("kept", 10)],
+      pendingSegmentIntent: () => null,
+      markBatchBodyFlushed,
+      pendingBatchBytes: () => 10,
+      persistState: vi.fn(),
+    } as unknown as SessionRecorderStore;
+    const writer = new SessionSegmentWriter(
+      store,
+      {} as ConstructorParameters<typeof SessionSegmentWriter>[1],
+    );
+
+    await expect(
+      writer.flushSegment(sessionState(MAX_MANIFEST_SEGMENTS), "tail_flush"),
+    ).rejects.toThrow("exceeds the manifest segment limit");
+    expect(markBatchBodyFlushed).not.toHaveBeenCalled();
+  });
+});
+
+function batchRow(tab: string, bytes: number): BatchRow {
+  return {
+    tab,
+    seq: 1,
+    t0: 1,
+    t1: 1,
+    bytes,
+    flags: 0,
+    events: "[]",
+    body: new Uint8Array(bytes).buffer,
+  };
+}
+
+function sessionState(segmentCount: number): SessionState {
+  return {
+    projectId: "project",
+    orgId: "org",
+    shard: 0,
+    retentionDays: 30,
+    sessionId: "session",
+    startedAt: 1,
+    lastActivity: 1,
+    lastFlushAt: 1,
+    bufferedBytes: 0,
+    totalPayloadBytes: 0,
+    totalEventBytes: 0,
+    batchCount: 0,
+    segmentCount,
+    flags: 0,
+    attrs: {},
+    firstRequestId: "request",
+    urlCount: 0,
+    analyticsVersion: 2,
+    pageCount: 0,
+    quickBacks: 0,
+    pageTabs: [],
+  };
+}
 
 function patternStream(
   totalBytes: number,

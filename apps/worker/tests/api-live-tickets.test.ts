@@ -1,5 +1,5 @@
 import type { Socket } from "node:net";
-import { MAX_LIVE_VIEWERS_PER_SESSION } from "@orange-replay/shared";
+import { MAX_LIVE_VIEWERS_PER_ACTOR } from "@orange-replay/shared";
 import { describe, expect, it } from "vite-plus/test";
 import {
   appendActiveSession,
@@ -16,15 +16,14 @@ import {
   testWriteKey,
   ticketProjectId,
   ticketSessionId,
-  token,
   worker,
-  workerWithEmptyToken,
+  workerWithoutLiveTicketSecret,
 } from "./api-test-helpers.ts";
 
-setupApiTestWorkers({ emptyToken: true });
+setupApiTestWorkers({ withoutLiveTicketSecret: true });
 
 describe("dashboard api", () => {
-  it("mints live tickets only with bearer auth", async () => {
+  it("mints live tickets only with a Better Auth session", async () => {
     const missing = await worker.fetch(
       `/api/v1/projects/${assetProjectId}/sessions/${assetSessionId}/live-ticket`,
       { method: "POST" },
@@ -58,7 +57,7 @@ describe("dashboard api", () => {
     expect(JSON.parse(res.body)).toEqual({ error: "not_found" });
   });
 
-  it("connects live WebSockets with tickets and rejects token fallback", async () => {
+  it("connects live WebSockets with tickets and rejects old query credentials", async () => {
     await seedIngestKey(
       testWriteKey("api_ticket"),
       makeProjectConfig({ projectId: ticketProjectId, orgId: "api_ticket_org" }),
@@ -75,32 +74,51 @@ describe("dashboard api", () => {
     expect(connected.status).toBe(101);
 
     const tokenFallback = await requestLiveUpgrade(
-      `/api/v1/projects/${ticketProjectId}/sessions/${ticketSessionId}/live?token=${token}`,
+      `/api/v1/projects/${ticketProjectId}/sessions/${ticketSessionId}/live?token=old-dashboard-credential`,
     );
     expect(tokenFallback.status).toBe(401);
     expect(JSON.parse(tokenFallback.body)).toEqual({ error: "unauthorized" });
   });
 
-  it("caps concurrent live viewers per session even when one ticket is replayed", async () => {
+  it("accepts a live ticket once and rejects a replay", async () => {
     const capProjectId = ticketProjectId;
     const capSessionId = "api_cap_session";
     await appendActiveSession(capProjectId, capSessionId);
 
-    // One ticket, replayed: connections succeed only up to the viewer cap.
     const ticket = await mintTicket(capProjectId, capSessionId);
     const path = `/api/v1/projects/${capProjectId}/sessions/${capSessionId}/live?ticket=${encodeURIComponent(
       ticket,
     )}`;
+    expect((await requestLiveUpgrade(path)).status).toBe(101);
+
+    const replay = await requestLiveUpgrade(path);
+    expect(replay.status).toBe(409);
+    expect(JSON.parse(replay.body)).toEqual({ error: "ticket_used" });
+  });
+
+  it("caps concurrent live viewers for one signed-in actor", async () => {
+    const capProjectId = ticketProjectId;
+    const capSessionId = "api_actor_cap_session";
+    await appendActiveSession(capProjectId, capSessionId);
+
     const held: Socket[] = [];
     try {
-      for (let i = 0; i < MAX_LIVE_VIEWERS_PER_SESSION; i++) {
+      for (let i = 0; i < MAX_LIVE_VIEWERS_PER_ACTOR; i++) {
+        const ticket = await mintTicket(capProjectId, capSessionId);
+        const path = `/api/v1/projects/${capProjectId}/sessions/${capSessionId}/live?ticket=${encodeURIComponent(
+          ticket,
+        )}`;
         const res = await requestLiveUpgrade(path, worker, held);
         expect(res.status).toBe(101);
       }
 
+      const ticket = await mintTicket(capProjectId, capSessionId);
+      const path = `/api/v1/projects/${capProjectId}/sessions/${capSessionId}/live?ticket=${encodeURIComponent(
+        ticket,
+      )}`;
       const rejected = await requestLiveUpgrade(path, worker, held);
       expect(rejected.status).toBe(429);
-      expect(JSON.parse(rejected.body)).toEqual({ error: "viewer_limit" });
+      expect(JSON.parse(rejected.body)).toEqual({ error: "viewer_actor_limit" });
     } finally {
       for (const socket of held) socket.destroy();
     }
@@ -121,7 +139,7 @@ describe("dashboard api", () => {
     }
   });
 
-  it("rejects forged live tickets when the API token is empty", async () => {
+  it("rejects forged live tickets when the live ticket secret is missing", async () => {
     const forged = signLiveTicketWithSecret(
       "",
       assetProjectId,
@@ -132,16 +150,16 @@ describe("dashboard api", () => {
       `/api/v1/projects/${assetProjectId}/sessions/${assetSessionId}/live?ticket=${encodeURIComponent(
         forged,
       )}`,
-      workerWithEmptyToken,
+      workerWithoutLiveTicketSecret,
     );
 
     expect(res.status).toBe(401);
     expect(JSON.parse(res.body)).toEqual({ error: "unauthorized" });
   });
 
-  it("rejects live tickets signed with the dashboard API token", async () => {
+  it("rejects live tickets signed with an unrelated dashboard value", async () => {
     const forged = signLiveTicketWithSecret(
-      token,
+      "old-dashboard-credential",
       assetProjectId,
       assetSessionId,
       Date.now() + 60_000,

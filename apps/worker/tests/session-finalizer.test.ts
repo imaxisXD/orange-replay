@@ -15,6 +15,7 @@ describe("session final handoff", () => {
     let queueStarted = false;
     let handoffCount = 0;
     let tombstoneWritten = false;
+    let queuedMessage: FinalizeMessage | undefined;
     const heldQueue = new Promise<void>((resolve) => {
       releaseQueue = resolve;
     });
@@ -25,12 +26,42 @@ describe("session final handoff", () => {
         head: async () => ({ etag: "sidecar-exists" }),
       },
       finalizeQueue: {
-        send: async (_message: FinalizeMessage) => {
+        send: async (message: FinalizeMessage) => {
+          queuedMessage = message;
           queueStarted = true;
           await heldQueue;
         },
       },
       store: {
+        finalPageBatches: () => [
+          {
+            tab: "tab-a",
+            seq: 2,
+            t0: 2_000,
+            t1: 2_000,
+            url: "/a",
+            events: [{ t: 2_000, k: "nav", d: "/a" }],
+            pageAnalyticsVersion: 1,
+          },
+          {
+            tab: "tab-a",
+            seq: 1,
+            t0: 1_000,
+            t1: 1_000,
+            url: "/b",
+            events: [{ t: 1_000, k: "nav", d: "/b" }],
+            pageAnalyticsVersion: 1,
+          },
+          {
+            tab: "tab-a",
+            seq: 0,
+            t0: 0,
+            t1: 0,
+            url: "/a",
+            events: [],
+            pageAnalyticsVersion: 1,
+          },
+        ],
         segmentRowsForManifest: () => [],
         storedEventRows: () => [],
         replaceStateWithTombstone: () => {
@@ -65,6 +96,8 @@ describe("session final handoff", () => {
     await completion;
     expect(handoffCount).toBe(2);
     expect(tombstoneWritten).toBe(true);
+    expect(queuedMessage?.attrs).toMatchObject({ entryUrl: "/a", urlCount: 3, pageCount: 3 });
+    expect(queuedMessage?.insights?.quickBacks).toBe(1);
   });
 
   it("rejects a late live viewer after finalizing starts", async () => {

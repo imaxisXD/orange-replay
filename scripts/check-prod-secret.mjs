@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import {
   productionWorkerSecretNames,
   readProductionSecretValues,
+  retiredProductionWorkerSecretNames,
   withoutProductionSecrets,
 } from "./analytics/production-secrets.mjs";
 
@@ -30,7 +31,12 @@ try {
 }
 
 function readOptions(args) {
-  const options = { checkUploaded: false, config: defaultConfig, validateOnly: false };
+  const options = {
+    checkUploaded: false,
+    config: defaultConfig,
+    rejectRetired: false,
+    validateOnly: false,
+  };
 
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
@@ -40,6 +46,10 @@ function readOptions(args) {
     }
     if (argument === "--check-uploaded") {
       options.checkUploaded = true;
+      continue;
+    }
+    if (argument === "--reject-retired") {
+      options.rejectRetired = true;
       continue;
     }
     if (argument === "--config") {
@@ -60,6 +70,9 @@ function readOptions(args) {
 
   if (options.validateOnly && options.checkUploaded) {
     throw new Error("Use either --validate-only or --check-uploaded, not both.");
+  }
+  if (options.rejectRetired && !options.checkUploaded) {
+    throw new Error("--reject-retired requires --check-uploaded.");
   }
   return options;
 }
@@ -84,6 +97,12 @@ async function confirmUploadedSecrets(options) {
   const missingNames = productionWorkerSecretNames.filter((name) => !uploaded.has(name));
   if (missingNames.length > 0) {
     throw new Error(`Missing Worker secret names: ${missingNames.join(", ")}.`);
+  }
+  if (options.rejectRetired) {
+    const retiredNames = retiredProductionWorkerSecretNames.filter((name) => uploaded.has(name));
+    if (retiredNames.length > 0) {
+      throw new Error(`Retired Worker secret names are still present: ${retiredNames.join(", ")}.`);
+    }
   }
 }
 
@@ -149,6 +168,7 @@ The reviewed deploy uploads the full set only after the analytics gate passes.
 Options:
   --validate-only       Validate local values without contacting or changing Cloudflare.
   --check-uploaded      Check that all required secret names already exist on the Worker.
+  --reject-retired      With --check-uploaded, fail if retired shared-token secrets remain.
   --config VALUE        Wrangler config to inspect. Default: apps/worker/wrangler.jsonc.
   --help, -h            Show this help.`);
 }

@@ -132,7 +132,12 @@ export async function handleDoTestRoutes(
       return Response.json({ error: "missing_id" }, { status: 400 });
     }
 
-    return sessionStub(env, ids.projectId, ids.sessionId).fetch(request);
+    const headers = new Headers(request.headers);
+    headers.set("x-or-live-auth", "ticket");
+    headers.set("x-or-live-nonce", crypto.randomUUID());
+    headers.set("x-or-live-viewer", "a".repeat(64));
+    headers.set("x-or-live-expires", String(Date.now() + 60_000));
+    return sessionStub(env, ids.projectId, ids.sessionId).fetch(new Request(request, { headers }));
   }
 
   if (request.method === "POST" && url.pathname.startsWith("/__test/do/presence/")) {

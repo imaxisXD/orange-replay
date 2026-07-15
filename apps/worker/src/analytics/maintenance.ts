@@ -1,5 +1,6 @@
 import { startWideEvent, uuidv7, type WideEventOutcome } from "@orange-replay/shared";
 import {
+  analyticsDeletionReadVersion,
   analyticsExportEnabled,
   analyticsReadBackend,
   setWorkerLoggerVersion,
@@ -8,6 +9,11 @@ import {
 } from "../env.ts";
 import { drainAnalyticsExports, reconcileAnalyticsExports } from "./exporter.ts";
 import { queueDeletionExportsFromJournal } from "./deletion-journal.ts";
+import {
+  type AnalyticsDeletionV2Record,
+  createAnalyticsDeletionV2Visibility,
+  maintainAnalyticsDeletionV2,
+} from "./deletion-v2.ts";
 import {
   releaseAnalyticsLease,
   renewAnalyticsLease,
@@ -73,18 +79,17 @@ export async function maintainAnalyticsWarehouse(env: Env): Promise<void> {
     };
     const repairedDeletionExports = await queueDeletionExportsFromJournal(db);
     const store = createD1AnalyticsOutboxStore(db);
-    const pipeline = createRateLimitedAnalyticsPipeline(stream, {
-      beforeSend: async (requestBytes) => {
-        const waitMs = await reserveAnalyticsSendWindow(
-          db,
-          ownerId,
-          requestBytes,
-          ANALYTICS_PIPELINE_BYTES_PER_SECOND,
-        );
-        if (waitMs === 0) await renewLease();
-        return waitMs;
-      },
-    });
+    const beforeSend = async (requestBytes: number): Promise<number> => {
+      const waitMs = await reserveAnalyticsSendWindow(
+        db,
+        ownerId,
+        requestBytes,
+        ANALYTICS_PIPELINE_BYTES_PER_SECOND,
+      );
+      if (waitMs === 0) await renewLease();
+      return waitMs;
+    };
+    const pipeline = createRateLimitedAnalyticsPipeline(stream, { beforeSend });
     let selected = 0;
     let sent = 0;
     let failed = 0;
@@ -109,6 +114,24 @@ export async function maintainAnalyticsWarehouse(env: Env): Promise<void> {
       createR2SqlVisibilityAdapter(r2SqlSettingsFromEnv(env)),
       { recordsPerProject: OUTBOX_BATCH_SIZE },
     );
+
+    let deletionV2: Awaited<ReturnType<typeof maintainAnalyticsDeletionV2>> | undefined;
+    if (env.ANALYTICS_DELETION_V2_STREAM !== undefined) {
+      await renewLease();
+      deletionV2 = await maintainAnalyticsDeletionV2(
+        db,
+        createRateLimitedAnalyticsPipeline<AnalyticsDeletionV2Record>(
+          env.ANALYTICS_DELETION_V2_STREAM,
+          { beforeSend },
+        ),
+        createAnalyticsDeletionV2Visibility(r2SqlSettingsFromEnv(env)),
+        { batchSize: OUTBOX_BATCH_SIZE },
+      );
+    } else if (analyticsDeletionReadVersion(env) === "v2") {
+      throw new Error(
+        "Analytics deletion v2 reads were requested, but the v2 stream is not configured.",
+      );
+    }
 
     let compactionPasses = 0;
     let copiedToLedger = 0;
@@ -144,6 +167,16 @@ export async function maintainAnalyticsWarehouse(env: Env): Promise<void> {
       records_checked: reconciled.recordsChecked,
       records_missing: reconciled.recordsMissing,
       projects_advanced: reconciled.projectsAdvanced,
+      deletion_v2_configured: deletionV2 !== undefined,
+      deletion_v2_selected: deletionV2?.selected ?? 0,
+      deletion_v2_sent: deletionV2?.sent ?? 0,
+      deletion_v2_failed: deletionV2?.failed ?? 0,
+      deletion_v2_checked: deletionV2?.checked ?? 0,
+      deletion_v2_visible: deletionV2?.visible ?? 0,
+      deletion_v2_missing: deletionV2?.missing ?? 0,
+      deletion_v2_required_jobs: deletionV2?.requiredJobs ?? 0,
+      deletion_v2_visible_jobs: deletionV2?.visibleJobs ?? 0,
+      deletion_v2_ready: deletionV2?.ready ?? false,
       compaction_passes: compactionPasses,
       ledger_rows_copied: copiedToLedger,
       outbox_payload_rows_deleted: deletedPayloadRows,

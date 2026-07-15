@@ -176,11 +176,12 @@ interface TestD1Result {
 
 async function createDatabase(): Promise<TestD1Database> {
   const database = new TestD1Database();
-  const migration = await readFile(
-    new URL("../migrations/0009_analytics_warehouse.sql", import.meta.url),
-    "utf8",
+  const migrations = await Promise.all(
+    ["0009_analytics_warehouse.sql", "0016_analytics_deletion_started_at.sql"].map(
+      async (fileName) => readFile(new URL(`../migrations/${fileName}`, import.meta.url), "utf8"),
+    ),
   );
-  database.sqlite.exec(migration);
+  for (const migration of migrations) database.sqlite.exec(migration);
   database.sqlite.exec(`CREATE TABLE projects (
     id TEXT PRIMARY KEY,
     jurisdiction TEXT

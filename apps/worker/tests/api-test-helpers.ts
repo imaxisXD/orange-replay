@@ -1,21 +1,20 @@
 import { request as httpRequest, type IncomingMessage } from "node:http";
 import type { Socket } from "node:net";
-import type { ProjectConfig, StoredProjectConfig } from "@orange-replay/shared";
+import {
+  listSessionsResponseSchema,
+  type ListSessionsResponse,
+  type ProjectConfig,
+  type StoredProjectConfig,
+} from "@orange-replay/shared";
 import { expect } from "vite-plus/test";
-import type { SessionRow } from "../src/api/helpers.ts";
-import { listProjectId, token } from "./api-test-fixtures.ts";
-import { worker } from "./api-test-runtime.ts";
+import { betterAuthOrigin, listProjectId } from "./api-test-fixtures.ts";
+import { dashboardSessionCookie, worker } from "./api-test-runtime.ts";
 
 export * from "./api-test-fixtures.ts";
 export * from "./api-test-runtime.ts";
 
-export interface SessionsResponse {
-  sessions: SessionRow[];
-  nextBefore: string | null;
-}
-
 export function authHeaders(): Record<string, string> {
-  return { authorization: `Bearer ${token}` };
+  return { cookie: dashboardSessionCookie, origin: betterAuthOrigin };
 }
 
 interface HttpResponse {
@@ -86,14 +85,14 @@ function readHttpResponse(response: IncomingMessage): Promise<HttpResponse> {
 export async function getSessions(
   query = "",
   projectId = listProjectId,
-): Promise<SessionsResponse> {
+): Promise<ListSessionsResponse> {
   const suffix = query.length > 0 ? `?${query}` : "";
   const res = await worker.fetch(`/api/v1/projects/${projectId}/sessions${suffix}`, {
     headers: authHeaders(),
   });
 
   expect(res.status).toBe(200);
-  return (await res.json()) as SessionsResponse;
+  return listSessionsResponseSchema.parse(await res.json());
 }
 
 export async function seedIngestKey(
@@ -107,8 +106,18 @@ export async function seedIngestKey(
     body: JSON.stringify({ key, config, kv }),
   });
   expect(res.status).toBe(200);
+  await grantDashboardProjectAccess([config.projectId]);
   const body = (await res.json()) as { keyHash: string };
   return body.keyHash;
+}
+
+async function grantDashboardProjectAccess(projectIds: readonly string[]): Promise<void> {
+  const response = await worker.fetch("/__test/api/hosted/session", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ projectIds }),
+  });
+  expect(response.status).toBe(200);
 }
 
 export async function readConfigCache(keyHash: string): Promise<StoredProjectConfig | null> {

@@ -1,6 +1,7 @@
 import {
   encodeIngestBody,
   HDR_REQUEST_ID,
+  MAX_LIVE_VIEWERS_PER_ACTOR,
   MAX_LIVE_VIEWERS_PER_SESSION,
   startWideEvent,
   uuidv7,
@@ -23,13 +24,20 @@ export interface SessionLiveHubDependencies {
   getPendingBatches: () => Array<{ index: BatchIndex; payload: Uint8Array }>;
   getLiveSnapshot: () => LiveSessionSnapshot | null;
   requestCheckpointOnNextAppend: () => void;
+  consumeLiveTicket: (nonce: string, expiresAt: number, now: number) => boolean;
 }
 
 interface LiveSocketContext {
   requestId?: string;
   projectId?: string;
   sessionId?: string;
+  viewerKey?: string;
+  ticketNonce?: string;
 }
+
+const LIVE_NONCE_HEADER = "x-or-live-nonce";
+const LIVE_VIEWER_HEADER = "x-or-live-viewer";
+const LIVE_EXPIRES_HEADER = "x-or-live-expires";
 
 export class SessionLiveHub {
   constructor(private readonly dependencies: SessionLiveHubDependencies) {}
@@ -96,8 +104,24 @@ export class SessionLiveHub {
 
       projectId = state.projectId;
       sessionId = state.sessionId;
+      const ticket = readInternalLiveTicket(request.headers);
+      if (ticket === null) {
+        const response = Response.json({ error: "unauthorized" }, { status: 401 });
+        statusCode = response.status;
+        outcome = "client_error";
+        return response;
+      }
       if (viewerCount >= MAX_LIVE_VIEWERS_PER_SESSION) {
         const response = Response.json({ error: "viewer_limit" }, { status: 429 });
+        statusCode = response.status;
+        outcome = "rate_limited";
+        return response;
+      }
+      const actorViewerCount = this.dependencies.ctx
+        .getWebSockets("viewer")
+        .filter((socket) => readLiveSocketContext(socket).viewerKey === ticket.viewerKey).length;
+      if (actorViewerCount >= MAX_LIVE_VIEWERS_PER_ACTOR) {
+        const response = Response.json({ error: "viewer_actor_limit" }, { status: 429 });
         statusCode = response.status;
         outcome = "rate_limited";
         return response;
@@ -105,6 +129,12 @@ export class SessionLiveHub {
       const snapshot = this.dependencies.getLiveSnapshot();
       if (snapshot === null) {
         const response = Response.json({ error: "not_found" }, { status: 404 });
+        statusCode = response.status;
+        outcome = "client_error";
+        return response;
+      }
+      if (!this.dependencies.consumeLiveTicket(ticket.nonce, ticket.expiresAt, Date.now())) {
+        const response = Response.json({ error: "ticket_used" }, { status: 409 });
         statusCode = response.status;
         outcome = "client_error";
         return response;
@@ -117,6 +147,8 @@ export class SessionLiveHub {
         requestId,
         projectId,
         sessionId,
+        viewerKey: ticket.viewerKey,
+        ticketNonce: ticket.nonce,
       } satisfies LiveSocketContext);
       this.dependencies.requestCheckpointOnNextAppend();
       viewerCount = this.viewerCount();
@@ -155,14 +187,12 @@ export class SessionLiveHub {
   webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
     const socketContext = readLiveSocketContext(ws);
     const event = startWideEvent("worker", "do.live_message", socketContext.requestId ?? uuidv7());
-    let outcome: WideEventOutcome = "success";
+    let outcome: WideEventOutcome = "client_error";
     const messageKind =
       message === "ping" ? "ping" : typeof message === "string" ? "text" : "binary";
 
     try {
-      if (message === "ping") {
-        ws.send("pong");
-      }
+      ws.close(1008, "client messages are not accepted");
     } catch (error) {
       outcome = "server_error";
       event.fail(error);
@@ -238,7 +268,29 @@ function readLiveSocketContext(ws: WebSocket): LiveSocketContext {
     requestId: readOptionalId(record["requestId"]),
     projectId: readOptionalId(record["projectId"]),
     sessionId: readOptionalId(record["sessionId"]),
+    viewerKey: readOptionalId(record["viewerKey"]),
+    ticketNonce: readOptionalId(record["ticketNonce"]),
   };
+}
+
+function readInternalLiveTicket(
+  headers: Headers,
+): { nonce: string; viewerKey: string; expiresAt: number } | null {
+  if (headers.get("x-or-live-auth") !== "ticket") return null;
+  const nonce = headers.get(LIVE_NONCE_HEADER);
+  const viewerKey = headers.get(LIVE_VIEWER_HEADER);
+  const expiresAt = Number(headers.get(LIVE_EXPIRES_HEADER));
+  if (
+    nonce === null ||
+    !/^[0-9a-f-]{36}$/i.test(nonce) ||
+    viewerKey === null ||
+    !/^[0-9a-f]{64}$/.test(viewerKey) ||
+    !Number.isSafeInteger(expiresAt) ||
+    expiresAt <= Date.now()
+  ) {
+    return null;
+  }
+  return { nonce, viewerKey, expiresAt };
 }
 
 function liveSocketEventFields(context: LiveSocketContext): Record<string, string> {

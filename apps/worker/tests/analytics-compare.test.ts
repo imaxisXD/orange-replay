@@ -1,11 +1,16 @@
-import { startWideEvent } from "@orange-replay/shared";
+import {
+  listSessionsResponseSchema,
+  projectStatsResponseSchema,
+  startWideEvent,
+} from "@orange-replay/shared";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
-  getProjectStats,
   sameStatsWithoutErrors,
+  sameSessionPage,
   warehouseIncludesD1Errors,
-} from "../src/api/project-routes.ts";
-import { listSessions, sameSessionPage } from "../src/api/session-routes.ts";
+} from "../src/analytics/finalized-read.ts";
+import { getProjectStats } from "../src/api/project-routes.ts";
+import { listSessions } from "../src/api/session-routes.ts";
 import { readStatsRows } from "../src/analytics/warehouse-read.ts";
 import {
   ANALYTICS_COMPARE_QUERY_TIMEOUT_MS,
@@ -123,7 +128,7 @@ describe("analytics compare routes", () => {
     }
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
+    expect(projectStatsResponseSchema.parse(await response.json())).toMatchObject({
       analyticsState: "compare",
       warehouseVersion: 12,
       sessions: { filter: { warehouse_version: 12 } },
@@ -163,7 +168,7 @@ describe("analytics compare routes", () => {
       new URL("https://replay.test/api/v1/projects/project_1/sessions"),
       env,
       "project_1",
-      "bearer",
+      "session",
       "request_sessions",
       startWideEvent("test", "sessions"),
       ctx.value,
@@ -176,7 +181,7 @@ describe("analytics compare routes", () => {
     }
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
+    expect(listSessionsResponseSchema.parse(await response.json())).toMatchObject({
       analyticsState: "compare",
       warehouseVersion: 12,
       sessions: [{ project_id: "project_1", session_id: "session_1" }],
@@ -232,7 +237,7 @@ describe("analytics compare routes", () => {
       new URL("https://replay.test/api/v1/projects/project_1/sessions?warehouse_version=13"),
       env,
       "project_1",
-      "bearer",
+      "session",
       "request_invalid_sessions",
       startWideEvent("test", "sessions"),
       ctx.value,
@@ -269,7 +274,7 @@ describe("analytics compare routes", () => {
         new URL("https://replay.test/api/v1/projects/project_1/sessions"),
         env,
         "project_1",
-        "bearer",
+        "session",
         "request_sessions_unavailable",
         startWideEvent("test", "sessions"),
         sessionsCtx.value,
@@ -278,8 +283,8 @@ describe("analytics compare routes", () => {
 
     expect(statsResponse.status).toBe(200);
     expect(sessionsResponse.status).toBe(200);
-    const statsBody = (await statsResponse.json()) as Record<string, unknown>;
-    const sessionsBody = (await sessionsResponse.json()) as Record<string, unknown>;
+    const statsBody = projectStatsResponseSchema.parse(await statsResponse.json());
+    const sessionsBody = listSessionsResponseSchema.parse(await sessionsResponse.json());
     expect(statsBody).toMatchObject({ analyticsState: "compare" });
     expect(sessionsBody).toMatchObject({ analyticsState: "compare" });
     expect(statsBody).not.toHaveProperty("warehouseVersion");

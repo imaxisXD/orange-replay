@@ -76,6 +76,8 @@ describe.sequential("public project pages", () => {
     expect(dataText).not.toContain('"sessionId"');
     expect(dataText).not.toContain('"orgId"');
     expect(dataText).not.toContain('"liveNow"');
+    expect(dataText).not.toContain('"analyticsState"');
+    expect(dataText).not.toContain('"warehouseVersion"');
 
     const htmlResponse = await worker.fetch(`/p/${publicId}`);
     expect(htmlResponse.status).toBe(200);

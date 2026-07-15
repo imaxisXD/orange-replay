@@ -1,6 +1,6 @@
 import { startWideEvent, uuidv7 } from "@orange-replay/shared";
-import { outcomeForStatus } from "../api/helpers.ts";
-import { jsonError, jsonResponse, readJsonBodyCapped } from "../api/http.ts";
+import { jsonError, jsonResponse, readJsonBodyCapped } from "../http.ts";
+import { outcomeForStatus } from "../query/session-query.ts";
 import { shardDb, type Env } from "../env.ts";
 import {
   claimAnalyticsPurgeJobs,

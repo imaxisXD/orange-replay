@@ -526,14 +526,44 @@ export const analyticsDeletionJobs = sqliteTable(
     leaseOwner: text("lease_owner"),
     leaseExpiresAt: integer("lease_expires_at"),
     alertedAt: integer("alerted_at"),
+    sessionStartedAt: integer("session_started_at"),
+    deletionV2SentAt: integer("deletion_v2_sent_at"),
+    deletionV2VisibleAt: integer("deletion_v2_visible_at"),
+    deletionV2AttemptCount: integer("deletion_v2_attempt_count").notNull().default(0),
+    deletionV2LastError: text("deletion_v2_last_error"),
   },
   (table) => [
     primaryKey({ columns: [table.projectId, table.sessionId] }),
     index("idx_analytics_deletion_jobs_pending")
       .on(table.requestedAt, table.projectId, table.sessionId)
       .where(sql`${table.completedAt} IS NULL`),
+    index("idx_analytics_deletion_jobs_v2_pending")
+      .on(
+        table.deletionV2VisibleAt,
+        table.deletionV2SentAt,
+        table.deletionV2AttemptCount,
+        table.requestedAt,
+        table.projectId,
+        table.sessionId,
+      )
+      .where(sql`${table.requiresWarehouseTombstone} = 1`),
   ],
 );
+
+export const analyticsDeletionV2State = sqliteTable("analytics_deletion_v2_state", {
+  shard: integer("shard").primaryKey(),
+  requiredJobCount: integer("required_job_count").notNull().default(0),
+  visibleJobCount: integer("visible_job_count").notNull().default(0),
+  lastAttemptAt: integer("last_attempt_at"),
+  lastError: text("last_error"),
+  backfillCompletedAt: integer("backfill_completed_at"),
+});
+
+export const analyticsReadBudget = sqliteTable("analytics_read_budget", {
+  scope: text("scope").primaryKey(),
+  windowStart: integer("window_start").notNull(),
+  requestCount: integer("request_count").notNull(),
+});
 
 export const analyticsBackfillCompletions = sqliteTable("analytics_backfill_completions", {
   projectId: text("project_id").primaryKey(),

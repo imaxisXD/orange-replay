@@ -52,6 +52,7 @@ export interface AppendInput {
 
 export interface DebugBody {
   hasState: boolean;
+  schemaReady: boolean;
   finalized: boolean;
   bufferedBytes: number;
   pendingBatches: number;
@@ -65,13 +66,19 @@ export interface AppendResultBody {
   closed: boolean;
   flushMs: number;
   checkpoint?: boolean;
+  rateLimited?: boolean;
 }
 
 interface LiveSocket {
   binaryType: string;
   close(): void;
+  send(data: string | ArrayBuffer): void;
   addEventListener(type: "message", listener: (event: { data: unknown }) => void): void;
-  addEventListener(type: "error" | "close", listener: () => void): void;
+  addEventListener(type: "error", listener: () => void): void;
+  addEventListener(
+    type: "close",
+    listener: (event: { code: number; reason: string }) => void,
+  ): void;
 }
 
 interface LiveSocketConstructor {
@@ -81,7 +88,7 @@ interface LiveSocketConstructor {
 export interface LiveConnection {
   socket: LiveSocket;
   queue: unknown[];
-  status: { errored: boolean; closed: boolean };
+  status: { errored: boolean; closed: boolean; closeCode?: number; closeReason?: string };
 }
 
 export async function append(input: AppendInput): Promise<AppendResultBody> {
@@ -246,15 +253,17 @@ export function openDoLiveSocket(projectId: string, sessionId: string): LiveConn
   );
   socket.binaryType = "arraybuffer";
   const queue: unknown[] = [];
-  const status = { errored: false, closed: false };
+  const status: LiveConnection["status"] = { errored: false, closed: false };
   socket.addEventListener("message", (event) => {
     queue.push(event.data);
   });
   socket.addEventListener("error", () => {
     status.errored = true;
   });
-  socket.addEventListener("close", () => {
+  socket.addEventListener("close", (event) => {
     status.closed = true;
+    status.closeCode = event.code;
+    status.closeReason = event.reason;
   });
   return { socket, queue, status };
 }
@@ -285,6 +294,15 @@ export async function waitForSocketMessage(
   }
 }
 
+export async function waitForSocketClose(conn: LiveConnection, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!conn.status.closed) {
+    if (conn.status.errored) throw new Error("live socket errored before closing");
+    if (Date.now() >= deadline) throw new Error(`live socket did not close within ${timeoutMs}ms`);
+    await sleep(25);
+  }
+}
+
 export function parseTextMessage<T>(message: unknown): T {
   if (typeof message !== "string") {
     throw new Error("live socket message was not text");
@@ -293,6 +311,7 @@ export function parseTextMessage<T>(message: unknown): T {
 }
 
 export interface PresenceListBody {
+  truncated: boolean;
   sessions: Array<{
     session_id: string;
     started_at: number;

@@ -1,0 +1,12 @@
+{
+  "pipelines": [
+    {
+      "binding": "ANALYTICS_DELETION_V2_STREAM",
+      "stream": "REPLACE_WITH_PRODUCTION_ANALYTICS_DELETION_V2_STREAM_ID",
+    },
+  ],
+  "vars": {
+    // Keep v1 until D1 reports every retained v2 tombstone visible.
+    "ANALYTICS_DELETION_READ_VERSION": "v1",
+  },
+}

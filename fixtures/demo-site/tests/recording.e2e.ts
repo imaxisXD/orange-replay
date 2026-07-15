@@ -191,7 +191,7 @@ interface ServerState {
   workerUrl: string;
   demoUrl: string;
   cspDemoUrl: string;
-  apiToken: string;
+  sessionCookie: string;
   ingestKey: string;
   projectId: string;
   orgId: string;
@@ -382,7 +382,7 @@ async function poll<T>(fn: () => Promise<T | null>, timeoutMs: number): Promise<
 }
 
 function authHeaders(state: ServerState): Record<string, string> {
-  return { authorization: `Bearer ${state.apiToken}` };
+  return { cookie: state.sessionCookie };
 }
 
 function lastPathPart(path: string): string {

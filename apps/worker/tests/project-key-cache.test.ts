@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
-import { syncRevokedKeyCache } from "../src/api/project-key-cache.ts";
 import type { Env } from "../src/env.ts";
+import { projectConfigDeliveryTestHooks } from "../src/project-config/delivery.ts";
 
+const { syncRevokedKeyCache } = projectConfigDeliveryTestHooks;
 type KeyCacheDatabase = Parameters<typeof syncRevokedKeyCache>[1];
 
 describe("revoked key cache repair", () => {

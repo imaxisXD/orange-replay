@@ -321,11 +321,24 @@ export async function compactVerifiedAnalyticsOutbox(
           INNER JOIN session_deletions d
             ON d.project_id = l.project_id AND d.session_id = l.session_id
           WHERE l.record_kind <> 'deletion'
+            OR (
+              l.first_seen_verified_at <= ?
+              AND NOT EXISTS (
+                SELECT 1 FROM analytics_export_outbox o
+                WHERE o.export_id = l.export_id
+              )
+              AND EXISTS (
+                SELECT 1 FROM analytics_deletion_jobs j
+                WHERE j.project_id = l.project_id
+                  AND j.session_id = l.session_id
+                  AND j.completed_at IS NOT NULL
+              )
+            )
           ORDER BY l.export_sequence
           LIMIT ?
         )`,
       )
-      .bind(limit),
+      .bind(deleteBefore, limit),
     db
       .prepare(
         `INSERT INTO analytics_export_ledger (

@@ -9,7 +9,7 @@ import { buildNewProjectAnalyticsReceiptSql } from "./analytics/project-bootstra
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const prodEnv = "production";
-const projectIdsEnv = "ORANGE_REPLAY_PROD_API_PROJECT_IDS";
+const projectIdEnv = "ORANGE_REPLAY_PROD_PROJECT_ID";
 let options;
 try {
   options = parseArgs(process.argv.slice(2));
@@ -187,10 +187,6 @@ function parseArgs(args) {
   if (!isSimpleId(parsed.projectId))
     throw new Error("--project-id must be letters, numbers, _, or -");
   if (!isSimpleId(parsed.orgId)) throw new Error("--org-id must be letters, numbers, _, or -");
-  const deployProjectIds = readDeployProjectIds();
-  if (deployProjectIds !== null && !deployProjectIds.has(parsed.projectId)) {
-    throw new Error(`--project-id must be listed in ${projectIdsEnv}.`);
-  }
   if (parsed.key !== undefined && !isGeneratedWriteKey(parsed.key)) {
     throw new Error("--key must be a generated key like or_live_ plus 32 base64url characters");
   }
@@ -282,28 +278,12 @@ function isSimpleId(value) {
 }
 
 function defaultProjectId() {
-  const projectIds = readDeployProjectIds();
-  return projectIds?.values().next().value ?? "project_demo";
-}
-
-function readDeployProjectIds() {
-  const value = process.env[projectIdsEnv];
-  if (typeof value !== "string" || value.trim().length === 0) {
-    return null;
+  const value = process.env[projectIdEnv]?.trim();
+  if (value === undefined || value.length === 0) return "project_demo";
+  if (!isSimpleId(value)) {
+    throw new Error(`${projectIdEnv} must use only letters, numbers, _, or -`);
   }
-
-  const projectIds = new Set();
-  for (const part of value.split(",")) {
-    const projectId = part.trim();
-    if (!isSimpleId(projectId)) {
-      throw new Error(
-        `${projectIdsEnv} must contain only project ids with letters, numbers, _, or -`,
-      );
-    }
-    projectIds.add(projectId);
-  }
-
-  return projectIds.size === 0 ? null : projectIds;
+  return value;
 }
 
 function isGeneratedWriteKey(value) {
@@ -412,7 +392,7 @@ The script is insert-only and fails if the org, project, or key already exists.
 Options:
   --dry-run                 Print the SQL without writing.
   --key VALUE               Use a specific write key. Default: generate one.
-  --project-id VALUE        Project id. Default: first ORANGE_REPLAY_PROD_API_PROJECT_IDS value, otherwise project_demo.
+  --project-id VALUE        Project id. Default: ORANGE_REPLAY_PROD_PROJECT_ID, otherwise project_demo.
   --project-name VALUE      Project name. Default: Default project.
   --org-id VALUE            Org id. Default: o1.
   --org-name VALUE          Org name. Default: Default org.

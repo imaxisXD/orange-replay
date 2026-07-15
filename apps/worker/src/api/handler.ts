@@ -1,6 +1,7 @@
 import { HDR_REQUEST_ID, startWideEvent, uuidv7 } from "@orange-replay/shared";
 import { getAuthMode, isTrustedMutationOrigin } from "../auth/config.ts";
 import { handleBetterAuthRequest } from "../auth/server.ts";
+import { checkAnalyticsReadRateLimit } from "../analytics/read-rate-limit.ts";
 import { setWorkerLoggerVersion, type Env } from "../env.ts";
 import { bootstrapAccount, getAccount } from "./account-routes.ts";
 import { getAdminStats, getAdminUsers } from "./admin-routes.ts";
@@ -178,6 +179,8 @@ async function routeRequest(
     if (!projectId || !isValidPathId(projectId)) return jsonError("invalid_path_id", 400);
     const authError = projectAuthError(auth, projectId, "sessions_list");
     if (authError !== null) return authError;
+    const rateLimitError = await analyticsReadRateLimitError(env, auth, projectId, wideEvent);
+    if (rateLimitError !== null) return rateLimitError;
     wideEvent.set({ project_id: projectId });
     return authenticatedProjectResponse(
       await listSessions(url, env, projectId, auth.mode, requestId, wideEvent, ctx),
@@ -204,6 +207,8 @@ async function routeRequest(
     if (!projectId || !isValidPathId(projectId)) return jsonError("invalid_path_id", 400);
     const authError = projectAuthError(auth, projectId, "project_stats");
     if (authError !== null) return authError;
+    const rateLimitError = await analyticsReadRateLimitError(env, auth, projectId, wideEvent);
+    if (rateLimitError !== null) return rateLimitError;
     wideEvent.set({ project_id: projectId });
     return authenticatedProjectResponse(
       await getProjectStats(url, env, ctx, projectId, requestId, wideEvent),
@@ -277,6 +282,7 @@ async function routeRequest(
     if (!projectId || !isValidPathId(projectId)) return jsonError("invalid_path_id", 400);
     const authError = projectAuthError(auth, projectId, "project_keys");
     if (authError !== null) return authError;
+    if (!isSessionAuth(auth)) return jsonError("unauthorized", 401);
     wideEvent.set({ project_id: projectId });
     if (request.method === "GET") {
       return authenticatedProjectResponse(await getProjectKeys(env, projectId, wideEvent), auth);
@@ -284,7 +290,7 @@ async function routeRequest(
     const originError = mutationOriginError(request, env, auth);
     if (originError !== null) return originError;
     return authenticatedProjectResponse(
-      await createProjectKey(request, env, projectId, isSessionAuth(auth) ? auth : null),
+      await createProjectKey(request, env, projectId, auth),
       auth,
     );
   }
@@ -298,13 +304,11 @@ async function routeRequest(
     }
     const authError = projectAuthError(auth, projectId, "project_keys");
     if (authError !== null) return authError;
+    if (!isSessionAuth(auth)) return jsonError("unauthorized", 401);
     const originError = mutationOriginError(request, env, auth);
     if (originError !== null) return originError;
     wideEvent.set({ project_id: projectId, key_id: keyId });
-    return authenticatedProjectResponse(
-      await revokeProjectKey(env, projectId, keyId, isSessionAuth(auth) ? auth : null),
-      auth,
-    );
+    return authenticatedProjectResponse(await revokeProjectKey(env, projectId, keyId, auth), auth);
   }
 
   const manifestMatch = /^\/api\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/manifest$/.exec(
@@ -346,7 +350,7 @@ async function routeRequest(
     if (originError !== null) return originError;
     wideEvent.set({ project_id: ids.projectId, session_id: ids.sessionId });
     return authenticatedProjectResponse(
-      await mintLiveTicket(env, ids.projectId, ids.sessionId),
+      await mintLiveTicket(env, ids.projectId, ids.sessionId, liveViewerIdentity(request, auth)),
       auth,
     );
   }
@@ -376,6 +380,28 @@ async function routeRequest(
 
   if (auth.mode === "demo") return jsonError("unauthorized", 401);
   return jsonError("not_found", 404);
+}
+
+function liveViewerIdentity(request: Request, auth: ApiAuthContext): string {
+  if (auth.mode === "session") return `user:${auth.hostedSession.user.id}`;
+  return `demo:${request.headers.get("cf-connecting-ip")?.trim() || "unknown"}`;
+}
+
+async function analyticsReadRateLimitError(
+  env: Env,
+  auth: ApiAuthContext,
+  projectId: string,
+  wideEvent: ReturnType<typeof startWideEvent>,
+): Promise<Response | null> {
+  const result = await checkAnalyticsReadRateLimit(
+    env,
+    auth.mode === "session" ? `user:${auth.hostedSession.user.id}` : null,
+    projectId,
+  );
+  if (result.allowed) return null;
+
+  wideEvent.set({ rate_limit: `analytics_${result.scope}` });
+  return jsonError("rate_limited", 429, { "retry-after": "60" });
 }
 
 function parseProjectSessionIds(
@@ -456,7 +482,6 @@ function authenticatedProjectResponse(response: Response, auth: ApiAuthContext):
       .map((value) => value.trim())
       .filter((value) => value.length > 0),
   );
-  vary.add("Authorization");
   vary.add("Cookie");
   headers.set("vary", [...vary].join(", "));
 

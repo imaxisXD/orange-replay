@@ -60,15 +60,13 @@ Callback: https://replay.example.com/api/auth/callback/github
 
 GitHub OAuth Apps accept one callback URL, so use a different OAuth App for local development.
 
-Use long random secrets, at least 32 characters. `ORANGE_REPLAY_PROD_API_PROJECT_IDS` is a comma-separated allowlist for the projects used by the private analytics deployment smoke check. Before its first build or Cloudflare change, the deploy script checks those values and requires `ORANGE_REPLAY_PROD_WORKER_URL` to be one clean HTTPS origin without a path, query, or login.
-
-The dashboard build uses the first `ORANGE_REPLAY_PROD_API_PROJECT_IDS` value as its default project route. Set `VITE_DEFAULT_PROJECT_ID` before the chosen production deploy command only if you need the dashboard to open a different allowed project first. The value must also be listed in `ORANGE_REPLAY_PROD_API_PROJECT_IDS`.
+Use long random secrets, at least 32 characters. Before its first build or Cloudflare change, the deploy script validates the complete Better Auth configuration and requires `ORANGE_REPLAY_PROD_WORKER_URL` to be one clean HTTPS origin without a path, query, or login. `ORANGE_REPLAY_PROD_PROJECT_ID` names the project used by the pre-deploy analytics acceptance gate; it is not a dashboard credential or route default.
 
 Generated production values are stored locally in `apps/worker/.env.production`. That file is ignored by git.
 
 Do not put production tokens, auth secrets, live ticket secrets, SDK write keys, or Cloudflare API tokens in `wrangler.jsonc`, package scripts, build commands, docs, or dashboard source. Normal production deploy commands validate the complete secret set first, then upload it with the reviewed Worker version only after the analytics gate passes. Cloudflare account authentication is removed from config generation, application builds, and smoke checks; only the D1, gate, Worker upload, deploy, and secret-name check steps receive it. The emergency D1 rollback reuses a prepared Worker version and its versioned secrets. The SDK write key is kept only in the ignored local env file.
 
-The SDK write key is still public once it is installed on a website. Treat it like a project-scoped browser credential, not like the dashboard bearer token. Exact allowed origins are a browser/CORS guard only; keep the committed ingest rate limiters, quota state, payload caps, and session caps enabled because non-browser clients can set any Origin header. Sampling is an honest-client optimization, not an abuse control.
+The SDK write key is still public once it is installed on a website. Treat it like a project-scoped browser credential, not like a dashboard account credential. Exact allowed origins are a browser/CORS guard only; keep the committed ingest rate limiters, quota state, payload caps, and session caps enabled because non-browser clients can set any Origin header. Sampling is an honest-client optimization, not an abuse control.
 
 ## 4. Prepare Hosted Auth Values
 
@@ -78,8 +76,7 @@ export ORANGE_REPLAY_PROD_BETTER_AUTH_TRUSTED_ORIGINS="$ORANGE_REPLAY_PROD_WORKE
 export ORANGE_REPLAY_PROD_BETTER_AUTH_SECRET="your-saved-better-auth-secret"
 export ORANGE_REPLAY_PROD_GITHUB_CLIENT_ID="your-github-client-id"
 export ORANGE_REPLAY_PROD_GITHUB_CLIENT_SECRET="your-github-client-secret"
-export ORANGE_REPLAY_PROD_API_TOKEN="your-private-analytics-smoke-token"
-export ORANGE_REPLAY_PROD_API_PROJECT_IDS="your-project-id"
+export ORANGE_REPLAY_PROD_PROJECT_ID="your-analytics-gate-project-id"
 export ORANGE_REPLAY_PROD_LIVE_TICKET_SECRET="your-saved-live-ticket-secret"
 export ORANGE_REPLAY_PROD_R2_SQL_TOKEN="your-read-only-r2-sql-token"
 export ORANGE_REPLAY_PROD_ANALYTICS_PURGE_RUNNER_TOKEN="your-saved-purge-runner-secret"
@@ -87,7 +84,7 @@ export ORANGE_REPLAY_PROD_ANALYTICS_PURGE_RUNNER_TOKEN="your-saved-purge-runner-
 
 Generate the Better Auth, live-ticket, and purge-runner secrets once with `openssl rand -base64 48`, save them in a password manager, and reuse the same values on later deploys. Changing `BETTER_AUTH_SECRET` signs everyone out and can make stored encrypted OAuth tokens unreadable. The purge workflow and Worker must use the same purge-runner value.
 
-The deploy maps the two analytics-smoke values to the Worker's private bearer fallback. The browser dashboard still uses GitHub sign-in; keep this token private and restrict its project allowlist.
+Private dashboard and project APIs use Better Auth sessions only. The post-deploy analytics smoke check reads the anonymous demo API, so it does not need a private dashboard credential.
 
 ## 5. Create And Load The Public Demo
 
@@ -122,11 +119,11 @@ Before running either deploy path, check every local value:
 node scripts/check-prod-secret.mjs --validate-only
 ```
 
-This checks all twelve hosted-auth, analytics, and public-demo values without contacting or changing Cloudflare.
+This checks all ten hosted-auth, analytics, and public-demo values without contacting or changing Cloudflare.
 
 ## 6. Build And Deploy From This Machine
 
-Keep the resource ids and all twelve production values loaded in the same shell, then run:
+Keep the resource ids and all ten production secret values loaded in the same shell, then run:
 
 ```sh
 vp run deploy:prod:d1
@@ -140,7 +137,7 @@ Normal D1, compare, and R2 SQL commands build the browser SDK and dashboard, cop
 
 `vp run deploy:prod:rollback:rebuild` is the explicit second choice. It creates a D1 config and deploys the current checkout with the already-built dashboard assets. Use it only when the tagged version is unavailable and after reviewing the current source and assets; missing or broken local files can block this path.
 
-The public smoke check verifies health, GitHub auth mode, signed-out account denial, demo discovery, and the public login and demo pages. The analytics smoke check verifies exact metric-to-session doorways with the private project-scoped token. Neither check completes a real GitHub sign-in.
+The public smoke check verifies health, GitHub auth mode, signed-out account denial, demo discovery, and the public login and demo pages. The analytics smoke check uses that anonymous demo to verify exact metric-to-session doorways. Neither check completes a real GitHub sign-in.
 
 For a local build and Wrangler validation without a remote migration, secret upload, or deployment:
 
@@ -185,13 +182,22 @@ vp run auth:promote-admin -- \
   --remote
 ```
 
-Test one real production GitHub sign-in and one key create/revoke flow before removing old bearer secrets. Optionally add Cloudflare Access around `/_admin*` as a second gate; the Worker still checks the Better Auth admin role on every operator API.
+Test one real production GitHub sign-in and one key create/revoke flow. Only after that private canary passes, remove the two retired shared-token Worker secrets:
+
+```sh
+vp run auth:retire-shared-token-secrets \
+  --config apps/worker/wrangler.cloudflare-build.jsonc
+```
+
+The command requires the explicit login-confirmation flag built into the package script, verifies every Better Auth-era Worker secret is present, removes only `DEV_API_TOKEN` and `DEV_API_PROJECT_IDS`, then verifies the required secrets remain and the retired names are gone. Do not roll back to a Worker version that still depends on shared-token auth after this step; use the tagged D1 fallback produced by the Better Auth-only deploy.
+
+Optionally add Cloudflare Access around `/_admin*` as a second gate; the Worker still checks the Better Auth admin role on every operator API.
 
 ## 8. Cloudflare GitHub Auto Deploy
 
 Complete sections 1 through 5 once before the first automatic build. The demo needs its D1 rows before the post-deploy smoke check can pass; the Worker fills its KV cache safely.
 
-Run one reviewed machine deploy before connecting the build. That path validates and uploads all twelve runtime secrets only after the analytics gate passes. The automatic build then checks their names and preserves their existing values.
+Run one reviewed machine deploy before connecting the build. That path validates and uploads all ten runtime secrets only after the analytics gate passes. The automatic build then checks their names and preserves their existing values.
 
 In Cloudflare Workers Builds, connect the GitHub repo to the `orange-replay` Worker and use these settings:
 
@@ -205,23 +211,23 @@ In Cloudflare Workers Builds, connect the GitHub repo to the `orange-replay` Wor
 
 Add these Workers Builds variables before the first build:
 
-| Variable                                    | Value                                                 |
-| ------------------------------------------- | ----------------------------------------------------- |
-| `ORANGE_REPLAY_PROD_KV_ID`                  | Production `CONFIG` KV namespace id                   |
-| `ORANGE_REPLAY_PROD_D1_ID`                  | Production `orange-replay-idx-00-prod` D1 database id |
-| `CLOUDFLARE_ACCOUNT_ID`                     | Production Cloudflare account id                      |
-| `ORANGE_REPLAY_PROD_ANALYTICS_STREAM_ID`    | Production typed Pipeline stream id                   |
-| `ORANGE_REPLAY_PROD_ANALYTICS_READ_BACKEND` | Explicit `d1`, `compare`, or `r2_sql` choice          |
-| `ORANGE_REPLAY_PROD_API_PROJECT_IDS`        | Comma-separated analytics smoke project ids           |
-| `ORANGE_REPLAY_PROD_WORKER_URL`             | Exact public Worker origin used by the smoke checks   |
-| `ORANGE_REPLAY_PROD_PUBLIC_PAGE_ORIGIN`     | Exact HTTPS origin used for public project pages      |
+| Variable                                             | Value                                                 |
+| ---------------------------------------------------- | ----------------------------------------------------- |
+| `ORANGE_REPLAY_PROD_KV_ID`                           | Production `CONFIG` KV namespace id                   |
+| `ORANGE_REPLAY_PROD_D1_ID`                           | Production `orange-replay-idx-00-prod` D1 database id |
+| `CLOUDFLARE_ACCOUNT_ID`                              | Production Cloudflare account id                      |
+| `ORANGE_REPLAY_PROD_ANALYTICS_STREAM_ID`             | Production typed Pipeline stream id                   |
+| `ORANGE_REPLAY_PROD_ANALYTICS_DELETION_V2_STREAM_ID` | Versioned deletion Pipeline stream id                 |
+| `ORANGE_REPLAY_PROD_ANALYTICS_READ_BACKEND`          | Explicit `d1`, `compare`, or `r2_sql` choice          |
+| `ORANGE_REPLAY_PROD_ANALYTICS_DELETION_READ_VERSION` | Keep `v1` until the v2 backfill is ready              |
+| `ORANGE_REPLAY_PROD_PROJECT_ID`                      | Project id used by the analytics acceptance gate      |
+| `ORANGE_REPLAY_PROD_WORKER_URL`                      | Exact public Worker origin used by the smoke checks   |
+| `ORANGE_REPLAY_PROD_PUBLIC_PAGE_ORIGIN`              | Exact HTTPS origin used for public project pages      |
 
-The deploy command generates ignored selected-backend and D1-fallback Wrangler files inside the build machine. It checks that all twelve secret names already exist before it changes the database, then applies migrations, runs the analytics gate, deploys, and runs both smoke checks. Store `ORANGE_REPLAY_PROD_API_TOKEN` as a protected build secret. For `compare` and `r2_sql`, also store `ORANGE_REPLAY_PROD_R2_SQL_TOKEN`; the gate and deployed Worker use the exact same reader token. The Worker must already have these runtime secret names:
+The deploy command generates ignored selected-backend and D1-fallback Wrangler files inside the build machine. It checks that all ten secret names already exist before it changes the database, then applies migrations, runs the analytics gate, deploys, and runs both smoke checks. Keep `ORANGE_REPLAY_PROD_ANALYTICS_DELETION_READ_VERSION=v1` until the v2 deletion table is provisioned and D1 reports every retained tombstone as visible; only then use `v2`. For `compare` and `r2_sql`, store `ORANGE_REPLAY_PROD_R2_SQL_TOKEN` as a protected build secret; the gate and deployed Worker use the exact same reader token. The Worker must already have these runtime secret names:
 
 | Worker secret                  | Value loaded locally from                         |
 | ------------------------------ | ------------------------------------------------- |
-| `DEV_API_TOKEN`                | `ORANGE_REPLAY_PROD_API_TOKEN`                    |
-| `DEV_API_PROJECT_IDS`          | `ORANGE_REPLAY_PROD_API_PROJECT_IDS`              |
 | `BETTER_AUTH_SECRET`           | `ORANGE_REPLAY_PROD_BETTER_AUTH_SECRET`           |
 | `BETTER_AUTH_URL`              | `ORANGE_REPLAY_PROD_BETTER_AUTH_URL`              |
 | `BETTER_AUTH_TRUSTED_ORIGINS`  | `ORANGE_REPLAY_PROD_BETTER_AUTH_TRUSTED_ORIGINS`  |
@@ -233,7 +239,7 @@ The deploy command generates ignored selected-backend and D1-fallback Wrangler f
 | `R2_SQL_TOKEN`                 | `ORANGE_REPLAY_PROD_R2_SQL_TOKEN`                 |
 | `ANALYTICS_PURGE_RUNNER_TOKEN` | `ORANGE_REPLAY_PROD_ANALYTICS_PURGE_RUNNER_TOKEN` |
 
-The automatic deploy runs a read-only `wrangler secret list` check and stops before migration when a name is missing. Wrangler cannot show secret values, so the smoke check catches invalid hosted-auth values or a broken public demo after deployment. The `secrets.required` list in the Wrangler config also keeps generated types and local-development warnings in sync.
+The automatic deploy runs a read-only `wrangler secret list` check and stops before migration when a name is missing. Wrangler cannot show secret values. The public smoke catches a missing auth configuration and signed-out routing failures, but it cannot prove that GitHub OAuth credentials or callbacks work; complete the real login canary and explicit retirement step in section 7. The `secrets.required` list in the Wrangler config also keeps generated types and local-development warnings in sync.
 
 The physical-deletion workflow needs the same `ANALYTICS_PURGE_RUNNER_TOKEN` as a GitHub Actions secret. It also needs the catalog writer token as `ORANGE_REPLAY_CATALOG_TOKEN`; never upload that catalog writer token to the Worker. Follow the exact variables and verification steps in [R2 analytics warehouse runbook](./runbooks/r2-analytics.md#physical-deletion-within-24-hours).
 

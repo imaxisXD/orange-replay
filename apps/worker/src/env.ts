@@ -17,6 +17,7 @@ export interface AnalyticsStreamBinding {
 }
 
 export type AnalyticsReadBackend = "d1" | "compare" | "r2_sql";
+export type AnalyticsDeletionReadVersion = "v1" | "v2";
 
 export interface Env {
   ASSETS?: Fetcher;
@@ -28,12 +29,18 @@ export interface Env {
   FINALIZE_QUEUE: Queue<FinalizeMessage>;
   /** Structured Cloudflare Pipelines stream. Optional for local/self-host compatibility. */
   ANALYTICS_STREAM?: AnalyticsStreamBinding;
+  /** Separate v2 deletion stream. It must never share the v1 structured stream. */
+  ANALYTICS_DELETION_V2_STREAM?: AnalyticsStreamBinding;
   INGEST_LOOKUP_RATE_LIMITER?: RateLimitBinding;
   INGEST_PROJECT_RATE_LIMITER?: RateLimitBinding;
   INGEST_SESSION_RATE_LIMITER?: RateLimitBinding;
   DEMO_API_RATE_LIMITER?: RateLimitBinding;
   KEY_MANAGEMENT_RATE_LIMITER?: RateLimitBinding;
   PUBLIC_PAGE_RATE_LIMITER?: RateLimitBinding;
+  ANALYTICS_ACTOR_RATE_LIMITER?: RateLimitBinding;
+  ANALYTICS_PROJECT_RATE_LIMITER?: RateLimitBinding;
+  ANALYTICS_GLOBAL_RATE_LIMITER?: RateLimitBinding;
+  LIVE_TICKET_RATE_LIMITER?: RateLimitBinding;
   CF_VERSION_METADATA?: WorkerVersionMetadata;
   /** Deployment environment name. Production disables all dev-only test gates. */
   WORKER_ENV?: string;
@@ -41,16 +48,14 @@ export interface Env {
   ANALYTICS_READ_BACKEND?: AnalyticsReadBackend;
   /** "1" keeps warehouse exports active even while reads temporarily use D1. */
   ANALYTICS_EXPORT_ENABLED?: string;
+  /** Requested deletion table. Runtime still falls back to v1 until v2 is fully visible. */
+  ANALYTICS_DELETION_READ_VERSION?: AnalyticsDeletionReadVersion;
   /** Server-only R2 SQL REST token. */
   R2_SQL_TOKEN?: string;
   /** Bearer secret shared only with the scheduled physical-deletion runner. */
   ANALYTICS_PURGE_RUNNER_TOKEN?: string;
   R2_SQL_ACCOUNT_ID?: string;
   R2_SQL_BUCKET?: string;
-  /** Bearer token for dashboard API auth (v1). Set via local .env / Worker secret. */
-  DEV_API_TOKEN?: string;
-  /** Comma-separated project ids that DEV_API_TOKEN may access. */
-  DEV_API_PROJECT_IDS?: string;
   /** Public origin for Better Auth, without a path. */
   BETTER_AUTH_URL?: string;
   /** At least 32 characters. Used to sign cookies and encrypt OAuth tokens. */
@@ -118,6 +123,12 @@ export function analyticsReadBackend(
 
 export function analyticsExportEnabled(env: Pick<Env, "ANALYTICS_EXPORT_ENABLED">): boolean {
   return env.ANALYTICS_EXPORT_ENABLED === "1";
+}
+
+export function analyticsDeletionReadVersion(
+  env: Pick<Env, "ANALYTICS_DELETION_READ_VERSION">,
+): AnalyticsDeletionReadVersion {
+  return env.ANALYTICS_DELETION_READ_VERSION === "v2" ? "v2" : "v1";
 }
 
 export function devTestRoutesFlag(

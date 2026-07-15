@@ -1,5 +1,6 @@
 import {
   HDR_REQUEST_ID,
+  MAX_LIVE_SESSIONS_PER_PROJECT,
   MAX_PRESENCE_BODY_BYTES,
   MAX_PRESENCE_ID_CHARS,
   MAX_PRESENCE_TEXT_CHARS,
@@ -368,8 +369,10 @@ export class PresenceRegistry extends DurableObject<Env> {
         `SELECT ${presenceColumns}
           FROM presence
           WHERE finalizing_at IS NULL AND last_seen >= ?
-          ORDER BY last_seen DESC, session_id ASC`,
+          ORDER BY last_seen DESC, session_id ASC
+          LIMIT ?`,
         liveCutoff,
+        MAX_LIVE_SESSIONS_PER_PROJECT + 1,
       )
       .toArray();
   }

@@ -163,9 +163,7 @@ export function productionStepEnvironment(step, environment, backend) {
     copyEnvironmentValues(cleanEnvironment, environment, cloudflareAuthEnvironmentNames);
   }
 
-  if (step.kind === "build") {
-    copyEnvironmentValues(cleanEnvironment, environment, ["ORANGE_REPLAY_PROD_API_PROJECT_IDS"]);
-  } else if (step.kind === "gate" && (backend === "compare" || backend === "r2_sql")) {
+  if (step.kind === "gate" && (backend === "compare" || backend === "r2_sql")) {
     copyEnvironmentValues(cleanEnvironment, environment, ["ORANGE_REPLAY_PROD_R2_SQL_TOKEN"]);
   } else if (step.kind === "deploy" || step.kind === "upload_fallback") {
     const names =
@@ -175,11 +173,6 @@ export function productionStepEnvironment(step, environment, backend) {
           ? []
           : productionSecretEnvironmentNames;
     copyEnvironmentValues(cleanEnvironment, environment, names);
-  } else if (step.kind === "smoke") {
-    copyEnvironmentValues(cleanEnvironment, environment, [
-      "ORANGE_REPLAY_PROD_API_PROJECT_IDS",
-      "ORANGE_REPLAY_PROD_API_TOKEN",
-    ]);
   }
 
   return cleanEnvironment;

@@ -13,6 +13,7 @@ import {
 } from "./session-analytics-sidecar.ts";
 import { buildFinalizeTimelineData } from "./session-finalize-data.ts";
 import { buildSessionManifest } from "./session-manifest.ts";
+import { rebuildFinalPageAnalytics } from "./session-page-tracking.ts";
 import type { FinalizedTombstone, SessionRecorderStore } from "./session-recorder-store.ts";
 import type { SessionSegmentWriter } from "./session-segment-writer.ts";
 import type { SessionState } from "./session-state.ts";
@@ -35,7 +36,7 @@ export interface SessionFinalizerDependencies {
   finalizeQueue: Queue<FinalizeMessage>;
   store: Pick<
     SessionRecorderStore,
-    "segmentRowsForManifest" | "storedEventRows" | "replaceStateWithTombstone"
+    "segmentRowsForManifest" | "storedEventRows" | "finalPageBatches" | "replaceStateWithTombstone"
   >;
   segmentWriter: Pick<
     SessionSegmentWriter,
@@ -79,6 +80,14 @@ export class SessionFinalizer {
     const state = this.dependencies.getSessionState();
     if (state === null) {
       return;
+    }
+
+    const finalPageBatches = this.dependencies.store.finalPageBatches();
+    if (
+      finalPageBatches.length > 0 &&
+      finalPageBatches.every((batch) => batch.pageAnalyticsVersion === 1)
+    ) {
+      rebuildFinalPageAnalytics(state, finalPageBatches);
     }
 
     const segmentsForManifest = this.dependencies.store.segmentRowsForManifest();

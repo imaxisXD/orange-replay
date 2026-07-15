@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { queueDeletionExportsFromJournal } from "../src/analytics/deletion-journal.ts";
+import type { AnalyticsWarehouseRecord } from "../src/analytics/export-record.ts";
 import { drainAnalyticsExports } from "../src/analytics/exporter.ts";
 import { createD1AnalyticsOutboxStore } from "../src/analytics/outbox.ts";
 import { markRowsForDeletion, selectExpiredSessions } from "../src/consumer/sweeper.ts";
@@ -13,6 +14,12 @@ describe("analytics deletion journal", () => {
     database.sqlite.exec(
       await readFile(
         new URL("../migrations/0009_analytics_warehouse.sql", import.meta.url),
+        "utf8",
+      ),
+    );
+    database.sqlite.exec(
+      await readFile(
+        new URL("../migrations/0016_analytics_deletion_started_at.sql", import.meta.url),
         "utf8",
       ),
     );
@@ -46,7 +53,7 @@ describe("analytics deletion journal", () => {
         .get(),
     ).toEqual({ deletion_export_sequence: 1 });
 
-    const send = vi.fn(async () => {});
+    const send = vi.fn(async (_records: readonly AnalyticsWarehouseRecord[]) => {});
     await expect(
       drainAnalyticsExports(createD1AnalyticsOutboxStore(db), { send }, { now: 400 }),
     ).resolves.toMatchObject({ selected: 1, sent: 1, failed: 0 });
@@ -57,6 +64,7 @@ describe("analytics deletion journal", () => {
         session_id: "session-default",
       }),
     ]);
+    expect(send.mock.calls[0]?.[0]?.[0]).not.toHaveProperty("session_started_at");
     database.sqlite.close();
   });
 
@@ -65,6 +73,12 @@ describe("analytics deletion journal", () => {
     database.sqlite.exec(
       await readFile(
         new URL("../migrations/0009_analytics_warehouse.sql", import.meta.url),
+        "utf8",
+      ),
+    );
+    database.sqlite.exec(
+      await readFile(
+        new URL("../migrations/0016_analytics_deletion_started_at.sql", import.meta.url),
         "utf8",
       ),
     );
@@ -156,6 +170,7 @@ describe("analytics deletion journal", () => {
     const requiredRow = {
       projectId: "project",
       sessionId: "session",
+      startedAt: 50,
       deleteReason: "delete_requested" as const,
       requiresWarehouseTombstone: 1,
     };
@@ -166,11 +181,12 @@ describe("analytics deletion journal", () => {
     expect(
       database.sqlite
         .prepare(
-          `SELECT requires_warehouse_tombstone AS required
+          `SELECT requires_warehouse_tombstone AS required,
+            session_started_at AS startedAt
           FROM analytics_deletion_jobs WHERE project_id = 'project' AND session_id = 'session'`,
         )
         .get(),
-    ).toEqual({ required: 1 });
+    ).toEqual({ required: 1, startedAt: 50 });
     database.sqlite.close();
   });
 });
@@ -182,6 +198,7 @@ async function sweeperDatabase(): Promise<TestD1Database> {
     `CREATE TABLE sessions (
       project_id TEXT NOT NULL,
       session_id TEXT NOT NULL,
+      started_at INTEGER NOT NULL DEFAULT 1,
       expires_at INTEGER NOT NULL,
       PRIMARY KEY (project_id, session_id)
     );
@@ -196,6 +213,12 @@ async function sweeperDatabase(): Promise<TestD1Database> {
   );
   database.sqlite.exec(
     await readFile(new URL("../migrations/0009_analytics_warehouse.sql", import.meta.url), "utf8"),
+  );
+  database.sqlite.exec(
+    await readFile(
+      new URL("../migrations/0016_analytics_deletion_started_at.sql", import.meta.url),
+      "utf8",
+    ),
   );
   return database;
 }

@@ -174,12 +174,7 @@ function appendRateLimits(lines, ratelimits) {
 
   lines.push('  "ratelimits": [');
   for (const limit of cleanRateLimits) {
-    const note =
-      limit.name === "PUBLIC_PAGE_RATE_LIMITER"
-        ? "protects anonymous public pages and replay reads"
-        : limit.name === "KEY_MANAGEMENT_RATE_LIMITER"
-          ? "protects project key changes"
-          : "protects public ingest before Durable Object writes";
+    const note = rateLimitNote(limit.name);
     lines.push(`    // # created by setup docs: ${String(limit.name)} ${note}.`);
     lines.push("    {");
     lines.push(`      "name": ${JSON.stringify(limit.name)},`);
@@ -188,6 +183,25 @@ function appendRateLimits(lines, ratelimits) {
     lines.push("    },");
   }
   lines.push("  ],");
+}
+
+function rateLimitNote(name) {
+  switch (name) {
+    case "PUBLIC_PAGE_RATE_LIMITER":
+      return "protects anonymous public pages and replay reads";
+    case "KEY_MANAGEMENT_RATE_LIMITER":
+      return "protects project key changes";
+    case "ANALYTICS_ACTOR_RATE_LIMITER":
+      return "limits analytics reads per signed-in person";
+    case "ANALYTICS_PROJECT_RATE_LIMITER":
+      return "limits analytics reads per project";
+    case "ANALYTICS_GLOBAL_RATE_LIMITER":
+      return "adds a fast per-location guard before the exact shared D1 budget";
+    case "LIVE_TICKET_RATE_LIMITER":
+      return "limits one-use live ticket minting per viewer";
+    default:
+      return "protects public ingest before Durable Object writes";
+  }
 }
 
 function appendQueues(lines, queues) {
@@ -230,8 +244,7 @@ function appendTriggers(lines, triggers) {
 }
 
 function appendSecretNotes(lines) {
-  lines.push("  // DEV_API_TOKEN is created with `wrangler secret put DEV_API_TOKEN`.");
-  lines.push("  // DEV_API_PROJECT_IDS is created with `wrangler secret put DEV_API_PROJECT_IDS`.");
+  lines.push("  // Better Auth and GitHub OAuth values are created with `wrangler secret put`.");
   lines.push("  // LIVE_TICKET_SECRET is created with `wrangler secret put LIVE_TICKET_SECRET`.");
   lines.push("  // Do not put secret values in this file.");
 }

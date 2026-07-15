@@ -3,6 +3,8 @@ import type { BatchIndex, IndexEvent, SegmentCheckpoint } from "@orange-replay/s
 export interface StoredBatchMetadata {
   events: IndexEvent[];
   checkpointTimestamps: number[];
+  pageAnalyticsVersion: 0 | 1;
+  url?: string;
 }
 
 export interface StoredSegmentMetadata {
@@ -11,34 +13,36 @@ export interface StoredSegmentMetadata {
 }
 
 export function encodeStoredBatchMetadata(
-  index: Pick<BatchIndex, "e" | "checkpointTimestamps">,
+  index: Pick<BatchIndex, "e" | "checkpointTimestamps" | "u">,
 ): string {
   const checkpointTimestamps = index.checkpointTimestamps ?? [];
-  if (checkpointTimestamps.length === 0) {
-    return JSON.stringify(index.e);
-  }
-
+  const url = nonEmptyText(index.u);
   return JSON.stringify({
+    pageAnalyticsVersion: 1,
     events: index.e,
-    checkpointTimestamps,
+    ...(checkpointTimestamps.length === 0 ? {} : { checkpointTimestamps }),
+    ...(url === undefined ? {} : { url }),
   });
 }
 
 export function parseStoredBatchMetadata(raw: string): StoredBatchMetadata {
   const parsed = parseMetadata(raw);
   if (Array.isArray(parsed)) {
-    return { events: parsed as IndexEvent[], checkpointTimestamps: [] };
+    return { events: parsed as IndexEvent[], checkpointTimestamps: [], pageAnalyticsVersion: 0 };
   }
   if (!isRecord(parsed) || !Array.isArray(parsed["events"])) {
-    return { events: [], checkpointTimestamps: [] };
+    return { events: [], checkpointTimestamps: [], pageAnalyticsVersion: 0 };
   }
 
   const checkpointTimestamps = Array.isArray(parsed["checkpointTimestamps"])
     ? parsed["checkpointTimestamps"].filter(isFiniteNumber)
     : [];
+  const url = nonEmptyText(parsed["url"]);
   return {
     events: parsed["events"] as IndexEvent[],
     checkpointTimestamps,
+    pageAnalyticsVersion: parsed["pageAnalyticsVersion"] === 1 ? 1 : 0,
+    ...(url === undefined ? {} : { url }),
   };
 }
 
@@ -103,6 +107,10 @@ function isSegmentCheckpoint(value: unknown): value is SegmentCheckpoint {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+function nonEmptyText(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

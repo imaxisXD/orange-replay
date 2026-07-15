@@ -1,15 +1,5 @@
 const secretDefinitions = Object.freeze([
   Object.freeze({
-    workerName: "DEV_API_TOKEN",
-    environmentName: "ORANGE_REPLAY_PROD_API_TOKEN",
-    kind: "secret",
-  }),
-  Object.freeze({
-    workerName: "DEV_API_PROJECT_IDS",
-    environmentName: "ORANGE_REPLAY_PROD_API_PROJECT_IDS",
-    kind: "project_ids",
-  }),
-  Object.freeze({
     workerName: "BETTER_AUTH_SECRET",
     environmentName: "ORANGE_REPLAY_PROD_BETTER_AUTH_SECRET",
     kind: "secret",
@@ -84,9 +74,18 @@ export const productionSecretEnvironmentNames = Object.freeze(
   secretDefinitions.map((definition) => definition.environmentName),
 );
 
+export const retiredProductionWorkerSecretNames = Object.freeze([
+  "DEV_API_TOKEN",
+  "DEV_API_PROJECT_IDS",
+]);
+
 const extraSensitiveEnvironmentNames = Object.freeze([
+  "DEV_API_PROJECT_IDS",
+  "DEV_API_TOKEN",
   "ORANGE_REPLAY_CATALOG_TOKEN",
   "ORANGE_REPLAY_PIPELINE_CATALOG_TOKEN",
+  "ORANGE_REPLAY_PROD_API_PROJECT_IDS",
+  "ORANGE_REPLAY_PROD_API_TOKEN",
   "ORANGE_REPLAY_R2_INVENTORY_TOKEN",
   "ORANGE_REPLAY_R2_SQL_READ_TOKEN",
   "ORANGE_REPLAY_PROD_WRITE_KEY",
@@ -97,9 +96,7 @@ export function readProductionSecretValues(environment = process.env) {
   const values = {};
   for (const definition of secretDefinitions) {
     const value = environment[definition.environmentName];
-    if (definition.kind === "project_ids") {
-      values[definition.workerName] = readValidProjectIds(value, definition.environmentName);
-    } else if (definition.kind === "project_id") {
+    if (definition.kind === "project_id") {
       values[definition.workerName] = readValidProjectId(value, definition.environmentName);
     } else if (definition.kind === "write_key") {
       values[definition.workerName] = readValidWriteKey(value, definition.environmentName);
@@ -139,24 +136,7 @@ export function readProductionR2SqlToken(environment = process.env) {
 }
 
 export function readProductionSmokeValues(environment = process.env) {
-  const projectIds = readValidProjectIds(
-    environment.ORANGE_REPLAY_PROD_API_PROJECT_IDS,
-    "ORANGE_REPLAY_PROD_API_PROJECT_IDS",
-  );
-  const allowedProjectIds = projectIds.split(",");
-  const requestedProjectId = environment.ORANGE_REPLAY_PROD_PROJECT_ID;
-  const smokeProjectId =
-    requestedProjectId === undefined || requestedProjectId.length === 0
-      ? allowedProjectIds[0]
-      : readValidSmokeProjectId(requestedProjectId, allowedProjectIds);
-
   return {
-    apiToken: readValidSecret(
-      environment.ORANGE_REPLAY_PROD_API_TOKEN,
-      "ORANGE_REPLAY_PROD_API_TOKEN",
-    ),
-    projectIds,
-    smokeProjectId,
     workerOrigin: readValidHttpsOrigin(
       environment.ORANGE_REPLAY_PROD_WORKER_URL,
       "ORANGE_REPLAY_PROD_WORKER_URL",
@@ -209,33 +189,6 @@ function readValidSecret(value, name, options = {}) {
     throw new Error(`${name} must not use a placeholder value.`);
   }
   return value;
-}
-
-function readValidProjectIds(value, name) {
-  if (typeof value !== "string" || value.length === 0) {
-    throw new Error(`${name} is required before production deploy.`);
-  }
-
-  const projectIds = value.split(",").map((part) => part.trim());
-  if (projectIds.some((projectId) => projectId.length === 0)) {
-    throw new Error(`${name} must be a comma-separated list without empty values.`);
-  }
-  for (const projectId of projectIds) {
-    if (!pathIdPattern.test(projectId)) {
-      throw new Error(`${name} contains an invalid project id: ${projectId}`);
-    }
-  }
-  return [...new Set(projectIds)].join(",");
-}
-
-function readValidSmokeProjectId(projectId, allowedProjectIds) {
-  if (!pathIdPattern.test(projectId)) {
-    throw new Error("ORANGE_REPLAY_PROD_PROJECT_ID must be a valid project id.");
-  }
-  if (!allowedProjectIds.includes(projectId)) {
-    throw new Error("ORANGE_REPLAY_PROD_PROJECT_ID must be in ORANGE_REPLAY_PROD_API_PROJECT_IDS.");
-  }
-  return projectId;
 }
 
 function readValidProjectId(value, name) {

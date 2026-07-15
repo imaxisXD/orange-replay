@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { cp, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
-import { join, relative, sep } from "node:path";
+import { lstat, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join, relative, sep } from "node:path";
 import { parseJsonc } from "./jsonc.mjs";
 import { sourceMigrationsPath, sourceWranglerPath } from "./paths.mjs";
 import { buildTemplateReadme, buildTemplateWrangler } from "./render-template.mjs";
@@ -8,7 +8,7 @@ import { buildTemplateReadme, buildTemplateWrangler } from "./render-template.mj
 export async function buildTemplateFiles(root, stamp) {
   const wranglerPath = join(root, sourceWranglerPath);
   const migrationsDir = join(root, sourceMigrationsPath);
-  const sourceWrangler = await readFile(wranglerPath, "utf8");
+  const sourceWrangler = await readRegularFile(wranglerPath, "utf8");
   const sourceConfig = parseJsonc(sourceWrangler, sourceWranglerPath);
   const sourceHash = await hashInputs(root);
 
@@ -31,7 +31,7 @@ async function hashInputs(root) {
     const relativePath = relative(root, file).split(sep).join("/");
     hash.update(relativePath);
     hash.update("\0");
-    hash.update(await readFile(file));
+    hash.update(await readRegularFile(file));
     hash.update("\0");
   }
 
@@ -40,7 +40,7 @@ async function hashInputs(root) {
 
 export async function writeGeneratedTemplate(generated, outDir) {
   await mkdir(outDir, { recursive: true });
-  await cp(generated.migrationsDir, join(outDir, "migrations"), { recursive: true });
+  await copyRegularDirectory(generated.migrationsDir, join(outDir, "migrations"));
   await writeFile(join(outDir, "wrangler.jsonc"), generated.wrangler, "utf8");
   await writeFile(join(outDir, "README.md"), generated.readme, "utf8");
   await writeFile(
@@ -91,6 +91,10 @@ async function snapshotFiles(dir) {
 
 async function listFiles(dir) {
   const output = [];
+  const directoryInfo = await lstat(dir);
+  if (!directoryInfo.isDirectory() || directoryInfo.isSymbolicLink()) {
+    throw new Error(`Template path must be a regular directory: ${dir}`);
+  }
   const entries = await readdir(dir, { withFileTypes: true });
 
   for (const entry of entries) {
@@ -99,15 +103,37 @@ async function listFiles(dir) {
       output.push(...(await listFiles(path)));
     } else if (entry.isFile()) {
       output.push(path);
+    } else if (entry.isSymbolicLink()) {
+      throw new Error(`Symbolic links are not allowed in template files: ${path}`);
+    } else {
+      throw new Error(`Only regular files and directories are allowed in templates: ${path}`);
     }
   }
 
   return output;
 }
 
+async function copyRegularDirectory(sourceDir, targetDir) {
+  const files = await listFiles(sourceDir);
+  await mkdir(targetDir, { recursive: true });
+  for (const sourceFile of files) {
+    const targetFile = join(targetDir, relative(sourceDir, sourceFile));
+    await mkdir(dirname(targetFile), { recursive: true });
+    await writeFile(targetFile, await readFile(sourceFile));
+  }
+}
+
+async function readRegularFile(path, encoding) {
+  const fileInfo = await lstat(path);
+  if (!fileInfo.isFile() || fileInfo.isSymbolicLink()) {
+    throw new Error(`Template path must be a regular file: ${path}`);
+  }
+  return encoding === undefined ? readFile(path) : readFile(path, encoding);
+}
+
 async function exists(path) {
   try {
-    await stat(path);
+    await lstat(path);
     return true;
   } catch (error) {
     if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {

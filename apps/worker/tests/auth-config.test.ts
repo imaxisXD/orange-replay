@@ -5,32 +5,13 @@ import type { Env } from "../src/env.ts";
 const secureSecret = "orange-replay-test-secret-32-characters";
 
 describe("hosted auth configuration", () => {
-  it("uses the local token only when its token and project list are valid", () => {
-    expect(
-      getAuthMode(
-        env({
-          DEV_API_TOKEN: "t".repeat(32),
-          DEV_API_PROJECT_IDS: "project_one,project-two",
-        }),
-      ),
-    ).toBe("token");
-
+  it("is unavailable until every Better Auth value is valid", () => {
     expect(getAuthMode(env({}))).toBe("unavailable");
-    expect(
-      getAuthMode(
-        env({
-          DEV_API_TOKEN: "too-short",
-          DEV_API_PROJECT_IDS: "project_one",
-        }),
-      ),
-    ).toBe("unavailable");
   });
 
   it("fails closed when hosted auth is only partly configured", () => {
     const value = env({
       BETTER_AUTH_SECRET: secureSecret,
-      DEV_API_TOKEN: "t".repeat(32),
-      DEV_API_PROJECT_IDS: "project_one",
     });
 
     expect(getAuthMode(value)).toBe("unavailable");

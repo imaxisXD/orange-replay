@@ -8,7 +8,59 @@ export interface PageTabState {
   enteredAt?: number;
 }
 
+export interface StoredPageBatch {
+  tab: string;
+  seq: number;
+  t0: number;
+  t1: number;
+  url?: string;
+  events: BatchIndex["e"];
+  pageAnalyticsVersion: 0 | 1;
+}
+
 export const MAX_TRACKED_PAGE_TABS = 16;
+
+/** Rebuilds finalized URL metrics in durable per-tab sequence order. */
+export function rebuildFinalPageAnalytics(
+  state: {
+    entryUrl?: string;
+    urlCount: number;
+    pageCount: number;
+    pageTabs: PageTabState[];
+    quickBacks?: number;
+  },
+  batches: readonly StoredPageBatch[],
+): void {
+  delete state.entryUrl;
+  state.urlCount = 0;
+  state.pageCount = 0;
+  state.quickBacks = 0;
+  state.pageTabs = [];
+
+  const entryBatch = batches
+    .filter((batch) => nonEmptyUrl(batch.url) !== undefined)
+    .toSorted(
+      (left, right) =>
+        left.t0 - right.t0 || left.tab.localeCompare(right.tab) || left.seq - right.seq,
+    )[0];
+  state.entryUrl = nonEmptyUrl(entryBatch?.url);
+
+  for (const batch of batches.toSorted(
+    (left, right) => left.tab.localeCompare(right.tab) || left.seq - right.seq,
+  )) {
+    const currentUrl = nonEmptyUrl(batch.url);
+    if (currentUrl !== undefined) {
+      const lastTabUrl = state.pageTabs.find((pageTab) => pageTab.tab === batch.tab)?.url;
+      if (lastTabUrl !== currentUrl) state.urlCount += 1;
+    }
+    updatePageTrackingWithBatch(state, batch.tab, {
+      u: currentUrl,
+      t0: batch.t0,
+      t1: batch.t1,
+      e: batch.events,
+    });
+  }
+}
 
 export function updatePageTrackingWithBatch(
   state: { pageCount: number; pageTabs: PageTabState[]; quickBacks?: number },

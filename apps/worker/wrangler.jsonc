@@ -14,6 +14,7 @@
     "WORKER_ENV": "development",
     "ANALYTICS_READ_BACKEND": "d1",
     "ANALYTICS_EXPORT_ENABLED": "0",
+    "ANALYTICS_DELETION_READ_VERSION": "v1",
   },
   "durable_objects": {
     "bindings": [
@@ -66,6 +67,26 @@
       "namespace_id": "1006",
       "simple": { "limit": 600, "period": 60 },
     },
+    {
+      "name": "ANALYTICS_ACTOR_RATE_LIMITER",
+      "namespace_id": "1007",
+      "simple": { "limit": 30, "period": 60 },
+    },
+    {
+      "name": "ANALYTICS_PROJECT_RATE_LIMITER",
+      "namespace_id": "1008",
+      "simple": { "limit": 300, "period": 60 },
+    },
+    {
+      "name": "ANALYTICS_GLOBAL_RATE_LIMITER",
+      "namespace_id": "1009",
+      "simple": { "limit": 600, "period": 60 },
+    },
+    {
+      "name": "LIVE_TICKET_RATE_LIMITER",
+      "namespace_id": "1010",
+      "simple": { "limit": 30, "period": 60 },
+    },
   ],
   "queues": {
     "producers": [{ "binding": "FINALIZE_QUEUE", "queue": "or-session-finalized" }],
@@ -114,6 +135,7 @@
         "WORKER_ENV": "production",
         "ANALYTICS_READ_BACKEND": "REPLACE_WITH_PRODUCTION_ANALYTICS_READ_BACKEND",
         "ANALYTICS_EXPORT_ENABLED": "1",
+        "ANALYTICS_DELETION_READ_VERSION": "REPLACE_WITH_PRODUCTION_ANALYTICS_DELETION_READ_VERSION",
         "R2_SQL_ACCOUNT_ID": "REPLACE_WITH_PRODUCTION_ACCOUNT_ID",
         "R2_SQL_BUCKET": "orange-replay-analytics-prod",
         "PUBLIC_PAGE_ORIGIN": "https://public-page-origin.invalid",
@@ -146,6 +168,10 @@
         {
           "binding": "ANALYTICS_STREAM",
           "stream": "REPLACE_WITH_PRODUCTION_ANALYTICS_STREAM_ID",
+        },
+        {
+          "binding": "ANALYTICS_DELETION_V2_STREAM",
+          "stream": "REPLACE_WITH_PRODUCTION_ANALYTICS_DELETION_V2_STREAM_ID",
         },
       ],
       "kv_namespaces": [{ "binding": "CONFIG", "id": "REPLACE_WITH_PRODUCTION_KV_ID" }],
@@ -187,6 +213,26 @@
           "name": "PUBLIC_PAGE_RATE_LIMITER",
           "namespace_id": "1006",
           "simple": { "limit": 600, "period": 60 },
+        },
+        {
+          "name": "ANALYTICS_ACTOR_RATE_LIMITER",
+          "namespace_id": "1007",
+          "simple": { "limit": 30, "period": 60 },
+        },
+        {
+          "name": "ANALYTICS_PROJECT_RATE_LIMITER",
+          "namespace_id": "1008",
+          "simple": { "limit": 300, "period": 60 },
+        },
+        {
+          "name": "ANALYTICS_GLOBAL_RATE_LIMITER",
+          "namespace_id": "1009",
+          "simple": { "limit": 600, "period": 60 },
+        },
+        {
+          "name": "LIVE_TICKET_RATE_LIMITER",
+          "namespace_id": "1010",
+          "simple": { "limit": 30, "period": 60 },
         },
       ],
       "queues": {

@@ -80,11 +80,6 @@ export function rebuildRollbackStepEnvironment(step, environment) {
   const cleanEnvironment = withoutCloudflareAuth(withoutProductionSecrets(environment));
   if (step.kind === "deploy_rebuild") {
     copyEnvironmentValues(cleanEnvironment, environment, cloudflareAuthEnvironmentNames);
-  } else if (step.kind === "smoke") {
-    copyEnvironmentValues(cleanEnvironment, environment, [
-      "ORANGE_REPLAY_PROD_API_TOKEN",
-      "ORANGE_REPLAY_PROD_API_PROJECT_IDS",
-    ]);
   }
   return cleanEnvironment;
 }

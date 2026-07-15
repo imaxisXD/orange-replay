@@ -13,14 +13,14 @@ import {
   sha256Hex,
   validateWriteKeyHeader,
 } from "./helpers.ts";
-import { loadProjectConfig } from "./project-config-loader.ts";
+import { lookupProjectConfig } from "./project-config-lookup.ts";
 import { ingestIpRateLimitAllows } from "./rate-limit.ts";
 import { jsonResponse } from "./response.ts";
 
 export async function handleRecorderConfig(
   request: Request,
   env: Env,
-  ctx: ExecutionContext,
+  _ctx: ExecutionContext,
 ): Promise<Response> {
   setWorkerLoggerVersion(env);
   const requestId = uuidv7();
@@ -62,7 +62,7 @@ export async function handleRecorderConfig(
       event.set({ rate_limit: "lookup" });
       return finish({ error: "rate_limited" }, 429, "rate_limited");
     }
-    const configResult = await loadProjectConfig(env, ctx, keyHash, request, true);
+    const configResult = await lookupProjectConfig(env, keyHash, request, true);
     event.set({ kv_hit: configResult.kvHit });
     if (configResult.lookupRateLimited) {
       event.set({ rate_limit: "lookup" });
@@ -83,6 +83,7 @@ export async function handleRecorderConfig(
     }
 
     const recorderConfig: RecorderProjectConfig = {
+      projectId: config.projectId,
       sampleRate: config.quotaState === "exceeded" ? 0 : config.sampleRate,
       maskPolicyVersion: config.maskPolicyVersion,
       maskRules: config.maskRules ?? [],

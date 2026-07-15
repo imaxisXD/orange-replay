@@ -1,6 +1,5 @@
-import { encodeSessionFilter } from "@orange-replay/shared";
+import { encodeSessionFilter, projectStatsResponseSchema } from "@orange-replay/shared";
 import { describe, expect, it } from "vite-plus/test";
-import type { ProjectStats } from "../src/api/stats.ts";
 import {
   authHeaders,
   entryPageProjectId,
@@ -177,7 +176,7 @@ describe("dashboard api", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers.get("cache-control")).toBe("private, no-store");
-    const stats = (await res.json()) as ProjectStats;
+    const stats = projectStatsResponseSchema.parse(await res.json());
     expect(stats.sessions).toEqual({ value: 3, filter: {} });
     expect(stats.duration.average).toEqual({ value: 1500, filter: {} });
     expect(stats.duration.p50).toEqual({ value: 1500, filter: {} });
@@ -214,7 +213,7 @@ describe("dashboard api", () => {
       headers: authHeaders(),
     });
     expect(afterPresenceChange.status).toBe(200);
-    const refreshedLive = (await afterPresenceChange.json()) as ProjectStats;
+    const refreshedLive = projectStatsResponseSchema.parse(await afterPresenceChange.json());
     expect(refreshedLive.sessions.value).toBe(3);
     expect(refreshedLive.liveNow.value).toBe(0);
   });
@@ -224,7 +223,7 @@ describe("dashboard api", () => {
       headers: authHeaders(),
     });
     expect(statsResponse.status).toBe(200);
-    const stats = (await statsResponse.json()) as ProjectStats;
+    const stats = projectStatsResponseSchema.parse(await statsResponse.json());
     const countryRow = stats.breakdowns.country.find((row) => row.label === "US");
     expect(countryRow).toBeDefined();
     if (countryRow === undefined) return;
@@ -239,7 +238,7 @@ describe("dashboard api", () => {
       headers: authHeaders(),
     });
     expect(statsResponse.status).toBe(200);
-    const stats = (await statsResponse.json()) as ProjectStats;
+    const stats = projectStatsResponseSchema.parse(await statsResponse.json());
     const sessions = await getSessions(
       encodeSessionFilter(stats.insights.ragePercent.filter).toString(),
     );
@@ -253,7 +252,7 @@ describe("dashboard api", () => {
       headers: authHeaders(),
     });
     expect(statsResponse.status).toBe(200);
-    const stats = (await statsResponse.json()) as ProjectStats;
+    const stats = projectStatsResponseSchema.parse(await statsResponse.json());
 
     const coveredSessions = await getSessions(
       encodeSessionFilter(stats.pagesPerSession.includedSessions.filter).toString(),
@@ -276,7 +275,7 @@ describe("dashboard api", () => {
       headers: authHeaders(),
     });
     expect(statsResponse.status).toBe(200);
-    const stats = (await statsResponse.json()) as ProjectStats;
+    const stats = projectStatsResponseSchema.parse(await statsResponse.json());
     expect(stats.breakdowns.entryPage.map((row) => [row.label, row.count.value])).toEqual([
       ["/shop", 1],
       ["/shop/cart", 1],

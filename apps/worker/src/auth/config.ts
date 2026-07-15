@@ -16,10 +16,7 @@ const REQUIRED_AUTH_CONFIGURATION_KEYS = [
   "GITHUB_CLIENT_SECRET",
 ] as const;
 
-const MIN_API_TOKEN_LENGTH = 32;
-const PATH_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
-
-export type AuthMode = "github" | "token" | "unavailable";
+export type AuthMode = "github" | "unavailable";
 
 export interface HostedAuthConfig {
   baseUrl: string;
@@ -99,32 +96,11 @@ function readHostedAuthStatus(env: Env): ParsedHostedAuthStatus {
 export function getAuthMode(env: Env): AuthMode {
   const status = getHostedAuthStatus(env);
   if (status.state === "ready") return "github";
-  if (status.state === "invalid") return "unavailable";
-  return isTokenAuthConfigured(env) ? "token" : "unavailable";
+  return "unavailable";
 }
 
 export function isHostedAuthConfigured(env: Env): boolean {
   return getHostedAuthStatus(env).state === "ready";
-}
-
-export function isTokenAuthConfigured(
-  env: Pick<Env, "DEV_API_TOKEN" | "DEV_API_PROJECT_IDS">,
-): boolean {
-  const token = env.DEV_API_TOKEN;
-  if (typeof token !== "string" || token.length < MIN_API_TOKEN_LENGTH || token.trim() !== token) {
-    return false;
-  }
-
-  const projectIds = env.DEV_API_PROJECT_IDS;
-  if (typeof projectIds !== "string") return false;
-  const values = projectIds.split(",");
-  return (
-    values.length > 0 &&
-    values.every((value) => {
-      const projectId = value.trim();
-      return projectId.length > 0 && PATH_ID_PATTERN.test(projectId);
-    })
-  );
 }
 
 export function getTrustedOrigins(env: Env): readonly string[] {

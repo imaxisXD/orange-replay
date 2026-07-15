@@ -1,5 +1,5 @@
+import { accountResponseSchema } from "@orange-replay/shared";
 import { describe, expect, it } from "vite-plus/test";
-import type { AccountResponse } from "../src/api/account-routes.ts";
 import { setupApiTestWorkers, worker } from "./api-test-helpers.ts";
 
 setupApiTestWorkers();
@@ -28,7 +28,7 @@ describe("hosted account bootstrap", () => {
       body: JSON.stringify(body),
     });
     expect(first.status).toBe(200);
-    const firstAccount = (await first.json()) as AccountResponse;
+    const firstAccount = accountResponseSchema.parse(await first.json());
     expect(firstAccount.workspaces).toHaveLength(1);
     expect(firstAccount.workspaces[0]).toMatchObject({
       id: expect.stringMatching(/^workspace_[a-f0-9]{20}$/),
@@ -109,7 +109,7 @@ describe("hosted account bootstrap", () => {
     });
     expect(response.status).toBe(200);
 
-    const account = (await response.json()) as AccountResponse;
+    const account = accountResponseSchema.parse(await response.json());
     expect(account.workspaces).toHaveLength(1);
     expect(account.workspaces[0]?.projects).toEqual([]);
     const workspaceId = account.workspaces[0]?.id ?? "";

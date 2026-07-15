@@ -26,14 +26,17 @@ import {
   productionStepEnvironment,
   runProductionDeploy,
 } from "./deploy-production.mjs";
+import {
+  readRetiredSecretRemovalOptions,
+  removeRetiredProductionSecrets,
+} from "./remove-retired-prod-secrets.mjs";
 
 const longSecret = "x".repeat(40);
 const demoWriteKey = `or_live_${"d".repeat(32)}`;
 
 function validEnvironment() {
   return {
-    ORANGE_REPLAY_PROD_API_TOKEN: `${longSecret}api`,
-    ORANGE_REPLAY_PROD_API_PROJECT_IDS: "project_one, project_two,project_one",
+    ORANGE_REPLAY_PROD_PROJECT_ID: "project_one",
     ORANGE_REPLAY_PROD_BETTER_AUTH_SECRET: `${longSecret}auth`,
     ORANGE_REPLAY_PROD_BETTER_AUTH_URL: "https://replay.example.com",
     ORANGE_REPLAY_PROD_BETTER_AUTH_TRUSTED_ORIGINS:
@@ -51,6 +54,8 @@ function validEnvironment() {
     CLOUDFLARE_ACCESS_CLIENT_SECRET: "cloudflare-access-secret",
     SAFE_VALUE: "keep",
     ORANGE_REPLAY_PROD_ANALYTICS_READ_BACKEND: "r2_sql",
+    ORANGE_REPLAY_PROD_ANALYTICS_DELETION_V2_STREAM_ID: "deletion-v2-stream",
+    ORANGE_REPLAY_PROD_ANALYTICS_DELETION_READ_VERSION: "v1",
   };
 }
 
@@ -64,8 +69,6 @@ describe("production deploy secret safety", () => {
       BETTER_AUTH_URL: "https://replay.example.com",
       DEMO_PROJECT_ID: "demo_project",
       DEMO_WRITE_KEY: demoWriteKey,
-      DEV_API_PROJECT_IDS: "project_one,project_two",
-      DEV_API_TOKEN: `${longSecret}api`,
       GITHUB_CLIENT_ID: "github-client-id-12345",
       GITHUB_CLIENT_SECRET: `${longSecret}github`,
       LIVE_TICKET_SECRET: `${longSecret}ticket`,
@@ -74,19 +77,13 @@ describe("production deploy secret safety", () => {
     expect(readWorkerDeploySecrets(validEnvironment())).toEqual(values);
   });
 
-  it("rejects short secrets and unsafe project ids", () => {
+  it("rejects short secrets and invalid hosted values", () => {
     expect(() =>
       readProductionSecretValues({
         ...validEnvironment(),
         ORANGE_REPLAY_PROD_R2_SQL_TOKEN: "short",
       }),
     ).toThrow("ORANGE_REPLAY_PROD_R2_SQL_TOKEN must be at least 32 characters");
-    expect(() =>
-      readProductionSecretValues({
-        ...validEnvironment(),
-        ORANGE_REPLAY_PROD_API_PROJECT_IDS: "project_one,bad project",
-      }),
-    ).toThrow("ORANGE_REPLAY_PROD_API_PROJECT_IDS contains an invalid project id");
     expect(() =>
       readProductionSecretValues({
         ...validEnvironment(),
@@ -104,25 +101,12 @@ describe("production deploy secret safety", () => {
     ).toThrow("ORANGE_REPLAY_DEMO_WRITE_KEY must be a generated key that starts with or_live_");
   });
 
-  it("checks hosted-build smoke credentials before any deploy step", async () => {
+  it("checks the hosted smoke origin before any deploy step", async () => {
     expect(readProductionSmokeValues(validEnvironment())).toEqual({
-      apiToken: `${longSecret}api`,
-      projectIds: "project_one,project_two",
-      smokeProjectId: "project_one",
       workerOrigin: "https://replay.example.com",
     });
 
     for (const [name, value, error] of [
-      [
-        "ORANGE_REPLAY_PROD_API_TOKEN",
-        "",
-        "ORANGE_REPLAY_PROD_API_TOKEN is required before production deploy",
-      ],
-      [
-        "ORANGE_REPLAY_PROD_API_PROJECT_IDS",
-        "",
-        "ORANGE_REPLAY_PROD_API_PROJECT_IDS is required before production deploy",
-      ],
       [
         "ORANGE_REPLAY_PROD_WORKER_URL",
         "",
@@ -164,6 +148,10 @@ describe("production deploy secret safety", () => {
       ORANGE_REPLAY_R2_INVENTORY_TOKEN: "inventory",
       ORANGE_REPLAY_R2_SQL_READ_TOKEN: "reader",
       ORANGE_REPLAY_PROD_WRITE_KEY: "write-key",
+      ORANGE_REPLAY_PROD_API_TOKEN: "retired-prod-token",
+      ORANGE_REPLAY_PROD_API_PROJECT_IDS: "retired-prod-projects",
+      DEV_API_TOKEN: "retired-dev-token",
+      DEV_API_PROJECT_IDS: "retired-dev-projects",
       WRANGLER_R2_SQL_AUTH_TOKEN: "wrangler-reader",
       BETTER_AUTH_SECRET: "direct-auth",
       BETTER_AUTH_URL: "direct-auth-url",
@@ -172,8 +160,6 @@ describe("production deploy secret safety", () => {
       GITHUB_CLIENT_SECRET: "direct-github-secret",
       DEMO_PROJECT_ID: "direct-demo-project",
       DEMO_WRITE_KEY: "direct-demo-write-key",
-      DEV_API_TOKEN: "direct-api",
-      DEV_API_PROJECT_IDS: "direct-projects",
       LIVE_TICKET_SECRET: "direct-ticket",
       R2_SQL_TOKEN: "direct-r2",
       ANALYTICS_PURGE_RUNNER_TOKEN: "direct-purge",
@@ -188,6 +174,10 @@ describe("production deploy secret safety", () => {
       "ORANGE_REPLAY_R2_INVENTORY_TOKEN",
       "ORANGE_REPLAY_R2_SQL_READ_TOKEN",
       "ORANGE_REPLAY_PROD_WRITE_KEY",
+      "ORANGE_REPLAY_PROD_API_TOKEN",
+      "ORANGE_REPLAY_PROD_API_PROJECT_IDS",
+      "DEV_API_TOKEN",
+      "DEV_API_PROJECT_IDS",
       "WRANGLER_R2_SQL_AUTH_TOKEN",
     ]) {
       expect(clean[name]).toBeUndefined();
@@ -198,7 +188,9 @@ describe("production deploy secret safety", () => {
     const clean = withoutCloudflareAuth(validEnvironment());
     expect(clean.SAFE_VALUE).toBe("keep");
     for (const name of cloudflareAuthEnvironmentNames) expect(clean[name]).toBeUndefined();
-    expect(clean.ORANGE_REPLAY_PROD_API_TOKEN).toBe(`${longSecret}api`);
+    expect(clean.ORANGE_REPLAY_PROD_BETTER_AUTH_URL).toBe(
+      validEnvironment().ORANGE_REPLAY_PROD_BETTER_AUTH_URL,
+    );
   });
 
   it("uploads the exact R2 token for Cloudflare compare and R2 modes", () => {
@@ -232,7 +224,6 @@ describe("production deploy secret safety", () => {
     expect(environment.ORANGE_REPLAY_PROD_R2_SQL_TOKEN).toBe(workerToken);
     expect(environment.ORANGE_REPLAY_R2_SQL_READ_TOKEN).toBeUndefined();
     expect(environment.WRANGLER_R2_SQL_AUTH_TOKEN).toBeUndefined();
-    expect(environment.ORANGE_REPLAY_PROD_API_TOKEN).toBeUndefined();
     expect(environment.ORANGE_REPLAY_PROD_LIVE_TICKET_SECRET).toBeUndefined();
     expect(environment.ORANGE_REPLAY_PROD_ANALYTICS_PURGE_RUNNER_TOKEN).toBeUndefined();
   });
@@ -310,13 +301,11 @@ ${secretBlock}      "vars": { "ANALYTICS_READ_BACKEND": "d1" }
     expect(run.mock.calls[0]?.[1]).toContain(`${newestId}@100%`);
     expect(run.mock.calls[0]?.[1]).not.toContain("--config");
     expect(run.mock.calls[0]?.[2].CLOUDFLARE_API_TOKEN).toBe("cloudflare-deploy-token");
-    expect(run.mock.calls[0]?.[2].ORANGE_REPLAY_PROD_API_TOKEN).toBeUndefined();
   });
 
   it("gives each normal deploy step only the secrets it needs", async () => {
     const environment = {
       ...validEnvironment(),
-      DEV_API_TOKEN: "direct-api",
       ORANGE_REPLAY_CATALOG_TOKEN: "catalog",
       ORANGE_REPLAY_PROD_WRITE_KEY: "write-key",
     };
@@ -343,7 +332,10 @@ ${secretBlock}      "vars": { "ANALYTICS_READ_BACKEND": "d1" }
       expect(childEnvironment.ORANGE_REPLAY_PROD_PUBLIC_PAGE_ORIGIN).toBe(
         environment.ORANGE_REPLAY_PROD_PUBLIC_PAGE_ORIGIN,
       );
-      expect(childEnvironment.DEV_API_TOKEN).toBeUndefined();
+      expect(childEnvironment.ORANGE_REPLAY_PROD_ANALYTICS_DELETION_V2_STREAM_ID).toBe(
+        environment.ORANGE_REPLAY_PROD_ANALYTICS_DELETION_V2_STREAM_ID,
+      );
+      expect(childEnvironment.ORANGE_REPLAY_PROD_ANALYTICS_DELETION_READ_VERSION).toBe("v1");
       expect(childEnvironment.ORANGE_REPLAY_CATALOG_TOKEN).toBeUndefined();
       expect(childEnvironment.ORANGE_REPLAY_PROD_WRITE_KEY).toBeUndefined();
       const needsCloudflareAuth = new Set([
@@ -360,27 +352,15 @@ ${secretBlock}      "vars": { "ANALYTICS_READ_BACKEND": "d1" }
         needsCloudflareAuth ? environment.CLOUDFLARE_ACCESS_CLIENT_SECRET : undefined,
       );
 
-      if (step.kind === "build") {
-        expect(childEnvironment.ORANGE_REPLAY_PROD_API_PROJECT_IDS).toBe(
-          environment.ORANGE_REPLAY_PROD_API_PROJECT_IDS,
-        );
-        expect(childEnvironment.ORANGE_REPLAY_PROD_API_TOKEN).toBeUndefined();
-      } else if (step.kind === "gate") {
+      if (step.kind === "gate") {
         expect(childEnvironment.ORANGE_REPLAY_PROD_R2_SQL_TOKEN).toBe(
           environment.ORANGE_REPLAY_PROD_R2_SQL_TOKEN,
         );
-        expect(childEnvironment.ORANGE_REPLAY_PROD_API_TOKEN).toBeUndefined();
       } else if (step.kind === "deploy" || step.kind === "upload_fallback") {
         for (const name of productionSecretEnvironmentNames) {
           expect(childEnvironment[name]).toBe(environment[name]);
         }
       } else if (step.kind === "smoke") {
-        expect(childEnvironment.ORANGE_REPLAY_PROD_API_TOKEN).toBe(
-          environment.ORANGE_REPLAY_PROD_API_TOKEN,
-        );
-        expect(childEnvironment.ORANGE_REPLAY_PROD_API_PROJECT_IDS).toBe(
-          environment.ORANGE_REPLAY_PROD_API_PROJECT_IDS,
-        );
         expect(childEnvironment.ORANGE_REPLAY_PROD_R2_SQL_TOKEN).toBeUndefined();
       } else {
         for (const name of productionSecretEnvironmentNames) {
@@ -415,7 +395,6 @@ ${secretBlock}      "vars": { "ANALYTICS_READ_BACKEND": "d1" }
     expect(deployEnvironment.ORANGE_REPLAY_PROD_R2_SQL_TOKEN).toBe(
       environment.ORANGE_REPLAY_PROD_R2_SQL_TOKEN,
     );
-    expect(deployEnvironment.ORANGE_REPLAY_PROD_API_TOKEN).toBeUndefined();
     expect(deployEnvironment.ORANGE_REPLAY_PROD_LIVE_TICKET_SECRET).toBeUndefined();
 
     const fallbackStep = steps.find((step) => step.kind === "upload_fallback");
@@ -433,5 +412,53 @@ ${secretBlock}      "vars": { "ANALYTICS_READ_BACKEND": "d1" }
       report: () => undefined,
     });
     expect(runStep).toHaveBeenCalledTimes(steps.length);
+  });
+
+  it("removes retired Worker secrets only after listing them and verifies absence", async () => {
+    const uploaded = new Set([
+      ...productionWorkerSecretNames,
+      "DEV_API_TOKEN",
+      "DEV_API_PROJECT_IDS",
+    ]);
+    const removeSecret = vi.fn(async (name) => {
+      uploaded.delete(name);
+    });
+
+    await expect(
+      removeRetiredProductionSecrets({
+        listUploaded: async () => new Set(uploaded),
+        removeSecret,
+      }),
+    ).resolves.toEqual(["DEV_API_TOKEN", "DEV_API_PROJECT_IDS"]);
+    expect(removeSecret.mock.calls.map(([name]) => name)).toEqual([
+      "DEV_API_TOKEN",
+      "DEV_API_PROJECT_IDS",
+    ]);
+    expect(uploaded).toEqual(new Set(productionWorkerSecretNames));
+  });
+
+  it("does not retire old secrets when a required Better Auth-era secret is missing", async () => {
+    const uploaded = new Set([
+      ...productionWorkerSecretNames.filter((name) => name !== "GITHUB_CLIENT_SECRET"),
+      "DEV_API_TOKEN",
+    ]);
+    const removeSecret = vi.fn(async () => undefined);
+
+    await expect(
+      removeRetiredProductionSecrets({
+        listUploaded: async () => new Set(uploaded),
+        removeSecret,
+      }),
+    ).rejects.toThrow("GITHUB_CLIENT_SECRET");
+    expect(removeSecret).not.toHaveBeenCalled();
+  });
+
+  it("requires an explicit real-login confirmation before remote secret retirement", () => {
+    expect(() => readRetiredSecretRemovalOptions([])).toThrow(
+      "Confirm a real production Better Auth login first",
+    );
+    expect(readRetiredSecretRemovalOptions(["--confirm-better-auth-login"])).toMatchObject({
+      confirmedLogin: true,
+    });
   });
 });

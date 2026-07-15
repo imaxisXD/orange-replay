@@ -20,6 +20,7 @@ describe("analytics warehouse runtime gate", () => {
     const db = makeDatabase({ backfillCompleted: true, requiredSequence: 0, verifiedSequence: 0 });
 
     await expect(readWarehouseSnapshot(db, "project_1")).resolves.toEqual({
+      deletionTableVersion: "v1",
       ok: true,
       privacyVersion: 0,
       version: 0,
@@ -69,6 +70,7 @@ describe("analytics warehouse runtime gate", () => {
       status: 400,
     });
     await expect(readWarehouseSnapshot(complete, "project_1", 10)).resolves.toEqual({
+      deletionTableVersion: "v1",
       ok: true,
       privacyVersion: 0,
       version: 10,
@@ -139,11 +141,44 @@ describe("analytics warehouse runtime gate", () => {
       status: 503,
     });
   });
+
+  it("uses v1 until every retained v2 deletion is visible", async () => {
+    const waiting = makeDatabase({
+      backfillCompleted: true,
+      deletionV2Ready: false,
+      requiredSequence: 0,
+      verifiedSequence: 0,
+    });
+    const ready = makeDatabase({
+      backfillCompleted: true,
+      deletionV2Ready: true,
+      requiredSequence: 0,
+      verifiedSequence: 0,
+    });
+    const migrationPending = makeDatabase({
+      backfillCompleted: true,
+      deletionV2QueryFails: true,
+      requiredSequence: 0,
+      verifiedSequence: 0,
+    });
+
+    await expect(
+      readWarehouseSnapshot(waiting, "project_1", undefined, "v2"),
+    ).resolves.toMatchObject({ deletionTableVersion: "v1", ok: true });
+    await expect(readWarehouseSnapshot(ready, "project_1", undefined, "v2")).resolves.toMatchObject(
+      { deletionTableVersion: "v2", ok: true },
+    );
+    await expect(
+      readWarehouseSnapshot(migrationPending, "project_1", undefined, "v2"),
+    ).resolves.toMatchObject({ deletionTableVersion: "v1", ok: true });
+  });
 });
 
 function makeDatabase(options: {
   backfillCompleted: boolean;
   backfillMarkerValid?: boolean;
+  deletionV2QueryFails?: boolean;
+  deletionV2Ready?: boolean;
   pendingDeletion?: boolean;
   privacyVersion?: number;
   quarantinedExport?: boolean;
@@ -153,6 +188,12 @@ function makeDatabase(options: {
   const prepare = vi.fn((sql: string) => ({
     bind: vi.fn(() => ({
       first: vi.fn(async () => {
+        if (sql.includes("analytics_deletion_v2_state")) {
+          if (options.deletionV2QueryFails === true) {
+            throw new Error("no such table: analytics_deletion_v2_state");
+          }
+          return { ready: options.deletionV2Ready === true ? 1 : 0 };
+        }
         if (sql.includes("analytics_backfill_completions")) {
           return options.backfillCompleted
             ? {

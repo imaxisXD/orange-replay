@@ -30,12 +30,49 @@ describe("SessionRecorder Durable Object", () => {
 
     expect(debug).toEqual({
       hasState: true,
+      schemaReady: true,
       finalized: false,
       firstRequestId: expect.any(String),
       bufferedBytes: payloadA.byteLength + payloadB.byteLength + payloadC.byteLength,
       pendingBatches: 3,
       segmentCount: 0,
       stateBytes: expect.any(Number),
+    });
+  });
+
+  it("counts rejected first batches without creating session tables", async () => {
+    const projectId = "project-rejected-rate-limit";
+    const sessionId = "session-rejected-rate-limit";
+    const receivedAt = Date.now();
+
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      const result = await append({
+        projectId,
+        sessionId,
+        tab: "tab-a",
+        seq: 1,
+        payload: bytes("out-of-order"),
+        t0: receivedAt,
+        receivedAt,
+      });
+      expect(result.closed).toBe(true);
+      expect(result.rateLimited).toBeUndefined();
+    }
+
+    const limited = await append({
+      projectId,
+      sessionId,
+      tab: "tab-a",
+      seq: 1,
+      payload: bytes("out-of-order"),
+      t0: receivedAt,
+      receivedAt,
+    });
+    expect(limited).toMatchObject({ closed: false, rateLimited: true });
+    expect(await readDebug(projectId, sessionId)).toMatchObject({
+      hasState: false,
+      schemaReady: false,
+      pendingBatches: 0,
     });
   });
 

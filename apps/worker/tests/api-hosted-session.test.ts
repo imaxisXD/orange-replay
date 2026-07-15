@@ -46,10 +46,10 @@ describe("hosted session project lookup", () => {
     expect(bind).toHaveBeenCalledWith("user_1");
   });
 
-  it("never falls through from an explicit bearer header to a hosted session", async () => {
+  it("never falls through from an explicit authorization header to a hosted session", async () => {
     const auth = await checkAuth(
       new Request("https://replay.example/api/v1/projects/project_1/sessions", {
-        headers: { authorization: "Bearer old-local-token" },
+        headers: { authorization: "Bearer old-dashboard-credential" },
       }),
       hostedEnv({} as TestDatabase),
       "project_1",

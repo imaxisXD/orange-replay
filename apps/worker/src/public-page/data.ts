@@ -5,12 +5,13 @@ import {
   type PublicPageData,
   type PublicPageRecording,
   type SessionManifest,
+  type StatsBreakdownRow,
   startWideEvent,
 } from "@orange-replay/shared";
 import { sessionManifestSchema } from "@orange-replay/shared/schemas";
+import { readFinalizedStats } from "../analytics/finalized-read.ts";
+import { checkAnalyticsReadRateLimit } from "../analytics/read-rate-limit.ts";
 import { isDevTestMode, type Env } from "../env.ts";
-import { getProjectStats } from "../api/project-routes.ts";
-import type { FinalizedProjectStats, StatsBreakdownRow } from "../api/stats.ts";
 import { jsonError, jsonResponse, secureHeaders } from "../api/http.ts";
 import { publicPageUrl, readPublicPageOrigin } from "../api/public-page-settings.ts";
 
@@ -88,22 +89,39 @@ export async function readPublicPageData(
   const origin = readPublicPageOrigin(requestUrl, env);
   if (!origin.ok) return { ok: false, response: origin.response };
 
-  const statsUrl = new URL(
-    `/api/v1/projects/${encodeURIComponent(project.project_id)}/stats`,
-    requestUrl.origin,
-  );
-  const [statsResponse, recordings] = await Promise.all([
-    getProjectStats(statsUrl, env, ctx, project.project_id, requestId, wideEvent, false),
+  const rateLimit = await checkAnalyticsReadRateLimit(env, null, project.project_id);
+  if (!rateLimit.allowed) {
+    wideEvent.set({ rate_limit: `analytics_${rateLimit.scope}` });
+    return {
+      ok: false,
+      response: jsonError("rate_limited", 429, {
+        ...PUBLIC_RESPONSE_HEADERS,
+        "retry-after": "60",
+      }),
+    };
+  }
+
+  wideEvent.set({ cache_hit: false });
+  const [statsRead, recordings] = await Promise.all([
+    readFinalizedStats({
+      env,
+      projectId: project.project_id,
+      requestedFilter: {},
+      requestId,
+      wideEvent,
+      ctx,
+      now: Date.now(),
+    }),
     readPublicRecordings(env.IDX_00, project.project_id),
   ]);
-  if (!statsResponse.ok) {
+  if (!statsRead.ok) {
     return {
       ok: false,
       response: jsonError("public_page_temporarily_unavailable", 503, PUBLIC_RESPONSE_HEADERS),
     };
   }
 
-  const stats = (await statsResponse.json()) as FinalizedProjectStats;
+  const stats = statsRead.value;
   return {
     ok: true,
     data: {

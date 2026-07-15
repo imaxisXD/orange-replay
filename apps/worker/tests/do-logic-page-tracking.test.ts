@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   MAX_TRACKED_PAGE_TABS,
   normalizeSessionAnalyticsVersion,
+  rebuildFinalPageAnalytics,
   updatePageTrackingWithBatch,
 } from "../src/do/session-logic.ts";
 import type { SessionState } from "../src/do/session-logic.ts";
@@ -193,5 +194,52 @@ describe("SessionRecorder pure logic", () => {
 
     expect(state.pageTabs).toHaveLength(MAX_TRACKED_PAGE_TABS);
     expect(state.pageTabs[0]?.tab).toBe("tab-3");
+  });
+
+  it("rebuilds final page and quick-back metrics by tab sequence", () => {
+    const state = {
+      entryUrl: "/wrong",
+      urlCount: 99,
+      pageCount: 99,
+      quickBacks: 99,
+      pageTabs: [],
+    };
+
+    rebuildFinalPageAnalytics(state, [
+      {
+        tab: "tab-a",
+        seq: 2,
+        t0: 2_000,
+        t1: 2_000,
+        url: "/a",
+        events: [{ t: 2_000, k: "nav", d: "/a" }],
+        pageAnalyticsVersion: 1,
+      },
+      {
+        tab: "tab-a",
+        seq: 1,
+        t0: 1_000,
+        t1: 1_000,
+        url: "/b",
+        events: [{ t: 1_000, k: "nav", d: "/b" }],
+        pageAnalyticsVersion: 1,
+      },
+      {
+        tab: "tab-a",
+        seq: 0,
+        t0: 0,
+        t1: 0,
+        url: "/a",
+        events: [],
+        pageAnalyticsVersion: 1,
+      },
+    ]);
+
+    expect(state).toMatchObject({
+      entryUrl: "/a",
+      urlCount: 3,
+      pageCount: 3,
+      quickBacks: 1,
+    });
   });
 });

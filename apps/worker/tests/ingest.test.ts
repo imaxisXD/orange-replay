@@ -72,17 +72,14 @@ describe("ingest route", () => {
 
   it("returns dashboard recorder settings before capture starts", async () => {
     const key = testWriteKey("recorder_config");
-    await seedKey(
-      key,
-      makeConfig({
-        sampleRate: 0.25,
-        maskPolicyVersion: 4,
-        maskRules: [{ selector: ".private", action: "block" }],
-        capture: { heatmaps: true, console: false, network: false, canvas: true },
-        version: 8,
-      }),
-      false,
-    );
+    const config = makeConfig({
+      sampleRate: 0.25,
+      maskPolicyVersion: 4,
+      maskRules: [{ selector: ".private", action: "block" }],
+      capture: { heatmaps: true, console: false, network: false, canvas: true },
+      version: 8,
+    });
+    await seedKey(key, config, false);
 
     const res = await worker.fetch("/v1/config", {
       headers: { [HDR_KEY]: key, origin: "https://site.example" },
@@ -91,6 +88,7 @@ describe("ingest route", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("cache-control")).toBe("no-store");
     expect(await res.json()).toEqual({
+      projectId: config.projectId,
       sampleRate: 0.25,
       maskPolicyVersion: 4,
       maskRules: [{ selector: ".private", action: "block" }],

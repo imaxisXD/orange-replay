@@ -88,6 +88,10 @@ export async function handleApiTestRoutes(
     return testHostedBootstrap(request, env);
   }
 
+  if (request.method === "POST" && url.pathname === "/__test/api/hosted/session") {
+    return seedHostedSession(request, env);
+  }
+
   if (request.method !== "POST" || url.pathname !== "/__test/api/seed") {
     return Response.json({ error: "not_found" }, { status: 404 });
   }
@@ -136,6 +140,137 @@ export async function handleApiTestRoutes(
   }
 
   return Response.json({ ok: true });
+}
+
+async function seedHostedSession(request: Request, env: Env): Promise<Response> {
+  let body: { projectIds?: unknown };
+  try {
+    body = (await request.json()) as { projectIds?: unknown };
+  } catch {
+    return Response.json({ error: "invalid_json" }, { status: 400 });
+  }
+
+  if (
+    !Array.isArray(body.projectIds) ||
+    body.projectIds.length === 0 ||
+    body.projectIds.some((projectId) => typeof projectId !== "string" || !isValidPathId(projectId))
+  ) {
+    return Response.json({ error: "invalid_project_ids" }, { status: 400 });
+  }
+
+  const secret = env.BETTER_AUTH_SECRET;
+  if (typeof secret !== "string" || secret.length < 32) {
+    return Response.json({ error: "auth_not_configured" }, { status: 503 });
+  }
+
+  await createTestDatabaseSchema(env.IDX_00);
+  const now = Date.now();
+  const userId = "test_dashboard_user";
+  const sessionToken = "test_better_auth_session_token";
+  const fallbackOrgId = "test_dashboard_workspace";
+
+  await env.IDX_00.prepare(
+    `INSERT OR IGNORE INTO users
+      (id, name, email, email_verified, image, created_at, updated_at, role, banned, ban_reason, ban_expires)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  )
+    .bind(
+      userId,
+      "Test dashboard user",
+      "dashboard-test@example.com",
+      1,
+      null,
+      now,
+      now,
+      "user",
+      0,
+      null,
+      null,
+    )
+    .run();
+
+  const orgIds = new Set<string>();
+  for (const projectId of body.projectIds as string[]) {
+    let project = await env.IDX_00.prepare("SELECT org_id FROM projects WHERE id = ?")
+      .bind(projectId)
+      .first<{ org_id: string }>();
+    if (project === null) {
+      await env.IDX_00.prepare(
+        "INSERT OR IGNORE INTO orgs (id, name, slug, shard, created_at) VALUES (?, ?, ?, ?, ?)",
+      )
+        .bind(fallbackOrgId, "Test dashboard workspace", fallbackOrgId, 0, now)
+        .run();
+      await env.IDX_00.prepare(
+        `INSERT OR IGNORE INTO projects
+          (id, org_id, name, retention_days, sample_rate, allowed_origins, mask_policy_version,
+            mask_rules, capture_toggles, quota_state, config_version, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+        .bind(
+          projectId,
+          fallbackOrgId,
+          projectId,
+          30,
+          1,
+          JSON.stringify(["*"]),
+          1,
+          JSON.stringify([]),
+          JSON.stringify({ heatmaps: false, console: false, network: false, canvas: false }),
+          "ok",
+          1,
+          now,
+        )
+        .run();
+      project = { org_id: fallbackOrgId };
+    }
+    orgIds.add(project.org_id);
+  }
+
+  for (const orgId of orgIds) {
+    await env.IDX_00.prepare(
+      `INSERT OR IGNORE INTO members (id, org_id, user_id, role, created_at)
+        VALUES (?, ?, ?, 'owner', ?)`,
+    )
+      .bind(`test_member_${orgId}`, orgId, userId, now)
+      .run();
+  }
+
+  await env.IDX_00.prepare(
+    `INSERT OR REPLACE INTO auth_sessions
+      (id, expires_at, token, created_at, updated_at, ip_address, user_agent, user_id,
+        active_org_id, impersonated_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  )
+    .bind(
+      "test_dashboard_session",
+      now + 24 * 60 * 60 * 1_000,
+      sessionToken,
+      now,
+      now,
+      null,
+      "Orange Replay test",
+      userId,
+      orgIds.values().next().value ?? null,
+      null,
+    )
+    .run();
+
+  const signature = await signCookieValue(sessionToken, secret);
+  return Response.json({
+    cookie: `orange-replay.session_token=${encodeURIComponent(`${sessionToken}.${signature}`)}`,
+  });
+}
+
+async function signCookieValue(value: string, secret: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value));
+  return btoa(String.fromCharCode(...new Uint8Array(signature)));
 }
 
 function sessionHeadPlanQuery(

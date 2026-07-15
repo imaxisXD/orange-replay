@@ -1,0 +1,21 @@
+{
+  "bucket": "orange-replay-analytics-prod",
+  "namespace": "default",
+  "stream": "orange_replay_analytics_deletion_v2_stream",
+  "pipeline": "orange_replay_analytics_deletion_v2_prod",
+  "schemaFile": "stream-schema.json",
+  "pipelineSqlFile": "pipeline.sql",
+  "rollIntervalSeconds": 60,
+  "compression": "zstd",
+  "maintenance": {
+    "compactionTargetMb": 128,
+    "snapshotOlderThanDays": 1,
+    "snapshotRetainLast": 10
+  },
+  "sinks": [
+    {
+      "name": "orange_replay_analytics_deletions_v2_sink",
+      "table": "analytics_deletions_v2"
+    }
+  ]
+}

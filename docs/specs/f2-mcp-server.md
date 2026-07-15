@@ -16,7 +16,9 @@ Acceptance demo: with the local worker running and a recorded error session pres
 
 ## Configuration
 
-Flags win over env; both supported: `--url` / `ORANGE_REPLAY_URL` (required), `--token` / `ORANGE_REPLAY_TOKEN` (required; for local dev this is the dev token), `--project` / `ORANGE_REPLAY_PROJECT` (required v1 — single-project scope keeps tool schemas simple). Startup validates by calling the health route and one authenticated route; on failure print a one-line actionable message. The token must never appear in logs, errors, or tool outputs — `redact.ts` owns scrubbing it from any error text.
+This future spec's original static dashboard-token contract is superseded by Better Auth-only project APIs. Do not dispatch F2 until its non-browser sign-in flow is designed. The accepted design must use a separately scoped, revocable machine credential or an explicit browser authorization flow; it must not copy a person's Better Auth cookie into CLI configuration.
+
+The stable inputs remain `--url` / `ORANGE_REPLAY_URL` and `--project` / `ORANGE_REPLAY_PROJECT`. Startup validates health and one authorized project route. Any future machine credential must stay out of logs, errors, and tool outputs; `redact.ts` owns scrubbing sensitive values.
 
 ## Data path (Node decode)
 
@@ -38,7 +40,7 @@ Guards: refuse sessions whose manifest `bytes` exceed 25 MB with a clear message
 4. **`get_repro_script`** — input `{ sessionId }` → `{ language: "typescript", framework: "playwright", source: string }`.
 5. **`list_live_sessions`** — input `{}` → presence rows from the live route (id, entryUrl, startedAt, lastSeen, country, city, browser).
 
-All tool outputs pass through `redact.ts`: cap any single string at 2,000 chars, cap total serialized output at 256 KB (truncate `steps` tail with an explicit `truncated: true` marker), strip the token if it ever appears. Tool errors: map 401 → "authentication failed — check ORANGE_REPLAY_TOKEN", 404 → "session not found", network → "cannot reach <url>"; never dump raw stack traces into tool results.
+All tool outputs pass through `redact.ts`: cap any single string at 2,000 chars, cap total serialized output at 256 KB (truncate `steps` tail with an explicit `truncated: true` marker), and strip any configured credential if it ever appears. Tool errors: map 401 to a clear authorization message, 404 to "session not found", and network failures to "cannot reach <url>"; never dump raw stack traces into tool results.
 
 ## README (part of the deliverable)
 
@@ -46,10 +48,10 @@ Sections: what it is (one paragraph), install & run, configuration table, Claude
 
 ## Tests (Node env, no workerd)
 
-- Config parsing: flags/env precedence, missing-required messages.
-- REST client against mocked `fetch`: auth header set, filter mapping, error mapping.
+- Config parsing: flags/env precedence and missing-required messages after the machine-auth design is accepted.
+- REST client against mocked `fetch`: approved credential transport, filter mapping, and error mapping.
 - Decode: fixture segments built with `buildSegment`/`encodeIngestBody` from shared (wire-conformant by construction), gzip and plain-JSON payloads, corrupt segment → partial-data error.
-- Tools end-to-end against the mocked REST layer: each tool's happy path + one failure path; size-cap truncation behavior; token never present in any output (grep the serialized results).
+- Tools end-to-end against the mocked REST layer: each tool's happy path + one failure path; size-cap truncation behavior; configured credentials never present in any output (grep the serialized results).
 - One golden test: fixture error-session → `get_repro_script` output contains the goto step and the final assertion block.
 
 ## Constraints & DoD

@@ -1,13 +1,18 @@
-import { startWideEvent, withDefaultAnalyticsDateRange } from "@orange-replay/shared";
+import {
+  listSessionsResponseSchema,
+  projectStatsResponseSchema,
+  startWideEvent,
+  withDefaultAnalyticsDateRange,
+} from "@orange-replay/shared";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { sessionCacheRequests, statsCacheRequests } from "../src/analytics/finalized-read.ts";
 import {
   readAnalyticsCache,
   writeAnalyticsCache,
   type AnalyticsCacheRequests,
 } from "../src/api/analytics-cache.ts";
 import { getProjectStats } from "../src/api/project-routes.ts";
-import { listSessions, sessionCacheRequests } from "../src/api/session-routes.ts";
-import { statsCacheRequests } from "../src/api/stats.ts";
+import { listSessions } from "../src/api/session-routes.ts";
 import type { Env } from "../src/env.ts";
 
 afterEach(() => {
@@ -48,7 +53,7 @@ describe("analytics last-good cache", () => {
       new URL("https://replay.test/api/v1/projects/project_1/sessions"),
       env,
       "project_1",
-      "bearer",
+      "session",
       "request_sessions",
       startWideEvent("test", "sessions"),
       ctx.value,
@@ -56,10 +61,14 @@ describe("analytics last-good cache", () => {
 
     expect(statsResponse.status).toBe(200);
     expect(sessionsResponse.status).toBe(200);
-    expect(await statsResponse.json()).toMatchObject({
+    expect(projectStatsResponseSchema.parse(await statsResponse.json())).toMatchObject({
       sessions: {
         filter: { from: 13_560_000, to: 99_960_000, warehouse_version: 12 },
       },
+    });
+    expect(listSessionsResponseSchema.parse(await sessionsResponse.json())).toMatchObject({
+      analyticsState: "fresh",
+      warehouseVersion: 12,
     });
     expect(queries).toHaveLength(2);
     for (const query of queries) {
@@ -228,7 +237,7 @@ describe("analytics last-good cache", () => {
       startWideEvent("test", "stats"),
     );
     expect(fresh.status).toBe(200);
-    expect(await fresh.json()).toMatchObject({
+    expect(projectStatsResponseSchema.parse(await fresh.json())).toMatchObject({
       analyticsState: "fresh",
       warehouseVersion: 12,
       sessions: { value: 5 },
@@ -246,7 +255,10 @@ describe("analytics last-good cache", () => {
       startWideEvent("test", "stats"),
     );
     expect(current.status).toBe(200);
-    expect(await current.json()).toMatchObject({ analyticsState: "fresh", warehouseVersion: 12 });
+    expect(projectStatsResponseSchema.parse(await current.json())).toMatchObject({
+      analyticsState: "fresh",
+      warehouseVersion: 12,
+    });
     expect(r2Fetch).toHaveBeenCalledTimes(1);
 
     state.verifiedSequence = 13;
@@ -259,7 +271,10 @@ describe("analytics last-good cache", () => {
       startWideEvent("test", "stats"),
     );
     expect(stale.status).toBe(200);
-    expect(await stale.json()).toMatchObject({ analyticsState: "stale", warehouseVersion: 12 });
+    expect(projectStatsResponseSchema.parse(await stale.json())).toMatchObject({
+      analyticsState: "stale",
+      warehouseVersion: 12,
+    });
     expect(r2Fetch).toHaveBeenCalledTimes(2);
 
     const pinned = await getProjectStats(
@@ -304,13 +319,13 @@ describe("analytics last-good cache", () => {
       requestUrl,
       env,
       "project_1",
-      "bearer",
+      "session",
       "request_sessions_fresh",
       startWideEvent("test", "sessions"),
       ctx.value,
     );
     expect(fresh.status).toBe(200);
-    expect(await fresh.json()).toMatchObject({
+    expect(listSessionsResponseSchema.parse(await fresh.json())).toMatchObject({
       analyticsState: "fresh",
       warehouseVersion: 12,
       sessions: [{ project_id: "project_1", session_id: "session_1" }],
@@ -333,13 +348,16 @@ describe("analytics last-good cache", () => {
       requestUrl,
       env,
       "project_1",
-      "bearer",
+      "session",
       "request_sessions_current",
       startWideEvent("test", "sessions"),
       ctx.value,
     );
     expect(current.status).toBe(200);
-    expect(await current.json()).toMatchObject({ analyticsState: "fresh", warehouseVersion: 12 });
+    expect(listSessionsResponseSchema.parse(await current.json())).toMatchObject({
+      analyticsState: "fresh",
+      warehouseVersion: 12,
+    });
     expect(r2Fetch).toHaveBeenCalledTimes(1);
 
     state.verifiedSequence = 13;
@@ -347,19 +365,22 @@ describe("analytics last-good cache", () => {
       requestUrl,
       env,
       "project_1",
-      "bearer",
+      "session",
       "request_sessions_stale",
       startWideEvent("test", "sessions"),
       ctx.value,
     );
     expect(stale.status).toBe(200);
-    expect(await stale.json()).toMatchObject({ analyticsState: "stale", warehouseVersion: 12 });
+    expect(listSessionsResponseSchema.parse(await stale.json())).toMatchObject({
+      analyticsState: "stale",
+      warehouseVersion: 12,
+    });
 
     const pinned = await listSessions(
       new URL("https://replay.test/api/v1/projects/project_1/sessions?warehouse_version=13"),
       env,
       "project_1",
-      "bearer",
+      "session",
       "request_sessions_pinned",
       startWideEvent("test", "sessions"),
       ctx.value,
@@ -379,7 +400,7 @@ describe("analytics last-good cache", () => {
       requestUrl,
       env,
       "project_1",
-      "bearer",
+      "session",
       "request_sessions_wrong_project",
       startWideEvent("test", "sessions"),
       ctx.value,
@@ -392,7 +413,7 @@ describe("analytics last-good cache", () => {
       requestUrl,
       env,
       "project_1",
-      "bearer",
+      "session",
       "request_sessions_deletion_pending",
       startWideEvent("test", "sessions"),
       ctx.value,
@@ -406,7 +427,7 @@ describe("analytics last-good cache", () => {
       requestUrl,
       env,
       "project_1",
-      "bearer",
+      "session",
       "request_sessions_after_deletion",
       startWideEvent("test", "sessions"),
       ctx.value,

@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import {
   manifestKey,
   sessionPrefix,
@@ -7,7 +7,8 @@ import {
 } from "@orange-replay/shared";
 import type { SessionRow } from "../src/api/helpers.ts";
 
-export const token = "test-token-0000000000000000000000";
+export const betterAuthSecret = "test-better-auth-secret-0000000000000000";
+export const betterAuthOrigin = "http://localhost:8787";
 export const liveTicketSecret = "test-live-ticket-secret-0000000000";
 export const listProjectId = "api_list_project";
 export const entryPageProjectId = "api_entry_page_project";
@@ -17,6 +18,7 @@ export const assetSessionId = "api_asset_session";
 export const liveProjectId = "api_live_project";
 export const installProjectId = "api_install_project";
 export const configProjectId = "api_config_project";
+export const configRaceProjectId = "api_config_race_project";
 export const keysProjectId = "api_keys_project";
 export const keyLimitProjectId = "api_key_limit_project";
 export const ticketProjectId = "api_ticket_project";
@@ -25,7 +27,7 @@ export const demoProjectId = "api_demo_project";
 export const demoOtherProjectId = "api_demo_other_project";
 export const demoSessionId = "api_demo_session";
 export const demoWriteKey = "or_live_demo0000000000000000000000000000";
-export const apiProjectIds = [
+export const privateProjectIds = [
   listProjectId,
   entryPageProjectId,
   sameTimeProjectId,
@@ -33,10 +35,11 @@ export const apiProjectIds = [
   liveProjectId,
   installProjectId,
   configProjectId,
+  configRaceProjectId,
   keysProjectId,
   keyLimitProjectId,
   ticketProjectId,
-].join(",");
+];
 export const segmentName = "seg-000001.ors";
 export const segmentBytes = new Uint8Array([0, 1, 2, 3, 254, 255]);
 
@@ -133,10 +136,16 @@ export function signLiveTicketWithSecret(
   sessionId: string,
   expiresAt: number,
 ): string {
+  const claimsText = JSON.stringify({
+    v: 2,
+    e: expiresAt,
+    n: randomUUID(),
+    a: "a".repeat(64),
+  });
   const signature = createHmac("sha256", secret)
-    .update(`${projectId}:${sessionId}:${expiresAt}`)
+    .update(`${projectId}:${sessionId}:${claimsText}`)
     .digest("base64url");
-  return Buffer.from(`${expiresAt}.${signature}`).toString("base64url");
+  return `${Buffer.from(claimsText).toString("base64url")}.${signature}`;
 }
 
 export function makeProjectConfig(overrides: Partial<ProjectConfig> = {}): ProjectConfig {

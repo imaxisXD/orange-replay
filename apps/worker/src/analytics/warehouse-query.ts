@@ -4,20 +4,24 @@ import {
   type SessionCursor,
   type SessionListOptions,
   type SessionSort,
-} from "../api/helpers.ts";
+} from "../query/session-query.ts";
 import { sqlAllowedName, sqlText, sqlWholeNumber } from "./sql.ts";
 
 export const analyticsTableNames = {
   sessions: "analytics_sessions",
   events: "analytics_events",
   deletions: "analytics_deletions",
+  deletionsV2: "analytics_deletions_v2",
 } as const;
 
 export const analyticsQualifiedTableNames = {
   sessions: `"default"."${analyticsTableNames.sessions}"`,
   events: `"default"."${analyticsTableNames.events}"`,
   deletions: `"default"."${analyticsTableNames.deletions}"`,
+  deletionsV2: `"default"."${analyticsTableNames.deletionsV2}"`,
 } as const;
+
+export type AnalyticsDeletionTableVersion = "v1" | "v2";
 
 const analyticsSessionColumns = [
   "export_id",
@@ -48,6 +52,18 @@ const analyticsDeletionColumns = [
   "recorded_at",
   "project_id",
   "session_id",
+  "deleted_at",
+  "delete_reason",
+] as const;
+
+const analyticsDeletionV2Columns = [
+  "export_id",
+  "export_sequence",
+  "schema_version",
+  "recorded_at",
+  "project_id",
+  "session_id",
+  "session_started_at",
   "deleted_at",
   "delete_reason",
 ] as const;
@@ -102,6 +118,7 @@ export function buildWarehouseSessionsQuery(
   projectId: string,
   warehouseVersion: number,
   options: SessionListOptions,
+  deletionTableVersion: AnalyticsDeletionTableVersion = "v1",
 ): WarehouseProjectQuery {
   checkProject(projectId);
   const version = sqlWholeNumber(warehouseVersion, "Warehouse version");
@@ -113,7 +130,7 @@ export function buildWarehouseSessionsQuery(
   const sort = checkedSort(options.sort);
   checkCursor(options.before, sort);
   const includeEvents = options.error_detail !== undefined;
-  const ctes = buildWarehouseCtes(projectId, version, includeEvents, options);
+  const ctes = buildWarehouseCtes(projectId, version, includeEvents, options, deletionTableVersion);
   const filterSql = buildFilterSql(projectId, options, includeEvents);
   const cursorSql = buildCursorSql(options.before, sort);
   const orderSql = sessionOrderSql(sort);
@@ -139,11 +156,12 @@ export function buildWarehouseStatsQuery(
   projectId: string,
   warehouseVersion: number,
   filter: SessionFilter,
+  deletionTableVersion: AnalyticsDeletionTableVersion = "v1",
 ): WarehouseProjectQuery {
   checkProject(projectId);
   const version = sqlWholeNumber(warehouseVersion, "Warehouse version");
   const project = sqlText(projectId);
-  const ctes = buildWarehouseCtes(projectId, version, true, filter);
+  const ctes = buildWarehouseCtes(projectId, version, true, filter, deletionTableVersion);
   const filterSql = buildFilterSql(projectId, filter, true);
   const selectedErrorDetail =
     filter.error_detail === undefined
@@ -306,6 +324,7 @@ export function buildWarehouseErrorEvidenceQuery(
   warehouseVersion: number,
   filter: SessionFilter,
   details: readonly string[],
+  deletionTableVersion: AnalyticsDeletionTableVersion = "v1",
 ): WarehouseProjectQuery {
   checkProject(projectId);
   if (filter.error_detail !== undefined) {
@@ -321,7 +340,7 @@ export function buildWarehouseErrorEvidenceQuery(
 
   const version = sqlWholeNumber(warehouseVersion, "Warehouse version");
   const project = sqlText(projectId);
-  const ctes = buildWarehouseCtes(projectId, version, true, filter);
+  const ctes = buildWarehouseCtes(projectId, version, true, filter, deletionTableVersion);
   const filterSql = buildFilterSql(projectId, filter, true);
   const detailList = uniqueDetails.map((detail) => sqlText(detail)).join(", ");
 
@@ -354,6 +373,7 @@ function buildWarehouseCtes(
   version: string,
   includeEvents: boolean,
   filter: SessionFilter,
+  deletionTableVersion: AnalyticsDeletionTableVersion,
 ): string {
   if (filter.from === undefined && filter.to === undefined) {
     throw new Error("Analytics date range is required");
@@ -363,7 +383,7 @@ function buildWarehouseCtes(
   const { error_detail: _eventFilter, ...sessionOnlyFilter } = filter;
   const baseSessionFilter = buildFilterSql(projectId, sessionOnlyFilter, false);
   const sessionsTable = analyticsQualifiedTableNames.sessions;
-  const deletionsTable = analyticsQualifiedTableNames.deletions;
+  const deletionCtes = buildDeletionCtes(project, filter, deletionTableVersion);
 
   // The Pipeline sink already rejects rows missing required fields. Repeating
   // that full null-check list here makes Cloudflare R2 SQL exceed its current
@@ -394,21 +414,7 @@ ranked_sessions AS (
     ) AS session_rank
   FROM one_session_export s
 ),
-scoped_deletion_exports AS (
-  SELECT
-    ${selectColumns("d", analyticsDeletionColumns)},
-    ROW_NUMBER() OVER (
-      PARTITION BY d.project_id, d.export_id
-      ORDER BY d.export_sequence DESC, d.recorded_at DESC
-    ) AS export_retry_rank
-  FROM ${deletionsTable} d
-  WHERE d.project_id = ${project}
-),
-deleted_sessions AS (
-  SELECT DISTINCT d.project_id, d.session_id
-  FROM scoped_deletion_exports d
-  WHERE d.export_retry_rank = 1
-),
+${deletionCtes},
 live_sessions AS (
   SELECT ${selectColumns("s", sessionRowColumns)}
   FROM ranked_sessions s
@@ -442,6 +448,57 @@ latest_events AS (
   SELECT ${selectColumns("e", analyticsEventColumns)}
   FROM scoped_event_exports e
   WHERE e.export_retry_rank = 1
+)`;
+}
+
+function buildDeletionCtes(
+  project: string,
+  filter: SessionFilter,
+  version: AnalyticsDeletionTableVersion,
+): string {
+  if (version === "v1") {
+    return `scoped_deletion_exports AS (
+  SELECT
+    ${selectColumns("d", analyticsDeletionColumns)},
+    ROW_NUMBER() OVER (
+      PARTITION BY d.project_id, d.export_id
+      ORDER BY d.export_sequence DESC, d.recorded_at DESC
+    ) AS export_retry_rank
+  FROM ${analyticsQualifiedTableNames.deletions} d
+  WHERE d.project_id = ${project}
+),
+deleted_sessions AS (
+  SELECT DISTINCT d.project_id, d.session_id
+  FROM scoped_deletion_exports d
+  WHERE d.export_retry_rank = 1
+)`;
+  }
+
+  const rangeClauses = [
+    filter.from === undefined
+      ? undefined
+      : `(d.session_started_at IS NULL OR d.session_started_at >= ${sqlWholeNumber(filter.from, "Start time")})`,
+    filter.to === undefined
+      ? undefined
+      : `(d.session_started_at IS NULL OR d.session_started_at <= ${sqlWholeNumber(filter.to, "End time")})`,
+  ].filter((clause): clause is string => clause !== undefined);
+
+  return `scoped_deletion_exports AS (
+  SELECT
+    ${selectColumns("d", analyticsDeletionV2Columns)},
+    ROW_NUMBER() OVER (
+      PARTITION BY d.project_id, d.export_id
+      ORDER BY d.export_sequence DESC, d.recorded_at DESC
+    ) AS export_retry_rank
+  FROM ${analyticsQualifiedTableNames.deletionsV2} d
+  WHERE d.project_id = ${project}
+    AND d.schema_version = 2
+    AND ${rangeClauses.join("\n    AND ")}
+),
+deleted_sessions AS (
+  SELECT DISTINCT d.project_id, d.session_id
+  FROM scoped_deletion_exports d
+  WHERE d.export_retry_rank = 1
 )`;
 }
 

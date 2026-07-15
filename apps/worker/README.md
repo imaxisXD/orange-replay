@@ -7,15 +7,16 @@ Design: `../../ARCHITECTURE.md`. Execution contract: `../../PLAN.md`.
 ## Local development
 
 ```sh
-cp .dev.vars.example .dev.vars
+cp .env.example .env
 vp install # once, from the repo root
 vp exec --filter @orange-replay/worker -- wrangler d1 migrations apply orange-replay-idx-00 --local
 vp exec --filter @orange-replay/worker -- wrangler dev --port 8787
 ```
 
 From the repo root, `vp run dev` starts both this Worker and the dashboard.
-`DEV_API_PROJECT_IDS` in `.dev.vars` must include every project id you want to
-open through the dashboard API.
+Private dashboard routes require a Better Auth session. Copy `.env.example` to
+`.env`, add the GitHub OAuth values, and use the callback shown in that file.
+Anonymous access is limited to the configured read-only `/demo` workspace.
 
 Seed a project + write key through the guarded test surface (requires
 `DEV_TEST_ROUTES=1`):

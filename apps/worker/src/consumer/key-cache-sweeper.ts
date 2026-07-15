@@ -1,7 +1,6 @@
 import { startWideEvent, uuidv7, type WideEventOutcome } from "@orange-replay/shared";
-import { repairActiveProjectKeyCache } from "../api/project-config.ts";
-import { maintainProjectKeyCache } from "../api/project-key-cache.ts";
 import { setWorkerLoggerVersion, type Env } from "../env.ts";
+import { maintainProjectConfigDelivery } from "../project-config/delivery.ts";
 
 export async function sweepProjectKeyCache(env: Env): Promise<void> {
   setWorkerLoggerVersion(env);
@@ -9,10 +8,9 @@ export async function sweepProjectKeyCache(env: Env): Promise<void> {
   let outcome: WideEventOutcome = "success";
 
   try {
-    const activeRepaired = await repairActiveProjectKeyCache(env);
-    const result = await maintainProjectKeyCache(env);
+    const result = await maintainProjectConfigDelivery(env);
     wideEvent.set({
-      active_key_caches_repaired: activeRepaired,
+      active_key_caches_repaired: result.activeRepaired,
       key_caches_repaired: result.repaired,
       key_caches_rechecked: result.rechecked,
       key_audit_rows_deleted: result.auditRowsDeleted,

@@ -8,6 +8,11 @@ This runbook creates a dedicated analytics bucket, enables R2 Data Catalog, and 
 - `analytics_events`
 - `analytics_deletions`
 
+The original stream, Pipeline, and three tables are the v1 contract. They are
+never edited in place. A separate deletion-v2 stream and table add
+`session_started_at` only after a durable backfill. Runtime keeps querying the
+v1 deletion table until D1 proves every retained v2 tombstone is visible.
+
 The replay bucket stays separate. Analytics records contain scrubbed summaries and sidecar data only. The setup and backfill scripts never read replay segment payloads.
 
 Cloudflare Pipelines and R2 Data Catalog are beta services. The Data Catalog sink currently adds `__ingest_ts` and day partitioning itself. Treat every table as partitioned even though the sink command has no partition option. This matters for deletion: DuckDB may query the tables, but it is not an approved physical-delete writer for this setup.
@@ -21,6 +26,7 @@ Warehouse API reads use a 24-hour range when either date boundary is missing. An
 - `infra/analytics/stream-schema.json`: the typed union record
 - `infra/analytics/pipeline.sql`: the three fan-out statements
 - `infra/analytics/resources.production.json`: resource names and sink settings
+- `infra/analytics/deletion-v2/`: separate schema, Pipeline SQL, resource names, and binding example for `analytics_deletions_v2`
 - `infra/analytics/wrangler.binding.example.jsonc`: Worker binding example
 - `infra/analytics/purge_pending.py`: leased Spark deletion runner; dry-run by default
 - `.github/workflows/analytics-purge.yml`: scheduled 15-minute physical deletion repair
@@ -85,6 +91,116 @@ vp exec --filter @orange-replay/worker -- wrangler pipelines get orange_replay_a
 ```
 
 Do not send production records until the returned stream schema and Pipeline SQL match the committed files. A structured stream can accept an invalid event and later drop it during processing, so also watch Pipelines user-error metrics after every schema change.
+
+## Add the versioned deletion table safely
+
+Do this as a separate rollout. Do not edit, replace, or remove the v1 stream,
+Pipeline, sink, or `analytics_deletions` table.
+
+First inspect the deletion-v2 plan without reading Cloudflare:
+
+```sh
+node scripts/setup-analytics.mjs \
+  --config infra/analytics/deletion-v2/resources.production.json \
+  --offline
+```
+
+Then inspect the real account. This is still read-only:
+
+```sh
+node scripts/setup-analytics.mjs \
+  --config infra/analytics/deletion-v2/resources.production.json
+```
+
+Load the same two setup credentials described above and create only the
+missing v2 resources:
+
+```sh
+read -s ORANGE_REPLAY_CATALOG_TOKEN
+export ORANGE_REPLAY_CATALOG_TOKEN
+read -s ORANGE_REPLAY_PIPELINE_CATALOG_TOKEN
+export ORANGE_REPLAY_PIPELINE_CATALOG_TOKEN
+node scripts/setup-analytics.mjs \
+  --config infra/analytics/deletion-v2/resources.production.json \
+  --apply
+unset ORANGE_REPLAY_CATALOG_TOKEN ORANGE_REPLAY_PIPELINE_CATALOG_TOKEN
+```
+
+Verify the separate resources and record the v2 stream id:
+
+```sh
+vp exec --filter @orange-replay/worker -- wrangler pipelines streams get orange_replay_analytics_deletion_v2_stream
+vp exec --filter @orange-replay/worker -- wrangler pipelines sinks get orange_replay_analytics_deletions_v2_sink
+vp exec --filter @orange-replay/worker -- wrangler pipelines get orange_replay_analytics_deletion_v2_prod
+```
+
+The v1 and v2 stream ids must be different. The production config generator
+rejects equal ids so a v2 record can never be sent to the v1 structured
+stream.
+
+Keep reads on v1 while the new Worker sends and verifies the backfill:
+
+```sh
+export ORANGE_REPLAY_PROD_ANALYTICS_DELETION_V2_STREAM_ID="REPLACE_WITH_V2_STREAM_ID"
+export ORANGE_REPLAY_PROD_ANALYTICS_DELETION_READ_VERSION="v1"
+vp run deploy:prod:r2-sql
+```
+
+Use the normal deploy command for the analytics backend production already
+uses. The example above assumes production is already on R2 SQL. This deploy
+applies migrations `0016` and `0018`, keeps every v1 write and read unchanged,
+and starts the separate v2 backfill. The backfill includes completed deletion
+jobs; it does not look only at active purge work. Pipeline acceptance, R2 SQL
+visibility, and completion are saved separately in D1, so a stopped Worker
+resends the same stable v2 export id.
+
+After at least one Pipeline roll interval and maintenance run, inspect the D1
+receipt without changing it:
+
+```sh
+vp exec --filter @orange-replay/worker -- wrangler d1 execute \
+  orange-replay-idx-00-prod \
+  --remote \
+  --config apps/worker/wrangler.cloudflare-build.jsonc \
+  --env production \
+  --command "SELECT required_job_count, visible_job_count, last_attempt_at, last_error, backfill_completed_at FROM analytics_deletion_v2_state WHERE shard = 0"
+
+vp exec --filter @orange-replay/worker -- wrangler d1 execute \
+  orange-replay-idx-00-prod \
+  --remote \
+  --config apps/worker/wrangler.cloudflare-build.jsonc \
+  --env production \
+  --command "SELECT COUNT(*) AS pending_v2_jobs FROM analytics_deletion_jobs WHERE requires_warehouse_tombstone = 1 AND deletion_v2_visible_at IS NULL"
+```
+
+Do not cut over until all of these are true:
+
+- `required_job_count` equals `visible_job_count`;
+- `pending_v2_jobs` is zero;
+- `last_error` is `NULL`;
+- `backfill_completed_at` is set;
+- the v2 Pipeline has no user-error rows.
+
+The Worker marks a job visible only after R2 SQL returns the exact stable id,
+export sequence, project, session, deletion time, reason, and session start.
+An old retained job may have a `NULL` session start if its source session and
+full outbox payload were already erased. That row remains safe: every v2 read
+includes null-start tombstones instead of pruning them by date.
+
+Only after those checks pass, request v2 reads and run the same normal deploy
+and smoke checks again:
+
+```sh
+export ORANGE_REPLAY_PROD_ANALYTICS_DELETION_READ_VERSION="v2"
+vp run deploy:prod:r2-sql
+```
+
+The runtime gate checks D1 on every warehouse snapshot. If a new required
+tombstone is not yet visible in v2, that snapshot uses v1 automatically. The
+v1 deletion stream and table remain the privacy watermark and rollback path;
+do not retire them after cutover. To roll back query performance without
+changing data, set the deletion read version to `v1` and deploy the same
+analytics backend again.
 
 ## Deploy warehouse writes while reads stay on D1
 
@@ -294,7 +410,7 @@ vp run deploy:prod:rollback:rebuild
 
 That command generates a D1 config and deploys the current Worker source with the already-built dashboard assets. It still skips normal builds, migrations, the R2 gate, and secret uploads. Use it only after reviewing those local files. Missing assets or broken current source can block it, which is why it is not the primary emergency path.
 
-Normal D1, compare, and R2 SQL deploys still use the complete release path. Before step one, they validate the smoke API token, project ids, and clean HTTPS Worker origin. They build, apply pending migrations, and validate the needed secrets. Compare and R2 SQL run the full acceptance gate with the exact R2 SQL token that their versions receive. Only after that gate passes does Wrangler upload the inactive D1 fallback and then the selected version with `--strict --keep-vars`; no earlier `wrangler secret put` can change production first. The emergency rollback does not invoke the gate. Normal deploys then run the API and analytics smoke checks. The analytics smoke proves the expected state, checks the complete sessions doorway, and checks one reported count doorway when one exists. In `r2_sql` mode it requires a fresh warehouse response; a stale cached response fails the deploy command.
+Normal D1, compare, and R2 SQL deploys still use the complete release path. Before step one, they validate the analytics-gate project id, clean HTTPS Worker origin, and required Worker secret names. They build, apply pending migrations, and validate the needed secrets. Compare and R2 SQL run the full acceptance gate with the exact R2 SQL token that their versions receive. Only after that gate passes does Wrangler upload the inactive D1 fallback and then the selected version with `--strict --keep-vars`; no earlier secret upload can change production first. The emergency rollback does not invoke the gate. Normal deploys then run the public API and analytics smoke checks. The analytics smoke discovers the anonymous demo, proves the expected state, checks the complete sessions doorway, and checks one reported count doorway when one exists. In `r2_sql` mode it requires a fresh warehouse response; a stale cached response fails the deploy command.
 
 The base `vp run deploy:prod` command deliberately fails unless `ORANGE_REPLAY_PROD_ANALYTICS_READ_BACKEND` is set to `d1`, `compare`, or `r2_sql`. For a no-upload check, choose the mode in the same command:
 

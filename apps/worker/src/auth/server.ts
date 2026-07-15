@@ -60,7 +60,11 @@ export async function handleBetterAuthRequest(
 ): Promise<Response> {
   const status = getHostedAuthStatus(env);
   if (status.state === "disabled") {
-    return jsonError("hosted_auth_not_enabled", "This install uses a local API token.", 404);
+    return jsonError(
+      "hosted_auth_not_enabled",
+      "Better Auth is not configured for this install.",
+      503,
+    );
   }
   if (status.state === "invalid") {
     return jsonError(

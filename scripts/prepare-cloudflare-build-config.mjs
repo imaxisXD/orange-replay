@@ -1,13 +1,29 @@
 #!/usr/bin/env node
-import { chmod, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import {
+  readAnalyticsDeletionReadVersion,
+  requireDistinctAnalyticsStreamIds,
+} from "./analytics/deletion-v2-config.mjs";
 import { readAnalyticsDeployMode } from "./analytics/deploy-mode.mjs";
+import { readPrivateRegularFile, writePrivateFileAtomically } from "./private-file.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sourceConfig = path.join(repoRoot, "apps", "worker", "wrangler.jsonc");
 const buildConfig = path.join(repoRoot, "apps", "worker", "wrangler.cloudflare-build.jsonc");
+const primaryAnalyticsStreamReplacement = {
+  envName: "ORANGE_REPLAY_PROD_ANALYTICS_STREAM_ID",
+  placeholder: "REPLACE_WITH_PRODUCTION_ANALYTICS_STREAM_ID",
+  pattern: /^[A-Za-z0-9_-]{1,200}$/,
+  label: "production analytics stream id",
+};
+const deletionV2StreamReplacement = {
+  envName: "ORANGE_REPLAY_PROD_ANALYTICS_DELETION_V2_STREAM_ID",
+  placeholder: "REPLACE_WITH_PRODUCTION_ANALYTICS_DELETION_V2_STREAM_ID",
+  pattern: /^[A-Za-z0-9_-]{1,200}$/,
+  label: "production analytics deletion v2 stream id",
+};
 const resourceReplacements = [
   {
     envName: "ORANGE_REPLAY_PROD_KV_ID",
@@ -27,18 +43,18 @@ const resourceReplacements = [
     pattern: /^[a-f0-9]{32}$/i,
     label: "Cloudflare account id",
   },
-  {
-    envName: "ORANGE_REPLAY_PROD_ANALYTICS_STREAM_ID",
-    placeholder: "REPLACE_WITH_PRODUCTION_ANALYTICS_STREAM_ID",
-    pattern: /^[A-Za-z0-9_-]{1,200}$/,
-    label: "production analytics stream id",
-  },
+  primaryAnalyticsStreamReplacement,
+  deletionV2StreamReplacement,
 ];
 
-try {
-  let config = await readFile(sourceConfig, "utf8");
-  const analyticsMode = readAnalyticsDeployMode();
-  const publicPage = readPublicPageConfig();
+export async function prepareCloudflareBuildConfig({
+  environment = process.env,
+  sourceConfigPath = sourceConfig,
+  buildConfigPath = buildConfig,
+} = {}) {
+  let config = await readPrivateRegularFile(sourceConfigPath);
+  const analyticsMode = readAnalyticsDeployMode(environment);
+  const publicPage = readPublicPageConfig(environment);
   const replacements = [
     ...resourceReplacements,
     {
@@ -53,8 +69,13 @@ try {
     },
   ];
 
+  requireDistinctAnalyticsStreamIds(
+    readBuildValue(primaryAnalyticsStreamReplacement, environment),
+    readBuildValue(deletionV2StreamReplacement, environment),
+  );
+
   for (const replacement of replacements) {
-    const value = readBuildValue(replacement);
+    const value = readBuildValue(replacement, environment);
     if (!config.includes(replacement.placeholder)) {
       throw new Error(`${replacement.placeholder} was not found in apps/worker/wrangler.jsonc.`);
     }
@@ -67,17 +88,23 @@ try {
   }
   config = config.replaceAll(analyticsBackendPlaceholder, analyticsMode.backend);
 
-  await writeFile(buildConfig, config, { mode: 0o600 });
-  await chmod(buildConfig, 0o600);
-  console.log("Cloudflare build Wrangler config generated.");
-} catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
+  const deletionReadVersionPlaceholder = "REPLACE_WITH_PRODUCTION_ANALYTICS_DELETION_READ_VERSION";
+  if (!config.includes(deletionReadVersionPlaceholder)) {
+    throw new Error(
+      `${deletionReadVersionPlaceholder} was not found in apps/worker/wrangler.jsonc.`,
+    );
+  }
+  config = config.replaceAll(
+    deletionReadVersionPlaceholder,
+    readAnalyticsDeletionReadVersion(environment),
+  );
+
+  await writePrivateFileAtomically(buildConfigPath, config);
 }
 
-function readBuildValue({ envName, pattern, label, value: preparedValue }) {
+function readBuildValue({ envName, pattern, label, value: preparedValue }, environment) {
   if (preparedValue !== undefined) return preparedValue;
-  const value = process.env[envName]?.trim();
+  const value = environment[envName]?.trim();
   if (value === undefined || value.length === 0) {
     throw new Error(`${envName} is required for the ${label}.`);
   }
@@ -87,9 +114,9 @@ function readBuildValue({ envName, pattern, label, value: preparedValue }) {
   return value;
 }
 
-function readPublicPageConfig() {
+function readPublicPageConfig(environment) {
   const envName = "ORANGE_REPLAY_PROD_PUBLIC_PAGE_ORIGIN";
-  const value = process.env[envName]?.trim();
+  const value = environment[envName]?.trim();
   if (!value) {
     throw new Error(`${envName} is required for the public page address.`);
   }
@@ -113,5 +140,19 @@ function readPublicPageConfig() {
     throw new Error(
       `${envName} must be one HTTPS origin without a path, port, query, or fragment.`,
     );
+  }
+}
+
+const entryPath = process.argv[1];
+if (
+  typeof entryPath === "string" &&
+  import.meta.url === pathToFileURL(path.resolve(entryPath)).href
+) {
+  try {
+    await prepareCloudflareBuildConfig();
+    console.log("Cloudflare build Wrangler config generated.");
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
   }
 }
