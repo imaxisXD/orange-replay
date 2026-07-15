@@ -21,6 +21,8 @@ test-results/
 playwright-report/
 .vite-cache/
 .claude/
+.agents/
+.codex/hooks.json
 .pnpm-store/
 audits/
 design-directions*.html
