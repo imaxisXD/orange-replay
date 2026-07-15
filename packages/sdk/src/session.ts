@@ -1,11 +1,9 @@
 import { CLOSE_SESSION_AFTER_IDLE_MS, MAX_SEQ } from "@orange-replay/shared/constants";
+import { hashToUnit } from "@orange-replay/shared/sampling";
+import { isValidSessionId } from "@orange-replay/shared/session-id";
 import { uuidv7 } from "@orange-replay/shared/uuid";
 
-const SESSION_STORAGE_KEY = "or:s";
-const TAB_STORAGE_KEY = "or:t";
-const LAST_ACTIVITY_STORAGE_KEY = "or:last";
-const SEQ_STORAGE_KEY = "or:q";
-const SESSION_COOKIE = "or_s";
+const SECURE_SESSION_COOKIE_PREFIX = "__Host-or_s_";
 
 // Keep the public SDK name, but use the same number as the server. One shared
 // value prevents the browser and Durable Object from silently drifting apart.
@@ -13,11 +11,21 @@ export const SESSION_IDLE_MS = CLOSE_SESSION_AFTER_IDLE_MS;
 export const TAB_CLAIM_GRACE_MS = 50;
 export const TOUCH_PERSIST_THROTTLE_MS = 5_000;
 
+export type SessionCookieMode = "secure" | "none";
+
+export interface SessionStorageKeys {
+  session: string;
+  tab: string;
+  lastActivity: string;
+  seq: string;
+}
+
 export interface SessionManagerOptions {
   projectRef: string;
   now: () => number;
   storage?: StorageLike;
   document?: Pick<Document, "cookie">;
+  cookieMode?: SessionCookieMode;
   makeId?: () => string;
   broadcastChannel?: BroadcastChannelCtor;
   wait?: (ms: number) => Promise<void>;
@@ -38,7 +46,8 @@ type BroadcastChannelCtor = new (name: string) => BroadcastChannel;
 export class SessionManager {
   readonly ready: Promise<void>;
 
-  readonly #projectRef: string;
+  readonly #storagePrefix: string;
+  readonly #sessionCookie: string | undefined;
   readonly #now: () => number;
   readonly #storage?: StorageLike;
   readonly #document?: Pick<Document, "cookie">;
@@ -46,6 +55,7 @@ export class SessionManager {
   private readonly broadcastChannel?: BroadcastChannelCtor;
   readonly #wait: (ms: number) => Promise<void>;
   private currentSessionId: string;
+  private projectId: string | undefined;
   private currentTabId: string;
   private lastActivity: number;
   #seq: number;
@@ -53,7 +63,11 @@ export class SessionManager {
   private lastActivityPersistedAt = 0;
 
   constructor(options: SessionManagerOptions) {
-    this.#projectRef = options.projectRef;
+    const projectScope = projectScopeForRef(options.projectRef);
+    this.#storagePrefix = `or:${projectScope}:`;
+    const cookieMode = options.cookieMode ?? "secure";
+    this.#sessionCookie =
+      cookieMode === "secure" ? `${SECURE_SESSION_COOKIE_PREFIX}${projectScope}` : undefined;
     this.#now = options.now;
     this.#storage = options.storage ?? safeSessionStorage();
     this.#document = options.document ?? safeDocument();
@@ -63,18 +77,20 @@ export class SessionManager {
 
     const nowMs = this.#now();
     const cookieSession = this.readCookieSession();
-    const storedSession = safeGet(this.#storage, SESSION_STORAGE_KEY);
-    const storedLastActivity = parseStoredNumber(safeGet(this.#storage, LAST_ACTIVITY_STORAGE_KEY));
+    const storedSession = readStoredSession(this.#storage, `${this.#storagePrefix}s`);
+    const storedLastActivity = parseStoredNumber(
+      safeGet(this.#storage, `${this.#storagePrefix}last`),
+    );
     const sessionIsIdle =
       storedLastActivity !== undefined && nowMs - storedLastActivity >= SESSION_IDLE_MS;
 
     this.currentSessionId =
       cookieSession ?? (sessionIsIdle ? this.makeId() : storedSession) ?? this.makeId();
-    this.currentTabId = safeGet(this.#storage, TAB_STORAGE_KEY) ?? this.makeTabId();
+    this.currentTabId = safeGet(this.#storage, `${this.#storagePrefix}t`) ?? this.makeTabId();
     this.lastActivity = sessionIsIdle ? nowMs : (storedLastActivity ?? nowMs);
     this.#seq =
       storedSession === this.currentSessionId
-        ? (parseStoredSeq(safeGet(this.#storage, SEQ_STORAGE_KEY)) ?? 0)
+        ? (parseStoredSeq(safeGet(this.#storage, `${this.#storagePrefix}q`)) ?? 0)
         : 0;
 
     this.persist();
@@ -145,11 +161,16 @@ export class SessionManager {
     return seq;
   }
 
+  setProjectId(projectId: string | undefined): void {
+    this.projectId = projectId;
+  }
+
   getSessionUrl(base: string): string {
+    if (this.projectId === undefined) {
+      return "";
+    }
     const cleanBase = base.replace(/\/+$/, "");
-    return `${cleanBase}/sessions/${encodeURIComponent(this.#projectRef)}/${encodeURIComponent(
-      this.currentSessionId,
-    )}`;
+    return `${cleanBase}/sessions/${this.projectId}/${this.currentSessionId}`;
   }
 
   stop(): void {
@@ -180,7 +201,7 @@ export class SessionManager {
   private async openClaimChannel(Channel: BroadcastChannelCtor): Promise<void> {
     let channel: BroadcastChannel;
     try {
-      channel = new Channel(`orange-replay:${this.#projectRef}:${this.currentSessionId}`);
+      channel = new Channel(`orange-replay:${this.#storagePrefix}${this.currentSessionId}`);
     } catch {
       return;
     }
@@ -240,46 +261,75 @@ export class SessionManager {
 
   private persist(lastActivityOnly = false): void {
     if (!lastActivityOnly) {
-      safeSet(this.#storage, SESSION_STORAGE_KEY, this.currentSessionId);
-      safeSet(this.#storage, TAB_STORAGE_KEY, this.currentTabId);
+      safeSet(this.#storage, `${this.#storagePrefix}s`, this.currentSessionId);
+      safeSet(this.#storage, `${this.#storagePrefix}t`, this.currentTabId);
       this.persistSeq();
     }
 
-    safeSet(this.#storage, LAST_ACTIVITY_STORAGE_KEY, String(this.lastActivity));
+    safeSet(this.#storage, `${this.#storagePrefix}last`, String(this.lastActivity));
     this.lastActivityPersistedAt = this.#now();
     this.writeCookieSession();
   }
 
   private persistSeq(): void {
-    safeSet(this.#storage, SEQ_STORAGE_KEY, String(this.#seq));
+    safeSet(this.#storage, `${this.#storagePrefix}q`, String(this.#seq));
   }
 
   private readCookieSession(): string | undefined {
-    const cookie = this.#document?.cookie;
-    if (cookie === undefined || cookie.length === 0) {
-      return undefined;
-    }
+    const sessionCookie = this.#sessionCookie;
+    if (sessionCookie === undefined) return undefined;
 
-    for (const part of cookie.split(";")) {
-      const [rawName, ...rawValue] = part.trim().split("=");
-      if (rawName === SESSION_COOKIE) {
-        const value = rawValue.join("=");
-        return value.length > 0 ? decodeURIComponent(value) : undefined;
-      }
-    }
-
-    return undefined;
+    const prefix = `${sessionCookie}=`;
+    const sessionId = (this.#document?.cookie ?? "")
+      .split(";")
+      .find((part) => part.trim().startsWith(prefix))
+      ?.trim()
+      .slice(prefix.length);
+    return sessionId !== undefined && isValidSessionId(sessionId) ? sessionId : undefined;
   }
 
   private writeCookieSession(): void {
-    if (this.#document === undefined) {
+    const sessionCookie = this.#sessionCookie;
+    if (this.#document === undefined || sessionCookie === undefined) {
       return;
     }
 
-    this.#document.cookie = `${SESSION_COOKIE}=${encodeURIComponent(
-      this.currentSessionId,
-    )}; Path=/; Max-Age=${SESSION_IDLE_MS / 1_000}; SameSite=Lax`;
+    this.#document.cookie = `${sessionCookie}=${this.currentSessionId}; Path=/; Max-Age=${
+      SESSION_IDLE_MS / 1_000
+    }; SameSite=Lax; Secure`;
   }
+}
+
+export function sessionStorageKeysForProject(projectRef: string): SessionStorageKeys {
+  const scope = projectScopeForRef(projectRef);
+  return {
+    session: `or:${scope}:s`,
+    tab: `or:${scope}:t`,
+    lastActivity: `or:${scope}:last`,
+    seq: `or:${scope}:q`,
+  };
+}
+
+export function sessionCookieNameForProject(
+  projectRef: string,
+  mode: SessionCookieMode,
+): string | undefined {
+  return sessionCookieNameForScope(projectScopeForRef(projectRef), mode);
+}
+
+function sessionCookieNameForScope(scope: string, mode: SessionCookieMode): string | undefined {
+  return mode === "secure" ? `${SECURE_SESSION_COOKIE_PREFIX}${scope}` : undefined;
+}
+
+export function sessionCookieModeForLocation(
+  location: Pick<Location, "protocol" | "hostname">,
+): SessionCookieMode {
+  return location.protocol === "https:" ? "secure" : "none";
+}
+
+function projectScopeForRef(projectRef: string): string {
+  const hash = (value: string) => Math.floor(hashToUnit(value) * 0x1_0000_0000).toString(36);
+  return `${hash(projectRef)}${hash(`scope:${projectRef}`)}`;
 }
 
 function safeSessionStorage(): StorageLike | undefined {
@@ -324,6 +374,11 @@ function safeSet(storage: StorageLike | undefined, key: string, value: string): 
   } catch {
     /* storage can be blocked by browser privacy settings */
   }
+}
+
+function readStoredSession(storage: StorageLike | undefined, key: string): string | null {
+  const value = safeGet(storage, key);
+  return value !== null && isValidSessionId(value) ? value : null;
 }
 
 function parseStoredNumber(value: string | null): number | undefined {

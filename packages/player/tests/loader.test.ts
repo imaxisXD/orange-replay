@@ -117,12 +117,10 @@ describe("manifest and segment loading", () => {
     const loadedManifest = await loadSession(api, {
       projectId: "project",
       sessionId: "session",
-      token: "dev-token",
     });
     const segmentBytes = await fetchSegmentBytes(api, {
       projectId: "project",
       sessionId: "session",
-      token: "dev-token",
       segment: manifest.segments[0]!,
     });
     const worker = new DecodeWorkerHost({ allowSynchronousFallback: true });
@@ -344,7 +342,6 @@ describe("manifest and segment loading", () => {
       api,
       projectId: "project",
       sessionId: "session",
-      token: "dev-token",
       worker: { allowSynchronousFallback: true },
     });
 
@@ -365,7 +362,7 @@ describe("manifest and segment loading", () => {
     container.remove();
   });
 
-  it("mints live tickets with bearer auth and uses ticket socket URLs", async () => {
+  it("mints live tickets with session auth and uses ticket socket URLs", async () => {
     const fetchCalls: Array<{ url: string; headers: Headers; method?: string }> = [];
     const api = {
       baseUrl: "https://api.example.test",
@@ -382,12 +379,10 @@ describe("manifest and segment loading", () => {
     const ticket = await mintLiveTicket(api, {
       projectId: "project",
       sessionId: "session",
-      token: "dev-token",
     });
     const socketUrl = liveSocketUrl(api, {
       projectId: "project",
       sessionId: "session",
-      token: "dev-token",
       ticket: ticket.ticket,
     });
 
@@ -399,7 +394,7 @@ describe("manifest and segment loading", () => {
         method: "POST",
       },
     ]);
-    expect(fetchCalls[0]?.headers.get("authorization")).toBe("Bearer dev-token");
+    expect(fetchCalls[0]?.headers.get("authorization")).toBeNull();
     expect(socketUrl).toBe(
       "wss://api.example.test/api/v1/projects/project/sessions/session/live?ticket=ticket-1",
     );
@@ -482,7 +477,6 @@ describe("manifest and segment loading", () => {
       api,
       projectId: "project",
       sessionId: "session",
-      token: "dev-token",
       worker: { allowSynchronousFallback: true },
     });
     const liveIndexes: BatchIndex[] = [];
@@ -603,7 +597,6 @@ describe("manifest and segment loading", () => {
       api,
       projectId: "project",
       sessionId: "session",
-      token: "dev-token",
       worker: { allowSynchronousFallback: true },
     });
     const waitingStates: boolean[] = [];
@@ -786,7 +779,6 @@ describe("manifest and segment loading", () => {
       api,
       projectId: "project",
       sessionId: "session",
-      token: "dev-token",
       worker: { allowSynchronousFallback: true },
     });
     const followingStates: boolean[] = [];

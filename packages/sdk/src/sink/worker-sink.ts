@@ -247,15 +247,14 @@ export class WorkerSink implements Sink {
   }
 
   async stop(): Promise<void> {
-    if (this.stopped) {
-      return;
-    }
+    if (this.stopped) return;
 
     this.stopped = true;
     this.clearTimer();
     this.window.document.removeEventListener("visibilitychange", this.onVisibilityChange, true);
     this.window.removeEventListener("pagehide", this.onPageHide, true);
     this.window.removeEventListener("pageshow", this.onPageShow, true);
+    await this.flushing;
     await this.flushInternal("manual");
     this.workerHost.stop();
   }

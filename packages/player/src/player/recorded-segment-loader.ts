@@ -39,7 +39,7 @@ export interface ActiveReplayWindowSize {
 }
 
 export interface RecordedSegmentLoaderOptions {
-  request: Pick<OrangePlayerOptions, "api" | "projectId" | "sessionId" | "token">;
+  request: Pick<OrangePlayerOptions, "api" | "projectId" | "sessionId">;
   signal: AbortSignal;
   worker: DecodeWorkerHost;
   isDestroyed: () => boolean;
@@ -69,7 +69,6 @@ export class RecordedSegmentLoader {
     return loadSession(this.options.request.api, {
       projectId: this.options.request.projectId,
       sessionId: this.options.request.sessionId,
-      token: this.options.request.token,
       signal: this.options.signal,
     });
   }
@@ -250,7 +249,6 @@ export class RecordedSegmentLoader {
     const bytes = await fetchSegmentBytes(this.options.request.api, {
       projectId: this.options.request.projectId,
       sessionId: this.options.request.sessionId,
-      token: this.options.request.token,
       segment,
       signal,
     });

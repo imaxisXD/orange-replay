@@ -1,4 +1,4 @@
-import { cleanAnalyticsMetadataString } from "@orange-replay/shared";
+import { cleanAnalyticsMetadataString } from "@orange-replay/shared/analytics-privacy";
 import type { IndexEvent } from "@orange-replay/shared/types";
 import { isSdkInternalError } from "./internal-error.ts";
 import type { Sink } from "./sink.ts";

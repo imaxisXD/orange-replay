@@ -18,7 +18,6 @@ export async function loadSession(
 ): Promise<SessionManifest> {
   const resolved = resolveApi(api);
   const response = await resolved.fetchFn(resolved.manifestUrl(options), {
-    headers: authHeaders(options.token),
     signal: options.signal,
   });
 
@@ -41,7 +40,6 @@ export async function fetchSegmentBytes(
   const segmentName = segmentFileName(options.segment);
   const request: SegmentRequest = { ...options, segmentName };
   const response = await resolved.fetchFn(resolved.segmentUrl(request), {
-    headers: authHeaders(options.token),
     signal: options.signal,
   });
 
@@ -112,7 +110,6 @@ export async function mintLiveTicket(
   const resolved = resolveApi(api);
   const response = await resolved.fetchFn(resolved.liveTicketUrl(options), {
     method: "POST",
-    headers: authHeaders(options.token),
     signal: options.signal,
   });
 
@@ -176,14 +173,6 @@ function resolveApi(api: PlayerApiInput): ResolvedApi {
           params.sessionId,
         )}/live-ticket`),
   };
-}
-
-function authHeaders(token: string | undefined): Headers {
-  const headers = new Headers();
-  if (token !== undefined && token.length > 0) {
-    headers.set("authorization", `Bearer ${token}`);
-  }
-  return headers;
 }
 
 async function readApiError(response: Response, fallback: string): Promise<string> {

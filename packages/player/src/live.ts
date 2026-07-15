@@ -11,6 +11,7 @@ import { EventType } from "rrweb";
 import type { ReplayEvent } from "./types.ts";
 
 export interface LiveFrame {
+  encodedByteLength: number;
   index: BatchIndex;
   payload: Uint8Array;
 }
@@ -216,7 +217,7 @@ export function acceptLiveFrame(
 
 export function decodeLiveFrame(bytes: ArrayBuffer | Uint8Array): LiveFrame {
   const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-  return decodeIngestBody(view);
+  return { ...decodeIngestBody(view), encodedByteLength: view.byteLength };
 }
 
 export function retainLiveReplayEvents(
@@ -224,8 +225,17 @@ export function retainLiveReplayEvents(
   cutoffTimestamp: number,
 ): ReplayEvent[] {
   const cutoffIndex = events.findIndex((event) => event.timestamp >= cutoffTimestamp);
-  if (cutoffIndex <= 0) {
+  if (cutoffIndex === 0) {
     return [...events];
+  }
+  if (cutoffIndex < 0) {
+    const latestSnapshotIndex = events.findLastIndex(isFullSnapshotEvent);
+    if (latestSnapshotIndex < 0) return [];
+    const baselineStart =
+      latestSnapshotIndex > 0 && isMetaEvent(events[latestSnapshotIndex - 1])
+        ? latestSnapshotIndex - 1
+        : latestSnapshotIndex;
+    return events.slice(baselineStart);
   }
 
   let snapshotIndex = -1;

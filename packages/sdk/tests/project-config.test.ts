@@ -22,6 +22,7 @@ const localConfig: RecorderConfig = {
 };
 
 const remoteConfig = {
+  projectId: "project_123",
   sampleRate: 0.5,
   maskPolicyVersion: 3,
   maskRules: [
@@ -35,6 +36,7 @@ const remoteConfig = {
 describe("recorder project config", () => {
   it("merges dashboard sampling, masking, and capture settings", () => {
     expect(mergeRecorderProjectConfig(localConfig, remoteConfig, document)).toMatchObject({
+      projectId: "project_123",
       sampleRate: 0.5,
       maskPolicyVersion: 3,
       maskTextSelector: ".local-mask, .remote-mask",
@@ -116,6 +118,19 @@ describe("recorder project config", () => {
 
   it("rejects incomplete server config", () => {
     expect(parseRecorderProjectConfig({ sampleRate: 1 })).toBeNull();
+  });
+
+  it("accepts an older config response without a project id", () => {
+    const { projectId: _projectId, ...olderConfig } = remoteConfig;
+
+    expect(parseRecorderProjectConfig(olderConfig)).toEqual({
+      ...olderConfig,
+      projectId: undefined,
+    });
+  });
+
+  it("rejects a project id that cannot be used in a session path", () => {
+    expect(parseRecorderProjectConfig({ ...remoteConfig, projectId: "project/escape" })).toBeNull();
   });
 
   it("does not capture when the config service fails", async () => {

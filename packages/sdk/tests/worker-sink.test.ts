@@ -280,6 +280,67 @@ describe("WorkerSink session rotation", () => {
   });
 });
 
+describe("WorkerSink stop drain", () => {
+  it("waits for an active flush and then sends the buffered tail before stopping", async () => {
+    const firstEvent = makeEvent(1, "first");
+    const tailEvent = makeEvent(2, "tail");
+    const ignoredAfterStop = makeEvent(3, "ignored");
+    const pendingResults: ((result: WorkerBatchResult) => void)[] = [];
+    const flushBatch = vi.fn(
+      () =>
+        new Promise<WorkerBatchResult>((resolve) => {
+          pendingResults.push(resolve);
+        }),
+    );
+    const stopWorker = vi.fn();
+    const workerHost = {
+      addEvents: vi.fn(),
+      flushBatch,
+      reset: vi.fn(),
+      stop: stopWorker,
+    } as unknown as WorkerHost;
+    const bodies: Uint8Array[] = [];
+    const fetchMock = vi.fn<typeof fetch>(async (_input, init) => {
+      bodies.push(init?.body as Uint8Array);
+      return new Response(JSON.stringify({ ok: true, live: false, flushMs: 15_000 }));
+    });
+    const sink = new WorkerSink({
+      config,
+      session: makeSession(["session-one", "tab-one"]),
+      window,
+      workerHost,
+      fetch: fetchMock,
+    });
+
+    sink.addRrwebEvent(firstEvent);
+    const activeFlush = sink.flush("manual");
+    await vi.waitFor(() => expect(flushBatch).toHaveBeenCalledTimes(1));
+    sink.addRrwebEvent(tailEvent);
+    const stopping = sink.stop();
+    sink.addRrwebEvent(ignoredAfterStop);
+    expect(stopWorker).not.toHaveBeenCalled();
+
+    pendingResults[0]?.({
+      payload: new TextEncoder().encode(JSON.stringify([firstEvent])),
+      uncompressed: true,
+    });
+    await vi.waitFor(() => expect(flushBatch).toHaveBeenCalledTimes(2));
+    expect(stopWorker).not.toHaveBeenCalled();
+
+    pendingResults[1]?.({
+      payload: new TextEncoder().encode(JSON.stringify([tailEvent])),
+      uncompressed: true,
+    });
+    await Promise.all([activeFlush, stopping]);
+
+    expect(stopWorker).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(
+      bodies.map((body) => JSON.parse(decoder.decode(decodeIngestBody(body).payload))),
+    ).toEqual([[firstEvent], [tailEvent]]);
+  });
+});
+
 describe("WorkerSink server and transport drops", () => {
   it("notifies when an ingest ack asks for a checkpoint", async () => {
     const onCheckpointRequested = vi.fn();

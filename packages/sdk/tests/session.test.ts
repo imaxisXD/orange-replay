@@ -1,7 +1,14 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { CLOSE_SESSION_AFTER_IDLE_MS } from "@orange-replay/shared/constants";
-import { SESSION_IDLE_MS, SessionManager, type StorageLike } from "../src/session.ts";
+import {
+  SESSION_IDLE_MS,
+  sessionCookieModeForLocation,
+  sessionCookieNameForProject,
+  SessionManager,
+  sessionStorageKeysForProject,
+  type StorageLike,
+} from "../src/session.ts";
 import { startSessionTouchListeners } from "../src/session-touch.ts";
 
 const START_TIME = 1_700_000_000_000;
@@ -28,6 +35,7 @@ class CookieDocument implements Pick<Document, "cookie"> {
   private values = new Map<string, string>();
   private expiresAt = new Map<string, number>();
   writeCount = 0;
+  lastWrite = "";
 
   constructor(private readonly now: () => number = () => START_TIME) {}
 
@@ -48,6 +56,7 @@ class CookieDocument implements Pick<Document, "cookie"> {
 
   set cookie(value: string) {
     this.writeCount += 1;
+    this.lastWrite = value;
     const [pair = ""] = value.split(";", 1);
     const [name = "", rawValue = ""] = pair.split("=", 2);
     if (name.length === 0) {
@@ -137,7 +146,7 @@ describe("SessionManager", () => {
     const storage = new MemoryStorage();
     const cookieDocument = new CookieDocument();
     let idCount = 0;
-    const makeId = () => `id-${(idCount += 1)}`;
+    const makeId = () => `test-id-${String((idCount += 1)).padStart(8, "0")}`;
 
     const first = new SessionManager({
       projectRef: "project",
@@ -162,7 +171,7 @@ describe("SessionManager", () => {
     const firstStorage = new MemoryStorage();
     const secondStorage = new MemoryStorage();
     const cookieDocument = new CookieDocument();
-    const ids = ["session-one", "tab-one", "tab-two"];
+    const ids = ["session-one-000001", "tab-one", "tab-two"];
     const makeId = () => ids.shift() ?? "extra-id";
 
     const first = new SessionManager({
@@ -188,7 +197,7 @@ describe("SessionManager", () => {
     const storage = new MemoryStorage();
     let now = START_TIME;
     const cookieDocument = new CookieDocument(() => now);
-    const ids = ["session-one", "tab-one", "session-two"];
+    const ids = ["session-one-000001", "tab-one", "session-two-000002"];
     const makeId = () => ids.shift() ?? "extra-id";
     const session = new SessionManager({
       projectRef: "project",
@@ -203,17 +212,17 @@ describe("SessionManager", () => {
 
     now += SESSION_IDLE_MS;
     expect(session.touch()).toBe(true);
-    expect(session.sessionId).toBe("session-one");
+    expect(session.sessionId).toBe("session-one-000001");
     expect(session.resumeAfterIdle()).toBe(true);
 
-    expect(session.sessionId).toBe("session-two");
+    expect(session.sessionId).toBe("session-two-000002");
     expect(session.nextSeq()).toBe(0);
   });
 
   it("continues the per-tab sequence after a same-tab re-init", () => {
     const storage = new MemoryStorage();
     const cookieDocument = new CookieDocument();
-    const ids = ["session-one", "tab-one"];
+    const ids = ["session-one-000001", "tab-one"];
     const makeId = () => ids.shift() ?? "extra-id";
     const first = new SessionManager({
       projectRef: "project",
@@ -234,7 +243,7 @@ describe("SessionManager", () => {
       makeId,
     });
 
-    expect(second.sessionId).toBe("session-one");
+    expect(second.sessionId).toBe("session-one-000001");
     expect(second.tabId).toBe("tab-one");
     expect(second.nextSeq()).toBe(2);
   });
@@ -244,7 +253,7 @@ describe("SessionManager", () => {
     const cookieDocument = new CookieDocument(() => now);
     const activeStorage = new MemoryStorage();
     const dormantStorage = new MemoryStorage();
-    const makeId = sequenceIds(["session-one", "active-tab", "dormant-tab"]);
+    const makeId = sequenceIds(["session-one-000001", "active-tab", "dormant-tab"]);
     const active = new SessionManager({
       projectRef: "project",
       now: () => now,
@@ -283,7 +292,7 @@ describe("SessionManager", () => {
   it("mints a fresh tab id when another live tab claims the stored id", async () => {
     const storage = new MemoryStorage();
     const cookieDocument = new CookieDocument();
-    const ids = ["session-one", "tab-one", "tab-two"];
+    const ids = ["session-one-000001", "tab-one", "tab-two"];
     const makeId = () => ids.shift() ?? "extra-id";
     const first = new SessionManager({
       projectRef: "project",
@@ -306,8 +315,8 @@ describe("SessionManager", () => {
 
     await Promise.all([first.ready, second.ready]);
 
-    expect(first.sessionId).toBe("session-one");
-    expect(second.sessionId).toBe("session-one");
+    expect(first.sessionId).toBe("session-one-000001");
+    expect(second.sessionId).toBe("session-one-000001");
     expect(first.tabId).toBe("tab-one");
     expect(second.tabId).toBe("tab-two");
     expect(second.nextSeq()).toBe(0);
@@ -318,12 +327,12 @@ describe("SessionManager", () => {
   it("uses random UUID bits when two copied tabs rotate in the same millisecond", async () => {
     const rotateCopiedTab = async (replacementId: string): Promise<string> => {
       const cookieDocument = new CookieDocument();
-      cookieDocument.cookie = "or_s=session-one; Path=/; SameSite=Lax";
+      cookieDocument.cookie = `${sessionCookieNameForProject("project", "secure")}=session-one-000001; Path=/; SameSite=Lax; Secure`;
       const makeId = () => replacementId;
       const first = new SessionManager({
         projectRef: "project",
         now: () => START_TIME,
-        storage: storedSession("session-one", "copied-tab"),
+        storage: storedSession("session-one-000001", "copied-tab"),
         document: cookieDocument,
         makeId,
         broadcastChannel: FakeBroadcastChannel as unknown as typeof BroadcastChannel,
@@ -332,7 +341,7 @@ describe("SessionManager", () => {
       const second = new SessionManager({
         projectRef: "project",
         now: () => START_TIME,
-        storage: storedSession("session-one", "copied-tab"),
+        storage: storedSession("session-one-000001", "copied-tab"),
         document: cookieDocument,
         makeId,
         broadcastChannel: FakeBroadcastChannel as unknown as typeof BroadcastChannel,
@@ -390,7 +399,7 @@ describe("SessionManager", () => {
   it("keeps one active session id when a new tab opens after 30 minutes", () => {
     let now = START_TIME;
     const cookieDocument = new CookieDocument(() => now);
-    const ids = ["session-one", "tab-one", "tab-two"];
+    const ids = ["session-one-000001", "tab-one", "tab-two"];
     const makeId = () => ids.shift() ?? "extra-id";
     const first = new SessionManager({
       projectRef: "project",
@@ -420,7 +429,7 @@ describe("SessionManager", () => {
   it("keeps a dormant tab in the session that another tab kept active", () => {
     let now = START_TIME;
     const cookieDocument = new CookieDocument(() => now);
-    const ids = ["session-one", "active-tab", "dormant-tab", "unexpected-session"];
+    const ids = ["session-one-000001", "active-tab", "dormant-tab", "unexpected-session"];
     const makeId = () => ids.shift() ?? "extra-id";
     const active = new SessionManager({
       projectRef: "project",
@@ -458,7 +467,7 @@ describe("SessionManager", () => {
   it("lets the idle listener continue a session kept active by another tab", () => {
     let now = START_TIME;
     const cookieDocument = new CookieDocument(() => now);
-    const ids = ["session-one", "active-tab", "dormant-tab"];
+    const ids = ["session-one-000001", "active-tab", "dormant-tab"];
     const makeId = () => ids.shift() ?? "extra-id";
     const active = new SessionManager({
       projectRef: "project",
@@ -504,7 +513,7 @@ describe("SessionManager", () => {
       },
       storage: new MemoryStorage(),
       document: new CookieDocument(),
-      makeId: sequenceIds(["session-one", "tab-one", "unexpected-session"]),
+      makeId: sequenceIds(["session-one-000001", "tab-one", "unexpected-session"]),
     });
     const eventTarget = new EventTarget() as Window;
     const idleActions: string[] = [];
@@ -517,14 +526,14 @@ describe("SessionManager", () => {
 
     expect(eventReadCount).toBeGreaterThan(1);
     expect(idleActions).toEqual([]);
-    expect(session.sessionId).toBe("session-one");
+    expect(session.sessionId).toBe("session-one-000001");
     stop();
   });
 
   it("resets the persisted sequence when the session rotates", () => {
     const storage = new MemoryStorage();
     const cookieDocument = new CookieDocument();
-    const ids = ["session-one", "tab-one", "session-two"];
+    const ids = ["session-one-000001", "tab-one", "session-two-000002"];
     const makeId = () => ids.shift() ?? "extra-id";
     const session = new SessionManager({
       projectRef: "project",
@@ -537,16 +546,17 @@ describe("SessionManager", () => {
     expect(session.nextSeq()).toBe(0);
     session.rotate();
 
-    expect(session.sessionId).toBe("session-two");
+    expect(session.sessionId).toBe("session-two-000002");
     expect(session.nextSeq()).toBe(0);
   });
 
   it("starts at sequence 0 when stored sequence is corrupted", () => {
     const storage = new MemoryStorage();
-    storage.setItem("or:s", "session-one");
-    storage.setItem("or:t", "tab-one");
-    storage.setItem("or:last", String(START_TIME));
-    storage.setItem("or:q", "not-a-number");
+    const keys = sessionStorageKeysForProject("project");
+    storage.setItem(keys.session, "session-one-000001");
+    storage.setItem(keys.tab, "tab-one");
+    storage.setItem(keys.lastActivity, String(START_TIME));
+    storage.setItem(keys.seq, "not-a-number");
 
     const session = new SessionManager({
       projectRef: "project",
@@ -556,9 +566,108 @@ describe("SessionManager", () => {
       makeId: () => "extra-id",
     });
 
-    expect(session.sessionId).toBe("session-one");
+    expect(session.sessionId).toBe("session-one-000001");
     expect(session.tabId).toBe("tab-one");
     expect(session.nextSeq()).toBe(0);
+  });
+
+  it("scopes storage and cookies without writing the public key", () => {
+    const storage = new MemoryStorage();
+    const cookieDocument = new CookieDocument();
+    const first = new SessionManager({
+      projectRef: "or_live_first_public_key",
+      now: () => START_TIME,
+      storage,
+      document: cookieDocument,
+      makeId: sequenceIds(["session-first-001", "first-tab"]),
+    });
+    const second = new SessionManager({
+      projectRef: "or_live_second_public_key",
+      now: () => START_TIME,
+      storage,
+      document: cookieDocument,
+      makeId: sequenceIds(["session-second-01", "second-tab"]),
+    });
+
+    expect(second.sessionId).not.toBe(first.sessionId);
+    expect(cookieDocument.cookie).not.toContain("or_live_first_public_key");
+    expect(cookieDocument.cookie).not.toContain("or_live_second_public_key");
+    expect(sessionStorageKeysForProject("or_live_first_public_key")).not.toEqual(
+      sessionStorageKeysForProject("or_live_second_public_key"),
+    );
+  });
+
+  it("writes a host-only secure cookie on HTTPS", () => {
+    const cookieDocument = new CookieDocument();
+    new SessionManager({
+      projectRef: "public-write-key",
+      now: () => START_TIME,
+      storage: new MemoryStorage(),
+      document: cookieDocument,
+      cookieMode: "secure",
+      makeId: sequenceIds(["session-secure-01", "secure-tab"]),
+    });
+
+    expect(cookieDocument.lastWrite).toMatch(/^__Host-or_s_[a-z0-9]{2,14}=/);
+    expect(cookieDocument.lastWrite).toContain("; Path=/;");
+    expect(cookieDocument.lastWrite).toContain("; SameSite=Lax; Secure");
+    expect(cookieDocument.lastWrite).not.toContain("Domain=");
+    expect(cookieDocument.lastWrite).not.toContain("public-write-key");
+  });
+
+  it("does not read cookies when cookies are disabled", () => {
+    const cookieDocument = new CookieDocument();
+    cookieDocument.cookie = "undefined=session-from-wrong-cookie; Path=/";
+    const session = new SessionManager({
+      projectRef: "public-write-key",
+      now: () => START_TIME,
+      storage: new MemoryStorage(),
+      document: cookieDocument,
+      cookieMode: "none",
+      makeId: sequenceIds(["session-current-01", "current-tab"]),
+    });
+
+    expect(session.sessionId).toBe("session-current-01");
+    expect(cookieDocument.lastWrite).toBe("undefined=session-from-wrong-cookie; Path=/");
+  });
+
+  it("ignores malformed, invalid, and legacy session cookies", () => {
+    const projectRef = "project";
+    const cookieName = sessionCookieNameForProject(projectRef, "secure")!;
+    const cookieDocument = new CookieDocument();
+    cookieDocument.cookie = `${cookieName}=%E0%A4%A; Path=/; Secure`;
+    cookieDocument.cookie = "or_s=legacy-session-01; Path=/";
+    const session = new SessionManager({
+      projectRef,
+      now: () => START_TIME,
+      storage: new MemoryStorage(),
+      document: cookieDocument,
+      makeId: sequenceIds(["session-current-01", "current-tab"]),
+    });
+
+    expect(session.sessionId).toBe("session-current-01");
+  });
+
+  it("only writes the shared session cookie over HTTPS", () => {
+    expect(sessionCookieModeForLocation({ protocol: "https:", hostname: "example.test" })).toBe(
+      "secure",
+    );
+    expect(sessionCookieModeForLocation({ protocol: "http:", hostname: "localhost" })).toBe("none");
+    expect(sessionCookieModeForLocation({ protocol: "http:", hostname: "example.test" })).toBe(
+      "none",
+    );
+  });
+
+  it("does not expose the write key when project config is unavailable", () => {
+    const session = new SessionManager({
+      projectRef: "or_live_never_put_this_in_a_url",
+      now: () => START_TIME,
+      storage: new MemoryStorage(),
+      document: new CookieDocument(),
+      makeId: sequenceIds(["session-private-01", "private-tab"]),
+    });
+
+    expect(session.getSessionUrl("https://app.test")).toBe("");
   });
 
   it("builds a session URL from a base path", () => {
@@ -567,11 +676,12 @@ describe("SessionManager", () => {
       now: () => START_TIME,
       storage: new MemoryStorage(),
       document: new CookieDocument(),
-      makeId: () => "session-a",
+      makeId: () => "session-a-000001",
     });
+    session.setProjectId("project-a");
 
     expect(session.getSessionUrl("https://app.test/")).toBe(
-      "https://app.test/sessions/project-a/session-a",
+      "https://app.test/sessions/project-a/session-a-000001",
     );
   });
 });
@@ -587,9 +697,10 @@ function sequenceIds(values: string[]): () => string {
 
 function storedSession(sessionId: string, tabId: string): MemoryStorage {
   const storage = new MemoryStorage();
-  storage.setItem("or:s", sessionId);
-  storage.setItem("or:t", tabId);
-  storage.setItem("or:last", String(START_TIME));
-  storage.setItem("or:q", "0");
+  const keys = sessionStorageKeysForProject("project");
+  storage.setItem(keys.session, sessionId);
+  storage.setItem(keys.tab, tabId);
+  storage.setItem(keys.lastActivity, String(START_TIME));
+  storage.setItem(keys.seq, "0");
   return storage;
 }

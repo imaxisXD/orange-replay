@@ -39,6 +39,7 @@ export function init(options: InitOptions): OrangeReplayHandle {
     const session = new SessionManager({
       projectRef: localConfig.projectRef,
       now: () => Date.now(),
+      cookieMode: window.location.protocol === "https:" ? "secure" : "none",
     });
     let stopRequested = false;
     let runtime: RecorderRuntime | undefined;
@@ -51,6 +52,7 @@ export function init(options: InitOptions): OrangeReplayHandle {
           window.fetch.bind(window) as typeof fetch,
           document,
         );
+        session.setProjectId(config.projectId);
         if (!shouldSampleSession(session.sessionId, config.sampleRate)) {
           discardLoaderPreBuffer(window);
           session.stop();

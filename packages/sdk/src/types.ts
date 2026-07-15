@@ -24,6 +24,7 @@ export interface RecorderConfig {
   key: string;
   ingestUrl: string;
   projectRef: string;
+  projectId?: string;
   transport?: "worker" | "inline";
   sampleRate: number;
   maskPolicyVersion: number;

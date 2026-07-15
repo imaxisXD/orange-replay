@@ -17,10 +17,12 @@ import { EventType, IncrementalSource, type eventWithTime } from "rrweb";
 describe("live frame handling", () => {
   it("decodes shared ingest bodies into live frames", () => {
     const index = makeIndex("tab-a", 1, 1_000);
-    const frame = decodeLiveFrame(encodeIngestBody(index, new Uint8Array([1, 2, 3])));
+    const encoded = encodeIngestBody(index, new Uint8Array([1, 2, 3]));
+    const frame = decodeLiveFrame(encoded);
 
     expect(frame.index).toEqual(index);
     expect(Array.from(frame.payload)).toEqual([1, 2, 3]);
+    expect(frame.encodedByteLength).toBe(encoded.byteLength);
   });
 
   it("keeps duplicate live frames out of state", () => {

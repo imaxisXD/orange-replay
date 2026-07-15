@@ -25,7 +25,6 @@ export interface PlayerApi {
 export interface SessionRequest {
   projectId: string;
   sessionId: string;
-  token?: string;
 }
 
 export interface SegmentRequest extends SessionRequest {

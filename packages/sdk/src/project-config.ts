@@ -51,6 +51,7 @@ export function mergeRecorderProjectConfig(
 
   return {
     ...localConfig,
+    projectId: remoteConfig.projectId,
     sampleRate: Math.min(localConfig.sampleRate, remoteConfig.sampleRate),
     maskPolicyVersion: remoteConfig.maskPolicyVersion,
     capture: { ...remoteConfig.capture },
@@ -63,6 +64,7 @@ export function parseRecorderProjectConfig(value: unknown): RecorderProjectConfi
   if (!isRecord(value)) return null;
 
   const sampleRate = value["sampleRate"];
+  const projectId = value["projectId"];
   const maskPolicyVersion = value["maskPolicyVersion"];
   const version = value["version"];
   const maskRules = parseMaskRules(value["maskRules"]);
@@ -72,6 +74,8 @@ export function parseRecorderProjectConfig(value: unknown): RecorderProjectConfi
     !Number.isFinite(sampleRate) ||
     sampleRate < 0 ||
     sampleRate > 1 ||
+    (projectId !== undefined &&
+      (typeof projectId !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(projectId))) ||
     !isNonNegativeInteger(maskPolicyVersion) ||
     !isNonNegativeInteger(version) ||
     maskRules === null ||
@@ -80,7 +84,14 @@ export function parseRecorderProjectConfig(value: unknown): RecorderProjectConfi
     return null;
   }
 
-  return { sampleRate, maskPolicyVersion, maskRules, capture, version };
+  return {
+    projectId,
+    sampleRate,
+    maskPolicyVersion,
+    maskRules,
+    capture,
+    version,
+  };
 }
 
 export function assertSafePrivacySelectors(config: RecorderConfig, document: Document): void {
