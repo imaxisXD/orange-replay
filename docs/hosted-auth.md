@@ -33,7 +33,7 @@ Open `http://localhost:5200/login`. The first sign-in creates a personal workspa
 vp run auth:promote-admin -- --email you@example.com --local
 ```
 
-Remove or comment all five hosted-auth values to return to the existing local token login. A partial hosted-auth setup fails closed instead of silently using the token.
+Better Auth is the only private dashboard sign-in path. If any required Better Auth or GitHub value is missing, private account and project routes fail closed and the login page explains that sign-in is unavailable. The anonymous read-only `/demo` route keeps working when its own demo values are configured.
 
 ## Account And Key Boundary
 

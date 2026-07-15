@@ -84,6 +84,41 @@ export const sessionFilterSchema = z
     path: ["to"],
   });
 
+/**
+ * Response filters are already typed values from the server. Validate them
+ * without normalizing strings so a decoded response keeps the exact wire value
+ * used by its labels and metric doorways.
+ */
+export const responseSessionFilterSchema = z
+  .object({
+    from: z.number().int().safe().nonnegative().optional(),
+    to: z.number().int().safe().nonnegative().optional(),
+    country: z.string().min(1).max(MAX_FILTER_VALUE_CHARS).optional(),
+    region: z.string().min(1).max(MAX_FILTER_VALUE_CHARS).optional(),
+    device: z.string().min(1).max(MAX_FILTER_VALUE_CHARS).optional(),
+    browser: z.string().min(1).max(MAX_FILTER_VALUE_CHARS).optional(),
+    os: z.string().min(1).max(MAX_FILTER_VALUE_CHARS).optional(),
+    entry_url: z.string().min(1).max(MAX_ENTRY_URL_PREFIX_CHARS).optional(),
+    entry_url_prefix: z.string().min(1).max(MAX_ENTRY_URL_PREFIX_CHARS).optional(),
+    has_errors: z.boolean().optional(),
+    error_detail: z.string().min(1).max(MAX_FILTER_VALUE_CHARS).optional(),
+    has_page_coverage: z.boolean().optional(),
+    has_rage: z.boolean().optional(),
+    has_quick_back: z.boolean().optional(),
+    has_insights: z.boolean().optional(),
+    min_duration_ms: z.number().int().safe().nonnegative().optional(),
+    warehouse_version: z.number().int().safe().nonnegative().optional(),
+  })
+  .strict()
+  .refine(dateRangeIsOrdered, {
+    message: "from must be before or equal to to",
+    path: ["to"],
+  })
+  .refine(dateRangeFitsLimit, {
+    message: "date range must be 31 days or less",
+    path: ["to"],
+  });
+
 export type SessionFilter = z.output<typeof sessionFilterSchema>;
 
 export type ParsedSessionFilter =

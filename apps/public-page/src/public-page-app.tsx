@@ -7,6 +7,13 @@ import { useQuery } from "@tanstack/react-query";
 import { Suspense, useState, type ComponentType } from "react";
 import { publicPageQueryOptions } from "./query.ts";
 
+const numberFormatter = new Intl.NumberFormat("en");
+const dateTimeFormatter = new Intl.DateTimeFormat("en", {
+  dateStyle: "medium",
+  timeStyle: "short",
+  timeZone: "UTC",
+});
+
 export type PublicReplayPlayerComponent = ComponentType<{
   publicId: string;
   recording: PublicPageRecording;
@@ -109,7 +116,11 @@ export function PublicPageApp({ publicId, replayPlayer: ReplayPlayer }: PublicPa
             </button>
           </div>
           <Suspense fallback={<div className="player-loading">Loading the replay player…</div>}>
-            <ReplayPlayer publicId={publicId} recording={selectedRecording} />
+            <ReplayPlayer
+              key={`${publicId}:${selectedRecording.replayId}`}
+              publicId={publicId}
+              recording={selectedRecording}
+            />
           </Suspense>
         </section>
       ) : null}
@@ -193,7 +204,7 @@ function BreakdownCard({ title, rows }: { title: string; rows: PublicPageBreakdo
 }
 
 function formatNumber(value: number): string {
-  return new Intl.NumberFormat("en").format(Math.round(value));
+  return numberFormatter.format(Math.round(value));
 }
 
 function formatOptionalDecimal(value: number | null): string {
@@ -212,10 +223,6 @@ function formatDuration(milliseconds: number): string {
 }
 
 function formatDateTime(timestamp: number): string {
-  const value = new Intl.DateTimeFormat("en", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: "UTC",
-  }).format(new Date(timestamp));
+  const value = dateTimeFormatter.format(new Date(timestamp));
   return `${value} UTC`;
 }

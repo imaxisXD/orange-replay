@@ -8,7 +8,7 @@ Read `ARCHITECTURE.md` section 6 and the security rules in `PLAN.md`. This task 
 - `/demo` and its existing read-only API allowlist stay public. A guest can view the demo without an account.
 - A signed-in user owns a workspace membership. Projects belong to that workspace, and project write keys belong to a project.
 - The dashboard session cookie is for people. The recorder keeps using a project write key; it never receives the person's session cookie.
-- Self-hosted and local installs can keep the existing bearer-token mode when Better Auth secrets are not configured.
+- Better Auth is the only private dashboard sign-in path in hosted, self-hosted, and local installs. A missing or partial Better Auth configuration fails closed; it never falls back to a shared bearer token.
 - The combined Worker remains the canonical deployment. The operator console is served at `/_admin`; a separate static Worker is not a security boundary.
 
 ## Better Auth setup
@@ -41,7 +41,7 @@ Existing production workspaces must never be claimed by the first person who sig
 
 ## Account API
 
-- `GET /api/v1/auth/config` tells the UI whether this install uses GitHub or the local token.
+- `GET /api/v1/auth/config` tells the UI whether GitHub sign-in is ready or private sign-in is unavailable.
 - `GET /api/v1/account` returns the signed-in user, their workspaces/projects, roles, and global-admin flag.
 - `POST /api/v1/account/bootstrap` is idempotent. When a new user has no memberships, it creates one personal workspace and one default project. It does not create or reveal a key.
 - Membership roles are `owner`, `admin`, and `member`. Owner/admin can change project configuration and manage project keys. Members can view recordings and project information.
@@ -58,12 +58,12 @@ Existing production workspaces must never be claimed by the first person who sig
 
 ## Dashboard
 
-- `/login` shows “Continue with GitHub” in hosted mode and keeps the token form only in local/self-host mode.
+- `/login` shows “Continue with GitHub” when Better Auth is ready and a clear unavailable state when it is not.
 - `/projects` loads the account, creates the personal workspace when needed, then sends the user to an owned project.
-- Project routes accept either the hosted session cookie or the existing local token. `/demo` remains a separate unguarded route tree.
+- Project routes require a Better Auth session and workspace membership. `/demo` remains a separate anonymous read-only route tree.
 - Replace the hard-coded project and user chrome with account data. Sign out through Better Auth in hosted mode.
 - Settings can create and revoke named project keys. A newly-created secret is shown once in a dialog with a clear copy/install action.
-- Live replay ticket minting accepts same-origin session cookies; a local token is optional.
+- Live replay ticket minting requires a same-origin Better Auth session. Demo playback keeps its separate public read-only path.
 
 ## Operator console
 
@@ -82,7 +82,7 @@ Existing production workspaces must never be claimed by the first person who sig
 
 ## Verification
 
-- Unit/integration tests cover: public demo unchanged; no-session denial; session-to-project membership; role checks; bootstrap idempotency; key plaintext shown once; create/revoke D1+KV behavior; exact-origin mutation checks; admin-only routes; local bearer fallback.
-- Dashboard tests cover hosted/local login choice, project routing, key dialog and revoke flow, real account chrome, admin access, and token-optional live ticket minting.
+- Unit/integration tests cover: public demo unchanged; no-session denial; unsupported authorization-header denial; session-to-project membership; role checks; bootstrap idempotency; key plaintext shown once; create/revoke D1+KV behavior; exact-origin mutation checks; and admin-only routes.
+- Dashboard tests cover GitHub and unavailable login states, project routing, key dialog and revoke flow, real account chrome, admin access, and session-authenticated live ticket minting.
 - Run `vp install`, `vp check`, `vp test`, the self-host mirror check, dashboard/Worker builds, and a production deploy dry run.
 - Do not call the work complete until the full local gates pass. Do not claim production OAuth was tested unless an actual production sign-in was exercised.

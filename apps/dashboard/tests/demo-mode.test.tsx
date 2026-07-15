@@ -3,9 +3,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 import { ApiError } from "../src/lib/api";
 import { dashboardNavItems } from "../src/lib/dashboard-navigation";
+import { decideProjectRoute } from "../src/lib/dashboard-access";
 import { isDemoPath } from "../src/lib/demo-mode";
 import { DemoUnavailableStateContent } from "../src/lib/demo-unavailable-state";
-import { requireProjectToken } from "../src/lib/route-guard";
 
 beforeEach(() => {
   window.history.replaceState({}, "", "/");
@@ -20,10 +20,14 @@ describe("demo routes", () => {
     expect(isDemoPath("/demonstration")).toBe(false);
   });
 
-  it("bypasses the project token guard", () => {
-    expect(() =>
-      requireProjectToken({ href: "/demo/sessions", pathname: "/demo/sessions" }),
-    ).not.toThrow();
+  it("allows public demo reads without a private account", () => {
+    expect(
+      decideProjectRoute({
+        projectId: "demo-project",
+        requirement: "view",
+        scope: "demo",
+      }),
+    ).toEqual({ action: "allow" });
   });
 
   it("hides settings and install navigation", () => {

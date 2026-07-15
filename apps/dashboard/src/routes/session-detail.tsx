@@ -13,6 +13,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { ApiError, type SessionActivity, type SessionDetailsState } from "@/lib/api";
 import { formatCountryCode } from "@/lib/country";
 import { useDashboardWorkspace } from "@/lib/dashboard-workspace";
+import { entryPath } from "@/lib/entry-path";
 import { formatAbsoluteTime, formatDuration, formatShortRelativeTime } from "@/lib/format";
 import {
   AlertCircle,
@@ -26,7 +27,6 @@ import {
 } from "@/lib/icon-map";
 import { ReplayWorkspace } from "./session-detail/replay-playback";
 import { useSessionView } from "./session-detail/use-session-view";
-import { entryPath } from "./sessions/session-card";
 
 export function SessionDetailPage() {
   const { projectId, isDemo } = useDashboardWorkspace();
@@ -40,11 +40,8 @@ export function SessionDetailPage() {
   const manifest = sessionView.displayedManifest;
   const playerManifest = sessionView.playerManifest;
   const error = sessionView.error === null ? "" : readErrorMessage(sessionView.error);
-  const [deadClickCount, setDeadClickCount] = useState(0);
-
-  useEffect(() => {
-    setDeadClickCount(0);
-  }, [sessionId]);
+  const [deadClickState, setDeadClickState] = useState({ count: 0, sessionId });
+  const deadClickCount = deadClickState.sessionId === sessionId ? deadClickState.count : 0;
 
   if (sessionId === undefined) {
     return (
@@ -101,7 +98,7 @@ export function SessionDetailPage() {
           isDemo={isDemo}
           manifest={manifest}
           mode={sessionView.mode}
-          onDeadClickCountChange={setDeadClickCount}
+          onDeadClickCountChange={(count) => setDeadClickState({ count, sessionId })}
           onLiveEnded={sessionView.onLiveEnded}
           onLiveFinalized={sessionView.onLiveFinalized}
           onLiveIndex={sessionView.onLiveIndex}

@@ -1,5 +1,6 @@
 import type { SessionHead } from "@/lib/api";
 import { cleanCountryCode, formatLocationName } from "./country";
+import { entryPath } from "./entry-path";
 import { formatDuration } from "./format";
 
 export const livePollIntervalMs = 5_000;
@@ -33,17 +34,6 @@ export function formatLiveSessionRow(
 
 export function shouldPollLiveSessions(visibilityState: DocumentVisibilityState): boolean {
   return visibilityState !== "hidden";
-}
-
-function entryPath(value: string | null): string {
-  if (value === null || value.length === 0) return "/";
-
-  try {
-    const url = new URL(value);
-    return `${url.pathname}${url.search}`;
-  } catch {
-    return value.startsWith("/") ? value : `/${value}`;
-  }
 }
 
 function formatPlace(country: string | null, city: string | null, browser: string | null): string {

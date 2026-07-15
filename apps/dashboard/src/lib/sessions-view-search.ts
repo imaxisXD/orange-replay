@@ -1,7 +1,7 @@
 import type { SessionFilter } from "@orange-replay/shared";
 import { validateSessionSearch } from "./session-filters";
 
-export const sessionSortValues = ["newest", "friction", "duration", "clicks", "pages"] as const;
+const sessionSortValues = ["newest", "friction", "duration", "clicks", "pages"] as const;
 export type SessionSort = (typeof sessionSortValues)[number];
 
 /**

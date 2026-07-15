@@ -5,28 +5,27 @@ import {
   buildSessionHeadsUrl,
   buildSessionListUrl,
   buildStatsUrl,
-  checkApiToken,
-  clearApiToken,
   createProjectKey,
   fetchAccount,
   fetchAdminStats,
   fetchAdminUsers,
   fetchAuthConfig,
   fetchLiveSessions,
+  fetchProjectKeys,
   fetchProjectStats,
   fetchSessionHeads,
   fetchSessionState,
-  getApiToken,
   health,
   listSessions,
   revokeProjectKey,
   segmentUrl,
-  setApiToken,
+} from "../src/lib/api";
+import {
+  clearDashboardAccess,
   setAuthRedirectHandler,
   type AuthRedirectEvent,
-} from "../src/lib/api";
+} from "../src/lib/dashboard-access";
 import { queryClient } from "../src/lib/query";
-import { defaultProjectId } from "../src/lib/routes";
 
 const fetchMock = vi.fn<typeof fetch>();
 let restoreRedirectHandler: (() => void) | undefined;
@@ -35,7 +34,7 @@ let redirects: AuthRedirectEvent[] = [];
 beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
   window.history.replaceState({}, "", "/");
-  window.localStorage.clear();
+  clearDashboardAccess();
   queryClient.clear();
   redirects = [];
   restoreRedirectHandler = setAuthRedirectHandler((event) => {
@@ -46,44 +45,35 @@ beforeEach(() => {
 afterEach(() => {
   restoreRedirectHandler?.();
   restoreRedirectHandler = undefined;
+  clearDashboardAccess();
   queryClient.clear();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
 
 describe("api client", () => {
-  it("stores and clears the dev token", () => {
-    setApiToken("secret-token");
-    expect(getApiToken()).toBe("secret-token");
-
-    clearApiToken();
-    expect(getApiToken()).toBeNull();
+  it("does not keep dashboard credentials in browser storage", () => {
+    expect(window.localStorage.length).toBe(0);
   });
 
-  it("clears cached dashboard data when the token changes or clears", () => {
+  it("clears cached dashboard data when access resets", () => {
     queryClient.setQueryData(["sessions", "p1"], { private: true });
 
-    setApiToken("secret-token");
-    expect(queryClient.getQueryData(["sessions", "p1"])).toBeUndefined();
-
-    queryClient.setQueryData(["sessions", "p1"], { private: true });
-    clearApiToken();
+    clearDashboardAccess();
     expect(queryClient.getQueryData(["sessions", "p1"])).toBeUndefined();
   });
 
-  it("adds the bearer token to protected requests", async () => {
-    setApiToken("secret-token");
+  it("uses the Better Auth cookie without adding an authorization header", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ sessions: [], nextBefore: null }));
 
     await listSessions("p1");
 
     const headers = readFetchHeaders();
-    expect(headers.get("authorization")).toBe("Bearer secret-token");
+    expect(headers.get("authorization")).toBeNull();
   });
 
-  it("omits the bearer token on demo routes", async () => {
+  it("keeps demo requests anonymous", async () => {
     window.history.replaceState({}, "", "/demo/sessions");
-    setApiToken("secret-token");
     fetchMock.mockResolvedValue(jsonResponse({ sessions: [], nextBefore: null }));
 
     await listSessions("demo-project");
@@ -91,8 +81,7 @@ describe("api client", () => {
     expect(readFetchHeaders().get("authorization")).toBeNull();
   });
 
-  it("loads live sessions with bearer auth", async () => {
-    setApiToken("secret-token");
+  it("loads live sessions with cookie auth", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ sessions: [] }));
 
     await fetchLiveSessions("project 1");
@@ -101,11 +90,10 @@ describe("api client", () => {
       headers: expect.any(Headers),
     });
     const headers = readFetchHeaders();
-    expect(headers.get("authorization")).toBe("Bearer secret-token");
+    expect(headers.get("authorization")).toBeNull();
   });
 
   it("loads session heads with the current warehouse snapshot", async () => {
-    setApiToken("secret-token");
     fetchMock.mockResolvedValue(jsonResponse({ sessions: [] }));
 
     await fetchSessionHeads("project 1", {
@@ -122,12 +110,11 @@ describe("api client", () => {
       "/api/v1/projects/project%201/session-heads?limit=100&sort=duration&opened_at=10000&warehouse_to=9000&tracked_session_id=session_a&country=US&warehouse_version=42",
       { headers: expect.any(Headers) },
     );
-    expect(readFetchHeaders().get("authorization")).toBe("Bearer secret-token");
+    expect(readFetchHeaders().get("authorization")).toBeNull();
   });
 
   it("loads one session state with encoded ids", async () => {
-    setApiToken("secret-token");
-    fetchMock.mockResolvedValue(jsonResponse({ session_id: "session/1" }));
+    fetchMock.mockResolvedValue(jsonResponse(validSessionHead({ session_id: "session/1" })));
 
     await fetchSessionState("project 1", "session/1");
 
@@ -138,8 +125,7 @@ describe("api client", () => {
   });
 
   it("loads project stats with the canonical shared filter", async () => {
-    setApiToken("secret-token");
-    fetchMock.mockResolvedValue(jsonResponse({ sessions: { value: 0, filter: {} } }));
+    fetchMock.mockResolvedValue(jsonResponse(validProjectStatsResponse()));
 
     await fetchProjectStats("project 1", { browser: "Chrome", country: "US" });
 
@@ -150,7 +136,6 @@ describe("api client", () => {
   });
 
   it("does not add auth to health checks", async () => {
-    setApiToken("secret-token");
     fetchMock.mockResolvedValue(jsonResponse({ ok: true }));
 
     await health();
@@ -159,8 +144,7 @@ describe("api client", () => {
     expect(headers.get("authorization")).toBeNull();
   });
 
-  it("loads hosted auth settings without leaking the saved local token", async () => {
-    setApiToken("local-only-token");
+  it("loads Better Auth settings without an authorization header", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ mode: "github" }));
 
     await expect(fetchAuthConfig()).resolves.toEqual({ mode: "github" });
@@ -171,11 +155,19 @@ describe("api client", () => {
     expect(readFetchHeaders().get("authorization")).toBeNull();
   });
 
-  it("uses the hosted session cookie without adding a bearer token", async () => {
+  it("uses the hosted session cookie without adding an authorization header", async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({
-        user: { id: "u1", name: "Sunny", email: "sunny@example.com" },
+        user: {
+          id: "u1",
+          name: "Sunny",
+          email: "sunny@example.com",
+          emailVerified: true,
+          image: null,
+          role: "user",
+        },
         workspaces: [],
+        activeWorkspaceId: null,
         isAdmin: false,
       }),
     );
@@ -206,7 +198,13 @@ describe("api client", () => {
         }),
       )
       .mockResolvedValueOnce(
-        jsonResponse({ key: { id: "key_one", name: "Production", active: false } }),
+        jsonResponse({
+          key: validProjectKey({
+            active: false,
+            revokedAt: 2,
+            revokedBy: "u1",
+          }),
+        }),
       );
 
     await createProjectKey("project one", "Production");
@@ -244,28 +242,46 @@ describe("api client", () => {
     );
   });
 
-  it("checks a typed token without saving it", async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ sessions: [], nextBefore: null }));
-
-    await checkApiToken("typed-token");
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      `/api/v1/projects/${defaultProjectId}/sessions?limit=1`,
-      { headers: expect.any(Headers) },
+  it("reports a clear invalid response when account data is incomplete", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ user: { id: "u1" }, workspaces: [], activeWorkspaceId: null, isAdmin: false }),
     );
-    const headers = readFetchHeaders();
-    expect(headers.get("authorization")).toBe("Bearer typed-token");
-    expect(getApiToken()).toBeNull();
+
+    await expect(fetchAccount()).rejects.toMatchObject({
+      status: 200,
+      code: "invalid_response",
+      message: "The server returned data in an unexpected format.",
+    } satisfies Partial<ApiError>);
   });
 
-  it("checks a typed token against the requested project", async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ sessions: [], nextBefore: null }));
+  it("reports a clear invalid response when project key data is incomplete", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ keys: [{ id: "key_one" }] }));
 
-    await checkApiToken("typed-token", "project_two");
+    await expect(fetchProjectKeys("project one")).rejects.toMatchObject({
+      status: 200,
+      code: "invalid_response",
+      message: "The server returned data in an unexpected format.",
+    } satisfies Partial<ApiError>);
+  });
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/v1/projects/project_two/sessions?limit=1", {
-      headers: expect.any(Headers),
-    });
+  it("reports a clear invalid response when stats data is incomplete", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ sessions: { value: 0, filter: {} } }));
+
+    await expect(fetchProjectStats("project one", {})).rejects.toMatchObject({
+      status: 200,
+      code: "invalid_response",
+      message: "The server returned data in an unexpected format.",
+    } satisfies Partial<ApiError>);
+  });
+
+  it("reports a clear invalid response when session data is incomplete", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ session_id: "session_one" }));
+
+    await expect(fetchSessionState("project one", "session_one")).rejects.toMatchObject({
+      status: 200,
+      code: "invalid_response",
+      message: "The server returned data in an unexpected format.",
+    } satisfies Partial<ApiError>);
   });
 
   it("builds the sessions query string", () => {
@@ -304,34 +320,20 @@ describe("api client", () => {
   });
 
   it("signals auth redirect on 401", async () => {
-    setApiToken("bad-token");
     fetchMock.mockResolvedValue(jsonResponse({ error: "unauthorized" }, 401));
 
     await expect(listSessions("p1")).rejects.toMatchObject({
       status: 401,
       code: "unauthorized",
     } satisfies Partial<ApiError>);
-    expect(getApiToken()).toBeNull();
     expect(redirects).toEqual([{ status: 401, reason: "unauthorized" }]);
   });
 
   it("keeps demo 401 errors inline without redirecting", async () => {
     window.history.replaceState({}, "", "/demo/live");
-    setApiToken("saved-private-token");
     fetchMock.mockResolvedValue(jsonResponse({ error: "unauthorized" }, 401));
 
     await expect(fetchLiveSessions("demo-project")).rejects.toMatchObject({
-      status: 401,
-      code: "unauthorized",
-    } satisfies Partial<ApiError>);
-    expect(getApiToken()).toBe("saved-private-token");
-    expect(redirects).toEqual([]);
-  });
-
-  it("does not redirect when a typed token is rejected", async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ error: "unauthorized" }, 401));
-
-    await expect(checkApiToken("bad-token")).rejects.toMatchObject({
       status: 401,
       code: "unauthorized",
     } satisfies Partial<ApiError>);
@@ -339,7 +341,6 @@ describe("api client", () => {
   });
 
   it("signals auth redirect on 503", async () => {
-    setApiToken("secret-token");
     fetchMock.mockResolvedValue(jsonResponse({ error: "auth_not_configured" }, 503));
 
     await expect(listSessions("p1")).rejects.toMatchObject({
@@ -349,15 +350,13 @@ describe("api client", () => {
     expect(redirects).toEqual([{ status: 503, reason: "auth_unavailable" }]);
   });
 
-  it("does not clear the token for non-auth 503 failures", async () => {
-    setApiToken("secret-token");
+  it("does not redirect for non-auth 503 failures", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ error: "presence_unavailable" }, 503));
 
     await expect(fetchLiveSessions("p1")).rejects.toMatchObject({
       status: 503,
       code: "presence_unavailable",
     } satisfies Partial<ApiError>);
-    expect(getApiToken()).toBe("secret-token");
     expect(redirects).toEqual([]);
   });
 
@@ -383,4 +382,110 @@ function readFetchHeaders(callIndex = 0): Headers {
     throw new Error("Fetch headers were not set.");
   }
   return headers;
+}
+
+function validProjectKey(
+  overrides: Partial<{
+    active: boolean;
+    revokedAt: number | null;
+    revokedBy: string | null;
+  }> = {},
+): {
+  id: string;
+  name: string;
+  keyHashPrefix: string;
+  active: boolean;
+  createdAt: number;
+  createdBy: string;
+  revokedAt: number | null;
+  revokedBy: string | null;
+} {
+  return {
+    id: "key_one",
+    name: "Production",
+    keyHashPrefix: "abc123",
+    active: true,
+    createdAt: 1,
+    createdBy: "u1",
+    revokedAt: null,
+    revokedBy: null,
+    ...overrides,
+  };
+}
+
+function validSessionHead(
+  overrides: Partial<{ session_id: string }> = {},
+): Record<string, unknown> {
+  return {
+    session_id: "session_one",
+    project_id: "project_one",
+    org_id: "workspace_one",
+    started_at: 1,
+    ended_at: 2,
+    duration_ms: 1,
+    country: null,
+    region: null,
+    city: null,
+    device: null,
+    browser: null,
+    os: null,
+    entry_url: null,
+    url_count: 1,
+    page_count: 1,
+    analytics_version: 2,
+    max_scroll_depth: 50,
+    quick_backs: 0,
+    interaction_time_ms: 1,
+    activity_hist: null,
+    clicks: 1,
+    errors: 0,
+    rages: 0,
+    navs: 0,
+    bytes: 1,
+    segment_count: 1,
+    flags: 0,
+    manifest_key: "p/project_one/session_one/manifest.json",
+    expires_at: 10,
+    activity: "complete",
+    details_state: "exact",
+    replay_source: "recorded",
+    ...overrides,
+  };
+}
+
+function validProjectStatsResponse(): Record<string, unknown> {
+  const allSessions = { value: 0, filter: {} };
+  const pageSessions = { value: 0, filter: { has_page_coverage: true } };
+  const insightSessions = { value: 0, filter: { has_insights: true } };
+
+  return {
+    filter: {},
+    sessions: allSessions,
+    duration: { average: allSessions, p50: allSessions },
+    clicks: allSessions,
+    pagesPerSession: {
+      value: null,
+      filter: { has_page_coverage: true },
+      includedSessions: pageSessions,
+      totalSessions: allSessions,
+    },
+    insights: {
+      ragePercent: { value: null, filter: { has_rage: true } },
+      quickBackPercent: { value: null, filter: { has_quick_back: true } },
+      averageInteractionTimeMs: { value: null, filter: { has_insights: true } },
+      averageMaxScrollDepth: { value: null, filter: { has_insights: true } },
+      includedSessions: insightSessions,
+      totalSessions: allSessions,
+    },
+    breakdowns: {
+      country: [],
+      region: [],
+      device: [],
+      browser: [],
+      os: [],
+      entryPage: [],
+    },
+    errors: [],
+    liveNow: allSessions,
+  };
 }

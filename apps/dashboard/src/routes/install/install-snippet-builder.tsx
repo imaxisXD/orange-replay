@@ -10,14 +10,33 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip } from "@/components/ui/tooltip";
 import { fetchProjectKeys } from "@/lib/api";
 import { AlertCircle, Check, Code2, Copy, RotateCcw } from "@/lib/icon-map";
-import { readInstallErrorMessage } from "./install-helpers";
+import { matchesActiveProjectWriteKey, readInstallErrorMessage } from "./install-helpers";
+
+type KeyMatchStatus = "idle" | "checking" | "matched" | "unmatched" | "error";
+
+interface KeyMatchState {
+  activeKeyFingerprint: string;
+  projectId: string;
+  writeKey: string;
+  status: KeyMatchStatus;
+}
 
 export function InstallSnippetBuilder({ projectId }: { projectId: string }) {
+  return <ProjectInstallSnippetBuilder key={projectId} projectId={projectId} />;
+}
+
+function ProjectInstallSnippetBuilder({ projectId }: { projectId: string }) {
   const [writeKeyInput, setWriteKeyInput] = useState("");
   const [originInput, setOriginInput] = useState(readDefaultOrigin);
   const [copied, setCopied] = useState(false);
   const [showFullCode, setShowFullCode] = useState(false);
   const [copyError, setCopyError] = useState("");
+  const [keyMatch, setKeyMatch] = useState<KeyMatchState>({
+    activeKeyFingerprint: "",
+    projectId,
+    writeKey: "",
+    status: "idle",
+  });
   const normalizedOrigin = normalizeOrigin(originInput);
   const cleanWriteKey = writeKeyInput.trim();
   const keysQuery = useQuery({
@@ -25,6 +44,11 @@ export function InstallSnippetBuilder({ projectId }: { projectId: string }) {
     queryFn: () => fetchProjectKeys(projectId),
   });
   const hasActiveWriteKey = keysQuery.data?.keys.some((key) => key.active) ?? false;
+  const activeKeyHashPrefixes: string[] = [];
+  for (const key of keysQuery.data?.keys ?? []) {
+    if (key.active) activeKeyHashPrefixes.push(key.keyHashPrefix);
+  }
+  const activeKeyFingerprint = activeKeyHashPrefixes.sort().join(":");
   const originError =
     originInput.trim().length === 0
       ? "Enter your Orange Replay URL."
@@ -32,14 +56,30 @@ export function InstallSnippetBuilder({ projectId }: { projectId: string }) {
         ? "Use a valid http or https URL."
         : "";
   const writeKeyReady = isGeneratedWriteKey(cleanWriteKey);
+  const keyMatchStatus =
+    keyMatch.projectId === projectId &&
+    keyMatch.writeKey === cleanWriteKey &&
+    keyMatch.activeKeyFingerprint === activeKeyFingerprint
+      ? keyMatch.status
+      : writeKeyReady
+        ? "checking"
+        : "idle";
   const keyInputError =
     cleanWriteKey.length === 0
       ? "Paste the raw write key before copying."
-      : writeKeyReady
-        ? ""
-        : "Use a generated write key that starts with or_live_.";
+      : !writeKeyReady
+        ? "Use a generated write key that starts with or_live_."
+        : keyMatchStatus === "unmatched"
+          ? "This key is not an active key for this project."
+          : keyMatchStatus === "error"
+            ? "The write key could not be verified. Try again."
+            : "";
   const canCopySnippet =
-    writeKeyReady && normalizedOrigin !== null && hasActiveWriteKey && !keysQuery.isPending;
+    writeKeyReady &&
+    keyMatchStatus === "matched" &&
+    normalizedOrigin !== null &&
+    hasActiveWriteKey &&
+    !keysQuery.isPending;
   const snippet =
     canCopySnippet && normalizedOrigin !== null
       ? buildLoaderScriptTag({
@@ -55,6 +95,7 @@ export function InstallSnippetBuilder({ projectId }: { projectId: string }) {
     cleanWriteKey,
     hasActiveWriteKey,
     keysLoading: keysQuery.isPending,
+    keyMatchStatus,
     normalizedOrigin,
     originInput,
     writeKeyReady,
@@ -66,6 +107,46 @@ export function InstallSnippetBuilder({ projectId }: { projectId: string }) {
     const timeoutId = window.setTimeout(() => setCopied(false), 1_500);
     return () => window.clearTimeout(timeoutId);
   }, [copied]);
+
+  useEffect(() => {
+    const keys = keysQuery.data?.keys;
+    if (!writeKeyReady || keys === undefined || keysQuery.isPending) return;
+
+    let cancelled = false;
+    void matchesActiveProjectWriteKey(cleanWriteKey, keys).then(
+      (matches) => {
+        if (!cancelled) {
+          setKeyMatch({
+            activeKeyFingerprint,
+            projectId,
+            writeKey: cleanWriteKey,
+            status: matches ? "matched" : "unmatched",
+          });
+        }
+      },
+      () => {
+        if (!cancelled) {
+          setKeyMatch({
+            activeKeyFingerprint,
+            projectId,
+            writeKey: cleanWriteKey,
+            status: "error",
+          });
+        }
+      },
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeKeyFingerprint,
+    cleanWriteKey,
+    keysQuery.data,
+    keysQuery.isPending,
+    projectId,
+    writeKeyReady,
+  ]);
 
   async function copySnippet(): Promise<void> {
     if (!canCopySnippet) {
@@ -231,6 +312,7 @@ function normalizeOrigin(value: string): string | null {
 function readCopyBlockedReason({
   cleanWriteKey,
   hasActiveWriteKey,
+  keyMatchStatus,
   keysLoading,
   normalizedOrigin,
   originInput,
@@ -238,6 +320,7 @@ function readCopyBlockedReason({
 }: {
   cleanWriteKey: string;
   hasActiveWriteKey: boolean;
+  keyMatchStatus: KeyMatchStatus;
   keysLoading: boolean;
   normalizedOrigin: string | null;
   originInput: string;
@@ -247,6 +330,9 @@ function readCopyBlockedReason({
   if (!hasActiveWriteKey) return "Create an active write key first.";
   if (cleanWriteKey.length === 0) return "Paste the raw write key first.";
   if (!writeKeyReady) return "Use a generated write key that starts with or_live_.";
+  if (keyMatchStatus === "checking") return "Checking this write key.";
+  if (keyMatchStatus === "unmatched") return "Use an active key from this project.";
+  if (keyMatchStatus === "error") return "The write key could not be verified.";
   if (originInput.trim().length === 0) return "Enter your Orange Replay URL.";
   if (normalizedOrigin === null) return "Use a valid http or https URL.";
   return null;

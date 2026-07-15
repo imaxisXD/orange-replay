@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { bucketActivity, type ActivityBucket } from "@orange-replay/player";
 import type { SessionManifest } from "@orange-replay/shared/types";
 import {
@@ -37,44 +37,34 @@ export function ReplayWorkspace(props: ReplayWorkspaceProps) {
     liveReviewManifest: props.manifest,
     manifest: props.playerManifest ?? props.manifest,
   });
-  const staticPlaybackData = useMemo(
-    () => ({
-      activityBuckets: bucketActivity(
-        props.manifest.timeline,
-        props.manifest.durationMs,
-        100,
-        props.manifest.startedAt,
-      ),
-      breadcrumbs: buildJourneyBreadcrumbs(props.manifest.attrs.entryUrl, props.manifest.timeline, {
+  const staticPlaybackData = {
+    activityBuckets: bucketActivity(
+      props.manifest.timeline,
+      props.manifest.durationMs,
+      100,
+      props.manifest.startedAt,
+    ),
+    breadcrumbs: buildJourneyBreadcrumbs(props.manifest.attrs.entryUrl, props.manifest.timeline, {
+      startedAt: props.manifest.startedAt,
+      durationMs: props.manifest.durationMs,
+    }),
+    errorMarkers: buildErrorMarkers(props.manifest),
+    firstErrorSeekMs: firstErrorOffset(props.manifest),
+    rageMarkers: buildRageMarkers(props.manifest),
+  };
+  const deadClickData = {
+    markers: buildDeadClickMarkers(props.manifest, player.state.deadClicks),
+    rows: mapTimelineSidebarRows(
+      props.manifest.timeline,
+      {
         startedAt: props.manifest.startedAt,
         durationMs: props.manifest.durationMs,
-      }),
-      errorMarkers: buildErrorMarkers(props.manifest),
-      firstErrorSeekMs: firstErrorOffset(props.manifest),
-      rageMarkers: buildRageMarkers(props.manifest),
-    }),
-    [props.manifest],
-  );
-  const deadClickData = useMemo(
-    () => ({
-      markers: buildDeadClickMarkers(props.manifest, player.state.deadClicks),
-      rows: mapTimelineSidebarRows(
-        props.manifest.timeline,
-        {
-          startedAt: props.manifest.startedAt,
-          durationMs: props.manifest.durationMs,
-        },
-        player.state.deadClicks,
-      ),
-    }),
-    [player.state.deadClicks, props.manifest],
-  );
-  const seekToRef = useRef(player.actions.seekTo);
+      },
+      player.state.deadClicks,
+    ),
+  };
   const startedSessionRef = useRef<string | null>(null);
-  seekToRef.current = player.actions.seekTo;
-  const seekFromTimeline = useCallback((timeMs: number) => {
-    seekToRef.current(timeMs, true);
-  }, []);
+  const seekFromTimeline = (timeMs: number) => player.actions.seekTo(timeMs, true);
 
   useEffect(() => {
     props.onDeadClickCountChange?.(player.state.deadClicks.length);

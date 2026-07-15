@@ -7,7 +7,7 @@ import {
 } from "react";
 import { OrangePlayer } from "@orange-replay/player";
 import type { BatchIndex, LiveSessionSnapshot, SessionManifest } from "@orange-replay/shared/types";
-import { getApiToken } from "@/lib/api";
+import { dashboardPlayerAccess } from "@/lib/dashboard-access";
 import {
   getPlayerKeyAction,
   timelineProgressPercent,
@@ -82,8 +82,6 @@ export function useReplayPlayer({
   const latestManifestRef = useRef(manifest);
   const latestModeRef = useRef(mode);
   const playerManifestRef = useRef<SessionManifest | null>(null);
-  latestManifestRef.current = manifest;
-  latestModeRef.current = mode;
   const draggingTimeline = useRef(false);
   const progressFrameRef = useRef<number | null>(null);
   const pendingProgressRef = useRef<{ currentMs: number; durationMs: number } | null>(null);
@@ -102,6 +100,11 @@ export function useReplayPlayer({
     { durationMs: manifest.durationMs, mode },
     ({ durationMs, mode: initialMode }) => initialPlaybackState(durationMs, initialMode),
   );
+
+  useEffect(() => {
+    latestManifestRef.current = manifest;
+    latestModeRef.current = mode;
+  }, [manifest, mode]);
 
   const timelineDurationMs = Math.max(state.durationMs, manifest.durationMs, state.currentMs);
   const isFollowing = state.liveState.following;
@@ -333,11 +336,11 @@ export function useReplayPlayer({
     const initialManifest = latestManifestRef.current;
     const initialMode = latestModeRef.current;
     const overlayColors = readReplayOverlayColors();
+    const playerAccess = dashboardPlayerAccess(isDemo);
     const player = new OrangePlayer(container, {
-      api: dashboardPlayerApi(initialManifest, isDemo),
+      api: dashboardPlayerApi(initialManifest, playerAccess),
       projectId,
       sessionId,
-      token: isDemo ? undefined : (getApiToken() ?? undefined),
       speed: speedRef.current,
       skipInactivity: skipIdleRef.current,
       overlay: overlayColors,

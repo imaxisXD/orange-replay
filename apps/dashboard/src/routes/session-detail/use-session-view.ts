@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { applyLiveIndexToSnapshot } from "@orange-replay/player";
 import type { BatchIndex, LiveSessionSnapshot, SessionManifest } from "@orange-replay/shared/types";
@@ -72,10 +72,7 @@ export function useSessionView({
       : (queryResult?.mode ?? "recorded");
   const snapshot =
     mode === "live" && liveState?.sessionId === sessionId ? liveState.snapshot : null;
-  const displayedManifest = useMemo(
-    () => mergeLiveSnapshot(playerManifest, snapshot),
-    [playerManifest, snapshot],
-  );
+  const displayedManifest = mergeLiveSnapshot(playerManifest, snapshot);
   const detailsState = queryResult?.detailsState ?? null;
   const activity =
     localManifest !== null && queryResult?.mode === "live"
@@ -84,50 +81,46 @@ export function useSessionView({
   const hasUsableManifest = playerManifest !== null;
   const refreshSessionState = viewQuery.refetch;
 
-  const refresh = useCallback(() => {
+  function refresh(): void {
     void refreshSessionState();
-  }, [refreshSessionState]);
+  }
 
-  const onLiveIndex = useCallback((index: BatchIndex) => {
+  function onLiveIndex(index: BatchIndex): void {
     setLiveState((current) =>
       current === null || current.sessionId !== index.s
         ? current
         : { ...current, snapshot: applyLiveIndexToSnapshot(current.snapshot, index) },
     );
-  }, []);
+  }
 
-  const onLiveSnapshot = useCallback(
-    (snapshot: LiveSessionSnapshot) => setLiveState({ sessionId, snapshot }),
-    [sessionId],
-  );
+  function onLiveSnapshot(snapshot: LiveSessionSnapshot): void {
+    setLiveState({ sessionId, snapshot });
+  }
 
-  const onLiveFinalized = useCallback(
-    (manifest: SessionManifest) => {
-      if (manifest.projectId !== projectId || manifest.sessionId !== sessionId) return;
-      setAdoptedManifest({ sessionId, manifest });
-      setLiveState(null);
-      queryClient.setQueryData(
-        ["session-state", scope, projectId, sessionId],
-        (current: typeof queryResult) =>
-          current === undefined || current.notFound
-            ? current
-            : {
-                ...current,
-                activity: current.detailsState === "exact" ? "complete" : "finalizing",
-                manifest,
-                mode: "recorded",
-              },
-      );
-      void queryClient.invalidateQueries({ queryKey: ["session-heads", scope, projectId] });
-      void queryClient.invalidateQueries({ queryKey: ["sessions", scope, projectId] });
-      void refreshSessionState();
-    },
-    [projectId, queryClient, queryResult, refreshSessionState, scope, sessionId],
-  );
-
-  const onLiveEnded = useCallback(() => {
+  function onLiveFinalized(manifest: SessionManifest): void {
+    if (manifest.projectId !== projectId || manifest.sessionId !== sessionId) return;
+    setAdoptedManifest({ sessionId, manifest });
+    setLiveState(null);
+    queryClient.setQueryData(
+      ["session-state", scope, projectId, sessionId],
+      (current: typeof queryResult) =>
+        current === undefined || current.notFound
+          ? current
+          : {
+              ...current,
+              activity: current.detailsState === "exact" ? "complete" : "finalizing",
+              manifest,
+              mode: "recorded",
+            },
+    );
+    void queryClient.invalidateQueries({ queryKey: ["session-heads", scope, projectId] });
+    void queryClient.invalidateQueries({ queryKey: ["sessions", scope, projectId] });
     void refreshSessionState();
-  }, [refreshSessionState]);
+  }
+
+  function onLiveEnded(): void {
+    void refreshSessionState();
+  }
 
   return {
     activity,

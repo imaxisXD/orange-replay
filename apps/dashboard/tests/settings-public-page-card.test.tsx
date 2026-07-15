@@ -73,8 +73,10 @@ describe("public page settings", () => {
     await renderCard();
 
     await act(async () => findButton("Choose recordings").click());
-    await waitForUi(() => expect(apiMocks.listSessions).toHaveBeenCalled());
-    expect(document.body.textContent).toContain("/checkout");
+    await waitForUi(() => {
+      expect(apiMocks.listSessions).toHaveBeenCalled();
+      expect(document.body.textContent).toContain("/checkout");
+    });
 
     await act(async () => findSwitch("Share recording from").parentElement?.click());
     await waitForUi(() => expect(document.body.textContent).toContain("1/10 selected"));

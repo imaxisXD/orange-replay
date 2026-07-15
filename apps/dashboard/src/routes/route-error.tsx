@@ -1,10 +1,9 @@
 import { Link, isNotFound, useParams } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
-import { defaultProjectId } from "@/lib/routes";
 
 export function RouteError({ error, notFound = false }: { error?: unknown; notFound?: boolean }) {
   const params = useParams({ strict: false });
-  const projectId = params.projectId ?? defaultProjectId;
+  const projectId = params.projectId;
   const is404 = notFound || isNotFound(error);
   const message = readErrorMessage(error);
 
@@ -23,9 +22,13 @@ export function RouteError({ error, notFound = false }: { error?: unknown; notFo
           <p className="font-mono text-[12px] text-dim">{message}</p>
         )}
         <Button asChild>
-          <Link params={{ projectId }} to="/projects/$projectId/sessions">
-            Back to sessions
-          </Link>
+          {projectId === undefined ? (
+            <Link to="/projects">Back to projects</Link>
+          ) : (
+            <Link params={{ projectId }} to="/projects/$projectId/sessions">
+              Back to sessions
+            </Link>
+          )}
         </Button>
       </div>
     </section>

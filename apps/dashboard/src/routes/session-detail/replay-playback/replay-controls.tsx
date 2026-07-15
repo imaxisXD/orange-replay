@@ -26,8 +26,9 @@ export function ReplayControls({
   player: ReplayPlayerState;
   rageMarkers: RageMarker[];
 }) {
-  const { currentMs, flashKey, playing, skipIdle, speed } = player.state;
-  const { isFollowing, playheadPercent, timelineDurationMs } = player.values;
+  const { actions, state, timelineRef, values } = player;
+  const { currentMs, flashKey, playing, skipIdle, speed } = state;
+  const { isFollowing, playheadPercent, timelineDurationMs } = values;
 
   return (
     <ScrollArea
@@ -40,7 +41,7 @@ export function ReplayControls({
           <button
             aria-label={playing ? "Pause replay" : "Play replay"}
             className="flex size-8 shrink-0 items-center justify-center rounded-[9px] bg-foreground text-background outline-none transition-opacity hover:opacity-90 focus-visible:ring-1 focus-visible:ring-amber"
-            onClick={player.actions.togglePlayback}
+            onClick={actions.togglePlayback}
             type="button"
           >
             <PlayPauseShape playing={playing} />
@@ -63,26 +64,26 @@ export function ReplayControls({
             if (isFollowing) return;
             if (event.key === "ArrowLeft") {
               event.preventDefault();
-              player.actions.seekTo(currentMs - 5_000);
+              actions.seekTo(currentMs - 5_000);
             } else if (event.key === "ArrowRight") {
               event.preventDefault();
-              player.actions.seekTo(currentMs + 5_000);
+              actions.seekTo(currentMs + 5_000);
             } else if (event.key === "Home") {
               event.preventDefault();
-              player.actions.seekTo(0);
+              actions.seekTo(0);
             } else if (event.key === "End") {
               event.preventDefault();
-              player.actions.seekTo(timelineDurationMs);
+              actions.seekTo(timelineDurationMs);
             } else if (event.key === " " || event.key === "Spacebar") {
               event.preventDefault();
-              player.actions.togglePlayback();
+              actions.togglePlayback();
             }
           }}
-          onPointerCancel={isFollowing ? undefined : player.actions.stopTimelineDrag}
-          onPointerDown={isFollowing ? undefined : player.actions.startTimelineDrag}
-          onPointerMove={isFollowing ? undefined : player.actions.moveTimelineDrag}
-          onPointerUp={isFollowing ? undefined : player.actions.stopTimelineDrag}
-          ref={player.timelineRef}
+          onPointerCancel={isFollowing ? undefined : actions.stopTimelineDrag}
+          onPointerDown={isFollowing ? undefined : actions.startTimelineDrag}
+          onPointerMove={isFollowing ? undefined : actions.moveTimelineDrag}
+          onPointerUp={isFollowing ? undefined : actions.stopTimelineDrag}
+          ref={timelineRef}
           role="slider"
           style={{ "--playhead": `${playheadPercent}%` } as React.CSSProperties}
           tabIndex={0}
@@ -106,7 +107,7 @@ export function ReplayControls({
           <Button
             className="h-7 gap-1.5 px-2 text-[11.5px] text-muted-foreground hover:text-foreground"
             data-testid="first-error-button"
-            onClick={() => player.actions.seekAndPlay(firstErrorSeekMs, true)}
+            onClick={() => actions.seekAndPlay(firstErrorSeekMs, true)}
             size="sm"
             variant="ghost"
           >
@@ -118,7 +119,7 @@ export function ReplayControls({
         {!isFollowing && (
           <Button
             className="font-mono text-[12.5px] text-muted-foreground hover:text-foreground"
-            onClick={player.actions.cycleSpeed}
+            onClick={actions.cycleSpeed}
             size="sm"
             variant="secondary"
           >
@@ -131,7 +132,7 @@ export function ReplayControls({
             checked={skipIdle}
             className="px-0 py-0 [&>span:last-child]:text-[11.5px]"
             label="Skip idle"
-            onToggle={player.actions.toggleSkipIdle}
+            onToggle={actions.toggleSkipIdle}
           />
         )}
 

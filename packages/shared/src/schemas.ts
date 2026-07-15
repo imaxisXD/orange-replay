@@ -11,7 +11,6 @@ import type {
   FinalizeMessage,
   IngestAck,
   IndexEvent,
-  ProjectConfigUpdate,
   ProjectConfig,
   StoredProjectConfig,
   SegmentRef,
@@ -241,18 +240,6 @@ export const storedProjectConfigSchema: z.ZodType<StoredProjectConfig> = project
     maskRules: maskRulesSchema,
     capture: captureTogglesSchema,
     version: z.number().int().nonnegative(),
-  })
-  .strict();
-
-export const projectConfigUpdateSchema: z.ZodType<ProjectConfigUpdate> = z
-  .object({
-    expectedVersion: z.number().int().nonnegative(),
-    sampleRate: z.number().min(0).max(1),
-    retentionDays: z.number().int().min(1).max(365),
-    allowedOrigins: z.array(z.string().min(1).max(500)).min(1).max(100),
-    maskPolicyVersion: z.number().int().nonnegative(),
-    maskRules: maskRulesSchema.max(200),
-    capture: captureTogglesSchema,
   })
   .strict();
 

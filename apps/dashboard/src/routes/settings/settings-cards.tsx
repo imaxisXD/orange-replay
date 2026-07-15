@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { CaptureToggles, MaskRule } from "@orange-replay/shared/types";
+import type { CaptureToggles } from "@orange-replay/shared/types";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import {
   retentionInputToDays,
   sampleRateToPercentInput,
   type MaskRuleActionValue,
+  type DraftMaskRule,
   type ProjectSettingsDraft,
 } from "@/lib/project-settings";
 import { AlertCircle, Plus, Trash2, X } from "@/lib/icon-map";
@@ -113,7 +114,7 @@ export function MaskingCard({
   onRemoveRule: (index: number) => void;
   onSetAction: (index: number, action: MaskRuleActionValue) => void;
   onSetSelector: (index: number, selector: string) => void;
-  rules: readonly MaskRule[];
+  rules: readonly DraftMaskRule[];
 }) {
   return (
     <section className="lit rounded-lg p-5">
@@ -132,10 +133,10 @@ export function MaskingCard({
             No custom rules — inputs are masked by default.
           </div>
         ) : (
-          maskRuleItems(rules).map(({ key, rule, index }) => (
+          rules.map((rule, index) => (
             <MaskRuleRow
               index={index}
-              key={key}
+              key={rule.uiId}
               onRemove={() => onRemoveRule(index)}
               onSetAction={(action) => onSetAction(index, action)}
               onSetSelector={(selector) => onSetSelector(index, selector)}
@@ -161,18 +162,6 @@ export function MaskingCard({
   );
 }
 
-function maskRuleItems(
-  rules: readonly MaskRule[],
-): { key: string; rule: MaskRule; index: number }[] {
-  const seen = new Map<string, number>();
-  return rules.map((rule, index) => {
-    const baseKey = `${rule.action}:${rule.selector}`;
-    const count = seen.get(baseKey) ?? 0;
-    seen.set(baseKey, count + 1);
-    return { key: `${baseKey}:${count}`, rule, index };
-  });
-}
-
 function MaskRuleRow({
   index,
   onRemove,
@@ -184,7 +173,7 @@ function MaskRuleRow({
   onRemove: () => void;
   onSetAction: (action: MaskRuleActionValue) => void;
   onSetSelector: (selector: string) => void;
-  rule: MaskRule;
+  rule: DraftMaskRule;
 }) {
   return (
     <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_112px_32px]">

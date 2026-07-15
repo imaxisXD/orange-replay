@@ -1,11 +1,13 @@
-import { describe, expect, it, vi } from "vite-plus/test";
-import { signOutHosted } from "../src/lib/auth-client";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { clearDashboardAccess, signOutDashboardAccess } from "../src/lib/dashboard-access";
+
+afterEach(() => clearDashboardAccess());
 
 describe("hosted sign-out", () => {
   it("finishes only when Better Auth reports success", async () => {
     const signOut = vi.fn().mockResolvedValue({ data: null, error: null });
 
-    await expect(signOutHosted({ signOut })).resolves.toBeUndefined();
+    await expect(signOutDashboardAccess({ signOut })).resolves.toBeUndefined();
     expect(signOut).toHaveBeenCalledOnce();
   });
 
@@ -13,6 +15,6 @@ describe("hosted sign-out", () => {
     const error = new Error("The session could not be cleared.");
     const signOut = vi.fn().mockResolvedValue({ data: null, error });
 
-    await expect(signOutHosted({ signOut })).rejects.toBe(error);
+    await expect(signOutDashboardAccess({ signOut })).rejects.toBe(error);
   });
 });

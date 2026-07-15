@@ -1,7 +1,8 @@
 import type { PlayerApi } from "@orange-replay/player";
 import type { SessionManifest } from "@orange-replay/shared/types";
+import type { DashboardAccess } from "@/lib/dashboard-access";
 
-export function dashboardPlayerApi(manifest: SessionManifest, isDemo: boolean): PlayerApi {
+export function dashboardPlayerApi(manifest: SessionManifest, access: DashboardAccess): PlayerApi {
   const manifestRequestPath = manifestPath(manifest.projectId, manifest.sessionId);
 
   return {
@@ -14,7 +15,7 @@ export function dashboardPlayerApi(manifest: SessionManifest, isDemo: boolean): 
         );
       }
 
-      return fetch(input, isDemo ? withoutAuthorization(init) : init);
+      return fetch(input, access.isDemo ? withoutAuthorization(init) : init);
     },
   };
 }

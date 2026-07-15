@@ -3,22 +3,27 @@
   "version": "0.0.0",
   "private": true,
   "files": [
-    "dist"
+    "dist",
+    "src"
   ],
   "type": "module",
   "sideEffects": false,
   "exports": {
     ".": "./src/index.ts",
+    "./analytics-privacy": "./src/analytics-privacy.ts",
     "./constants": "./src/constants.ts",
     "./insights": "./src/insights.ts",
-    "./rage": "./src/rage.ts",
-    "./types": "./src/types.ts",
-    "./wire": "./src/wire.ts",
-    "./uuid": "./src/uuid.ts",
     "./logger": "./src/logger.ts",
+    "./privacy-selector": "./src/privacy-selector.ts",
+    "./project-config-update": "./src/project-config-update.ts",
+    "./rage": "./src/rage.ts",
+    "./sampling": "./src/sampling.ts",
     "./schemas": "./src/schemas.ts",
-    "./package.json": "./package.json",
-    "./sampling": "./src/sampling.ts"
+    "./session-id": "./src/session-id.ts",
+    "./types": "./src/types.ts",
+    "./uuid": "./src/uuid.ts",
+    "./wire": "./src/wire.ts",
+    "./package.json": "./package.json"
   },
   "scripts": {
     "build": "vp pack",
@@ -26,9 +31,11 @@
     "check": "vp check"
   },
   "dependencies": {
+    "css-tree": "catalog:",
     "zod": "4.4.3"
   },
   "devDependencies": {
+    "@types/css-tree": "catalog:",
     "@types/node": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",

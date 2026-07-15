@@ -6,7 +6,7 @@ Operating document for the orchestrated build. ARCHITECTURE.md is the design aut
 
 - **Pacing**: autonomous run-through of all phases; report at the end (task list tracks progress).
 - **Cloudflare**: the original build was local-first. On 2026-07-13 the user explicitly approved the real analytics cutover, production backfill, remote verification, and browser E2E. That approval is limited to the analytics resources and code in `docs/specs/f4-r2-analytics-cutover.md`; unrelated unfinished hosted-auth work must not be deployed with it.
-- **Dashboard auth**: dev/self-host bearer token fallback. Hosted-plane auth: **Better Auth + GitHub OAuth**, no email/password; D1-backed workspace membership controls project access and key management (ARCHITECTURE §6 and `docs/specs/hosted-auth-better-auth.md`).
+- **Dashboard auth**: **Better Auth + GitHub OAuth** in hosted, self-hosted, and local installs, with no email/password or shared-token fallback. D1-backed workspace membership controls project access and key management; missing or partial auth configuration fails closed. The anonymous read-only `/demo` remains separate (ARCHITECTURE §6 and `docs/specs/hosted-auth-better-auth.md`).
 - **rrweb**: fork immediately — vendored in-repo at a pinned upstream tag, capture-side only.
 - **Toolchain**: Vite Plus (`vp` 0.2.2) — `vp install` / `vp check` / `vp test` / `vp build`. Oxlint + Oxfmt, Vitest.
 - **UI**: React + Tailwind + shadcn with the **Fluid Functionalism registry** (`npx shadcn@latest add @fluid/<component>`). Never hand-roll a component the registry provides. Hard review criterion.
@@ -31,7 +31,7 @@ Analytics Engine verification, Vectorize/AI features, heatmaps UI, the opt-in pr
    - Service-specific business fields, e.g. ingest: `bytes_in, flags, live, quota_state, kv_hit`; DO: `buffered_bytes, batch_count, segment_n, flush_reason, viewer_count, alarm_kind`; consumer: `attempts, rows_written, dlq`; API: `route, cache_hit`.
    - `request_id` (UUIDv7) minted at ingest/API edge, propagated via `x-or-request-id` into DO RPCs and queue messages.
 6. **Testing** (decided in Phase 0 — `@cloudflare/vitest-pool-workers` is incompatible with Vite Plus' vitest 4, "runner not supported"): pure decision logic lives in plain functions unit-tested under `vp test`; worker behavior is integration-tested via `unstable_dev` booting the real worker (see `apps/worker/tests/harness.test.ts` for the canonical pattern) against guarded `/__test/*` routes enabled by `DEV_TEST_ROUTES=1`. tsconfig split: `src/` is workers-typed, `tests/` is node-typed (`tests/tsconfig.json`) — never mix the two type worlds in one config. SDK tested with happy-dom + Playwright e2e against `wrangler dev`.
-7. **Security**: authz on every API route (dev token for now), R2 key validation (no traversal), prepared statements only, size caps enforced, CORS exact.
+7. **Security**: authz on every private API route through Better Auth session plus project membership, R2 key validation (no traversal), prepared statements only, size caps enforced, CORS exact. The public demo is read-only and explicitly allowlisted.
 
 ## Execution model
 
@@ -56,7 +56,7 @@ Phase 0 seeded `apps/worker` with the **final router** (`src/index.ts`), `env.ts
 | T1.2 | `SessionRecorder` DO: (tab,seq) dedupe, SQLite buffering, ORS1 flush → R2, alarm lifecycle (minimal writes), finalize → queue + manifest, hibernation WS hub, live-flag return                  | T1.1          |
 | T1.3 | Ingest handler: CORS, header/size validation, KV config + D1 read-through, quota drop, `request.cf` enrichment, gzip-normalize fallback, DO RPC, wide event                                     | T1.1          |
 | T1.4 | Queue consumer (idempotent D1 upserts + usage rollups, per-message ack/retry, DLQ classification) + retention sweeper cron                                                                      | T1.1          |
-| T1.5 | API Worker routes: health, dev-token auth middleware, sessions list (filters), manifest fetch, segment stream (+Cache API), live WS proxy to DO                                                 | T1.1          |
+| T1.5 | API Worker routes: health, project authorization middleware (later migrated to Better Auth), sessions list (filters), manifest fetch, segment stream (+Cache API), live WS proxy to DO          | T1.1          |
 | T1.6 | `apps/worker` assembly: router, wrangler.jsonc (DO migration `new_sqlite_classes`, R2/KV/D1/Queues bindings, cron), D1 migration SQL, local seed script (org/project/key), `.dev.vars` template | T1.2–T1.5     |
 | T1.7 | Integration e2e: node script drives synthetic wire batches at `wrangler dev` → asserts local R2 segments/manifest, D1 rows after shortened idle, segment fetch via API, live WS echo            | T1.6          |
 
@@ -78,7 +78,7 @@ Phase 0 seeded `apps/worker` with the **final router** (`src/index.ts`), `env.ts
 
 | Task | Scope                                                                                                                                                                                                                                               | Depends        |
 | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
-| T3.1 | `apps/dashboard` scaffold: Vite React TS, Tailwind, shadcn init + `@fluid` registry, app shell/nav, dev-token login, typed API client, dev proxy to worker                                                                                          | —              |
+| T3.1 | `apps/dashboard` scaffold: Vite React TS, Tailwind, shadcn init + `@fluid` registry, app shell/nav, login surface (later migrated to Better Auth), typed API client, dev proxy to worker                                                            | —              |
 | T3.2 | Worker additions: presence-registry DO (start/heartbeat/finalize pings, TTL), project-config write endpoints, install-verify endpoint ("first event seen")                                                                                          | W1             |
 | T3.3 | `packages/player`: manifest loader → instant timeline, ORS1 slicing, decode Web Worker (`DecompressionStream`), rrweb replayer wrapper (cursor trail, click ripples, rage-click burst), skip-inactivity, speed, seek-by-segment, live follow via WS | W1             |
 | T3.4 | Sessions list page: filter bar, table (registry components), live-now tab from presence registry                                                                                                                                                    | T3.1 + T3.2    |

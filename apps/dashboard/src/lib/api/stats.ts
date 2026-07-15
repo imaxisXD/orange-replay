@@ -1,66 +1,18 @@
-import { encodeSessionFilter, type SessionFilter } from "@orange-replay/shared";
+import {
+  decodeProjectStatsResponse,
+  encodeSessionFilter,
+  type ProjectStatsResponse,
+  type SessionFilter,
+} from "@orange-replay/shared";
 import { encodePathPart, requestJson } from "./client";
 
-export interface FilteredNumber {
-  value: number;
-  filter: SessionFilter;
-}
-
-export interface FilteredOptionalNumber {
-  value: number | null;
-  filter: SessionFilter;
-}
-
-export interface StatsBreakdownRow {
-  label: string;
-  filter: SessionFilter;
-  count: FilteredNumber;
-  share: FilteredNumber;
-}
-
-export interface StatsErrorGroup {
-  detail: string;
-  filter: SessionFilter;
-  count: FilteredNumber;
-  affectedSessions: FilteredNumber;
-}
-
-export interface ProjectStatsResponse {
-  /** Verified warehouse snapshot shared by every metric doorway. */
-  warehouseVersion?: number;
-  analyticsState?: "fresh" | "stale" | "compare" | "d1_rollback" | "d1_residency";
-  filter: SessionFilter;
-  sessions: FilteredNumber;
-  duration: {
-    average: FilteredNumber;
-    p50: FilteredNumber;
-  };
-  clicks: FilteredNumber;
-  pagesPerSession: {
-    value: number | null;
-    filter: SessionFilter;
-    includedSessions: FilteredNumber;
-    totalSessions: FilteredNumber;
-  };
-  insights: {
-    ragePercent: FilteredOptionalNumber;
-    quickBackPercent: FilteredOptionalNumber;
-    averageInteractionTimeMs: FilteredOptionalNumber;
-    averageMaxScrollDepth: FilteredOptionalNumber;
-    includedSessions: FilteredNumber;
-    totalSessions: FilteredNumber;
-  };
-  liveNow: FilteredNumber;
-  breakdowns: {
-    country: StatsBreakdownRow[];
-    region: StatsBreakdownRow[];
-    device: StatsBreakdownRow[];
-    browser: StatsBreakdownRow[];
-    os: StatsBreakdownRow[];
-    entryPage: StatsBreakdownRow[];
-  };
-  errors: StatsErrorGroup[];
-}
+export type {
+  FilteredNumber,
+  FilteredOptionalNumber,
+  ProjectStatsResponse,
+  StatsBreakdownRow,
+  StatsErrorGroup,
+} from "@orange-replay/shared";
 
 export async function fetchProjectStats(
   projectId: string,
@@ -69,6 +21,7 @@ export async function fetchProjectStats(
 ): Promise<ProjectStatsResponse> {
   return requestJson<ProjectStatsResponse>(buildStatsUrl(projectId, filter), {
     auth: true,
+    decode: decodeProjectStatsResponse,
     signal: options.signal,
   });
 }

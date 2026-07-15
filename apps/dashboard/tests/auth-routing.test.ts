@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import { canManageProject } from "../src/lib/api";
+import { canManageProject, clearDashboardAccess } from "../src/lib/dashboard-access";
 import { queryClient } from "../src/lib/query";
 import { requireProjectAccess, requireProjectManager } from "../src/lib/route-guard";
 
@@ -9,7 +9,7 @@ const fetchMock = vi.fn<typeof fetch>();
 beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
   window.history.replaceState({}, "", "/projects/project_one/overview");
-  window.localStorage.clear();
+  clearDashboardAccess();
   queryClient.clear();
 });
 
@@ -20,7 +20,7 @@ afterEach(() => {
 });
 
 describe("hosted project routing", () => {
-  it("allows a signed-in member to open an owned project without a bearer token", async () => {
+  it("allows a signed-in member to open an owned project with the session cookie", async () => {
     fetchMock.mockResolvedValue(accountResponse("member"));
 
     await expect(
@@ -113,6 +113,7 @@ function accountResponse(role: "owner" | "admin" | "member"): Response {
         projects: [projectWithRole(role)],
       },
     ],
+    activeWorkspaceId: "workspace_one",
     isAdmin: false,
   });
 }

@@ -27,6 +27,7 @@ export function LivePage() {
     refetchOnWindowFocus: true,
   });
   const sessions: LiveSessionItem[] = liveQuery.data?.sessions ?? [];
+  const truncated = liveQuery.data?.truncated === true;
   const loading = liveQuery.isPending;
   const error = liveQuery.error === null ? "" : readErrorMessage(liveQuery.error);
   const rows = sessions.map(formatLiveSessionRow);
@@ -45,7 +46,9 @@ export function LivePage() {
       <section className="lit rounded-lg px-4.5 py-4">
         <div className="mb-3.5 flex items-baseline justify-between">
           <h2 className="text-[13px] font-semibold">Live now</h2>
-          <span className="text-[11.5px] text-dim">updates every 5s</span>
+          <span className="text-[11.5px] text-dim">
+            {truncated ? "showing newest 100 · " : ""}updates every 5s
+          </span>
         </div>
 
         {error.length > 0 && (

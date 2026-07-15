@@ -5,6 +5,7 @@ import { CountryFlag } from "@/components/country-flag";
 import { StatusPill } from "@/components/status-pill";
 import type { SessionDisplayItem } from "@/lib/session-list";
 import { cleanCountryCode, formatLocationName } from "@/lib/country";
+import { entryPath } from "@/lib/entry-path";
 import {
   formatAbsoluteTime,
   formatDuration,
@@ -175,15 +176,4 @@ function cardLabel(session: SessionDisplayItem, location: string, isWatched: boo
   parts.push(location, formatShortRelativeTime(session.started_at));
   if (!isWatched) parts.push("not watched");
   return parts.join(", ");
-}
-
-export function entryPath(value: string | null): string {
-  if (value === null || value.length === 0) return "/";
-
-  try {
-    const url = new URL(value);
-    return `${url.pathname}${url.search}`;
-  } catch {
-    return value.startsWith("/") ? value : `/${value}`;
-  }
 }

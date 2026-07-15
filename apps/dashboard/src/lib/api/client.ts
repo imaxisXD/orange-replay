@@ -1,18 +1,8 @@
-import { isDemoPath } from "../demo-mode";
-import { queryClient } from "../query";
-
-export const tokenStorageKey = "or:token";
-
-export type AuthRedirectReason = "unauthorized" | "auth_unavailable";
-
-export interface AuthRedirectEvent {
-  reason: AuthRedirectReason;
-  status: 401 | 503;
-}
-
-type AuthRedirectHandler = (event: AuthRedirectEvent) => void;
-
-let authRedirectHandler: AuthRedirectHandler = defaultAuthRedirectHandler;
+import {
+  dashboardRequestAccess,
+  handleDashboardAuthFailure,
+  type DashboardAccessScope,
+} from "../dashboard-access";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -26,48 +16,21 @@ export class ApiError extends Error {
   }
 }
 
-export function setApiToken(token: string): void {
-  const previousToken = getApiToken();
-  window.localStorage.setItem(tokenStorageKey, token);
-  if (previousToken !== token) {
-    queryClient.clear();
-  }
-}
+export type ResponseDecoder<Value> = (value: unknown) => Value;
 
-export function getApiToken(): string | null {
-  return window.localStorage.getItem(tokenStorageKey);
-}
-
-export function clearApiToken(): void {
-  window.localStorage.removeItem(tokenStorageKey);
-  queryClient.clear();
-}
-
-export function setAuthRedirectHandler(handler: AuthRedirectHandler): () => void {
-  const previousHandler = authRedirectHandler;
-  authRedirectHandler = handler;
-  return () => {
-    authRedirectHandler = previousHandler;
-  };
-}
-
-export interface RequestOptions {
+export interface RequestOptions<Value = unknown> {
   auth: boolean;
   body?: unknown;
+  decode?: ResponseDecoder<Value>;
   method?: string;
   redirectOnAuthError?: boolean;
+  scope?: DashboardAccessScope;
   signal?: AbortSignal;
-  token?: string;
 }
 
-export async function requestJson<T>(path: string, options: RequestOptions): Promise<T> {
+export async function requestJson<T>(path: string, options: RequestOptions<T>): Promise<T> {
   const headers = new Headers({ accept: "application/json" });
-  const demoMode = isDemoPath();
-  const token = demoMode ? null : (options.token ?? getApiToken());
-
-  if (!demoMode && options.auth && token !== null && token.length > 0) {
-    headers.set("authorization", `Bearer ${token}`);
-  }
+  const requestAccess = dashboardRequestAccess({ scope: options.scope });
 
   const init: RequestInit = { headers };
   if (options.signal !== undefined) init.signal = options.signal;
@@ -90,12 +53,8 @@ export async function requestJson<T>(path: string, options: RequestOptions): Pro
 
   if (!response.ok) {
     const code = await readErrorCode(response);
-    if (
-      !demoMode &&
-      options.redirectOnAuthError !== false &&
-      shouldRedirectForAuth(response.status, code)
-    ) {
-      handleAuthRedirect(response.status, code);
+    if (!requestAccess.isDemo && options.redirectOnAuthError !== false) {
+      handleDashboardAuthFailure(response.status, code);
     }
     throw new ApiError(
       code ?? `Request failed with status ${response.status}.`,
@@ -104,32 +63,20 @@ export async function requestJson<T>(path: string, options: RequestOptions): Pro
     );
   }
 
-  return (await response.json()) as T;
+  try {
+    const body: unknown = await response.json();
+    return options.decode === undefined ? (body as T) : options.decode(body);
+  } catch {
+    throw new ApiError(
+      "The server returned data in an unexpected format.",
+      response.status,
+      "invalid_response",
+    );
+  }
 }
 
 export function encodePathPart(value: string): string {
   return encodeURIComponent(value);
-}
-
-function shouldRedirectForAuth(status: number, code: string | undefined): status is 401 | 503 {
-  return status === 401 || (status === 503 && code === "auth_not_configured");
-}
-
-function handleAuthRedirect(status: 401 | 503, code?: string): void {
-  const event: AuthRedirectEvent = {
-    status,
-    reason: status === 503 && code === "auth_not_configured" ? "auth_unavailable" : "unauthorized",
-  };
-  clearApiToken();
-  authRedirectHandler(event);
-}
-
-function defaultAuthRedirectHandler(event: AuthRedirectEvent): void {
-  const reason = encodeURIComponent(event.reason);
-  const target = `/login?reason=${reason}`;
-  if (window.location.pathname !== "/login") {
-    window.location.assign(target);
-  }
 }
 
 async function readErrorCode(response: Response): Promise<string | undefined> {

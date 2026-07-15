@@ -13,20 +13,18 @@ import {
   SelectLabel,
   SelectTrigger,
 } from "@/components/ui/select";
+import { accountQueryKey, fetchAccount } from "@/lib/api";
 import {
-  accountQueryKey,
   canManageProject,
-  clearApiToken,
-  fetchAccount,
   findAccountProject,
-  getApiToken,
-} from "@/lib/api";
-import { authClient, readAuthClientError, signOutHosted } from "@/lib/auth-client";
+  readDashboardAccess,
+  readDashboardAccessError,
+  signOutDashboardAccess,
+} from "@/lib/dashboard-access";
 import { getDashboardEnvironmentLabel } from "@/lib/dashboard-environment";
 import { ArrowUpRight, ShieldUser } from "@/lib/icon-map";
 import { dashboardNavItems, type DashboardNavItem } from "@/lib/dashboard-navigation";
 import { useDashboardWorkspace } from "@/lib/dashboard-workspace";
-import { queryClient } from "@/lib/query";
 import { cn } from "@/lib/utils";
 
 export function AppShell({ children }: { children?: ReactNode }) {
@@ -38,11 +36,11 @@ export function AppShell({ children }: { children?: ReactNode }) {
   const navigate = useNavigate();
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState("");
-  const usesLocalToken = !isDemo && getApiToken() !== null;
+  const activeAccess = readDashboardAccess(isDemo ? "demo" : "private");
   const accountQuery = useQuery({
     queryKey: accountQueryKey,
     queryFn: fetchAccount,
-    enabled: !isDemo && !usesLocalToken,
+    enabled: activeAccess.needsAccount,
     staleTime: 30_000,
   });
   const account = accountQuery.data;
@@ -62,18 +60,12 @@ export function AppShell({ children }: { children?: ReactNode }) {
     setIsSigningOut(true);
     setSignOutError("");
     try {
-      if (usesLocalToken) {
-        clearApiToken();
-      } else {
-        await signOutHosted(authClient);
-      }
-      queryClient.clear();
+      await signOutDashboardAccess();
       void navigate({ to: "/login", replace: true });
     } catch (error) {
-      setSignOutError(readAuthClientError(error, "Could not sign out. Try again."));
-    } finally {
-      setIsSigningOut(false);
+      setSignOutError(readDashboardAccessError(error, "Could not sign out. Try again."));
     }
+    setIsSigningOut(false);
   }
 
   return (
@@ -150,7 +142,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
                   </Button>
                 </div>
               )}
-              {isDemo || usesLocalToken ? (
+              {isDemo ? (
                 <span
                   aria-hidden="true"
                   className="size-6.5 rounded-full border border-border bg-[linear-gradient(135deg,var(--teal-soft),var(--teal))]"

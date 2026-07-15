@@ -1,20 +1,11 @@
 import { MAX_PUBLIC_PAGE_RECORDINGS } from "@orange-replay/shared";
 import type { PublicPageSelectedRecording } from "@orange-replay/shared/types";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { LoadingArea } from "@/components/ui/loading-indicator";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
 import {
   ApiError,
@@ -23,21 +14,15 @@ import {
   savePublicPageSettings,
   type SessionListItem,
 } from "@/lib/api";
-import { formatAbsoluteTime, formatDuration } from "@/lib/format";
 import { ArrowUpRight, Check, Copy, Eye, Info } from "@/lib/icon-map";
 import { CardHeader } from "./settings-fields";
+import {
+  PublishPublicPageDialog,
+  PublicRecordingPickerDialog,
+  type RecordingChoice,
+} from "./settings-public-page-dialogs";
 
 const publicPageQueryKey = (projectId: string) => ["public-page-settings", projectId] as const;
-
-interface RecordingChoice {
-  sessionId: string;
-  startedAt: number;
-  durationMs: number;
-  entryPath: string;
-  country: string | null;
-  device: string | null;
-  browser: string | null;
-}
 
 export function PublicPageCard({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
@@ -68,9 +53,9 @@ export function PublicPageCard({ projectId }: { projectId: string }) {
     },
   });
   const settings = settingsQuery.data;
-  const choices = useMemo(
-    () => mergeRecordingChoices(sessionsQuery.data?.sessions ?? [], settings?.recordings ?? []),
-    [sessionsQuery.data?.sessions, settings?.recordings],
+  const choices = mergeRecordingChoices(
+    sessionsQuery.data?.sessions ?? [],
+    settings?.recordings ?? [],
   );
   const loadError = publicPageError(settingsQuery.error, "Could not load public page settings.");
   const saveError = publicPageError(saveMutation.error, "Could not save public page settings.");
@@ -93,18 +78,17 @@ export function PublicPageCard({ projectId }: { projectId: string }) {
   }
 
   function toggleRecording(sessionId: string): void {
-    setSelectedSessionIds((current) => {
-      if (current.includes(sessionId)) {
-        setPickerError("");
-        return current.filter((value) => value !== sessionId);
-      }
-      if (current.length >= MAX_PUBLIC_PAGE_RECORDINGS) {
-        setPickerError(`You can share up to ${MAX_PUBLIC_PAGE_RECORDINGS} recordings.`);
-        return current;
-      }
+    if (selectedSessionIds.includes(sessionId)) {
       setPickerError("");
-      return [...current, sessionId];
-    });
+      setSelectedSessionIds(selectedSessionIds.filter((value) => value !== sessionId));
+      return;
+    }
+    if (selectedSessionIds.length >= MAX_PUBLIC_PAGE_RECORDINGS) {
+      setPickerError(`You can share up to ${MAX_PUBLIC_PAGE_RECORDINGS} recordings.`);
+      return;
+    }
+    setPickerError("");
+    setSelectedSessionIds([...selectedSessionIds, sessionId]);
   }
 
   async function copyPublicUrl(): Promise<void> {
@@ -254,135 +238,39 @@ export function PublicPageCard({ projectId }: { projectId: string }) {
         </>
       )}
 
-      <Dialog onOpenChange={setPublishConfirmationOpen} open={publishConfirmationOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Publish this project page?</DialogTitle>
-            <DialogDescription>
-              Anyone can view and share its analytics. Search engines may index it. Only the
-              recordings shown in your selected list will be included.
-            </DialogDescription>
-          </DialogHeader>
-          {saveError.length > 0 ? (
-            <p className="mt-4 text-[13px] text-danger" role="alert">
-              {saveError}
-            </p>
-          ) : null}
-          <DialogFooter>
-            <Button onClick={() => setPublishConfirmationOpen(false)} variant="secondary">
-              Keep private
-            </Button>
-            <Button loading={saveMutation.isPending} onClick={() => saveEnabled(true)}>
-              Publish page
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <PublishPublicPageDialog
+        error={saveError}
+        isSaving={saveMutation.isPending}
+        onOpenChange={setPublishConfirmationOpen}
+        onPublish={() => saveEnabled(true)}
+        open={publishConfirmationOpen}
+      />
 
-      <Dialog
+      <PublicRecordingPickerDialog
+        choices={choices}
+        error={saveError}
+        isLoading={sessionsQuery.isPending}
+        isSaving={saveMutation.isPending}
+        loadFailed={sessionsQuery.isError}
         onOpenChange={(open) => {
           setRecordingPickerOpen(open);
           if (!open) setPickerError("");
         }}
+        onClear={() => {
+          setSelectedSessionIds([]);
+          setPickerError("");
+        }}
+        onSave={() =>
+          saveMutation.mutate({
+            enabled: settings?.enabled ?? false,
+            sessionIds: selectedSessionIds,
+          })
+        }
+        onToggleRecording={toggleRecording}
         open={recordingPickerOpen}
-      >
-        <DialogContent className="max-w-180">
-          <DialogHeader>
-            <DialogTitle>Choose public recordings</DialogTitle>
-            <DialogDescription>
-              Select up to {MAX_PUBLIC_PAGE_RECORDINGS} finalized recordings. Their replay content
-              will be available without signing in.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="mt-4 flex items-center justify-between">
-            <span className="text-[12px] text-muted-foreground">
-              {selectedSessionIds.length}/{MAX_PUBLIC_PAGE_RECORDINGS} selected
-            </span>
-            <Button
-              disabled={selectedSessionIds.length === 0}
-              onClick={() => {
-                setSelectedSessionIds([]);
-                setPickerError("");
-              }}
-              size="sm"
-              variant="ghost"
-            >
-              Clear
-            </Button>
-          </div>
-
-          {sessionsQuery.isPending ? (
-            <LoadingArea className="min-h-72" label="Loading finalized recordings" />
-          ) : sessionsQuery.isError && choices.length === 0 ? (
-            <div className="mt-3 rounded-lg border border-danger-border p-4 text-[13px] text-danger">
-              Could not load finalized recordings.
-            </div>
-          ) : choices.length === 0 ? (
-            <div className="mt-3 rounded-lg border border-dashed border-dash px-4 py-12 text-center text-[13px] text-muted-foreground">
-              No finalized recordings are available yet.
-            </div>
-          ) : (
-            <ScrollArea className="mt-3 h-82 rounded-lg border border-border">
-              <div className="divide-y divide-border">
-                {choices.map((choice) => {
-                  const selected = selectedSessionIds.includes(choice.sessionId);
-                  return (
-                    <div className="flex items-center gap-3 px-4 py-3" key={choice.sessionId}>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-[13px] font-medium text-foreground">
-                          {choice.entryPath}
-                        </p>
-                        <p className="mt-1 truncate text-[11.5px] text-dim">
-                          {formatAbsoluteTime(choice.startedAt)} ·{" "}
-                          {formatDuration(choice.durationMs)}
-                          {choice.device ? ` · ${choice.device}` : ""}
-                          {choice.browser ? ` · ${choice.browser}` : ""}
-                          {choice.country ? ` · ${choice.country}` : ""}
-                        </p>
-                      </div>
-                      <Switch
-                        checked={selected}
-                        className="px-0 py-0 [&>span:last-child]:sr-only"
-                        label={`Share recording from ${formatAbsoluteTime(choice.startedAt)}`}
-                        onToggle={() => toggleRecording(choice.sessionId)}
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            </ScrollArea>
-          )}
-
-          {pickerError.length > 0 ? (
-            <p className="mt-3 text-[13px] text-danger" role="alert">
-              {pickerError}
-            </p>
-          ) : null}
-          {saveError.length > 0 ? (
-            <p className="mt-3 text-[13px] text-danger" role="alert">
-              {saveError}
-            </p>
-          ) : null}
-
-          <DialogFooter>
-            <Button onClick={() => setRecordingPickerOpen(false)} variant="secondary">
-              Cancel
-            </Button>
-            <Button
-              loading={saveMutation.isPending}
-              onClick={() =>
-                saveMutation.mutate({
-                  enabled: settings?.enabled ?? false,
-                  sessionIds: selectedSessionIds,
-                })
-              }
-            >
-              Save recordings
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        pickerError={pickerError}
+        selectedSessionIds={selectedSessionIds}
+      />
     </section>
   );
 }

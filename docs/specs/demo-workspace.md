@@ -8,7 +8,7 @@ The landing page records itself with the real SDK into a dedicated **demo projec
 
 ## Non-goals
 
-No user accounts / BetterAuth (still deferred). No new dependencies. No changes to the ingest wire format, SessionRecorder DO, or player internals. No curated/pinned-session mode in v1 (documented fallback if defacement becomes a problem).
+This historical demo task predates Better Auth. The current account system remains separate from the anonymous demo path. No changes to the ingest wire format, SessionRecorder DO, or player internals. No curated/pinned-session mode in v1 (documented fallback if defacement becomes a problem).
 
 ## Design
 
@@ -31,7 +31,7 @@ This single endpoint serves both consumers: the landing snippet (key discovery, 
 
 ### Demo auth context (`apps/worker/src/api/handler.ts`)
 
-In `checkAuth`: if the request has **no** `Authorization` header, demo is enabled, and the route's project param `=== DEMO_PROJECT_ID` → return a demo auth context `{ projects: Set([DEMO_PROJECT_ID]), demo: true }`. A request that _does_ carry a bearer header goes through existing validation unchanged — an invalid bearer must **never** fall back to demo (401, exactly as today).
+In `checkAuth`: if the request has **no** `Authorization` header, demo is enabled, and the route's project param `=== DEMO_PROJECT_ID` → return a demo auth context `{ projects: Set([DEMO_PROJECT_ID]), demo: true }`. Any explicit `Authorization` header is rejected and must **never** fall back to the demo. Other private project requests continue through the normal Better Auth session and membership checks.
 
 Route opt-in is **deny-by-default**: only routes explicitly marked demo-readable accept the demo context; every other route treats a demo context as unauthenticated (401). Use an explicit per-route flag/allowlist mechanism, not path-pattern matching.
 
@@ -45,7 +45,7 @@ Demo-readable routes:
 | `GET /projects/:pid/sessions/:sid/segments/:name` | already edge-cached                                                              |
 | `POST /projects/:pid/sessions/:sid/live-ticket`   | ticket is already session-scoped, 60s TTL                                        |
 
-NOT demo-readable (must 401 for a demo context): `GET/PUT /config`, `GET /keys` (returns write keys), `GET /install-status`, all `/__test/*` routes, and everything else. The live WS route is unchanged (ticket auth, not bearer).
+NOT demo-readable (must 401 for a demo context): `GET/PUT /config`, `GET /keys` (returns write keys), `GET /install-status`, all `/__test/*` routes, and everything else. The live WS route keeps its short-lived ticket check.
 
 ### Rate limiting
 
@@ -53,13 +53,13 @@ New Workers rate-limiter binding `DEMO_API_RATE_LIMITER` (follow the existing `w
 
 ### Logging
 
-Per PLAN.md ground rules: exactly one wide event per unit of work via the `@orange-replay/shared` logger, emitted in `finally`; no `console.log`. The existing API event gains an auth-mode field (`authMode: "bearer" | "demo"` — align naming with existing event fields).
+Per PLAN.md ground rules: exactly one wide event per unit of work via the `@orange-replay/shared` logger, emitted in `finally`; no `console.log`. The existing API event gains an auth-mode field (`authMode: "session" | "demo"` — align naming with existing event fields).
 
 ### Security invariants (each needs a test)
 
 1. Demo disabled (env unset) → every previously-401 request is still 401; `/api/v1/demo` → 404.
 2. A demo context cannot: read or write any other project; `PUT /config` on the demo project; `GET /keys`, `GET /config`, `GET /install-status` on the demo project; hit `/__test/*`.
-3. Bearer-authed behavior is unchanged (regression tests stay green); an invalid bearer on a demo-project route → 401, not demo fallback.
+3. Better Auth session behavior is unchanged; an explicit authorization-header credential on a demo-project route returns 401 instead of falling back to the demo.
 4. Sessions-list `limit` is clamped for demo contexts.
 5. No client-supplied header/param/body can enable demo for a non-demo project (server derives demo purely from env + project id).
 
@@ -83,7 +83,7 @@ File budget: `apps/dashboard/src/**` and dashboard tests only.
 - Live tab and live session watching must work (ticket mint is demo-readable).
 - Reuse existing components/ui primitives (Fluid Functionalism registry components already in the tree); do not hand-roll primitives or duplicate screens.
 
-Tests: `/demo` bypasses the token route guard; api client omits the auth header in demo mode; nav items hidden; demo-unavailable state renders.
+Tests: `/demo` bypasses the private account-session requirement; the API client sends no private account credential in demo mode; nav items are hidden; the demo-unavailable state renders.
 
 ## Task C — landing instrumentation
 

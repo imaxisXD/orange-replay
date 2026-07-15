@@ -29,68 +29,34 @@ import {
 } from "@/lib/icon-map";
 import { ReplayWorkspace } from "../session-detail/replay-playback";
 import { useSessionView } from "../session-detail/use-session-view";
-import { entryPath } from "./session-card";
+import { entryPath } from "@/lib/entry-path";
 
 /**
  * Right pane of the two-pane sessions view: the selected session plays here
  * without leaving the page. Deep links stay on the detail route.
  */
 export function SessionStage({
-  hasNext,
-  hasPrev,
-  isDemo,
-  isWatched,
-  onBack,
+  mode,
+  navigation,
   onMarkUnwatched,
   onPlaybackStarted,
-  onStep,
   projectId,
-  railEmpty,
   sessionId,
 }: {
-  hasNext: boolean;
-  hasPrev: boolean;
-  isDemo: boolean;
-  isWatched: boolean;
-  onBack: () => void;
-  onMarkUnwatched: () => void;
+  mode: "demo" | "project";
+  navigation: SessionStageNavigation;
+  onMarkUnwatched?: () => void;
   onPlaybackStarted: () => void;
-  onStep: (delta: 1 | -1) => void;
   projectId: string;
-  railEmpty: boolean;
-  sessionId: string | undefined;
+  sessionId: string;
 }) {
-  if (sessionId === undefined) {
-    return (
-      <Empty className="min-h-90 border border-dashed border-dash">
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            {railEmpty ? <Inbox aria-hidden /> : <ArrowLeft aria-hidden />}
-          </EmptyMedia>
-          <EmptyTitle>
-            {railEmpty ? "Nothing to watch yet" : "Select a session to watch"}
-          </EmptyTitle>
-          <EmptyDescription>
-            {railEmpty
-              ? "When the list has sessions, pick one and it plays here."
-              : "Pick one from the list — it plays here instantly. Amber dots mark sessions you have not watched yet."}
-          </EmptyDescription>
-        </EmptyHeader>
-      </Empty>
-    );
-  }
-
   return (
     <div className="stage-in" key={sessionId}>
       <SelectedSession
-        hasNext={hasNext}
-        hasPrev={hasPrev}
-        isDemo={isDemo}
-        isWatched={isWatched}
-        onBack={onBack}
+        mode={mode}
+        navigation={navigation}
         onMarkUnwatched={onMarkUnwatched}
         onPlaybackStarted={onPlaybackStarted}
-        onStep={onStep}
         projectId={projectId}
         sessionId={sessionId}
       />
@@ -98,29 +64,48 @@ export function SessionStage({
   );
 }
 
+export function EmptySessionStage({ reason }: { reason: "no_sessions" | "no_selection" }) {
+  const noSessions = reason === "no_sessions";
+
+  return (
+    <Empty className="min-h-90 border border-dashed border-dash">
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          {noSessions ? <Inbox aria-hidden /> : <ArrowLeft aria-hidden />}
+        </EmptyMedia>
+        <EmptyTitle>{noSessions ? "Nothing to watch yet" : "Select a session to watch"}</EmptyTitle>
+        <EmptyDescription>
+          {noSessions
+            ? "When the list has sessions, pick one and it plays here."
+            : "Pick one from the list — it plays here instantly. Amber dots mark sessions you have not watched yet."}
+        </EmptyDescription>
+      </EmptyHeader>
+    </Empty>
+  );
+}
+
+interface SessionStageNavigation {
+  back: () => void;
+  next?: () => void;
+  previous?: () => void;
+}
+
 function SelectedSession({
-  hasNext,
-  hasPrev,
-  isDemo,
-  isWatched,
-  onBack,
+  mode,
+  navigation,
   onMarkUnwatched,
   onPlaybackStarted,
-  onStep,
   projectId,
   sessionId,
 }: {
-  hasNext: boolean;
-  hasPrev: boolean;
-  isDemo: boolean;
-  isWatched: boolean;
-  onBack: () => void;
-  onMarkUnwatched: () => void;
+  mode: "demo" | "project";
+  navigation: SessionStageNavigation;
+  onMarkUnwatched?: () => void;
   onPlaybackStarted: () => void;
-  onStep: (delta: 1 | -1) => void;
   projectId: string;
   sessionId: string;
 }) {
+  const isDemo = mode === "demo";
   const sessionView = useSessionView({ isDemo, projectId, sessionId });
   const manifest = sessionView.displayedManifest;
   const playerManifest = sessionView.playerManifest;
@@ -149,12 +134,12 @@ function SelectedSession({
                 Try again
               </Button>
             )}
-            {hasNext && (
-              <Button onClick={() => onStep(1)} size="sm" variant="secondary">
+            {navigation.next !== undefined && (
+              <Button onClick={navigation.next} size="sm" variant="secondary">
                 Next session
               </Button>
             )}
-            <Button onClick={onBack} size="sm" variant="ghost">
+            <Button onClick={navigation.back} size="sm" variant="ghost">
               Back to sessions
             </Button>
           </div>
@@ -168,15 +153,12 @@ function SelectedSession({
   return (
     <div className="flex flex-col gap-3">
       <StageHeader
-        hasNext={hasNext}
-        hasPrev={hasPrev}
-        isDemo={isDemo}
-        isWatched={isWatched}
         activity={sessionView.activity}
         detailsState={sessionView.detailsState}
         manifest={manifest}
+        mode={mode}
+        navigation={navigation}
         onMarkUnwatched={onMarkUnwatched}
-        onStep={onStep}
         projectId={projectId}
         sessionId={sessionId}
       />
@@ -209,12 +191,12 @@ function SelectedSession({
           </EmptyHeader>
           <EmptyContent>
             <div className="flex flex-wrap justify-center gap-2">
-              {hasNext && (
-                <Button onClick={() => onStep(1)} variant="secondary">
+              {navigation.next !== undefined && (
+                <Button onClick={navigation.next} variant="secondary">
                   Try next session
                 </Button>
               )}
-              <Button onClick={onBack} variant="ghost">
+              <Button onClick={navigation.back} variant="ghost">
                 Back to sessions
               </Button>
             </div>
@@ -228,25 +210,19 @@ function SelectedSession({
 function StageHeader({
   activity,
   detailsState,
-  hasNext,
-  hasPrev,
-  isDemo,
-  isWatched,
   manifest,
+  mode,
+  navigation,
   onMarkUnwatched,
-  onStep,
   projectId,
   sessionId,
 }: {
   activity: SessionActivity | null;
   detailsState: SessionDetailsState | null;
-  hasNext: boolean;
-  hasPrev: boolean;
-  isDemo: boolean;
-  isWatched: boolean;
   manifest: SessionManifest;
-  onMarkUnwatched: () => void;
-  onStep: (delta: 1 | -1) => void;
+  mode: "demo" | "project";
+  navigation: SessionStageNavigation;
+  onMarkUnwatched?: () => void;
   projectId: string;
   sessionId: string;
 }) {
@@ -311,8 +287,8 @@ function StageHeader({
           <Button
             aria-label="Previous session"
             className="text-muted-foreground hover:text-foreground"
-            disabled={!hasPrev}
-            onClick={() => onStep(-1)}
+            disabled={navigation.previous === undefined}
+            onClick={navigation.previous}
             size="icon-sm"
             variant="secondary"
           >
@@ -323,15 +299,15 @@ function StageHeader({
           <Button
             aria-label="Next session"
             className="text-muted-foreground hover:text-foreground"
-            disabled={!hasNext}
-            onClick={() => onStep(1)}
+            disabled={navigation.next === undefined}
+            onClick={navigation.next}
             size="icon-sm"
             variant="secondary"
           >
             <ChevronRight aria-hidden className="size-4" />
           </Button>
         </Tooltip>
-        {isWatched && (
+        {onMarkUnwatched !== undefined && (
           <Button
             className="hidden text-muted-foreground hover:text-foreground sm:inline-flex"
             onClick={onMarkUnwatched}
@@ -342,7 +318,7 @@ function StageHeader({
           </Button>
         )}
         <Button asChild size="sm" variant="secondary">
-          {isDemo ? (
+          {mode === "demo" ? (
             <Link params={{ sessionId }} to="/demo/sessions/$sessionId">
               Open full view
             </Link>

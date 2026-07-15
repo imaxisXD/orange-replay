@@ -3,8 +3,15 @@ import type {
   ProjectConfigUpdate,
   StoredProjectConfig,
 } from "@orange-replay/shared/types";
+import { readStablePrivacySelectorError } from "@orange-replay/shared/privacy-selector";
 
-export type ProjectSettingsDraft = Omit<ProjectConfigUpdate, "expectedVersion">;
+export interface DraftMaskRule extends MaskRule {
+  uiId: string;
+}
+
+export type ProjectSettingsDraft = Omit<ProjectConfigUpdate, "expectedVersion" | "maskRules"> & {
+  maskRules: DraftMaskRule[];
+};
 export type MaskRuleActionValue = MaskRule["action"];
 
 export const maxMaskRules = 200;
@@ -22,19 +29,22 @@ export function makeProjectSettingsDraft(config: StoredProjectConfig): ProjectSe
     retentionDays: config.retentionDays,
     allowedOrigins: [...config.allowedOrigins],
     maskPolicyVersion: config.maskPolicyVersion,
-    maskRules: config.maskRules.map((rule) => ({ ...rule })),
+    maskRules: config.maskRules.map((rule, index) => ({
+      ...rule,
+      uiId: `saved-mask-rule-${config.projectId}-${config.version}-${index}`,
+    })),
     capture: { ...config.capture },
   };
 }
 
 export function updateMaskRules(
-  rules: readonly MaskRule[],
+  rules: readonly DraftMaskRule[],
   action: MaskRulesEditorAction,
-): MaskRule[] {
+): DraftMaskRule[] {
   switch (action.type) {
     case "add":
       if (rules.length >= maxMaskRules) return [...rules];
-      return [...rules, { selector: "", action: "mask" }];
+      return [...rules, { selector: "", action: "mask", uiId: nextMaskRuleUiId() }];
     case "remove":
       return rules.filter((_rule, index) => index !== action.index);
     case "setSelector":
@@ -55,6 +65,11 @@ export function validateMaskRules(rules: readonly MaskRule[]): string | null {
 
   if (rules.some((rule) => rule.selector.trim().length === 0)) {
     return "Each masking rule needs a selector.";
+  }
+
+  for (const rule of rules) {
+    const error = readStablePrivacySelectorError(rule.selector.trim());
+    if (error !== null) return error;
   }
 
   return null;
@@ -142,7 +157,7 @@ function draftsMatch(left: ProjectSettingsDraft, right: ProjectSettingsDraft): b
   return JSON.stringify(stableDraft(left)) === JSON.stringify(stableDraft(right));
 }
 
-function stableDraft(draft: ProjectSettingsDraft): ProjectSettingsDraft {
+function stableDraft(draft: ProjectSettingsDraft) {
   return {
     sampleRate: draft.sampleRate,
     retentionDays: draft.retentionDays,
@@ -159,6 +174,13 @@ function stableDraft(draft: ProjectSettingsDraft): ProjectSettingsDraft {
       canvas: draft.capture.canvas,
     },
   };
+}
+
+let nextNewMaskRuleId = 0;
+
+function nextMaskRuleUiId(): string {
+  nextNewMaskRuleId += 1;
+  return `new-mask-rule-${nextNewMaskRuleId}`;
 }
 
 function trimTrailingZero(value: string): string {

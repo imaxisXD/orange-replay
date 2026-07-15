@@ -4,6 +4,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
 import { MotionProvider } from "@/lib/motion-provider";
 import { queryClient } from "@/lib/query";
+import { removeRetiredAuthStorage } from "@/lib/retired-auth-cleanup";
 import { ShapeProvider } from "@/lib/shape-context";
 import { OrangeToastProvider } from "@/components/ui/orange-toast";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -15,6 +16,8 @@ const root = document.getElementById("root");
 if (root === null) {
   throw new Error("Dashboard root element was not found.");
 }
+
+removeRetiredAuthStorage();
 
 createRoot(root).render(
   <StrictMode>

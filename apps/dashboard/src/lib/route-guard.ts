@@ -1,141 +1,122 @@
 import { redirect } from "@tanstack/react-router";
+import { ApiError, accountQueryKey, bootstrapAccount, fetchAccount } from "./api";
 import {
-  ApiError,
-  accountProjects,
-  accountQueryKey,
-  bootstrapAccount,
-  canManageProject,
-  fetchAccount,
-  findAccountProject,
-  getApiToken,
-} from "./api";
-import { isDemoPath } from "./demo-mode";
+  currentDashboardScope,
+  decideAdminRoute,
+  decideProjectRoute,
+  decideProjectsHome,
+  type ProjectRouteDecision,
+} from "./dashboard-access";
 import { queryClient } from "./query";
-import { defaultProjectId, loginSearch } from "./routes";
+import { loginSearch } from "./routes";
 
 interface RouteLocation {
   href: string;
   pathname: string;
 }
 
-export function requireProjectToken(location: RouteLocation): void {
-  if (isDemoPath(location.pathname) || getApiToken() !== null) return;
-  throw redirect({
-    to: "/login",
-    search: loginSearch(undefined, location.href),
-    replace: true,
-  });
+type Account = Awaited<ReturnType<typeof fetchAccount>>;
+
+export function requireProjectAccess(location: RouteLocation, projectId: string): Promise<void> {
+  return requireProjectRoute(location, projectId, "view");
 }
 
-export async function requireProjectAccess(
-  location: RouteLocation,
-  projectId: string,
-): Promise<void> {
-  if (isDemoPath(location.pathname) || getApiToken() !== null) return;
+export function requireProjectManager(location: RouteLocation, projectId: string): Promise<void> {
+  return requireProjectRoute(location, projectId, "manage");
+}
 
-  let account;
-  try {
-    account = await queryClient.ensureQueryData({
-      queryKey: accountQueryKey,
-      queryFn: fetchAccount,
-      staleTime: 30_000,
-    });
-  } catch (error) {
-    if (error instanceof ApiError && (error.status === 401 || error.status === 503)) {
-      throw redirect({
-        to: "/login",
-        search: loginSearch(error.status === 503 ? "auth_unavailable" : undefined, location.href),
-        replace: true,
-      });
-    }
-    throw error;
+export async function requireAdminAccess(location: RouteLocation): Promise<void> {
+  let decision = decideAdminRoute();
+  if (decision.action === "load-account") {
+    const account = await loadAccountOrRedirect(location);
+    decision = decideAdminRoute(account);
   }
 
-  if (findAccountProject(account, projectId) === undefined) {
+  if (decision.action !== "allow") {
     throw redirect({ to: "/projects", replace: true });
   }
 }
 
-export async function requireProjectManager(
+export async function openProjectsHome(location: RouteLocation): Promise<void> {
+  let account: Account | undefined;
+  let decision = decideProjectsHome({});
+
+  if (decision.action === "load-account") {
+    account = await loadAccountOrRedirect(location);
+    decision = decideProjectsHome({ account });
+  }
+  if (decision.action === "bootstrap-account") {
+    account = await bootstrapAccountOrRedirect(location);
+    decision = decideProjectsHome({ account });
+  }
+  if (decision.action === "open-project") {
+    throw redirect({
+      to: "/projects/$projectId/overview",
+      params: { projectId: decision.projectId },
+      replace: true,
+    });
+  }
+}
+
+async function requireProjectRoute(
   location: RouteLocation,
   projectId: string,
+  requirement: "view" | "manage",
 ): Promise<void> {
-  await requireProjectAccess(location, projectId);
-  if (getApiToken() !== null) return;
+  const scope = currentDashboardScope(location.pathname);
+  let decision = decideProjectRoute({ projectId, requirement, scope });
 
-  const account =
-    queryClient.getQueryData<Awaited<ReturnType<typeof fetchAccount>>>(accountQueryKey);
-  const project = findAccountProject(account, projectId);
-  if (!canManageProject(project)) {
+  if (decision.action === "load-account") {
+    const account = await loadAccountOrRedirect(location);
+    decision = decideProjectRoute({ account, projectId, requirement, scope });
+  }
+  applyProjectDecision(decision, projectId);
+}
+
+function applyProjectDecision(decision: ProjectRouteDecision, projectId: string): void {
+  if (decision.action === "allow") return;
+  if (decision.action === "redirect-projects") {
+    throw redirect({ to: "/projects", replace: true });
+  }
+  if (decision.action === "redirect-overview") {
     throw redirect({
       to: "/projects/$projectId/overview",
       params: { projectId },
       replace: true,
     });
   }
+  throw new Error("Project access could not be decided.");
 }
 
-export async function requireAdminAccess(location: RouteLocation): Promise<void> {
-  let account;
+async function loadAccountOrRedirect(location: RouteLocation): Promise<Account> {
   try {
-    account = await queryClient.ensureQueryData({
+    return await queryClient.ensureQueryData({
       queryKey: accountQueryKey,
       queryFn: fetchAccount,
       staleTime: 30_000,
     });
   } catch (error) {
-    if (error instanceof ApiError && (error.status === 401 || error.status === 503)) {
-      throw redirect({
-        to: "/login",
-        search: loginSearch(error.status === 503 ? "auth_unavailable" : undefined, location.href),
-        replace: true,
-      });
-    }
-    throw error;
-  }
-
-  if (!account.isAdmin) {
-    throw redirect({ to: "/projects", replace: true });
+    redirectForAccountError(error, location);
   }
 }
 
-export async function openProjectsHome(location: RouteLocation): Promise<void> {
-  if (getApiToken() !== null) {
-    throw redirect({
-      to: "/projects/$projectId/overview",
-      params: { projectId: defaultProjectId },
-      replace: true,
-    });
-  }
-
-  let account;
+async function bootstrapAccountOrRedirect(location: RouteLocation): Promise<Account> {
   try {
-    account = await queryClient.ensureQueryData({
-      queryKey: accountQueryKey,
-      queryFn: fetchAccount,
-      staleTime: 30_000,
-    });
-    if (account.workspaces.length === 0) {
-      account = await bootstrapAccount();
-      queryClient.setQueryData(accountQueryKey, account);
-    }
+    const account = await bootstrapAccount();
+    queryClient.setQueryData(accountQueryKey, account);
+    return account;
   } catch (error) {
-    if (error instanceof ApiError && (error.status === 401 || error.status === 503)) {
-      throw redirect({
-        to: "/login",
-        search: loginSearch(error.status === 503 ? "auth_unavailable" : undefined, location.href),
-        replace: true,
-      });
-    }
-    throw error;
+    redirectForAccountError(error, location);
   }
+}
 
-  const project = accountProjects(account)[0];
-  if (project !== undefined) {
+function redirectForAccountError(error: unknown, location: RouteLocation): never {
+  if (error instanceof ApiError && (error.status === 401 || error.status === 503)) {
     throw redirect({
-      to: "/projects/$projectId/overview",
-      params: { projectId: project.id },
+      to: "/login",
+      search: loginSearch(error.status === 503 ? "auth_unavailable" : undefined, location.href),
       replace: true,
     });
   }
+  throw error;
 }

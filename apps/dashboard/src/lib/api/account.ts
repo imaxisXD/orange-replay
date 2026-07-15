@@ -1,60 +1,30 @@
+import {
+  decodeAccountResponse,
+  decodeAuthConfigResponse,
+  decodeCreatedProjectKeyResponse,
+  decodeProjectKeyResponse,
+  type AccountProject as SharedAccountProject,
+  type AccountResponse as SharedAccountResponse,
+  type AccountUser as SharedAccountUser,
+  type AccountWorkspace as SharedAccountWorkspace,
+  type CreatedProjectKeyResponse as SharedCreatedProjectKeyResponse,
+  type ProjectKeyAudit as SharedProjectKeyAudit,
+  type ProjectKeysResponse as SharedProjectKeysResponse,
+} from "@orange-replay/shared";
+import type { DashboardProjectRole, ServerAuthMode } from "../dashboard-access";
 import { encodePathPart, requestJson } from "./client";
 
-export type AuthMode = "github" | "token" | "unavailable";
-export type WorkspaceRole = "owner" | "admin" | "member";
+export type AuthMode = ServerAuthMode;
+export type WorkspaceRole = DashboardProjectRole;
 
-export interface AuthConfigResponse {
-  mode: AuthMode;
-}
-
-export interface AccountUser {
-  id: string;
-  name: string;
-  email: string;
-  emailVerified: boolean;
-  image: string | null;
-  role: string;
-}
-
-export interface AccountProject {
-  id: string;
-  name: string;
-  role: WorkspaceRole;
-}
-
-export interface AccountWorkspace {
-  id: string;
-  name: string;
-  slug: string;
-  role: WorkspaceRole;
-  projects: AccountProject[];
-}
-
-export interface AccountResponse {
-  user: AccountUser;
-  workspaces: AccountWorkspace[];
-  isAdmin: boolean;
-}
-
-export interface ProjectKeyAudit {
-  id: string;
-  name: string;
-  active: boolean;
-  createdAt: number;
-  createdBy: string | null;
-  revokedAt: number | null;
-  revokedBy: string | null;
-  keyHashPrefix: string;
-}
-
-export interface ProjectKeysResponse {
-  keys: ProjectKeyAudit[];
-}
-
-export interface CreatedProjectKeyResponse {
-  key: ProjectKeyAudit;
-  secret: string;
-}
+export type AuthConfigResponse = import("@orange-replay/shared").AuthConfigResponse;
+export type AccountUser = SharedAccountUser;
+export type AccountProject = SharedAccountProject;
+export type AccountWorkspace = SharedAccountWorkspace;
+export type AccountResponse = SharedAccountResponse;
+export type ProjectKeyAudit = SharedProjectKeyAudit;
+export type ProjectKeysResponse = SharedProjectKeysResponse;
+export type CreatedProjectKeyResponse = SharedCreatedProjectKeyResponse;
 
 export interface AdminStatsResponse {
   users: number;
@@ -96,6 +66,7 @@ export const accountQueryKey = ["account"] as const;
 export async function fetchAuthConfig(): Promise<AuthConfigResponse> {
   return requestJson<AuthConfigResponse>("/api/v1/auth/config", {
     auth: false,
+    decode: decodeAuthConfigResponse,
     redirectOnAuthError: false,
   });
 }
@@ -103,6 +74,7 @@ export async function fetchAuthConfig(): Promise<AuthConfigResponse> {
 export async function fetchAccount(): Promise<AccountResponse> {
   return requestJson<AccountResponse>("/api/v1/account", {
     auth: true,
+    decode: decodeAccountResponse,
     redirectOnAuthError: false,
   });
 }
@@ -110,6 +82,7 @@ export async function fetchAccount(): Promise<AccountResponse> {
 export async function bootstrapAccount(): Promise<AccountResponse> {
   return requestJson<AccountResponse>("/api/v1/account/bootstrap", {
     auth: true,
+    decode: decodeAccountResponse,
     method: "POST",
     redirectOnAuthError: false,
   });
@@ -124,6 +97,7 @@ export async function createProjectKey(
     {
       auth: true,
       body: { name },
+      decode: decodeCreatedProjectKeyResponse,
       method: "POST",
     },
   );
@@ -132,11 +106,12 @@ export async function createProjectKey(
 export async function revokeProjectKey(
   projectId: string,
   keyId: string,
-): Promise<{ key: ProjectKeyAudit }> {
-  return requestJson<{ key: ProjectKeyAudit }>(
+): Promise<import("@orange-replay/shared").ProjectKeyResponse> {
+  return requestJson<import("@orange-replay/shared").ProjectKeyResponse>(
     `/api/v1/projects/${encodePathPart(projectId)}/keys/${encodePathPart(keyId)}`,
     {
       auth: true,
+      decode: decodeProjectKeyResponse,
       method: "DELETE",
     },
   );
@@ -155,21 +130,4 @@ export async function fetchAdminUsers(search: AdminUserSearch = {}): Promise<Adm
   }
   const suffix = query.size === 0 ? "" : `?${query.toString()}`;
   return requestJson<AdminUsersResponse>(`/api/v1/admin/users${suffix}`, { auth: true });
-}
-
-export function accountProjects(account: AccountResponse): AccountProject[] {
-  return account.workspaces.flatMap((workspace) => workspace.projects);
-}
-
-export function findAccountProject(
-  account: AccountResponse | undefined,
-  projectId: string,
-): AccountProject | undefined {
-  return account?.workspaces
-    .flatMap((workspace) => workspace.projects)
-    .find((project) => project.id === projectId);
-}
-
-export function canManageProject(project: AccountProject | undefined): boolean {
-  return project?.role === "owner" || project?.role === "admin";
 }

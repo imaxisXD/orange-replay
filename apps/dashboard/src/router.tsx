@@ -15,17 +15,7 @@ import {
 } from "@/lib/route-guard";
 import { DashboardWorkspaceProvider } from "@/lib/dashboard-workspace";
 import { AppShell } from "@/routes/app-shell";
-import { DemoRoute } from "@/routes/demo";
-import { InstallPage } from "@/routes/install";
-import { LivePage } from "@/routes/live";
-import { LoginPage } from "@/routes/login";
-import { OverviewPage } from "@/routes/overview";
-import { ProjectsPage } from "@/routes/projects";
 import { RouteError } from "@/routes/route-error";
-import { SessionDetailPage } from "@/routes/session-detail";
-import { SessionsPage } from "@/routes/sessions";
-import { SettingsPage } from "@/routes/settings";
-import { ToastLabPage } from "@/routes/toast-lab";
 import { validateSessionSearch } from "@/lib/session-filters";
 import { validateSessionsViewSearch } from "@/lib/sessions-view-search";
 
@@ -41,6 +31,19 @@ const rootRoute = createRootRoute({
 });
 
 const AdminPage = lazyRouteComponent(() => import("@/routes/admin"), "AdminPage");
+const DemoRoute = lazyRouteComponent(() => import("@/routes/demo"), "DemoRoute");
+const InstallPage = lazyRouteComponent(() => import("@/routes/install"), "InstallPage");
+const LivePage = lazyRouteComponent(() => import("@/routes/live"), "LivePage");
+const LoginPage = lazyRouteComponent(() => import("@/routes/login"), "LoginPage");
+const OverviewPage = lazyRouteComponent(() => import("@/routes/overview"), "OverviewPage");
+const ProjectsPage = lazyRouteComponent(() => import("@/routes/projects"), "ProjectsPage");
+const SessionDetailPage = lazyRouteComponent(
+  () => import("@/routes/session-detail"),
+  "SessionDetailPage",
+);
+const SessionsPage = lazyRouteComponent(() => import("@/routes/sessions"), "SessionsPage");
+const SettingsPage = lazyRouteComponent(() => import("@/routes/settings"), "SettingsPage");
+const ToastLabPage = lazyRouteComponent(() => import("@/routes/toast-lab"), "ToastLabPage");
 
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,

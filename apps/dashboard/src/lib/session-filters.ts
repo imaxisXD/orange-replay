@@ -15,6 +15,8 @@ export const dateRangeOptions = [
 
 export type DateRangeValue = (typeof dateRangeOptions)[number]["value"];
 
+const sessionFilterQueryKeySet = new Set<string>(sessionFilterQueryKeys);
+
 export function validateSessionSearch(search: Record<string, unknown>): SessionFilter {
   const candidate: Record<string, unknown> = {};
 
@@ -30,10 +32,7 @@ export function validateSessionSearch(search: Record<string, unknown>): SessionF
     if (parsed.success) return parsed.data;
 
     const invalidKey = parsed.error.issues[0]?.path[0];
-    if (
-      typeof invalidKey !== "string" ||
-      !sessionFilterQueryKeys.includes(invalidKey as (typeof sessionFilterQueryKeys)[number])
-    ) {
+    if (typeof invalidKey !== "string" || !sessionFilterQueryKeySet.has(invalidKey)) {
       return {};
     }
     delete candidate[invalidKey];

@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getApiToken, health } from "@/lib/api";
+import { health } from "@/lib/api";
 import { KeyRound, RotateCcw, Server } from "@/lib/icon-map";
 
 type HealthState = "checking" | "connected" | "failed";
@@ -41,8 +41,7 @@ export function SettingsHealthAlert() {
   );
 }
 
-export function SettingsEnvironmentCards({ hosted = false }: { hosted?: boolean }) {
-  const hasToken = getApiToken() !== null;
+export function SettingsEnvironmentCards() {
   const { healthQuery, healthState } = useWorkerHealth();
 
   return (
@@ -50,15 +49,15 @@ export function SettingsEnvironmentCards({ hosted = false }: { hosted?: boolean 
       <section className="lit flex flex-col gap-4 overflow-hidden rounded-lg p-5">
         <div className="flex items-start justify-between gap-3">
           <div className="flex flex-col gap-1">
-            <h2 className="text-[15px] font-medium">{hosted ? "Account session" : "Dev token"}</h2>
+            <h2 className="text-[15px] font-medium">Account session</h2>
             <p className="text-[13px] text-muted-foreground">
-              {hosted ? "Protected by your signed-in account." : "Stored in this browser only."}
+              Protected by your signed-in account.
             </p>
           </div>
           <KeyRound aria-hidden className="size-5 text-muted-foreground" />
         </div>
-        <Badge color={hosted || hasToken ? "green" : "amber"} size="sm" variant="dot">
-          {hosted ? "Signed in" : hasToken ? "Token saved" : "Token missing"}
+        <Badge color="green" size="sm" variant="dot">
+          Signed in
         </Badge>
       </section>
 

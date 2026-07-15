@@ -40,7 +40,7 @@ import {
   type AdminUser,
 } from "@/lib/api";
 import { adminAuthClient } from "@/lib/admin-auth-client";
-import { readAuthClientError, signOutHosted } from "@/lib/auth-client";
+import { readDashboardAccessError, signOutDashboardAccess } from "@/lib/dashboard-access";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/format";
 import {
   AlertCircle,
@@ -54,7 +54,6 @@ import {
   UserBlock,
   Users,
 } from "@/lib/icon-map";
-import { queryClient } from "@/lib/query";
 
 const pageSize = 25;
 
@@ -98,7 +97,7 @@ export function AdminPage() {
   const total = usersQuery.data?.total ?? 0;
   const firstShown = total === 0 ? 0 : offset + 1;
   const lastShown = Math.min(offset + pageSize, total);
-  const actionError = readAuthClientError(actionMutation.error, "The account change failed.");
+  const actionError = readDashboardAccessError(actionMutation.error, "The account change failed.");
   const confirmationUser = users.find((user) => user.id === actionToConfirm?.userId);
 
   function submitSearch(event: FormEvent<HTMLFormElement>): void {
@@ -111,14 +110,12 @@ export function AdminPage() {
     setIsSigningOut(true);
     setSignOutError("");
     try {
-      await signOutHosted(adminAuthClient);
-      queryClient.clear();
+      await signOutDashboardAccess(adminAuthClient);
       void navigate({ to: "/login", replace: true });
     } catch (error) {
-      setSignOutError(readAuthClientError(error, "Could not sign out. Try again."));
-    } finally {
-      setIsSigningOut(false);
+      setSignOutError(readDashboardAccessError(error, "Could not sign out. Try again."));
     }
+    setIsSigningOut(false);
   }
 
   return (

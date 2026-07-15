@@ -2,6 +2,8 @@ import { describe, expect, it } from "vite-plus/test";
 import type { StoredProjectConfig } from "@orange-replay/shared/types";
 import {
   addAllowedOrigin,
+  cleanMaskRules,
+  makeProjectSettingsDraft,
   maxMaskRules,
   normalizeOriginInput,
   percentInputToSampleRate,
@@ -16,21 +18,23 @@ import {
 describe("masking rule editor", () => {
   it("adds, edits, and removes rules", () => {
     const added = updateMaskRules([], { type: "add" });
-    expect(added).toEqual([{ selector: "", action: "mask" }]);
+    expect(added).toMatchObject([{ selector: "", action: "mask" }]);
+    const uiId = added[0]?.uiId;
+    expect(uiId).toBeTruthy();
 
     const withSelector = updateMaskRules(added, {
       type: "setSelector",
       index: 0,
       selector: ".private",
     });
-    expect(withSelector).toEqual([{ selector: ".private", action: "mask" }]);
+    expect(withSelector).toEqual([{ selector: ".private", action: "mask", uiId }]);
 
     const withAction = updateMaskRules(withSelector, {
       type: "setAction",
       index: 0,
       action: "block",
     });
-    expect(withAction).toEqual([{ selector: ".private", action: "block" }]);
+    expect(withAction).toEqual([{ selector: ".private", action: "block", uiId }]);
 
     expect(updateMaskRules(withAction, { type: "remove", index: 0 })).toEqual([]);
   });
@@ -39,6 +43,7 @@ describe("masking rule editor", () => {
     const fullRules = Array.from({ length: maxMaskRules }, (_item, index) => ({
       selector: `.rule-${index}`,
       action: "mask" as const,
+      uiId: `rule-${index}`,
     }));
 
     expect(updateMaskRules(fullRules, { type: "add" })).toHaveLength(maxMaskRules);
@@ -46,6 +51,28 @@ describe("masking rule editor", () => {
       "Each masking rule needs a selector.",
     );
     expect(validateMaskRules(fullRules)).toBeNull();
+  });
+
+  it("rejects selectors that are invalid or depend on changing browser state", () => {
+    expect(validateMaskRules([{ selector: ".item >", action: "mask" }])).toBe(
+      "Use a valid CSS selector.",
+    );
+    expect(validateMaskRules([{ selector: "button:hover", action: "block" }])).toBe(
+      "Use selectors based on document structure, not changing states like :hover.",
+    );
+    expect(validateMaskRules([{ selector: ":has(.private)", action: "mask" }])).toBeNull();
+  });
+
+  it("keeps UI ids in the editor but removes them from the save payload", () => {
+    const draft = makeProjectSettingsDraft(makeConfig());
+    const updated = updateMaskRules(draft.maskRules, {
+      type: "setSelector",
+      index: 0,
+      selector: " .updated ",
+    });
+
+    expect(updated[0]?.uiId).toBe(draft.maskRules[0]?.uiId);
+    expect(cleanMaskRules(updated)).toEqual([{ selector: ".updated", action: "mask" }]);
   });
 });
 
@@ -133,17 +160,5 @@ function makeConfig(): StoredProjectConfig {
 }
 
 function makeDraft() {
-  return {
-    sampleRate: 0.25,
-    retentionDays: 30,
-    allowedOrigins: ["*"],
-    maskPolicyVersion: 1,
-    maskRules: [{ selector: ".secret", action: "mask" as const }],
-    capture: {
-      heatmaps: false,
-      console: false,
-      network: true,
-      canvas: false,
-    },
-  };
+  return makeProjectSettingsDraft(makeConfig());
 }

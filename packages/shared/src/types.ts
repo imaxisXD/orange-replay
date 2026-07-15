@@ -148,6 +148,8 @@ export interface StoredProjectConfig extends ProjectConfig {
 
 /** Public capture settings returned to the browser recorder before capture starts. */
 export interface RecorderProjectConfig {
+  /** Stable public project id used to build dashboard session links. */
+  projectId?: string;
   sampleRate: number;
   maskPolicyVersion: number;
   maskRules: MaskRule[];
@@ -163,21 +165,6 @@ export interface ProjectConfigUpdate {
   maskPolicyVersion: number;
   maskRules: MaskRule[];
   capture: CaptureToggles;
-}
-
-export interface ProjectKeyAudit {
-  id: string;
-  name: string;
-  keyHashPrefix: string;
-  active: boolean;
-  createdAt: number;
-  createdBy: string | null;
-  revokedAt: number | null;
-  revokedBy: string | null;
-}
-
-export interface ProjectKeysResponse {
-  keys: ProjectKeyAudit[];
 }
 
 export interface PublicPageBreakdownItem {
@@ -245,12 +232,6 @@ export interface PublicPageSettings {
 export interface PublicPageSettingsUpdate {
   enabled: boolean;
   sessionIds: string[];
-}
-
-/** Returned only at key creation. The secret is never persisted or returned again. */
-export interface CreatedProjectKeyResponse {
-  key: ProjectKeyAudit;
-  secret: string;
 }
 
 export interface LiveTicketResponse {

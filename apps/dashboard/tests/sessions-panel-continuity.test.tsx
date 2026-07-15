@@ -3,6 +3,7 @@ import { act } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { clearDashboardAccess } from "../src/lib/dashboard-access";
 import { ShapeProvider } from "../src/lib/shape-context";
 import { SessionsPanel } from "../src/routes/sessions/sessions-panel";
 
@@ -25,7 +26,7 @@ describe("sessions panel continuity", () => {
   afterEach(() => {
     navigate.mockClear();
     vi.unstubAllGlobals();
-    window.localStorage.clear();
+    clearDashboardAccess();
     document.body.replaceChildren();
   });
 
@@ -46,7 +47,6 @@ describe("sessions panel continuity", () => {
       throw new Error(`Unexpected dashboard request: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
-    window.localStorage.setItem("or:token", "test-dashboard-token");
 
     const queryClient = new QueryClient({
       defaultOptions: {
@@ -129,7 +129,7 @@ function provisionalSessionHead() {
     bytes: 0,
     segment_count: 0,
     flags: 0,
-    manifest_key: "",
+    manifest_key: "p/project-1/session-head-1/manifest.json",
     expires_at: Date.now() + 60_000,
     activity: "idle",
     details_state: "provisional",

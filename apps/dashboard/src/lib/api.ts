@@ -1,24 +1,13 @@
+export { ApiError } from "./api/client";
 export {
-  ApiError,
-  clearApiToken,
-  getApiToken,
-  setApiToken,
-  setAuthRedirectHandler,
-  tokenStorageKey,
-} from "./api/client";
-export type { AuthRedirectEvent, AuthRedirectReason } from "./api/client";
-export {
-  accountProjects,
   accountQueryKey,
   authConfigQueryKey,
   bootstrapAccount,
-  canManageProject,
   createProjectKey,
   fetchAccount,
   fetchAdminStats,
   fetchAdminUsers,
   fetchAuthConfig,
-  findAccountProject,
   revokeProjectKey,
 } from "./api/account";
 export type {
@@ -37,7 +26,6 @@ export type {
   WorkspaceRole,
 } from "./api/account";
 export {
-  checkApiToken,
   fetchDemoWorkspace,
   fetchInstallStatus,
   fetchProjectConfig,

@@ -5,9 +5,8 @@ import { BrandMark } from "@/components/brand-mark";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { accountQueryKey, fetchAccount } from "@/lib/api";
-import { authClient, readAuthClientError, signOutHosted } from "@/lib/auth-client";
+import { readDashboardAccessError, signOutDashboardAccess } from "@/lib/dashboard-access";
 import { AlertCircle, LogOut } from "@/lib/icon-map";
-import { queryClient } from "@/lib/query";
 
 export function ProjectsPage() {
   const navigate = useNavigate();
@@ -23,14 +22,12 @@ export function ProjectsPage() {
     setIsSigningOut(true);
     setSignOutError("");
     try {
-      await signOutHosted(authClient);
-      queryClient.clear();
+      await signOutDashboardAccess();
       void navigate({ to: "/login", replace: true });
     } catch (error) {
-      setSignOutError(readAuthClientError(error, "Could not sign out. Try again."));
-    } finally {
-      setIsSigningOut(false);
+      setSignOutError(readDashboardAccessError(error, "Could not sign out. Try again."));
     }
+    setIsSigningOut(false);
   }
 
   return (

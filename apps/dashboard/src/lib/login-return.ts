@@ -2,12 +2,10 @@ export const defaultReturnTo = "/projects";
 
 export function loginReasonMessage(
   reason: string | undefined,
-  authMode: "github" | "token" | "unavailable" | undefined,
+  _authMode: "github" | "unavailable" | undefined,
 ): string {
   if (reason !== "unauthorized") return "";
-  return authMode === "github"
-    ? "GitHub sign-in was not completed. Try again."
-    : "That token was rejected. Check the owner API token and try again.";
+  return "GitHub sign-in was not completed. Try again.";
 }
 
 export function safeReturnPath(value: string | undefined): string {

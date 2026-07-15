@@ -79,31 +79,39 @@ wrangler d1 migrations apply orange-replay-idx-00
 
 The mirror script copies `apps/worker/migrations` into `infra/template/migrations` verbatim.
 
-## 4. Set The API Token Secrets
+## 4. Configure Better Auth And GitHub
 
-Self-host v1 uses a bearer token scoped to explicit project ids:
+Better Auth with GitHub is the only private dashboard sign-in path. Create a GitHub OAuth App for the exact public Worker origin you will deploy:
+
+```text
+Homepage: https://replay.example.com
+Callback: https://replay.example.com/api/auth/callback/github
+```
+
+Then create the required Worker values from `infra/template`. Use your own exact origin in both URL values:
 
 ```sh
-wrangler secret put DEV_API_TOKEN
-wrangler secret put DEV_API_PROJECT_IDS
+wrangler secret put BETTER_AUTH_SECRET
+wrangler secret put BETTER_AUTH_URL
+wrangler secret put BETTER_AUTH_TRUSTED_ORIGINS
+wrangler secret put GITHUB_CLIENT_ID
+wrangler secret put GITHUB_CLIENT_SECRET
 wrangler secret put LIVE_TICKET_SECRET
 ```
 
-Use long random values, at least 32 characters, for `DEV_API_TOKEN` and `LIVE_TICKET_SECRET`. `DEV_API_PROJECT_IDS` is a comma-separated list, for example `project_demo`. Do not put any of these values in `wrangler.jsonc`.
+Generate separate random values of at least 32 characters for `BETTER_AUTH_SECRET` and `LIVE_TICKET_SECRET`. Set `BETTER_AUTH_URL` to the exact public Worker origin. Set `BETTER_AUTH_TRUSTED_ORIGINS` to that same origin, or a comma-separated list of exact allowed origins. Do not put secret values in `wrangler.jsonc`.
 
-For real self-host use, put Cloudflare Access in front of the dashboard and API routes. The project-scoped token is the v1 app-level check; Cloudflare Access gives you the account login and SSO layer.
-
-When building the dashboard outside the production deploy script, set `VITE_DEFAULT_PROJECT_ID` to one of the ids in `DEV_API_PROJECT_IDS`. The dashboard uses it only for the first route and login token check.
+A missing or partial Better Auth setup fails closed. It does not enable a shared-token fallback. Cloudflare Access can be added around `/_admin*` as an optional second gate, but the Worker still checks the Better Auth account and admin role itself.
 
 ## 5. Build The Dashboard Assets
 
 The self-host Worker serves the dashboard and player through its `ASSETS` binding. Build those files from the repo root before deploying:
 
 ```sh
-VITE_DEFAULT_PROJECT_ID=project_demo node scripts/build-deploy.mjs --production
+node scripts/build-deploy.mjs --production
 ```
 
-Replace `project_demo` with one of the project ids in `DEV_API_PROJECT_IDS`. Re-run this command after pulling dashboard or player changes.
+Re-run this command after pulling dashboard or player changes.
 
 ## 6. Deploy
 
@@ -128,13 +136,11 @@ When `apps/worker/wrangler.jsonc` or `apps/worker/migrations` changes:
 ```sh
 node scripts/mirror-template.mjs
 node scripts/mirror-template.mjs --check
-VITE_DEFAULT_PROJECT_ID=project_demo node scripts/build-deploy.mjs --production
+node scripts/build-deploy.mjs --production
 cd infra/template
 wrangler d1 migrations apply orange-replay-idx-00
 wrangler deploy
 ```
-
-Use the same project id that you stored in `DEV_API_PROJECT_IDS`.
 
 If you need a stamped manifest for release automation, pass the stamp explicitly:
 
