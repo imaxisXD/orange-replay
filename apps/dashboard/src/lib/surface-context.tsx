@@ -1,12 +1,7 @@
 "use client";
 
-import { createContext, useContext, type ReactNode } from "react";
-
-const SurfaceContext = createContext<number>(1);
-
-export function useSurface(): number {
-  return useContext(SurfaceContext);
-}
+import type { ReactNode } from "react";
+import { SurfaceContext } from "./surface-context-value";
 
 export function SurfaceProvider({ value, children }: { value: number; children: ReactNode }) {
   return (
