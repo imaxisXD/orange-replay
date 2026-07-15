@@ -25,7 +25,11 @@ import { getDashboardEnvironmentLabel } from "@/lib/dashboard-environment";
 import { ArrowUpRight, ShieldUser } from "@/lib/icon-map";
 import { dashboardNavItems, type DashboardNavItem } from "@/lib/dashboard-navigation";
 import { useDashboardWorkspace } from "@/lib/dashboard-workspace";
+import { surfaceClasses } from "@/lib/surface-classes";
+import { SurfaceProvider } from "@/lib/surface-context";
 import { cn } from "@/lib/utils";
+
+const DASHBOARD_SURFACE_LEVEL = 2;
 
 export function AppShell({ children }: { children?: ReactNode }) {
   const { projectId, isDemo } = useDashboardWorkspace();
@@ -44,12 +48,15 @@ export function AppShell({ children }: { children?: ReactNode }) {
     staleTime: 30_000,
   });
   const account = accountQuery.data;
-  const projectOptions = account?.workspaces.flatMap((workspace) =>
-    workspace.projects.map((project) => ({
-      id: project.id,
-      label: account.workspaces.length > 1 ? `${workspace.name} / ${project.name}` : project.name,
-    })),
-  ) ?? [{ id: projectId, label: `Project ${projectId}` }];
+  const projectOptions = isDemo
+    ? [{ id: projectId, label: "Landing page" }]
+    : (account?.workspaces.flatMap((workspace) =>
+        workspace.projects.map((project) => ({
+          id: project.id,
+          label:
+            account.workspaces.length > 1 ? `${workspace.name} / ${project.name}` : project.name,
+        })),
+      ) ?? [{ id: projectId, label: `Project ${projectId}` }]);
   const activeProject = findAccountProject(account, projectId);
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   // The two-pane sessions triage needs a real player viewport; every other
@@ -69,10 +76,10 @@ export function AppShell({ children }: { children?: ReactNode }) {
   }
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
-      <header className="z-40 shrink-0 bg-background">
+    <div className="flex h-screen flex-col overflow-hidden text-foreground">
+      <header className="z-40 shrink-0">
         <ScrollArea orientation="horizontal" viewportClassName="scroll-fade-x">
-          <nav className="flex min-w-max items-center gap-3.5 border-b border-border bg-chrome px-4 py-3 backdrop-blur sm:px-7">
+          <nav className="flex min-w-max items-center gap-3.5 px-4 py-2 sm:px-7">
             <Link
               className="flex items-center gap-2.5 text-[14px] font-semibold tracking-[-0.01em] text-foreground"
               {...(isDemo
@@ -100,7 +107,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
             >
               <SelectTrigger
                 aria-label="Project"
-                className="min-w-33 rounded-lg border border-border bg-secondary px-2.75 py-1.25 text-[12.5px] text-foreground "
+                className="h-7.5 min-w-33 rounded-lg border border-subtle-border bg-secondary px-2.75 py-1.25 text-[12.5px] text-foreground"
                 placeholder="Project"
               />
               <SelectContent className="rounded-lg border border-border bg-popover">
@@ -153,28 +160,39 @@ export function AppShell({ children }: { children?: ReactNode }) {
             </div>
           </nav>
         </ScrollArea>
-
-        <ScrollArea orientation="horizontal" viewportClassName="scroll-fade-x">
-          <nav className="flex min-w-max gap-1 border-b border-border bg-chrome px-4 sm:px-7">
-            {dashboardNavItems(isDemo, canManageProject(activeProject)).map((item) => (
-              <TopNavTab isDemo={isDemo} item={item} key={item.label} projectId={projectId} />
-            ))}
-          </nav>
-        </ScrollArea>
-
-        {isDemo && <DemoReadOnlyBanner />}
       </header>
 
-      <ScrollArea className="min-h-0 flex-1" viewportClassName="scroll-fade">
-        <main
-          className={cn(
-            "mx-auto w-dvw max-w-full px-4 py-5 sm:px-7 sm:py-6",
-            wideMain ? "max-w-475" : "max-w-300",
-          )}
-        >
-          {children ?? <Outlet />}
-        </main>
-      </ScrollArea>
+      <div className="min-h-0 flex-1 px-2 pb-2 sm:px-3 sm:pb-3">
+        <SurfaceProvider value={DASHBOARD_SURFACE_LEVEL}>
+          <div
+            className={cn(
+              "flex h-full min-h-0 flex-col overflow-hidden rounded-xl",
+              surfaceClasses(DASHBOARD_SURFACE_LEVEL),
+            )}
+          >
+            <ScrollArea orientation="horizontal" viewportClassName="scroll-fade-x">
+              <nav className="flex min-w-max gap-1 border-b border-border px-4 sm:px-7">
+                {dashboardNavItems(isDemo, canManageProject(activeProject)).map((item) => (
+                  <TopNavTab isDemo={isDemo} item={item} key={item.label} projectId={projectId} />
+                ))}
+              </nav>
+            </ScrollArea>
+
+            {isDemo && <DemoReadOnlyBanner />}
+
+            <ScrollArea className="min-h-0 flex-1" viewportClassName="scroll-fade">
+              <main
+                className={cn(
+                  "mx-auto w-full max-w-full px-4 py-5 sm:px-7 sm:py-6",
+                  wideMain ? "max-w-475" : "max-w-300",
+                )}
+              >
+                {children ?? <Outlet />}
+              </main>
+            </ScrollArea>
+          </div>
+        </SurfaceProvider>
+      </div>
     </div>
   );
 }

@@ -32,7 +32,7 @@
   :root,
   .dark {
     color-scheme: dark;
-    --background: oklch(0.146 0.004 285.857);
+    --background: oklch(0.135 0.004 285.857);
     --foreground: oklch(0.945 0.007 286.271);
     --card: oklch(0.179 0.006 285.767);
     --card-foreground: var(--foreground);
@@ -161,8 +161,8 @@
     min-height: 100vh;
     margin: 0;
     background: var(--background);
-    background-image: radial-gradient(circle, oklch(0.225 0.012 285.432) 1px, transparent 1px);
-    background-size: 26px 26px;
+    background-image: url("./assets/dashboard-grid.svg?opacity=5");
+    background-size: 48px 48px;
     color: var(--foreground);
     font-size: 13px;
   }
