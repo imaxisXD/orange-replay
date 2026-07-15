@@ -5,7 +5,7 @@ import type { ProjectStatsResponse, StatsBreakdownRow, StatsErrorGroup } from "@
 import {
   BrowserWindow,
   ComputerSettings,
-  Globe,
+  Global,
   MapLocation,
   Monitor,
   type IconComponent,
@@ -35,8 +35,8 @@ export function GeoCard({
       isDemo={isDemo}
       onChange={(value) => setDimension(value as GeoDimension)}
       options={[
-        { icon: Globe, label: "Countries", value: "country" },
-        { icon: MapLocation, label: "Regions", value: "region" },
+        { icon: Global, label: "Countries", value: "country" },
+        { icon: MapLocation, label: "City", value: "region" },
       ]}
       projectId={projectId}
       rowsByValue={{
@@ -62,7 +62,7 @@ export function DeviceCard({
   return (
     <TabbedBreakdownCard
       active={dimension}
-      description="Device, browser, and OS usage"
+      description="Devices, browsers, and operating systems used"
       isDemo={isDemo}
       onChange={(value) => setDimension(value as DeviceDimension)}
       options={[
@@ -158,7 +158,7 @@ function TabbedBreakdownCard({
   return (
     <section className="lit overview-lit min-h-80 overflow-hidden rounded-lg">
       <Tabs onValueChange={onChange} value={active}>
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 border-b border-dashed border-dash px-4 py-3">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 border-b border-dashed border-dash px-4 py-3.5">
           <CardTitle description={description} title={title} />
           <TabsList surfaceLevel={5}>
             {options.map((option) => (

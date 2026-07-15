@@ -615,13 +615,12 @@ function useToastVisualTransition(
   title: ReactNode,
 ): ToastVisualTransition {
   const reduceMotion = useReducedMotion();
-  const firstVisual = useRef<ToastVisualContent>({ title, variant });
-  const currentVisual = useRef(firstVisual.current);
-  const [visual, setVisual] = useState<ToastVisualTransition>({
-    current: firstVisual.current,
+  const currentVisual = useRef<ToastVisualContent>({ title, variant });
+  const [visual, setVisual] = useState<ToastVisualTransition>(() => ({
+    current: { title, variant },
     previous: null,
     stage: 0,
-  });
+  }));
 
   useLayoutEffect(() => {
     const current = currentVisual.current;

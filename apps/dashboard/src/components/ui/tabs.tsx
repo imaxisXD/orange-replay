@@ -243,8 +243,8 @@ const TabsList = forwardRef<HTMLDivElement, TabsListProps>(
           {selectedRect && (
             <m.div
               animate={{
-                x: selectedRect.left,
-                y: selectedRect.top,
+                left: selectedRect.left,
+                top: selectedRect.top,
                 opacity: isHovering ? 0.85 : 1,
               }}
               className={cn(
@@ -265,16 +265,16 @@ const TabsList = forwardRef<HTMLDivElement, TabsListProps>(
             {hoverRect && !isHoveringSelected && selectedRect && (
               <m.div
                 animate={{
-                  x: hoverRect.left,
-                  y: hoverRect.top,
+                  left: hoverRect.left,
+                  top: hoverRect.top,
                   opacity: 0.4,
                 }}
                 className={cn("pointer-events-none absolute bg-hover", shape.bg)}
                 exit={
                   !isMouseInside && selectedRect
                     ? {
-                        x: selectedRect.left,
-                        y: selectedRect.top,
+                        left: selectedRect.left,
+                        top: selectedRect.top,
                         opacity: 0,
                         transition: {
                           ...spring.moderate,
@@ -284,8 +284,8 @@ const TabsList = forwardRef<HTMLDivElement, TabsListProps>(
                     : { opacity: 0, transition: spring.fast.exit }
                 }
                 initial={{
-                  x: selectedRect.left,
-                  y: selectedRect.top,
+                  left: selectedRect.left,
+                  top: selectedRect.top,
                   opacity: 0,
                 }}
                 style={{ height: hoverRect.height, width: hoverRect.width }}
@@ -301,8 +301,8 @@ const TabsList = forwardRef<HTMLDivElement, TabsListProps>(
             {focusRect && (
               <m.div
                 animate={{
-                  x: focusRect.left - 2,
-                  y: focusRect.top - 2,
+                  left: focusRect.left - 2,
+                  top: focusRect.top - 2,
                 }}
                 className={cn(
                   "pointer-events-none absolute z-20 border border-[color:var(--focus-ring,#6B97FF)]",
