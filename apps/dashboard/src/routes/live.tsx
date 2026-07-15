@@ -4,6 +4,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { CountryFlag } from "@/components/country-flag";
+import { LiveBadge, LiveDot } from "@/components/live-badge";
 import { LoadingArea } from "@/components/ui/loading-indicator";
 import { ApiError, fetchLiveSessions, type LiveSessionItem } from "@/lib/api";
 import { useDashboardWorkspace } from "@/lib/dashboard-workspace";
@@ -45,8 +46,10 @@ export function LivePage() {
 
       <section className="lit rounded-lg px-4.5 py-4">
         <div className="mb-3.5 flex items-baseline justify-between">
-          <h2 className="text-[13px] font-semibold">Live now</h2>
-          <span className="text-[11.5px] text-dim">
+          <h2>
+            <LiveBadge />
+          </h2>
+          <span className="text-[11.5px] text-muted-foreground">
             {truncated ? "showing newest 100 · " : ""}updates every 5s
           </span>
         </div>
@@ -129,7 +132,7 @@ function LiveRow({
       role="link"
       tabIndex={0}
     >
-      <span aria-hidden className="live-pulse size-1.75 flex-none rounded-full bg-success" />
+      <LiveDot size="sm" />
       <div className="min-w-0 max-w-85">
         <div className="truncate text-[12.5px] font-medium">{row.entryPath}</div>
         <div className="mt-0.25 flex items-center gap-1.5 text-[11.5px] text-dim">

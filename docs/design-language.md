@@ -63,7 +63,7 @@ Contrast rule: `--muted-foreground` is the floor for body-adjacent text ≤12px 
 
 ## Mock patterns not yet built (for T3.4/T3.5 — match the mock exactly when implementing)
 
-- **Live rail** (`Live now` panel): rows separated by dashed lines; pulsing 7px green dot (`@keyframes` 1.8s opacity 0.25); page path 12.5px, location line 11.5px dim, mono elapsed right; "N watching" teal chip with dashed teal border.
+- **Live rail** (`Live now` panel): `src/components/live-badge.tsx` is the single source of truth for live indicators, copied from `landing/index.html`. The heading uses its 12px dark-green, 7x7 pixel-light badge with a slow expanding bloom and uneven shrinking/brightening twinkle; dense rows use its 7px solid green breathing pinlight. Motion stops for reduced-motion users. Rows are separated by dashed lines; page path 12.5px, location line 11.5px muted, mono elapsed right; "N watching" teal chip with dashed teal border.
 - **Friction heatmap**: 14px cells, 4px gap, `rounded-[4px]`; empty `#17171c`; teal ramp `#113732 → #14746a → #2dd4bf`, amber ramp `#4a3410 → #b97a09 → #f5a623`, red ramp `#4c1a18 → #b3312d → #f4534e` (peak red gets a glow); teal→amber→red gradient legend bar.
 - **Player bar**: `.lit` row — 32px light play button; mono timecodes; timeline with dashed baseline, 4px activity ticks `#2e2e38`, 2px red error markers with glow, amber playhead (2px + 8px dot + glow); `kbd` hints (mono 10.5px, `bg-secondary border-border`).
 - **Activity sparklines** (BUILT 2026-07-10 — rendered in `src/routes/sessions/session-card.tsx` from the `activity_hist` D1 column): 8 bars using the player scrubber's activity vocabulary, with `#f4534e` error buckets; no-data renders a neutral baseline, never fake bars.
