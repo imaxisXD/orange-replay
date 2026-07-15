@@ -158,7 +158,7 @@ function TabbedBreakdownCard({
   return (
     <section className="lit overview-lit min-h-80 overflow-hidden rounded-lg">
       <Tabs onValueChange={onChange} value={active}>
-        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-dashed border-dash px-4 py-3.5">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 border-b border-dashed border-dash px-4 py-3.5">
           <CardTitle description={description} title={title} />
           <TabsList surfaceLevel={5}>
             {options.map((option) => (
