@@ -62,7 +62,7 @@ export function DeviceCard({
   return (
     <TabbedBreakdownCard
       active={dimension}
-      description="Devices, browsers, and operating systems used"
+      description="Device, browser, and OS usage"
       isDemo={isDemo}
       onChange={(value) => setDimension(value as DeviceDimension)}
       options={[
@@ -158,7 +158,7 @@ function TabbedBreakdownCard({
   return (
     <section className="lit overview-lit min-h-80 overflow-hidden rounded-lg">
       <Tabs onValueChange={onChange} value={active}>
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 border-b border-dashed border-dash px-4 py-3.5">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 border-b border-dashed border-dash px-4 py-3">
           <CardTitle description={description} title={title} />
           <TabsList surfaceLevel={5}>
             {options.map((option) => (
