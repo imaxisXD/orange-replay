@@ -44,6 +44,24 @@ anywhere; the hedge ("might") exists only because it's literally true.
    it, and how to cause that. "No sessions yet — install the snippet and
    this fills up on its own" beats "Nothing here."
 
+## Dashboard metrics
+
+Keep the real measurement, but explain it in the language of the person using
+the dashboard. A metric label names what happened. Its supporting line explains
+how to understand the number, not how the code calculated it.
+
+- Say "Half of sessions lasted 13 seconds or less," not "P50 0:13."
+- Say "Based on 37 of 50 sessions," not "37 sessions covered."
+- Say "Returned to the previous page within 10 seconds," not
+  "A → B → A under 10s."
+- Say "Estimated time spent clicking, typing, or scrolling," not
+  "Average capped event gaps."
+- Keep statistical terms such as P50, percentile, denominator, and warehouse
+  version out of the default dashboard. They belong in technical details when
+  a user asks how a number was calculated.
+- Do not hide uncertainty. Use "estimated," "based on," or an exact session
+  count when the measurement is partial or derived.
+
 ## CTA vocabulary
 
 Literal actions, sentence case, no marketing verbs:

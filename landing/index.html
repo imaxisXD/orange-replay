@@ -30,7 +30,7 @@
     />
     <link
       rel="preload"
-      href="fonts/UncutPlan8-Variable.737af1b2.woff2"
+      href="fonts/DepartureMono-Regular.woff2"
       as="font"
       type="font/woff2"
       crossorigin
@@ -42,7 +42,7 @@
        (design language studied from polylane.com + quiver.ai frame)
      Product screenshots: the real Orange Replay design system
        (dotted grid, amber accent, .lit cards) — scoped to .app
-     Type: Uncut Sans + Uncut Plan8 (SIL OFL 1.1) · labels/numerals in Plan8
+     Type: Uncut Sans + Uncut Plan8 + Departure Mono (SIL OFL 1.1) · numerals in Departure
      =========================================================== */
 
       @font-face {
@@ -58,6 +58,21 @@
         font-weight: 100 900;
         font-style: normal;
         font-display: swap;
+      }
+      @font-face {
+        font-family: "Departure Mono";
+        src: url("fonts/DepartureMono-Regular.woff2") format("woff2");
+        font-weight: 400;
+        font-style: normal;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: "Departure Mono Numerals";
+        src: url("fonts/DepartureMono-Regular.woff2") format("woff2");
+        font-weight: 400;
+        font-style: normal;
+        font-display: swap;
+        unicode-range: U+0030-0039;
       }
 
       * {
@@ -89,8 +104,11 @@
         --rule: #1e1e22;
         --ease-out-strong: cubic-bezier(0.22, 1, 0.36, 1);
 
-        --sans: "Uncut Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
-        --mono: "Uncut Plan8", ui-monospace, "SF Mono", Menlo, monospace;
+        --sans:
+          "Departure Mono Numerals", "Uncut Sans", ui-sans-serif, system-ui, -apple-system,
+          sans-serif;
+        --mono: "Departure Mono Numerals", "Uncut Plan8", ui-monospace, "SF Mono", Menlo, monospace;
+        --numeric: "Departure Mono", ui-monospace, "SF Mono", Menlo, monospace;
         --wrap: 1200px;
       }
 
@@ -101,6 +119,7 @@
       body {
         color: var(--text);
         font-family: var(--sans);
+        font-synthesis: none;
         font-size: 16px;
         line-height: 1.5;
         -webkit-font-smoothing: antialiased;
@@ -141,6 +160,7 @@
         font-family: var(--mono);
       }
       .tabnum {
+        font-family: var(--numeric);
         font-variant-numeric: tabular-nums;
       }
 
@@ -523,7 +543,8 @@
         max-width: 1000px;
       }
       .sec-kicker .ts {
-        font-family: var(--mono);
+        font-family: var(--numeric);
+        font-weight: 400;
         font-size: 14px;
         color: var(--accent);
         letter-spacing: 0.04em;
@@ -921,9 +942,9 @@
       }
       .stat .v {
         font-size: 20px;
-        font-weight: 600;
-        font-family: var(--mono);
-        letter-spacing: -0.02em;
+        font-weight: 400;
+        font-family: var(--numeric);
+        letter-spacing: normal;
         color: #ececf1;
       }
       .stat .v.warm {
@@ -1136,7 +1157,8 @@
         flex: 1;
       }
       .count {
-        font-family: var(--mono);
+        font-family: var(--numeric);
+        font-weight: 400;
         font-size: 11px;
         color: var(--dim);
       }
@@ -1234,9 +1256,13 @@
         color: var(--mut);
       }
       .num.strong {
+        font-family: var(--numeric);
+        font-weight: 400;
         color: var(--text);
       }
       .when {
+        font-family: var(--numeric);
+        font-weight: 400;
         font-size: 11.5px;
         color: var(--dim);
       }
@@ -1267,7 +1293,8 @@
         border-bottom: 7px solid transparent;
       }
       .tc {
-        font-family: var(--mono);
+        font-family: var(--numeric);
+        font-weight: 400;
         font-size: 11.5px;
         color: var(--mut);
       }
@@ -1442,7 +1469,8 @@
       }
       .ev .tt {
         margin-left: auto;
-        font-family: var(--mono);
+        font-family: var(--numeric);
+        font-weight: 400;
         font-size: 10px;
         color: var(--dim);
       }
@@ -2075,11 +2103,11 @@
         gap: 6px;
       }
       .mini-big {
-        font-family: var(--mono);
+        font-family: var(--numeric);
         font-size: 27px;
-        font-weight: 600;
+        font-weight: 400;
         color: #f2f2f2;
-        letter-spacing: -0.02em;
+        letter-spacing: normal;
       }
       .mini-big span {
         font-size: 12px;
@@ -2088,7 +2116,8 @@
         font-family: var(--sans);
       }
       .mini-delta {
-        font-family: var(--mono);
+        font-family: var(--numeric);
+        font-weight: 400;
         font-size: 11.5px;
         color: #34d399;
         margin-top: 10px;

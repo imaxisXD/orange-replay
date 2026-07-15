@@ -305,9 +305,7 @@ function Metric({
       </div>
       <div
         className={
-          warm
-            ? "font-mono text-[21px] font-semibold tracking-[-0.02em] text-amber"
-            : "font-mono text-[21px] font-semibold tracking-[-0.02em] text-foreground"
+          warm ? "font-numeric text-[21px] text-amber" : "font-numeric text-[21px] text-foreground"
         }
       >
         {value}

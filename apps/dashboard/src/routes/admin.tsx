@@ -400,9 +400,7 @@ function AdminStats({
             <p className="text-[11.5px] text-muted-foreground">{item.label}</p>
             <item.icon aria-hidden className="text-dim" />
           </div>
-          <p className="mt-1 font-mono text-[21px] font-semibold tabular-nums tracking-[-0.02em]">
-            {(item.value ?? 0).toLocaleString()}
-          </p>
+          <p className="mt-1 font-numeric text-[21px]">{(item.value ?? 0).toLocaleString()}</p>
         </div>
       ))}
     </section>

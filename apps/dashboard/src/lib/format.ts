@@ -53,10 +53,28 @@ export function formatDuration(value: number): string {
   return `${hours}:${padTimePart(remainingMinutes)}:${padTimePart(remainingSeconds)}`;
 }
 
+export function formatDurationWords(value: number): string {
+  const totalSeconds = Math.max(0, Math.round(value / 1_000));
+  const hours = Math.floor(totalSeconds / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+  const parts: string[] = [];
+
+  if (hours > 0) parts.push(formatTimeUnit(hours, "hour"));
+  if (minutes > 0) parts.push(formatTimeUnit(minutes, "minute"));
+  if (seconds > 0 || parts.length === 0) parts.push(formatTimeUnit(seconds, "second"));
+
+  return parts.join(" ");
+}
+
 export function formatErrorCount(count: number): string {
   return `${count} ${count === 1 ? "error" : "errors"}`;
 }
 
 function padTimePart(value: number): string {
   return value.toString().padStart(2, "0");
+}
+
+function formatTimeUnit(value: number, unit: string): string {
+  return `${value} ${unit}${value === 1 ? "" : "s"}`;
 }

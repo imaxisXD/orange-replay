@@ -1,5 +1,5 @@
 import type { ProjectStatsResponse } from "@/lib/api";
-import { formatDuration } from "@/lib/format";
+import { formatDuration, formatDurationWords } from "@/lib/format";
 import { BreakdownCard, DeviceCard, ErrorsCard, GeoCard } from "./overview-breakdowns";
 import { InsightDoorway, KpiDoorway, LiveKpiDoorway } from "./overview-doorways";
 import {
@@ -23,16 +23,16 @@ export function OverviewContent({
   const totalSessions = stats.pagesPerSession.totalSessions.value;
   const coverageLabel =
     coveredSessions === 0
-      ? "No page coverage"
+      ? "No page data for these sessions"
       : coveredSessions === totalSessions
-        ? `All ${numberFormatter.format(totalSessions)} sessions covered`
-        : `${numberFormatter.format(coveredSessions)} of ${numberFormatter.format(totalSessions)} sessions covered`;
+        ? `Based on all ${numberFormatter.format(totalSessions)} sessions`
+        : `Based on ${numberFormatter.format(coveredSessions)} of ${numberFormatter.format(totalSessions)} sessions`;
 
   return (
     <>
       <section
         aria-label="Key metrics"
-        className="lit grid overflow-hidden rounded-lg sm:grid-cols-2 lg:grid-cols-4"
+        className="lit overview-lit grid overflow-hidden rounded-lg sm:grid-cols-2 lg:grid-cols-4"
       >
         <KpiDoorway
           filter={stats.sessions.filter}
@@ -40,20 +40,20 @@ export function OverviewContent({
           label="Sessions"
           projectId={projectId}
           value={numberFormatter.format(stats.sessions.value)}
-          detail="Finalized in this range"
+          detail="Completed in this time range"
         />
         <KpiDoorway
           filter={stats.duration.average.filter}
           isDemo={isDemo}
-          label="Avg duration"
+          label="Average session length"
           projectId={projectId}
           value={formatDuration(stats.duration.average.value)}
-          detail={`P50 ${formatDuration(stats.duration.p50.value)}`}
+          detail={`Half of sessions lasted ${formatDurationWords(stats.duration.p50.value)} or less`}
         />
         <KpiDoorway
           filter={stats.pagesPerSession.filter}
           isDemo={isDemo}
-          label="Pages / session"
+          label="Pages per session"
           projectId={projectId}
           value={
             stats.pagesPerSession.value === null ? "—" : stats.pagesPerSession.value.toFixed(1)
@@ -65,7 +65,7 @@ export function OverviewContent({
           label="Live now"
           projectId={projectId}
           value={numberFormatter.format(stats.liveNow.value)}
-          detail="Counted from live presence"
+          detail="Active in the last minute"
         />
       </section>
 
@@ -75,7 +75,7 @@ export function OverviewContent({
         <GeoCard isDemo={isDemo} projectId={projectId} stats={stats} />
         <DeviceCard isDemo={isDemo} projectId={projectId} stats={stats} />
         <BreakdownCard
-          description="Where these sessions started"
+          description="Pages where these sessions began"
           isDemo={isDemo}
           projectId={projectId}
           rows={stats.breakdowns.entryPage}
@@ -100,20 +100,20 @@ function InsightsCard({
   const totalSessions = stats.insights.totalSessions.value;
   const coverage =
     includedSessions === 0
-      ? "No insight coverage yet"
+      ? "No behavior data for these sessions"
       : includedSessions === totalSessions
-        ? `All ${numberFormatter.format(totalSessions)} sessions covered`
-        : `${numberFormatter.format(includedSessions)} of ${numberFormatter.format(totalSessions)} sessions covered`;
+        ? `Based on all ${numberFormatter.format(totalSessions)} sessions`
+        : `Based on ${numberFormatter.format(includedSessions)} of ${numberFormatter.format(totalSessions)} sessions`;
 
   return (
-    <section aria-label="Insights" className="lit overflow-hidden rounded-lg">
+    <section aria-label="Session behavior" className="lit overview-lit overflow-hidden rounded-lg">
       <div className="border-b border-dashed border-dash px-4 py-3.5">
-        <CardTitle description={coverage} title="Insights" />
+        <CardTitle description={coverage} title="Session behavior" />
       </div>
       <div className="grid sm:grid-cols-2 lg:grid-cols-4">
         <InsightDoorway
           accent="amber"
-          detail="Sessions with a detected burst"
+          detail="Sessions with repeated clicks in one spot"
           filter={stats.insights.ragePercent.filter}
           isDemo={isDemo}
           label="Rage clicks"
@@ -123,16 +123,16 @@ function InsightsCard({
         />
         <InsightDoorway
           accent="amber"
-          detail="in-app · A → B → A under 10s"
+          detail="Returned to the previous page within 10 seconds"
           filter={stats.insights.quickBackPercent.filter}
           isDemo={isDemo}
-          label="Internal quick backs"
+          label="Quick returns"
           numericValue={stats.insights.quickBackPercent.value}
           projectId={projectId}
           value={formatPercent(stats.insights.quickBackPercent.value)}
         />
         <InsightDoorway
-          detail="Average capped event gaps"
+          detail="Estimated time spent clicking, typing, or scrolling"
           filter={stats.insights.averageInteractionTimeMs.filter}
           isDemo={isDemo}
           label="Interaction time"
@@ -141,10 +141,10 @@ function InsightsCard({
           value={formatOptionalDuration(stats.insights.averageInteractionTimeMs.value)}
         />
         <InsightDoorway
-          detail="Average session maximum"
+          detail="Average furthest point reached"
           filter={stats.insights.averageMaxScrollDepth.filter}
           isDemo={isDemo}
-          label="Max scroll depth"
+          label="Scroll depth"
           numericValue={stats.insights.averageMaxScrollDepth.value}
           projectId={projectId}
           value={formatScrollDepth(stats.insights.averageMaxScrollDepth.value)}

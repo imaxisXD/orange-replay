@@ -66,7 +66,7 @@ Contrast rule: `--muted-foreground` is the floor for body-adjacent text ≤12px 
 - **Live rail** (`Live now` panel): rows separated by dashed lines; pulsing 7px green dot (`@keyframes` 1.8s opacity 0.25); page path 12.5px, location line 11.5px dim, mono elapsed right; "N watching" teal chip with dashed teal border.
 - **Friction heatmap**: 14px cells, 4px gap, `rounded-[4px]`; empty `#17171c`; teal ramp `#113732 → #14746a → #2dd4bf`, amber ramp `#4a3410 → #b97a09 → #f5a623`, red ramp `#4c1a18 → #b3312d → #f4534e` (peak red gets a glow); teal→amber→red gradient legend bar.
 - **Player bar**: `.lit` row — 32px light play button; mono timecodes; timeline with dashed baseline, 4px activity ticks `#2e2e38`, 2px red error markers with glow, amber playhead (2px + 8px dot + glow); `kbd` hints (mono 10.5px, `bg-secondary border-border`).
-- **Activity sparklines** (BUILT 2026-07-10 — `src/components/activity-spark.tsx`, fed by the `activity_hist` D1 column): 84×16px, 8 bars, 1.5px gap; bar color `#2e2e38` — deliberately the player scrubber's tick color so list and player share one activity vocabulary (supersedes `#26262d`) — with `#f4534e` error buckets; no-data renders a 2px `#17171c` baseline, never fake bars.
+- **Activity sparklines** (BUILT 2026-07-10 — rendered in `src/routes/sessions/session-card.tsx` from the `activity_hist` D1 column): 8 bars using the player scrubber's activity vocabulary, with `#f4534e` error buckets; no-data renders a neutral baseline, never fake bars.
 
 ## Sessions triage layout (built 2026-07-10, supersedes the mock's full-width table)
 

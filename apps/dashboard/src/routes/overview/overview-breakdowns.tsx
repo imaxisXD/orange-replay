@@ -2,6 +2,14 @@ import { useState } from "react";
 import { CountryFlag } from "@/components/country-flag";
 import { TabItem, TabPanel, Tabs, TabsList } from "@/components/ui/tabs";
 import type { ProjectStatsResponse, StatsBreakdownRow, StatsErrorGroup } from "@/lib/api";
+import {
+  BrowserWindow,
+  ComputerSettings,
+  Globe,
+  MapLocation,
+  Monitor,
+  type IconComponent,
+} from "@/lib/icon-map";
 import { canonicalSessionFilter } from "@/lib/session-filters";
 import { SessionDoorway } from "./overview-doorways";
 import { numberFormatter, percentFormatter } from "./overview-format";
@@ -23,12 +31,12 @@ export function GeoCard({
   return (
     <TabbedBreakdownCard
       active={dimension}
-      description="Top session locations"
+      description="Where people used your product"
       isDemo={isDemo}
       onChange={(value) => setDimension(value as GeoDimension)}
       options={[
-        { label: "Countries", value: "country" },
-        { label: "Regions", value: "region" },
+        { icon: Globe, label: "Countries", value: "country" },
+        { icon: MapLocation, label: "Regions", value: "region" },
       ]}
       projectId={projectId}
       rowsByValue={{
@@ -36,7 +44,7 @@ export function GeoCard({
         region: stats.breakdowns.region,
       }}
       showCountryFlagFor="country"
-      title="Geography"
+      title="Locations"
     />
   );
 }
@@ -54,13 +62,13 @@ export function DeviceCard({
   return (
     <TabbedBreakdownCard
       active={dimension}
-      description="The client mix for this range"
+      description="Devices, browsers, and operating systems used"
       isDemo={isDemo}
       onChange={(value) => setDimension(value as DeviceDimension)}
       options={[
-        { label: "Device", value: "device" },
-        { label: "Browser", value: "browser" },
-        { label: "OS", value: "os" },
+        { icon: Monitor, label: "Device", value: "device" },
+        { icon: BrowserWindow, label: "Browser", value: "browser" },
+        { icon: ComputerSettings, label: "OS", value: "os" },
       ]}
       projectId={projectId}
       rowsByValue={{
@@ -87,7 +95,7 @@ export function BreakdownCard({
   title: string;
 }) {
   return (
-    <section className="lit min-h-80 overflow-hidden rounded-lg">
+    <section className="lit overview-lit min-h-80 overflow-hidden rounded-lg">
       <div className="border-b border-dashed border-dash px-4 py-3.5">
         <CardTitle description={description} title={title} />
       </div>
@@ -106,12 +114,15 @@ export function ErrorsCard({
   projectId: string;
 }) {
   return (
-    <section className="lit min-h-80 overflow-hidden rounded-lg">
+    <section className="lit overview-lit min-h-80 overflow-hidden rounded-lg">
       <div className="border-b border-dashed border-dash px-4 py-3.5">
-        <CardTitle description="Grouped browser error messages" title="JS errors" />
+        <CardTitle description="Errors recorded during these sessions" title="Browser errors" />
       </div>
       {errors.length === 0 ? (
-        <CardEmpty description="No JavaScript errors in this range — enjoy it." />
+        <CardEmpty
+          description="No browser errors were recorded in this time range."
+          title="No browser errors"
+        />
       ) : (
         <div>
           {errors.map((error) => (
@@ -138,20 +149,25 @@ function TabbedBreakdownCard({
   description: string;
   isDemo: boolean;
   onChange: (value: string) => void;
-  options: { label: string; value: string }[];
+  options: { icon: IconComponent; label: string; value: string }[];
   projectId: string;
   rowsByValue: Record<string, StatsBreakdownRow[]>;
   showCountryFlagFor?: string;
   title: string;
 }) {
   return (
-    <section className="lit min-h-80 overflow-hidden rounded-lg">
+    <section className="lit overview-lit min-h-80 overflow-hidden rounded-lg">
       <Tabs onValueChange={onChange} value={active}>
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-dashed border-dash px-4 py-3.5">
           <CardTitle description={description} title={title} />
-          <TabsList>
+          <TabsList surfaceLevel={5}>
             {options.map((option) => (
-              <TabItem key={option.value} label={option.label} value={option.value} />
+              <TabItem
+                icon={option.icon}
+                key={option.value}
+                label={option.label}
+                value={option.value}
+              />
             ))}
           </TabsList>
         </div>
@@ -181,13 +197,15 @@ function BreakdownRows({
   rows: StatsBreakdownRow[];
   showCountryFlag?: boolean;
 }) {
-  if (rows.length === 0) return <CardEmpty description="No sessions match this breakdown." />;
+  if (rows.length === 0) {
+    return <CardEmpty description="Try a wider time range." title="No sessions to show" />;
+  }
 
   return (
     <div>
       {rows.map((row) => (
         <SessionDoorway
-          className="group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-b border-subtle-border px-4 py-3 outline-none transition-colors duration-150 last:border-b-0 hover:bg-hover focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-amber motion-reduce:transition-none"
+          className="group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-b border-subtle-border px-4 py-3 outline-none transition-colors duration-100 ease-out last:border-b-0 hover:bg-hover focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-amber motion-reduce:transition-none"
           filter={row.filter}
           isDemo={isDemo}
           key={`${row.label}-${canonicalSessionFilter(row.filter)}`}
@@ -235,7 +253,7 @@ function ErrorRow({
 }) {
   return (
     <SessionDoorway
-      className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-b border-subtle-border px-4 py-3 outline-none transition-colors duration-150 last:border-b-0 hover:bg-hover focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-amber motion-reduce:transition-none"
+      className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-b border-subtle-border px-4 py-3 outline-none transition-colors duration-100 ease-out last:border-b-0 hover:bg-hover focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-amber motion-reduce:transition-none"
       filter={error.filter}
       isDemo={isDemo}
       projectId={projectId}

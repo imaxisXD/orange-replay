@@ -34,17 +34,17 @@ typography:
     lineHeight: normal
     letterSpacing: "0.06em"
   data:
-    fontFamily: "Uncut Plan8, ui-monospace, SF Mono, Menlo, monospace"
+    fontFamily: "Departure Mono, ui-monospace, SF Mono, Menlo, monospace"
     fontSize: "12px"
     fontWeight: 400
     lineHeight: normal
     letterSpacing: normal
   metric:
-    fontFamily: "Uncut Plan8, ui-monospace, SF Mono, Menlo, monospace"
+    fontFamily: "Departure Mono, ui-monospace, SF Mono, Menlo, monospace"
     fontSize: "21px"
-    fontWeight: 600
+    fontWeight: 400
     lineHeight: normal
-    letterSpacing: "-0.02em"
+    letterSpacing: normal
 rounded:
   sm: "4px"
   md: "6px"
@@ -148,21 +148,22 @@ The palette is a restrained violet-black neutral system with three clear signal 
 
 ## Typography
 
-**Display Font:** Inter Variable with Inter and system sans fallbacks  
-**Body Font:** Inter Variable with Inter and system sans fallbacks  
-**Label/Mono Font:** Uncut Plan8 with SF Mono and Menlo fallbacks
+**Display Font:** Inter Variable with Inter and system sans fallbacks\
+**Body Font:** Inter Variable with Inter and system sans fallbacks\
+**Label/Code Font:** Uncut Plan8 with SF Mono and Menlo fallbacks\
+**Numeric Font:** Departure Mono with SF Mono and Menlo fallbacks
 
-**Character:** Inter keeps navigation and controls familiar, neutral, and fast to scan. Uncut Plan8 makes time, counts, sizes, identifiers, and playback data feel measured without turning the whole product into a terminal.
+**Character:** Inter keeps navigation and controls familiar, neutral, and fast to scan. Uncut Plan8 keeps code, URLs, and identifiers distinct. Departure Mono gives measurable values a precise pixel-grid character without turning the whole product into a terminal.
 
 ### Hierarchy
 
 - **Page title** (600, 18px, normal line height): one compact heading per screen with slightly tightened spacing.
-- **Metric** (600, 21px, normal line height): high-value counts and durations; use Amber only when the nonzero value is a warning.
+- **Metric** (400, 21px, normal line height): high-value counts and durations; use Amber only when the nonzero value is a warning.
 - **Body** (400, 13px, normal line height): default interface copy, table data, and control labels. Long prose is capped at 65–75 characters.
 - **Data** (400, 12px, normal line height): durations, identifiers, timestamps, byte counts, and other tabular values.
 - **Label** (500, 11px, 0.06em tracking): short table headers and micro-labels only; uppercase is allowed only when it improves scanning.
 
-**The Measured Number Rule.** Every data numeral uses Uncut Plan8 and tabular figures. Numeric table columns are right-aligned.
+**The Measured Number Rule.** Every data numeral uses Departure Mono and tabular figures. A digits-only fallback also covers numbers inside otherwise sans text without changing the surrounding words. Numeric table columns are right-aligned. Do not synthesize heavier weights; the regular cut keeps its pixel geometry intact.
 
 **The Quiet Hierarchy Rule.** Product hierarchy comes from weight, alignment, and spacing. Do not introduce display type or oversized headings into the dashboard.
 

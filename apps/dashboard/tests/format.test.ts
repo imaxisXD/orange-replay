@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import type { ListSessionsResponse, SessionListItem } from "../src/lib/api";
 import {
   formatDuration,
+  formatDurationWords,
   formatErrorCount,
   formatRelativeTime,
   formatShortRelativeTime,
@@ -33,6 +34,10 @@ describe("format helpers", () => {
     expect(formatDuration(184_000)).toBe("3:04");
     expect(formatDuration(612_000)).toBe("10:12");
     expect(formatDuration(3_661_000)).toBe("1:01:01");
+    expect(formatDurationWords(0)).toBe("0 seconds");
+    expect(formatDurationWords(13_000)).toBe("13 seconds");
+    expect(formatDurationWords(73_000)).toBe("1 minute 13 seconds");
+    expect(formatDurationWords(3_661_000)).toBe("1 hour 1 minute 1 second");
     expect(formatErrorCount(1)).toBe("1 error");
     expect(formatErrorCount(2)).toBe("2 errors");
   });

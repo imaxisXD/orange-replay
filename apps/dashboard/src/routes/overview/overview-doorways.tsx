@@ -24,7 +24,7 @@ export function InsightDoorway({
 }) {
   return (
     <SessionDoorway
-      className="border-b border-dashed border-dash px-4.5 py-4 outline-none transition-colors duration-150 hover:bg-hover focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-amber sm:border-r lg:border-b-0 lg:last:border-r-0 motion-reduce:transition-none"
+      className="border-b border-dashed border-dash px-4.5 py-4 outline-none transition-colors duration-100 ease-out hover:bg-hover focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-amber sm:border-r lg:border-b-0 lg:last:border-r-0 motion-reduce:transition-none"
       filter={filter}
       isDemo={isDemo}
       projectId={projectId}
@@ -32,7 +32,7 @@ export function InsightDoorway({
       <span className="block text-[11.5px] text-muted-foreground">{label}</span>
       <span
         className={cn(
-          "mt-1 block font-mono text-[21px] font-semibold tracking-[-0.02em] text-foreground tabular-nums",
+          "mt-1 block font-numeric text-[21px] text-foreground",
           accent === "amber" && numericValue !== null && numericValue > 0 && "text-amber",
         )}
       >
@@ -62,7 +62,7 @@ export function KpiDoorway({
 }) {
   return (
     <SessionDoorway
-      className="group border-b border-dashed border-dash px-4.5 py-4 outline-none transition-colors duration-150 hover:bg-hover focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-amber sm:border-r lg:border-b-0 lg:last:border-r-0 motion-reduce:transition-none"
+      className="group border-b border-dashed border-dash px-4.5 py-4 outline-none transition-colors duration-100 ease-out hover:bg-hover focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-amber sm:border-r lg:border-b-0 lg:last:border-r-0 motion-reduce:transition-none"
       filter={filter}
       isDemo={isDemo}
       projectId={projectId}
@@ -70,7 +70,7 @@ export function KpiDoorway({
       <span className="block text-[11.5px] text-muted-foreground">{label}</span>
       <span
         className={cn(
-          "mt-1 block font-mono text-[21px] font-semibold tracking-[-0.02em] text-foreground",
+          "mt-1 block font-numeric text-[21px] text-foreground",
           accent === "teal" && value !== "0" && "text-teal",
         )}
       >
@@ -96,14 +96,14 @@ export function LiveKpiDoorway({
 }) {
   return (
     <LiveDoorway
-      className="group border-b border-dashed border-dash px-4.5 py-4 outline-none transition-colors duration-150 hover:bg-hover focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-amber sm:border-r lg:border-b-0 lg:last:border-r-0 motion-reduce:transition-none"
+      className="group border-b border-dashed border-dash px-4.5 py-4 outline-none transition-colors duration-100 ease-out hover:bg-hover focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-amber sm:border-r lg:border-b-0 lg:last:border-r-0 motion-reduce:transition-none"
       isDemo={isDemo}
       projectId={projectId}
     >
       <span className="block text-[11.5px] text-muted-foreground">{label}</span>
       <span
         className={cn(
-          "mt-1 block font-mono text-[21px] font-semibold tracking-[-0.02em] text-foreground",
+          "mt-1 block font-numeric text-[21px] text-foreground",
           value !== "0" && "text-teal",
         )}
       >

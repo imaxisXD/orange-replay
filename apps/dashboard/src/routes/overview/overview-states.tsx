@@ -19,14 +19,14 @@ export function CardTitle({ description, title }: { description: string; title: 
   );
 }
 
-export function CardEmpty({ description }: { description: string }) {
+export function CardEmpty({ description, title }: { description: string; title: string }) {
   return (
     <Empty className="min-h-56 rounded-none p-6">
       <EmptyHeader>
         <EmptyMedia variant="icon">
           <Inbox aria-hidden />
         </EmptyMedia>
-        <EmptyTitle>Nothing in this range yet</EmptyTitle>
+        <EmptyTitle>{title}</EmptyTitle>
         <EmptyDescription>{description}</EmptyDescription>
       </EmptyHeader>
     </Empty>
@@ -34,19 +34,36 @@ export function CardEmpty({ description }: { description: string }) {
 }
 
 export function OverviewLoading() {
-  return <LoadingArea className="lit min-h-105 rounded-lg" label="Loading overview analytics" />;
+  return <LoadingArea className="lit min-h-105 rounded-lg" label="Loading your overview" />;
 }
 
 export function StatsError({ error }: { error: unknown }) {
-  const message =
-    error instanceof ApiError
-      ? (error.code ?? error.message)
-      : "The analytics request failed. Refresh, or try a narrower date range.";
+  const message = overviewErrorMessage(error);
   return (
     <Alert variant="destructive">
       <AlertCircle aria-hidden />
-      <AlertTitle>Could not load analytics</AlertTitle>
+      <AlertTitle>Could not load your overview</AlertTitle>
       <AlertDescription>{message}</AlertDescription>
     </Alert>
   );
+}
+
+function overviewErrorMessage(error: unknown): string {
+  if (!(error instanceof ApiError)) {
+    return "Refresh the page, or try a shorter time range.";
+  }
+
+  if (error.code === "network_error") {
+    return "Check your connection and try again.";
+  }
+
+  if (error.code === "invalid_response") {
+    return "The overview returned unexpected data. Refresh the page and try again.";
+  }
+
+  if (error.code === "analytics_unavailable") {
+    return "Your session data is safe, but the overview is temporarily unavailable. Try again soon.";
+  }
+
+  return "Refresh the page, or try a shorter time range.";
 }
