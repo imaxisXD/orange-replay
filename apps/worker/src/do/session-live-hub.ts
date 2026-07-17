@@ -126,15 +126,15 @@ export class SessionLiveHub {
         outcome = "rate_limited";
         return response;
       }
-      const snapshot = this.dependencies.getLiveSnapshot();
-      if (snapshot === null) {
-        const response = Response.json({ error: "not_found" }, { status: 404 });
+      if (!this.dependencies.consumeLiveTicket(ticket.nonce, ticket.expiresAt, Date.now())) {
+        const response = Response.json({ error: "ticket_used" }, { status: 409 });
         statusCode = response.status;
         outcome = "client_error";
         return response;
       }
-      if (!this.dependencies.consumeLiveTicket(ticket.nonce, ticket.expiresAt, Date.now())) {
-        const response = Response.json({ error: "ticket_used" }, { status: 409 });
+      const snapshot = this.dependencies.getLiveSnapshot();
+      if (snapshot === null) {
+        const response = Response.json({ error: "not_found" }, { status: 404 });
         statusCode = response.status;
         outcome = "client_error";
         return response;
