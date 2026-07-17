@@ -15,7 +15,7 @@ export function browserOriginIsAllowed(
 export function attrsFromRequest(request: Request): EdgeAttrs {
   const cf = request.cf as Record<string, unknown> | undefined;
   const userAgent = request.headers.get("user-agent") ?? "";
-  const deviceInfo = attrsFromUserAgent(userAgent);
+  const deviceInfo = attrsFromUserAgent(userAgent, request.headers.get("sec-ch-ua") ?? "");
 
   return {
     ...(cf === undefined
@@ -30,19 +30,26 @@ export function attrsFromRequest(request: Request): EdgeAttrs {
   };
 }
 
-function attrsFromUserAgent(userAgent: string): Pick<EdgeAttrs, "browser" | "os" | "device"> {
+function attrsFromUserAgent(
+  userAgent: string,
+  browserBrands: string,
+): Pick<EdgeAttrs, "browser" | "os" | "device"> {
   if (userAgent.length === 0) {
     return {};
   }
 
   return {
-    browser: browserFromUserAgent(userAgent),
+    browser: browserFromUserAgent(userAgent, browserBrands),
     os: osFromUserAgent(userAgent),
     device: deviceFromUserAgent(userAgent),
   };
 }
 
-function browserFromUserAgent(userAgent: string): string | undefined {
+function browserFromUserAgent(userAgent: string, browserBrands: string): string | undefined {
+  // Brave keeps a Chrome-compatible user agent on desktop and Android. Its
+  // client-hint brand is the reliable server-side difference; Brave on iOS
+  // may instead include its name directly in the user agent.
+  if (browserBrands.includes('"Brave"') || userAgent.includes("Brave/")) return "Brave";
   if (userAgent.includes("Edg/")) return "Edge";
   if (userAgent.includes("Chrome/") || userAgent.includes("CriOS/")) return "Chrome";
   if (userAgent.includes("Firefox/") || userAgent.includes("FxiOS/")) return "Firefox";
