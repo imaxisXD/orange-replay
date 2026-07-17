@@ -209,7 +209,7 @@ describe("session continuity api", () => {
     ).toMatchObject({ sessions: [{ session_id: "api_new", details_state: "exact" }] });
   });
 
-  it("uses commit time for a 30-minute idle session when analytics export is off", async () => {
+  it("uses commit time for a long-idle session when analytics export is off", async () => {
     await markSessionIndexed("api_old", 40_000);
 
     expect(

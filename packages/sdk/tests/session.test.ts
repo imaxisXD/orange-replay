@@ -140,6 +140,7 @@ afterEach(() => {
 describe("SessionManager", () => {
   it("uses the same idle timeout as the server", () => {
     expect(SESSION_IDLE_MS).toBe(CLOSE_SESSION_AFTER_IDLE_MS);
+    expect(SESSION_IDLE_MS).toBe(10 * 60_000);
   });
 
   it("persists session and tab ids in session storage", () => {
@@ -193,7 +194,7 @@ describe("SessionManager", () => {
     expect(second.tabId).not.toBe(first.tabId);
   });
 
-  it("reports the exact 30-minute idle boundary before rotating the session", () => {
+  it("keeps the session just before and rotates at the exact ten-minute idle boundary", () => {
     const storage = new MemoryStorage();
     let now = START_TIME;
     const cookieDocument = new CookieDocument(() => now);
@@ -209,6 +210,10 @@ describe("SessionManager", () => {
 
     expect(session.nextSeq()).toBe(0);
     expect(session.nextSeq()).toBe(1);
+
+    now += SESSION_IDLE_MS - 1;
+    expect(session.touch()).toBe(false);
+    expect(session.sessionId).toBe("session-one-000001");
 
     now += SESSION_IDLE_MS;
     expect(session.touch()).toBe(true);
@@ -396,7 +401,7 @@ describe("SessionManager", () => {
     expect(cookieDocument.writeCount).toBe(initialCookieWrites + 1);
   });
 
-  it("keeps one active session id when a new tab opens after 30 minutes", () => {
+  it("keeps one active session id when a new tab opens after more than one idle window", () => {
     let now = START_TIME;
     const cookieDocument = new CookieDocument(() => now);
     const ids = ["session-one-000001", "tab-one", "tab-two"];

@@ -112,6 +112,15 @@ export class SessionRecorder extends DurableObject<Env> {
         this.finalizedTombstone = stored.tombstone;
       }
       this.alarmAt = await ctx.storage.getAlarm();
+      if (this.sessionState !== null && this.finalizedTombstone === null) {
+        const timing = resolveSessionTiming(devTestRoutesFlag(this.env), this.env.TEST_TIMINGS);
+        const desiredAt = nextAlarmAfterAlarm({
+          lastActivity: this.sessionState.lastActivity,
+          pendingBatches: this.store.pendingBatchCount(),
+          timing,
+        });
+        await this.setAlarmIfUseful(desiredAt, timing.flushTailMs);
+      }
     });
   }
 

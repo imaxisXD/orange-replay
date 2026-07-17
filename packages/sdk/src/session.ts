@@ -122,7 +122,7 @@ export class SessionManager {
 
   /**
    * Resolve an idle tab against the shared first-party cookie. Another tab may
-   * still be active even when this tab has been quiet for 30 minutes.
+   * still be active even when this tab has been quiet for 10 minutes.
    */
   resumeAfterIdle(): boolean {
     const nowMs = this.#now();

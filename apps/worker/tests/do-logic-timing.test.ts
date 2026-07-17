@@ -168,6 +168,26 @@ describe("SessionRecorder pure logic", () => {
       }),
     ).toBe(false);
   });
+
+  it("recognizes a stored close alarm that must move forward after the timeout shrinks", () => {
+    const timing = resolveSessionTiming(undefined, undefined);
+    const lastActivity = 10_000;
+    const desiredAt = nextAlarmAfterAlarm({
+      lastActivity,
+      pendingBatches: 0,
+      timing,
+    });
+
+    expect(desiredAt).toBe(lastActivity + CLOSE_SESSION_AFTER_IDLE_MS);
+    expect(
+      shouldSetAlarm({
+        alarmAt: lastActivity + 30 * 60_000,
+        now: lastActivity + 1,
+        desiredAt,
+        flushTailMs: timing.flushTailMs,
+      }),
+    ).toBe(true);
+  });
 });
 
 describe("PresenceRegistry pure logic", () => {

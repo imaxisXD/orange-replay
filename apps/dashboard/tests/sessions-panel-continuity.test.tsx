@@ -8,6 +8,7 @@ import { ShapeProvider } from "../src/lib/shape-context";
 import { SessionsPanel } from "../src/routes/sessions/sessions-panel";
 
 const navigate = vi.fn();
+let routeSearch: { selected?: string } = {};
 
 // Number Flow relies on browser custom-element animation hooks that happy-dom
 // does not implement. Keep this integration test focused on session continuity.
@@ -39,7 +40,7 @@ Object.defineProperty(Element.prototype, "getAnimations", {
 vi.mock("@tanstack/react-router", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@tanstack/react-router")>()),
   useNavigate: () => navigate,
-  useSearch: () => ({}),
+  useSearch: () => routeSearch,
 }));
 
 describe("sessions panel continuity", () => {
@@ -47,6 +48,8 @@ describe("sessions panel continuity", () => {
     navigate.mockClear();
     vi.unstubAllGlobals();
     clearDashboardAccess();
+    routeSearch = {};
+    window.history.replaceState({}, "", "/");
     document.body.replaceChildren();
   });
 
@@ -118,7 +121,104 @@ describe("sessions panel continuity", () => {
     await act(async () => root.unmount());
     queryClient.clear();
   });
+
+  it("shows only finalized recordings in the customer demo", async () => {
+    window.history.replaceState({}, "", "/demo/sessions");
+    routeSearch = { selected: "session-head-1" };
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = requestUrl(input);
+
+      if (url.includes("/session-heads")) {
+        return jsonResponse({ sessions: [provisionalSessionHead()] });
+      }
+      if (url.includes("/sessions")) {
+        return jsonResponse({ sessions: [finalizedSession()], nextBefore: null });
+      }
+      if (url.includes("/stats")) {
+        return jsonResponse({ breakdowns: { country: [] } });
+      }
+
+      throw new Error(`Unexpected dashboard request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, refetchOnWindowFocus: false },
+      },
+    });
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShapeProvider defaultShape="rounded">
+            <SessionsPanel isDemo projectId="project-1" />
+          </ShapeProvider>
+        </QueryClientProvider>,
+      );
+    });
+
+    await act(async () => {
+      await vi.waitFor(() => {
+        expect(container.querySelector('[data-session-id="session-final-1"]')).not.toBeNull();
+      });
+    });
+
+    const finalizedCard = container.querySelector<HTMLElement>(
+      '[data-session-id="session-final-1"]',
+    );
+    expect(finalizedCard?.closest("section")?.classList.contains("hidden")).toBe(false);
+    expect(container.querySelector('[data-session-id="session-head-1"]')).toBeNull();
+    expect(container.textContent).not.toContain("Final details pending");
+
+    const requestedUrls = fetchMock.mock.calls.map(([input]) => requestUrl(input));
+    expect(requestedUrls.some((url) => url.includes("/sessions?"))).toBe(true);
+    expect(requestedUrls.some((url) => url.includes("/session-heads?"))).toBe(false);
+    expect(requestedUrls.some((url) => url.includes("/sessions/session-head-1/state"))).toBe(false);
+
+    await act(async () => root.unmount());
+    queryClient.clear();
+  });
 });
+
+function finalizedSession() {
+  const endedAt = Date.now() - 5_000;
+  return {
+    session_id: "session-final-1",
+    project_id: "project-1",
+    org_id: "org-1",
+    started_at: endedAt - 45_000,
+    ended_at: endedAt,
+    duration_ms: 45_000,
+    country: "US",
+    region: null,
+    city: "New York",
+    device: "desktop",
+    browser: "Chrome",
+    os: "macOS",
+    entry_url: "https://shop.example/pricing",
+    url_count: 2,
+    page_count: 2,
+    analytics_version: 1,
+    max_scroll_depth: 0.8,
+    quick_backs: 0,
+    interaction_time_ms: 30_000,
+    activity_hist: null,
+    clicks: 3,
+    errors: 0,
+    rages: 0,
+    navs: 1,
+    bytes: 10_000,
+    segment_count: 1,
+    flags: 0,
+    manifest_key: "p/project-1/session-final-1/manifest.json",
+    expires_at: endedAt + 86_400_000,
+    has_checkpoint: true,
+  };
+}
 
 function provisionalSessionHead() {
   return {

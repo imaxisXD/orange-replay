@@ -39,7 +39,7 @@ The SDK also supports `transport: "inline"` for sites that cannot allow Blob wor
 
 ## Sessions
 
-- A browser session rotates after 30 minutes of idle time.
+- A browser session rotates after 10 minutes of idle time.
 - Multi-page navigation keeps the same session when browser storage is available.
 - Each tab gets its own tab id, so events from two tabs do not collide.
 

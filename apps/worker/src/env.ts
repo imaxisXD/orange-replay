@@ -81,7 +81,7 @@ export interface Env {
    * DEV_TEST_ROUTES === "1": { segmentFlushMs?, segmentFlushBytes?,
    * flushTailMs?, closeMs?, presenceTtlMs?, presenceHeartbeatMs?,
    * sessionHeadGraceMs? }. Lets
-   * integration tests shrink the 30-minute idle windows to seconds.
+   * integration tests shrink the production idle windows to seconds.
    */
   TEST_TIMINGS?: string;
   /** Dev-only integration hook for one failed Presence head shard. */

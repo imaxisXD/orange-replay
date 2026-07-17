@@ -1,6 +1,7 @@
 # Spec: demo-workspace — public live-demo dashboard
 
-Status: implemented 2026-07-09. Production and visual checks remain pending.
+Status: implemented 2026-07-09. Production and visual checks remain pending. Demo Sessions was
+amended to finalized-only on 2026-07-17.
 
 ## Goal
 
@@ -78,6 +79,7 @@ Tests: the security-invariant list above, `/api/v1/demo` response shape + cachin
 File budget: `apps/dashboard/src/**` and dashboard tests only.
 
 - `/demo` route tree: fetch `/api/v1/demo` → `projectId`; reuse the existing sessions list, session detail (replay), and live components scoped to that project. 404/network failure → friendly "demo not available" state.
+- `/demo/sessions` uses finalized `/sessions` rows only. It does not request or merge provisional `session-heads`; `/demo/live` remains the real-time surface.
 - API client demo mode: derived from the route location (never persisted); requests omit `Authorization`; a 401 in demo mode shows an inline error state and never redirects to `/login`.
 - Read-only UI: Settings + Install hidden from nav; persistent slim banner on all demo pages: "Live demo — real sessions from our landing page, read-only." with a primary CTA "Start free" → `/login`. Banner follows `docs/design-language.md` (dark `#0a0a0c`, amber accent, `.lit` treatment where appropriate); it will be judged by screenshot against `design-final.html`.
 - Live tab and live session watching must work (ticket mint is demo-readable).

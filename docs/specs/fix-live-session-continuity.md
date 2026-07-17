@@ -3,7 +3,7 @@
 ## Goal
 
 A recording must appear in Sessions after its first accepted batch and keep the same session id,
-row, URL, and player until it is deleted. The 30-minute idle timeout remains the session boundary
+row, URL, and player until it is deleted. The 10-minute idle timeout remains the session boundary
 and crash fallback. It must not create a gap in the product.
 
 ## Locked product behavior
@@ -78,7 +78,7 @@ written only by the first idempotent session insert. Migration 0010 backfills cu
 The dashboard merges these heads with the exact `/sessions` page by session id. Exact R2 rows win,
 then exact D1 heads, then provisional presence heads. The R2 `nextBefore` cursor is never changed.
 
-Presence rows must be bounded and cleaned lazily. Keep a non-finalizing row until the 30-minute
+Presence rows must be bounded and cleaned lazily. Keep a non-finalizing row until the 10-minute
 close deadline plus a handoff grace. Mark it `finalizing` after the manifest write. Remove it only
 after the queue consumer commits the D1 session and outbox transaction, and retry that queue
 message if removal fails. Do not apply the short handoff expiry to a finalizing row: keep it until
@@ -136,10 +136,10 @@ The player must:
 
 ## Timeout ownership
 
-The SDK must import the shared 30-minute timeout. Do not keep a second numeric definition in the
+The SDK must import the shared 10-minute timeout. Do not keep a second numeric definition in the
 SDK. Browser rotation and server close both use the same `>=` boundary. Refresh the cross-tab
 session cookie on the existing throttled touch write so an actively used session keeps a sliding
-30-minute cookie without writing on every event. Before a dormant tab rotates, it must reconcile
+10-minute cookie without writing on every event. Before a dormant tab rotates, it must reconcile
 with the shared cookie and join the still-active session. A server `closed` response always takes
 priority and forces a new id, including when it arrives during that idle reconciliation. Serialize
 both changes through one coordinator so they cannot overwrite each other.
@@ -152,7 +152,7 @@ in the same millisecond can share that prefix and must still choose different `(
 Do not add early finalization in this task. Once continuity is fixed, early finalization only makes
 exact analytics arrive sooner. A safe version needs a separate per-tab lifecycle contract,
 `pagehide/pageshow` and bfcache handling, all-known-tabs-ended tracking, cancellation on any new
-append, and SDK rotation after a server close. The existing 30-minute alarm remains the fallback.
+append, and SDK rotation after a server close. The existing 10-minute alarm remains the fallback.
 
 ## Acceptance checks
 
@@ -163,7 +163,7 @@ append, and SDK rotation after a server close. The existing 30-minute alarm rema
    pending batches.
 4. A written manifest remains readable while the queue is held.
 5. A committed D1 row remains visible while the warehouse is held, including when analytics export
-   is disabled and the 30-minute idle gap means `ended_at` predates the view.
+   is disabled and the 10-minute idle gap means `ended_at` predates the view.
 6. When the warehouse watermark advances, its exact row replaces the head without a duplicate or
    missing poll. A row newer than the frozen default `to` remains as a tracked head until the view
    is refreshed with a newer exact range.

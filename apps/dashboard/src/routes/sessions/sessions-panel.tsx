@@ -27,7 +27,7 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
   const filter = withDefaultDateRange(searchFilter, initialNow);
   const sort: SessionSort = view.sort ?? "newest";
   const selected = view.selected;
-  const includeSessionHeads = canMergeSessionHeads(searchFilter, sort);
+  const includeSessionHeads = !isDemo && canMergeSessionHeads(searchFilter, sort);
   const navigate = useNavigate();
   const [, setWatchedVersion] = useState(0);
   const [announcement, setAnnouncement] = useState("");
@@ -105,6 +105,8 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
       )
     : sessions;
   const selectedIndex = visibleSessions.findIndex((session) => session.session_id === selected);
+  const selectedSessionId =
+    selected !== undefined && (!isDemo || selectedIndex !== -1) ? selected : undefined;
   const railRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -210,7 +212,7 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
 
       <div className="flex min-w-0 items-start gap-5">
         <SessionListPane
-          className={selected === undefined ? "flex" : "hidden lg:flex"}
+          className={selectedSessionId === undefined ? "flex" : "hidden lg:flex"}
           chipsCount={chips.length}
           error={data.error}
           hasMore={data.hasMore}
@@ -230,7 +232,7 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
             replaceView({ ...view, unwatched: unwatchedOnly ? undefined : true })
           }
           railRef={railRef}
-          selected={selected}
+          selected={selectedSessionId}
           sessions={sessions}
           sort={sort}
           unwatchedOnly={unwatchedOnly}
@@ -239,9 +241,11 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
         />
 
         <div
-          className={selected === undefined ? "hidden min-w-0 flex-1 lg:block" : "min-w-0 flex-1"}
+          className={
+            selectedSessionId === undefined ? "hidden min-w-0 flex-1 lg:block" : "min-w-0 flex-1"
+          }
         >
-          {selected !== undefined && (
+          {selectedSessionId !== undefined && (
             <Button
               className="mb-3 lg:hidden"
               leadingIcon={ArrowLeft}
@@ -252,7 +256,7 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
               Back to sessions
             </Button>
           )}
-          {selected === undefined ? (
+          {selectedSessionId === undefined ? (
             <EmptySessionStage
               reason={
                 data.loadState !== "loading" && sessions.length === 0
@@ -270,10 +274,12 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
                   : {}),
                 ...(selectedIndex > 0 ? { previous: () => stepSelection(-1) } : {}),
               }}
-              onPlaybackStarted={() => markPlaybackStarted(selected)}
-              {...(watched.has(selected) ? { onMarkUnwatched: () => markUnwatched(selected) } : {})}
+              onPlaybackStarted={() => markPlaybackStarted(selectedSessionId)}
+              {...(watched.has(selectedSessionId)
+                ? { onMarkUnwatched: () => markUnwatched(selectedSessionId) }
+                : {})}
               projectId={projectId}
-              sessionId={selected}
+              sessionId={selectedSessionId}
             />
           )}
         </div>
