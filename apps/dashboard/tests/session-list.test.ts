@@ -145,6 +145,7 @@ function makeSession(sessionId: string, overrides: Partial<SessionListItem> = {}
     flags: 0,
     manifest_key: `p/p1/${sessionId}/manifest.json`,
     expires_at: 9_999,
+    has_checkpoint: null,
     ...overrides,
   };
 }

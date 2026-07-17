@@ -11,12 +11,7 @@ import {
   shardDb,
   type Env,
 } from "../env.ts";
-import {
-  chunkList,
-  durationMsFromTimes,
-  expiresAtFromEndedAt,
-  usageMonthFromStartedAt,
-} from "./helpers.ts";
+import { chunkList, expiresAtFromEndedAt, usageMonthFromStartedAt } from "./helpers.ts";
 import { buildFinalizeAnalyticsRecords } from "../analytics/export-record.ts";
 import { maintainAnalyticsWarehouse } from "../analytics/maintenance.ts";
 import { sendPresenceSessionRequest } from "../do/presence-client.ts";
@@ -188,8 +183,9 @@ export async function indexSession(
           flags,
           manifest_key,
           expires_at,
-          indexed_at
-        ) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+          indexed_at,
+          has_checkpoint
+        ) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
         WHERE NOT EXISTS (
           SELECT 1 FROM session_deletions d
           WHERE d.project_id = ? AND d.session_id = ?
@@ -202,7 +198,7 @@ export async function indexSession(
         sessionRecord.org_id,
         sessionRecord.started_at,
         sessionRecord.ended_at,
-        durationMsFromTimes(sessionRecord.started_at, sessionRecord.ended_at),
+        sessionRecord.duration_ms,
         sessionRecord.country,
         sessionRecord.region,
         sessionRecord.city,
@@ -227,6 +223,7 @@ export async function indexSession(
         sessionRecord.manifest_key,
         expiresAt,
         indexedAt,
+        finalizeMessage.hasCheckpoint === undefined ? null : Number(finalizeMessage.hasCheckpoint),
         sessionRecord.project_id,
         sessionRecord.session_id,
       ),

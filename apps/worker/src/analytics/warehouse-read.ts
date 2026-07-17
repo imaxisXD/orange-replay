@@ -299,6 +299,9 @@ function readSessionRow(row: Record<string, unknown>): SessionListItem {
     flags: requiredWholeNumber(row.flags),
     manifest_key: requiredText(row.manifest_key),
     expires_at: requiredWholeNumber(row.expires_at),
+    // The warehouse tables do not carry the playability fact yet; unknown
+    // keeps the dashboard on its segment-count fallback for exact rows.
+    has_checkpoint: null,
   };
 }
 

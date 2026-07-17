@@ -56,6 +56,7 @@ export interface PresenceHeadQuery {
   to?: number;
   country?: string;
   region?: string;
+  city?: string;
   device?: string;
   browser?: string;
   os?: string;

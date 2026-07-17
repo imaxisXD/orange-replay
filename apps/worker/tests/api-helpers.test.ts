@@ -51,7 +51,7 @@ describe("api helper decisions", () => {
 
     const query = buildSessionsQuery("project_1", parsed.options);
     expect(query).toEqual({
-      sql: "SELECT session_id, project_id, org_id, started_at, ended_at, duration_ms, country, region, city, device, browser, os, entry_url, url_count, page_count, analytics_version, max_scroll_depth, quick_backs, interaction_time_ms, activity_hist, clicks, errors, rages, navs, bytes, segment_count, flags, manifest_key, expires_at FROM sessions WHERE project_id = ? AND NOT EXISTS (SELECT 1 FROM session_deletions d WHERE d.project_id = sessions.project_id AND d.session_id = sessions.session_id) AND started_at < ? AND started_at >= ? AND started_at <= ? AND country = ? AND region = ? AND device = ? AND browser = ? AND os = ? AND entry_url = ? AND entry_url >= ? AND entry_url < ? AND errors >= ? AND EXISTS (SELECT 1 FROM session_events e WHERE e.project_id = sessions.project_id AND e.session_id = sessions.session_id AND e.kind = ? AND COALESCE(e.detail, ?) = ?) AND (analytics_version >= ? AND page_count IS NOT NULL) AND analytics_version >= ? AND rages >= ? AND analytics_version >= ? AND quick_backs >= ? AND analytics_version >= ? AND duration_ms >= ? ORDER BY started_at DESC, session_id DESC LIMIT ?",
+      sql: "SELECT session_id, project_id, org_id, started_at, ended_at, duration_ms, country, region, city, device, browser, os, entry_url, url_count, page_count, analytics_version, max_scroll_depth, quick_backs, interaction_time_ms, activity_hist, clicks, errors, rages, navs, bytes, segment_count, flags, manifest_key, expires_at, has_checkpoint FROM sessions WHERE project_id = ? AND NOT EXISTS (SELECT 1 FROM session_deletions d WHERE d.project_id = sessions.project_id AND d.session_id = sessions.session_id) AND started_at < ? AND started_at >= ? AND started_at <= ? AND country = ? AND region = ? AND device = ? AND browser = ? AND os = ? AND entry_url = ? AND entry_url >= ? AND entry_url < ? AND errors >= ? AND EXISTS (SELECT 1 FROM session_events e WHERE e.project_id = sessions.project_id AND e.session_id = sessions.session_id AND e.kind = ? AND COALESCE(e.detail, ?) = ?) AND (analytics_version >= ? AND page_count IS NOT NULL) AND analytics_version >= ? AND rages >= ? AND analytics_version >= ? AND quick_backs >= ? AND analytics_version >= ? AND duration_ms >= ? ORDER BY started_at DESC, session_id DESC LIMIT ?",
       bindings: [
         "project_1",
         4000,
@@ -113,7 +113,7 @@ describe("api helper decisions", () => {
 
   it("builds exact keyset SQL for every sessions sort", () => {
     const select =
-      "SELECT session_id, project_id, org_id, started_at, ended_at, duration_ms, country, region, city, device, browser, os, entry_url, url_count, page_count, analytics_version, max_scroll_depth, quick_backs, interaction_time_ms, activity_hist, clicks, errors, rages, navs, bytes, segment_count, flags, manifest_key, expires_at FROM sessions WHERE project_id = ? AND NOT EXISTS (SELECT 1 FROM session_deletions d WHERE d.project_id = sessions.project_id AND d.session_id = sessions.session_id)";
+      "SELECT session_id, project_id, org_id, started_at, ended_at, duration_ms, country, region, city, device, browser, os, entry_url, url_count, page_count, analytics_version, max_scroll_depth, quick_backs, interaction_time_ms, activity_hist, clicks, errors, rages, navs, bytes, segment_count, flags, manifest_key, expires_at, has_checkpoint FROM sessions WHERE project_id = ? AND NOT EXISTS (SELECT 1 FROM session_deletions d WHERE d.project_id = sessions.project_id AND d.session_id = sessions.session_id)";
     const cases = [
       {
         query: "sort=newest&before=3000:session_b&limit=10",
@@ -163,7 +163,7 @@ describe("api helper decisions", () => {
     if (!parsed.ok) return;
 
     expect(buildSessionsQuery("project_1", parsed.options)).toEqual({
-      sql: "SELECT session_id, project_id, org_id, started_at, ended_at, duration_ms, country, region, city, device, browser, os, entry_url, url_count, page_count, analytics_version, max_scroll_depth, quick_backs, interaction_time_ms, activity_hist, clicks, errors, rages, navs, bytes, segment_count, flags, manifest_key, expires_at FROM sessions WHERE project_id = ? AND NOT EXISTS (SELECT 1 FROM session_deletions d WHERE d.project_id = sessions.project_id AND d.session_id = sessions.session_id) AND (page_count IS NULL AND session_id < ?) ORDER BY page_count IS NULL, page_count DESC, session_id DESC LIMIT ?",
+      sql: "SELECT session_id, project_id, org_id, started_at, ended_at, duration_ms, country, region, city, device, browser, os, entry_url, url_count, page_count, analytics_version, max_scroll_depth, quick_backs, interaction_time_ms, activity_hist, clicks, errors, rages, navs, bytes, segment_count, flags, manifest_key, expires_at, has_checkpoint FROM sessions WHERE project_id = ? AND NOT EXISTS (SELECT 1 FROM session_deletions d WHERE d.project_id = sessions.project_id AND d.session_id = sessions.session_id) AND (page_count IS NULL AND session_id < ?) ORDER BY page_count IS NULL, page_count DESC, session_id DESC LIMIT ?",
       bindings: ["project_1", "session_b", 10],
     });
   });

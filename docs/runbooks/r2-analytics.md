@@ -316,6 +316,48 @@ The script commits small `INSERT OR IGNORE` batches. Stable export IDs make a st
 
 The script only fills the D1 delivery outbox. The Worker exporter sends those rows to Pipelines, and the reconciler advances the warehouse watermark only after R2 SQL sees every stable ID. Do not switch reads merely because the outbox insert completed.
 
+### Re-export corrected recorded durations
+
+When an expired Data Catalog sink credential caused the outage, first create the replacement
+warehouse from `infra/analytics/duration-v2/resources.production.json`. It deliberately reuses the
+typed stream but writes to new `analytics_*_duration_v2` tables through a new Pipeline. Keep the
+old Pipeline, sinks, and tables until the replacement export and R2 SQL checks pass.
+
+Use the same reviewed inventory and fixed `--now` value with `--recover-durations` when old
+session rows need the recorded-time duration rebuilt from immutable manifests:
+
+```sh
+node scripts/backfill-analytics.mjs \
+  --source production \
+  --database orange-replay-idx-00-prod \
+  --recordings-bucket orange-replay-recordings-prod \
+  --inventory audits/analytics-backfill/production-r2-inventory.json \
+  --config apps/worker/wrangler.cloudflare-build.jsonc \
+  --env production \
+  --now REPLACE_WITH_DRY_RUN_EXPIRY_CUTOFF_MS \
+  --report audits/analytics-backfill/production-duration-recovery-dry-run.json \
+  --recover-durations
+```
+
+Review `durationCorrections`, `checkpointCorrections`, missing/invalid manifests, and the
+complete session accounting before adding `--apply` with a new report path. Apply mode uses
+old-value guards to update D1, then emits stable `duration-recovery-v1` session, sparse-event,
+and deletion records for the replacement warehouse. A recording with a verified analytics
+sidecar keeps complete coverage and is replayed through the normal sidecar exporter; it is not
+downgraded to sparse coverage. The script never updates Iceberg tables directly, never reads or
+inflates replay segments, and a stopped run can be repeated safely. Warehouse reads choose the
+newest session export before applying filters, so each correction replaces its old summary.
+
+Before `--apply`, deploy a Worker version whose outbox validator accepts the stable
+`duration-recovery-v1` IDs and treats `duration_ms` as recorded time rather than requiring it to
+equal the server `ended_at - started_at` span. Without that contract, the Worker quarantines the
+recovery rows instead of sending them. Confirm the first recovery batch has `sent_at` set and no
+`quarantined_at` value before waiting for R2 SQL visibility.
+
+Do not run the apply while the Pipeline is failed. First confirm `wrangler pipelines list
+--json` reports a healthy analytics Pipeline and repair any expired Data Catalog sink credential.
+After apply, wait for the new required sequence and run the full verifier below.
+
 ## Cross-check before cutover
 
 Keep production on `ANALYTICS_READ_BACKEND=d1`, then use `compare` mode. For each project and day compare:

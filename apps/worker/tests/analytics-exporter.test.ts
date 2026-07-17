@@ -216,6 +216,48 @@ describe("analytics export delivery", () => {
     expect(incompleteSession.quarantineReason).toContain("invalid session fields");
     expect(incompleteDeletion.quarantineReason).toContain("invalid deletion fields");
   });
+
+  it("delivers stable duration-recovery records with recorded-time durations", async () => {
+    const session = outboxRow(18, "session:project:session");
+    const sessionPayload = JSON.parse(session.payloadJson) as Record<string, unknown>;
+    session.exportId = "session:duration-recovery-v1:project:session";
+    sessionPayload["export_id"] = session.exportId;
+    sessionPayload["started_at"] = 100;
+    sessionPayload["ended_at"] = 200;
+    sessionPayload["duration_ms"] = 25;
+    sessionPayload["expires_at"] = 300;
+    session.payloadJson = JSON.stringify(sessionPayload);
+
+    const event = outboxRow(19, "event:project:session:0:150:custom");
+    const eventPayload = JSON.parse(event.payloadJson) as Record<string, unknown>;
+    event.exportId = "event:duration-recovery-v1:project:session:0:150:custom";
+    eventPayload["export_id"] = event.exportId;
+    event.payloadJson = JSON.stringify(eventPayload);
+
+    const deletion = outboxRow(20, "deletion:project:deleted-session");
+    const deletionPayload = JSON.parse(deletion.payloadJson) as Record<string, unknown>;
+    deletion.exportId = "deletion:duration-recovery-v1:project:deleted-session";
+    deletionPayload["export_id"] = deletion.exportId;
+    deletion.payloadJson = JSON.stringify(deletionPayload);
+
+    const accepted: AnalyticsWarehouseRecord[] = [];
+    const store = new MemoryOutboxStore([session, event, deletion]);
+
+    await expect(
+      drainAnalyticsExports(store, {
+        async send(records) {
+          accepted.push(...records);
+        },
+      }),
+    ).resolves.toMatchObject({ selected: 3, sent: 3, failed: 0 });
+
+    expect(accepted.map((record) => record.export_id)).toEqual([
+      session.exportId,
+      event.exportId,
+      deletion.exportId,
+    ]);
+    expect(accepted[0]).toMatchObject({ duration_ms: 25 });
+  });
 });
 
 describe("analytics warehouse reconciliation", () => {

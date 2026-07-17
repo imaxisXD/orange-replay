@@ -5,6 +5,7 @@ import {
   formatDurationWords,
   formatErrorCount,
   formatRelativeTime,
+  formatSessionDuration,
   formatShortRelativeTime,
 } from "../src/lib/format";
 import {
@@ -40,6 +41,13 @@ describe("format helpers", () => {
     expect(formatDurationWords(3_661_000)).toBe("1 hour 1 minute 1 second");
     expect(formatErrorCount(1)).toBe("1 error");
     expect(formatErrorCount(2)).toBe("2 errors");
+  });
+
+  it("shows sub-second session durations without rounding them to zero", () => {
+    expect(formatSessionDuration(350)).toBe("<1s");
+    expect(formatSessionDuration(999)).toBe("<1s");
+    expect(formatSessionDuration(0)).toBe("0:00");
+    expect(formatSessionDuration(1_500)).toBe("0:02");
   });
 });
 
@@ -117,5 +125,6 @@ function makeSession(sessionId: string): SessionListItem {
     flags: 0,
     manifest_key: "p/p1/a/manifest.json",
     expires_at: 9_999,
+    has_checkpoint: null,
   };
 }

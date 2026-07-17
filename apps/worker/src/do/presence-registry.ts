@@ -497,6 +497,7 @@ function buildPresenceHeadsWhere(query: PresenceHeadQuery): {
   }
   addExactPresenceFilter(where, bindings, "country", query.country);
   addExactPresenceFilter(where, bindings, "region", query.region);
+  addExactPresenceFilter(where, bindings, "city", query.city);
   addExactPresenceFilter(where, bindings, "device", query.device);
   addExactPresenceFilter(where, bindings, "browser", query.browser);
   addExactPresenceFilter(where, bindings, "os", query.os);

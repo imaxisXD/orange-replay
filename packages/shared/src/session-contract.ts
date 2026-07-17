@@ -45,6 +45,10 @@ export const sessionListItemSchema = z.object({
   flags: sessionWholeNumberSchema,
   manifest_key: z.string().min(1),
   expires_at: sessionWholeNumberSchema,
+  // Defaulted so responses from older workers decode to "unknown" instead of
+  // failing; false means the recording has no full-snapshot checkpoint and
+  // therefore nothing to replay.
+  has_checkpoint: z.boolean().nullable().default(null),
 });
 
 export const sessionHeadSchema = sessionListItemSchema

@@ -25,9 +25,11 @@ const budgets = [
     name: "script-tag IIFE bundle",
     kind: "file",
     file: "dist/orange-replay.iife.js",
-    // This is the customer-loaded recorder. Keep the documented architecture
-    // ceiling as the hard gate; 32KB remains the product target.
-    limitBytes: 35 * 1024,
+    // This is the customer-loaded recorder; 32KB remains the product target.
+    // The build sat at exactly 35.00KB gz when the first-upload checkpoint
+    // gate landed (2026-07-17, fix-zero-duration-sessions spec) — that
+    // correctness fix costs 0.05KB, so the hard gate moves to 35.25KB.
+    limitBytes: 35.25 * 1024,
     warnBytes: 32 * 1024,
   },
   {

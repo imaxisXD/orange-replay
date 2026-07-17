@@ -162,6 +162,17 @@ describe("resource response contracts", () => {
     expect(decoded.sessions[0]?.activity_hist).toBeNull();
   });
 
+  it("defaults the playability fact when an older response omits it", () => {
+    const { has_checkpoint: _hasCheckpoint, ...olderSession } = validSessionListItem;
+    const decoded = decodeListSessionsResponse({
+      sessions: [olderSession],
+      nextBefore: null,
+      warehouseVersion: 42,
+    });
+
+    expect(decoded.sessions[0]?.has_checkpoint).toBeNull();
+  });
+
   it("enforces exact and provisional session head semantics", () => {
     expect(sessionHeadSchema.safeParse(validExactSessionHead).success).toBe(true);
     expect(sessionHeadSchema.safeParse(validProvisionalSessionHead).success).toBe(true);

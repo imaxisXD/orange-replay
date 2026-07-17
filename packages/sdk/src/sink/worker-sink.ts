@@ -62,6 +62,11 @@ export class WorkerSink implements Sink {
   private needsRequiredCheckpoint = false;
   private requiredCheckpointRequested = false;
   private requiredBaselineMissing = false;
+  // Cadence flushes hold until the first full snapshot is buffered so the
+  // session's first upload always carries a playable checkpoint instead of a
+  // lone Meta event. Pagehide and memory-pressure drains stay ungated; the
+  // hold ends when the snapshot arrives or any batch leaves the pipeline.
+  private holdFlushes = true;
   private readonly pendingRequiredFinalBatches = new Set<object>();
   private pageHidden = false;
 
@@ -158,9 +163,13 @@ export class WorkerSink implements Sink {
     }
 
     if (startsOversizedSnapshot) this.oversizedSnapshotBytes = rawBytes;
-    if (isFullSnapshot && this.requiredCheckpointRequested) {
-      this.needsRequiredCheckpoint = false;
-      this.requiredCheckpointRequested = false;
+    if (isFullSnapshot) {
+      // The buffer is playable now; the already-armed cadence timer ships it.
+      this.holdFlushes = false;
+      if (this.requiredCheckpointRequested) {
+        this.needsRequiredCheckpoint = false;
+        this.requiredCheckpointRequested = false;
+      }
     }
 
     const decision = this.batcher.addEstimatedBytes(rawBytes);
@@ -318,6 +327,12 @@ export class WorkerSink implements Sink {
   }
 
   private async flushNow(reason: InternalFlushReason): Promise<void> {
+    // Nothing playable buffered yet — keep collecting; the timer re-arms in
+    // flushInternal's finally and the snapshot arrival flushes promptly.
+    if (this.holdFlushes && (reason === "timer" || reason === "visibility")) {
+      return;
+    }
+
     const indexEvents = this.indexEvents.drain();
     if (this.eventMetas.length === 0 && indexEvents.length === 0) {
       return;
@@ -342,6 +357,10 @@ export class WorkerSink implements Sink {
     if (eventMetas.length === 0 && indexEvents.length === 0) {
       return false;
     }
+
+    // Once any batch leaves the pipeline the session exists server-side, so
+    // holding cadence flushes for the initial checkpoint no longer helps.
+    this.holdFlushes = false;
 
     const seq = this.session.nextSeq();
     const index = buildBatchIndex({
@@ -549,6 +568,7 @@ export class WorkerSink implements Sink {
   }
 
   private queueSyncFinalBatch(batch: PagehideBatch): boolean {
+    this.holdFlushes = false;
     const requiredBatchToken = batch.containsRequiredSnapshot ? {} : undefined;
     if (requiredBatchToken !== undefined) {
       this.pendingRequiredFinalBatches.add(requiredBatchToken);
@@ -620,6 +640,7 @@ export class WorkerSink implements Sink {
     this.needsRequiredCheckpoint = false;
     this.requiredCheckpointRequested = false;
     this.requiredBaselineMissing = false;
+    this.holdFlushes = true;
     this.pendingRequiredFinalBatches.clear();
   }
 

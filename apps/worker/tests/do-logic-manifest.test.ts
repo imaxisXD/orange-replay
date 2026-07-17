@@ -78,7 +78,11 @@ describe("SessionRecorder pure logic", () => {
     });
     expect(manifest.bytes).toBe(90);
     expect(manifest.flags).toBe(3);
-    expect(manifest.endedAt).toBe(1800);
+    // Manifest bounds are recorded event time: min segment t0 to max segment
+    // t1, not the server's lastActivity (1800).
+    expect(manifest.startedAt).toBe(1000);
+    expect(manifest.endedAt).toBe(1700);
+    expect(manifest.durationMs).toBe(700);
     expect(manifest.attrs).toEqual({
       country: "US",
       entryUrl: "/home",

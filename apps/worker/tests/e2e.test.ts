@@ -167,7 +167,10 @@ describe("a session lives and is replayed", () => {
     expect(session?.["session_id"]).toBe(sessionId);
     expect(session?.["clicks"]).toBe(3);
     expect(session?.["errors"]).toBe(1);
-    expect(session?.["expires_at"]).toBe(manifest.endedAt + 30 * dayMs);
+    // Retention still keys off the server-observed end (the D1 ended_at); the
+    // manifest's endedAt is recorded event time and may sit slightly earlier.
+    expect(session?.["expires_at"]).toBe(Number(session?.["ended_at"]) + 30 * dayMs);
+    expect(manifest.endedAt).toBeLessThanOrEqual(Number(session?.["ended_at"]));
     expect(indexedSession.usage[0]?.["sessions"]).toBe(1);
     expect(trace).toMatchObject({
       requestId: requireFirstIngestRequestId(),

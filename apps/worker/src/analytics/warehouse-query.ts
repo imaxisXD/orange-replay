@@ -398,7 +398,6 @@ function buildWarehouseCtes(
   FROM ${sessionsTable} s
   WHERE s.project_id = ${project}
     AND s.export_sequence <= ${version}
-    AND (${baseSessionFilter})
 ),
 one_session_export AS (
   SELECT ${selectColumns("s", analyticsSessionColumns)}
@@ -419,6 +418,7 @@ live_sessions AS (
   SELECT ${selectColumns("s", sessionRowColumns)}
   FROM ranked_sessions s
   WHERE s.session_rank = 1
+    AND (${baseSessionFilter})
     AND NOT EXISTS (
       SELECT 1
       FROM deleted_sessions d

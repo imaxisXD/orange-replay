@@ -159,9 +159,133 @@ describe("SessionRecorder Durable Object", () => {
     const manifest = JSON.parse(new TextDecoder().decode(manifestBytes)) as SessionManifest;
 
     expect(manifest.startedAt).toBe(receivedAt);
-    expect(manifest.endedAt).toBeLessThanOrEqual(receivedAt + 60_000);
-    expect(manifest.durationMs).toBeGreaterThanOrEqual(0);
-    expect(manifest.durationMs).toBeLessThanOrEqual(60_000);
+    expect(manifest.endedAt).toBe(receivedAt + 60_000);
+    expect(manifest.durationMs).toBe(60_000);
+  });
+
+  it("reports the recorded span of a single-batch session instead of zero", async () => {
+    const projectId = "project-recorded-span";
+    const sessionId = "session-recorded-span";
+    const receivedAt = Date.now();
+
+    // A visitor recorded for 3 seconds whose only batch arrives at pagehide.
+    await append({
+      projectId,
+      sessionId,
+      tab: "tab-a",
+      seq: 0,
+      payload: bytes("single-batch"),
+      t0: receivedAt - 3_000,
+      t1: receivedAt,
+      receivedAt,
+      checkpointTimestamps: [receivedAt - 3_000],
+    });
+    await forceFinalize(projectId, sessionId);
+
+    const manifestBytes = await readR2Bytes(manifestKey(projectId, sessionId));
+    const manifest = JSON.parse(new TextDecoder().decode(manifestBytes)) as SessionManifest;
+
+    expect(manifest.startedAt).toBe(receivedAt - 3_000);
+    expect(manifest.endedAt).toBe(receivedAt);
+    expect(manifest.durationMs).toBe(3_000);
+    expect(manifest.segments.flatMap((segment) => segment.checkpoints ?? [])).toHaveLength(1);
+  });
+
+  it("spans recorded time across multiple batches with delayed arrivals", async () => {
+    const projectId = "project-multi-batch-span";
+    const sessionId = "session-multi-batch-span";
+    const receivedAt = Date.now();
+
+    await append({
+      projectId,
+      sessionId,
+      tab: "tab-a",
+      seq: 0,
+      payload: bytes("b0"),
+      t0: receivedAt - 9_000,
+      t1: receivedAt - 8_200,
+      receivedAt,
+      checkpointTimestamps: [receivedAt - 9_000],
+    });
+    await append({
+      projectId,
+      sessionId,
+      tab: "tab-a",
+      seq: 1,
+      payload: bytes("b1"),
+      t0: receivedAt - 6_000,
+      t1: receivedAt - 5_000,
+      receivedAt: receivedAt + 3_000,
+    });
+    await append({
+      projectId,
+      sessionId,
+      tab: "tab-a",
+      seq: 2,
+      payload: bytes("b2"),
+      t0: receivedAt - 2_000,
+      t1: receivedAt + 500,
+      receivedAt: receivedAt + 6_000,
+    });
+    await forceFinalize(projectId, sessionId);
+
+    const manifestBytes = await readR2Bytes(manifestKey(projectId, sessionId));
+    const manifest = JSON.parse(new TextDecoder().decode(manifestBytes)) as SessionManifest;
+
+    expect(manifest.startedAt).toBe(receivedAt - 9_000);
+    expect(manifest.endedAt).toBe(receivedAt + 500);
+    expect(manifest.durationMs).toBe(9_500);
+  });
+
+  it("caps the recorded start so a skewed client cannot stretch the duration", async () => {
+    const projectId = "project-lookback-cap";
+    const sessionId = "session-lookback-cap";
+    const receivedAt = Date.now();
+
+    await append({
+      projectId,
+      sessionId,
+      tab: "tab-a",
+      seq: 0,
+      payload: bytes("skewed-start"),
+      t0: receivedAt - 10 * 60_000,
+      t1: receivedAt,
+      receivedAt,
+    });
+    await forceFinalize(projectId, sessionId);
+
+    const manifestBytes = await readR2Bytes(manifestKey(projectId, sessionId));
+    const manifest = JSON.parse(new TextDecoder().decode(manifestBytes)) as SessionManifest;
+
+    expect(manifest.startedAt).toBe(receivedAt - 5 * 60_000);
+    expect(manifest.durationMs).toBe(5 * 60_000);
+  });
+
+  it("finalizes a checkpoint-less ghost batch with zero duration and no checkpoints", async () => {
+    const projectId = "project-ghost";
+    const sessionId = "session-ghost";
+    const receivedAt = Date.now();
+
+    // The Meta-only first flush of a bounced visit: one event timestamp, no
+    // full snapshot. The session must finalize as confirmed unplayable.
+    await append({
+      projectId,
+      sessionId,
+      tab: "tab-a",
+      seq: 0,
+      payload: bytes("meta-only"),
+      t0: receivedAt - 4_000,
+      t1: receivedAt - 4_000,
+      receivedAt,
+    });
+    await forceFinalize(projectId, sessionId);
+
+    const manifestBytes = await readR2Bytes(manifestKey(projectId, sessionId));
+    const manifest = JSON.parse(new TextDecoder().decode(manifestBytes)) as SessionManifest;
+
+    expect(manifest.durationMs).toBe(0);
+    expect(manifest.segments).toHaveLength(1);
+    expect(manifest.segments.flatMap((segment) => segment.checkpoints ?? [])).toHaveLength(0);
   });
 
   it("keeps state small when many navigations are recorded", async () => {

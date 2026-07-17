@@ -147,6 +147,20 @@ describe("analytics warehouse queries", () => {
     expect(query).not.toContain("analytics_events");
   });
 
+  it("filters only the newest correction for each session", () => {
+    const query = buildWarehouseSessionsQuery("project_1", 9, {
+      from: 100,
+      limit: 50,
+      min_duration_ms: 1_000,
+      sort: "duration",
+    }).sql;
+    const newestSession = query.indexOf("WHERE s.session_rank = 1");
+    const durationFilter = query.indexOf("s.duration_ms >= 1000");
+
+    expect(newestSession).toBeGreaterThan(-1);
+    expect(durationFilter).toBeGreaterThan(newestSession);
+  });
+
   it("queries each sparse D1 error label directly instead of trusting the top five", () => {
     const query = buildWarehouseErrorEvidenceQuery(
       "project_1",

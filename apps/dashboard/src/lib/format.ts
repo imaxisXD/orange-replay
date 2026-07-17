@@ -53,6 +53,16 @@ export function formatDuration(value: number): string {
   return `${hours}:${padTimePart(remainingMinutes)}:${padTimePart(remainingSeconds)}`;
 }
 
+/**
+ * Session-surface duration: sub-second recordings show as "<1s" instead of
+ * rounding to 0:00. Playback clocks keep plain formatDuration so a running
+ * timer never displays the token.
+ */
+export function formatSessionDuration(value: number): string {
+  if (value > 0 && value < 1_000) return "<1s";
+  return formatDuration(value);
+}
+
 export function formatDurationWords(value: number): string {
   const totalSeconds = Math.max(0, Math.round(value / 1_000));
   const hours = Math.floor(totalSeconds / 3_600);

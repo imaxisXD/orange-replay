@@ -82,6 +82,7 @@ export const validSessionListItem = {
   flags: 0,
   manifest_key: "p/project_contract/session_contract/manifest.json",
   expires_at: 86_400_000,
+  has_checkpoint: true,
 } satisfies SessionListItem;
 
 export const validListSessionsResponse = {
@@ -103,6 +104,7 @@ export const validProvisionalSessionHead = {
   session_id: "session_live_contract",
   ended_at: 1_000,
   duration_ms: 0,
+  has_checkpoint: null,
   activity: "live",
   details_state: "provisional",
   replay_source: "live",

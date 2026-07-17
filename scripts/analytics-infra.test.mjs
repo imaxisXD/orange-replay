@@ -16,6 +16,8 @@ import {
   ANALYTICS_OUTBOX_PAYLOAD_MAX_BYTES,
   D1_BACKFILL_READ_SQL_MAX_BYTES,
   D1_OUTBOX_INSERT_SQL_MAX_BYTES,
+  buildDurationRecoverySql,
+  buildDeletionOutboxRecord,
   buildBackfillCompletionSql,
   buildEventOutboxRecords,
   buildOutboxInsertBatches,
@@ -23,8 +25,11 @@ import {
   buildSessionEventsQueries,
   buildSessionOutboxRecord,
   classifySession,
+  durationRecoveryExportId,
+  durationRecoveryDeletionExportId,
   parseBackfillArguments,
   parseManifestInventory,
+  recoverManifestSessionFacts,
   usesDefaultAnalyticsCatalog,
   validateManifestText,
 } from "./analytics/backfill-lib.mjs";
@@ -57,6 +62,13 @@ const deletionV2ResourcePath = path.join(
   "infra",
   "analytics",
   "deletion-v2",
+  "resources.production.json",
+);
+const durationV2ResourcePath = path.join(
+  repoRoot,
+  "infra",
+  "analytics",
+  "duration-v2",
   "resources.production.json",
 );
 
@@ -138,6 +150,28 @@ describe("analytics resource setup", () => {
     });
     expect(resources.pipelineSql).toContain("FROM orange_replay_analytics_deletion_v2_stream");
     expect(resources.pipelineSql).not.toContain("orange_replay_analytics_stream");
+  });
+
+  it("defines the duration recovery warehouse as new tables on the existing stream", async () => {
+    const resources = await loadAnalyticsResources(durationV2ResourcePath);
+    expect(resources.stream).toBe("orange_replay_analytics_stream");
+    expect(resources.pipeline).toBe("orange_replay_analytics_duration_v2_prod");
+    expect(resources.sinks).toEqual([
+      {
+        name: "orange_replay_analytics_sessions_duration_v2_sink",
+        table: "analytics_sessions_duration_v2",
+      },
+      {
+        name: "orange_replay_analytics_events_duration_v2_sink",
+        table: "analytics_events_duration_v2",
+      },
+      {
+        name: "orange_replay_analytics_deletions_duration_v2_sink",
+        table: "analytics_deletions_duration_v2",
+      },
+    ]);
+    expect(resources.pipelineSql).toContain("FROM orange_replay_analytics_stream");
+    expect(resources.pipelineSql).not.toContain("orange_replay_analytics_sessions_sink");
   });
 
   it("keeps Pipeline sink and bucket maintenance credentials separate", () => {
@@ -576,10 +610,11 @@ describe("analytics backfill", () => {
           "recordings-prod",
           "--inventory",
           "objects.json",
+          "--recover-durations",
         ],
         {},
       ),
-    ).toMatchObject({ apply: false, source: "production" });
+    ).toMatchObject({ apply: false, recoverDurations: true, source: "production" });
   });
 
   it("reads JSON and newline inventories without double-counting keys", () => {
@@ -645,6 +680,27 @@ describe("analytics backfill", () => {
       reason: "missing_segment_objects",
       missingSegmentCount: 1,
     });
+  });
+
+  it("recovers recorded duration and checkpoint truth from manifest metadata", () => {
+    expect(
+      recoverManifestSessionFacts(
+        JSON.stringify({
+          segments: [
+            { checkpoints: [], t0: 1_000, t1: 1_200 },
+            { checkpoints: [{ t: 1_300 }], t0: 1_250, t1: 1_900 },
+          ],
+        }),
+      ),
+    ).toEqual({ durationMs: 900, hasCheckpoint: 1 });
+    expect(
+      recoverManifestSessionFacts(
+        JSON.stringify({ segments: [{ checkpoints: [], t0: 1_000, t1: 1_000 }] }),
+      ),
+    ).toEqual({ durationMs: 0, hasCheckpoint: 0 });
+    expect(
+      recoverManifestSessionFacts(JSON.stringify({ segments: [{ t0: 1_000, t1: 1_500 }] })),
+    ).toEqual({ durationMs: 500, hasCheckpoint: null });
   });
 
   it("uses disjoint skip reasons and keeps deletion first", () => {
@@ -722,6 +778,85 @@ describe("analytics backfill", () => {
     expect(sql).toContain("project.jurisdiction IS NULL");
     expect(sql).toContain("FROM session_deletions deletion");
     expect(sql).not.toContain("event_meta_json");
+  });
+
+  it("builds a versioned duration correction and guarded D1 update", () => {
+    const session = { ...sampleSession(), duration_ms: 900 };
+    const exportId = durationRecoveryExportId(session.project_id, session.session_id);
+    const record = buildSessionOutboxRecord(session, 2, { exportId });
+    expect(record.exportId).toBe("session:duration-recovery-v1:project_1:session_1");
+    expect(record.payload.duration_ms).toBe(900);
+
+    const completeRecord = buildSessionOutboxRecord(session, 2, {
+      analyticsSidecarKey: "p/project_1/session_1/analytics.ndjson",
+      eventCoverage: "complete",
+      exportId,
+    });
+    expect(completeRecord.payload).toMatchObject({
+      analytics_sidecar_key: "p/project_1/session_1/analytics.ndjson",
+      event_count: 2,
+      event_coverage: "complete",
+    });
+
+    const recoveryEvents = buildEventOutboxRecords(
+      session,
+      [{ detail: "saved", kind: "custom", t: 1_700_000_000_100 }],
+      { durationRecovery: true },
+    );
+    expect(recoveryEvents[0]?.exportId).toBe(
+      "event:duration-recovery-v1:project_1:session_1:0:1700000000100:custom",
+    );
+
+    const deletion = buildDeletionOutboxRecord(
+      {
+        delete_reason: "retention_expired",
+        deleted_at: 1_700_000_010_000,
+        project_id: "project_1",
+        session_id: "deleted_session",
+      },
+      { durationRecovery: true },
+    );
+    expect(deletion.exportId).toBe(
+      durationRecoveryDeletionExportId("project_1", "deleted_session"),
+    );
+
+    const sql = buildDurationRecoverySql([
+      {
+        currentDurationMs: 5_000,
+        currentHasCheckpoint: null,
+        projectId: "project_1",
+        recoveredDurationMs: 900,
+        recoveredHasCheckpoint: 1,
+        sessionId: "session_1",
+      },
+    ]);
+    expect(sql).toContain("SET duration_ms = 900, has_checkpoint = 1");
+    expect(sql).toContain("AND duration_ms = 5000");
+    expect(sql).toContain("AND has_checkpoint IS NULL");
+
+    const database = new DatabaseSync(":memory:");
+    try {
+      database.exec(
+        "CREATE TABLE sessions (project_id TEXT, session_id TEXT, duration_ms INTEGER, has_checkpoint INTEGER, PRIMARY KEY (project_id, session_id));",
+      );
+      database
+        .prepare(
+          "INSERT INTO sessions (project_id, session_id, duration_ms, has_checkpoint) VALUES (?, ?, ?, NULL)",
+        )
+        .run("project_1", "session_1", 5_000);
+      database.exec(sql);
+      expect(
+        database
+          .prepare(
+            "SELECT duration_ms, has_checkpoint FROM sessions WHERE project_id = ? AND session_id = ?",
+          )
+          .get("project_1", "session_1"),
+      ).toEqual({ duration_ms: 900, has_checkpoint: 1 });
+      database.exec(sql);
+      expect(database.prepare("SELECT changes() AS count").get().count).toBe(0);
+    } finally {
+      database.close();
+    }
   });
 
   it("builds session and sparse event records that the runtime exporter accepts", async () => {
@@ -824,9 +959,9 @@ describe("analytics backfill", () => {
     expect(() => buildSessionOutboxRecord({ ...session, org_id: "" }, 0)).toThrow(
       "org_id must be between 1 and 200",
     );
-    expect(() => buildSessionOutboxRecord({ ...session, duration_ms: 4_999 }, 0)).toThrow(
-      "duration_ms must equal ended_at minus started_at",
-    );
+    expect(
+      buildSessionOutboxRecord({ ...session, duration_ms: 4_999 }, 0).payload.duration_ms,
+    ).toBe(4_999);
     expect(() => buildSessionOutboxRecord({ ...session, clicks: -1 }, 0)).toThrow(
       "clicks cannot be negative",
     );
@@ -845,6 +980,13 @@ describe("analytics backfill", () => {
     expect(runGuardedOutboxInsert({ jurisdiction: "unknown" })).toBe(0);
     expect(runGuardedOutboxInsert({ jurisdiction: "eu" })).toBe(0);
     expect(runGuardedOutboxInsert({ includeProject: false })).toBe(0);
+  });
+
+  it("requeues a versioned deletion only while its durable tombstone job still exists", () => {
+    expect(runGuardedDeletionOutboxInsert({})).toBe(1);
+    expect(runGuardedDeletionOutboxInsert({ includeDeletion: false })).toBe(0);
+    expect(runGuardedDeletionOutboxInsert({ includeJob: false })).toBe(0);
+    expect(runGuardedDeletionOutboxInsert({ requiresTombstone: false })).toBe(0);
   });
 
   it("splits 25 maximum-size payloads by actual UTF-8 SQL bytes", () => {
@@ -978,6 +1120,43 @@ function runGuardedOutboxInsert({ includeProject = true, jurisdiction, deleted =
   }
 }
 
+function runGuardedDeletionOutboxInsert({
+  includeDeletion = true,
+  includeJob = true,
+  requiresTombstone = true,
+}) {
+  const database = createGuardDatabase();
+  try {
+    if (includeDeletion) {
+      database
+        .prepare("INSERT INTO session_deletions (project_id, session_id) VALUES (?, ?)")
+        .run("project_1", "deleted_session");
+    }
+    if (includeJob) {
+      database
+        .prepare(
+          "INSERT INTO analytics_deletion_jobs (project_id, session_id, requires_warehouse_tombstone) VALUES (?, ?, ?)",
+        )
+        .run("project_1", "deleted_session", requiresTombstone ? 1 : 0);
+    }
+    const record = buildDeletionOutboxRecord(
+      {
+        delete_reason: "delete_requested",
+        deleted_at: 1_700_000_010_000,
+        project_id: "project_1",
+        session_id: "deleted_session",
+      },
+      { durationRecovery: true },
+    );
+    const sql = buildOutboxInsertSql([record], 1_700_000_010_000);
+    if (sql === undefined) throw new Error("Expected one guarded deletion outbox statement.");
+    database.exec(sql);
+    return database.prepare("SELECT COUNT(*) AS count FROM analytics_export_outbox").get().count;
+  } finally {
+    database.close();
+  }
+}
+
 function runGuardedCompletion({
   deletedAfterReadback = false,
   jurisdictionAfterReadback,
@@ -1044,6 +1223,12 @@ function createGuardDatabase() {
     CREATE TABLE session_deletions (
       project_id TEXT NOT NULL,
       session_id TEXT NOT NULL,
+      PRIMARY KEY (project_id, session_id)
+    );
+    CREATE TABLE analytics_deletion_jobs (
+      project_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      requires_warehouse_tombstone INTEGER NOT NULL,
       PRIMARY KEY (project_id, session_id)
     );
     CREATE TABLE analytics_export_outbox (

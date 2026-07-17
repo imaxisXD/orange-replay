@@ -988,17 +988,17 @@ function isValidSessionPayload(payload: Record<string, unknown>): boolean {
   const durationMs = payload["duration_ms"];
   const coverage = payload["event_coverage"];
   const expectedSidecarKey = `p/${String(payload["project_id"])}/${String(payload["session_id"])}/analytics.ndjson`;
+  const canonicalExportId = `session:${String(payload["project_id"])}:${String(payload["session_id"])}`;
+  const recoveryExportId = `session:duration-recovery-v1:${String(payload["project_id"])}:${String(payload["session_id"])}`;
 
   return (
-    payload["export_id"] ===
-      `session:${String(payload["project_id"])}:${String(payload["session_id"])}` &&
+    (payload["export_id"] === canonicalExportId || payload["export_id"] === recoveryExportId) &&
     (coverage === "sparse" || coverage === "complete") &&
     isNonEmptyText(payload["org_id"], 200) &&
     isSafeTimestamp(startedAt) &&
     isSafeTimestamp(endedAt) &&
     endedAt >= startedAt &&
     isNonNegativeWholeNumber(durationMs) &&
-    durationMs === endedAt - startedAt &&
     isNullableText(payload["country"], 512) &&
     isNullableText(payload["region"], 512) &&
     isNullableText(payload["city"], 512) &&
@@ -1035,6 +1035,14 @@ function isValidEventPayload(payload: Record<string, unknown>): boolean {
   const eventIndex = payload["event_index"];
   const eventTime = payload["event_time"];
   const eventKind = payload["event_kind"];
+  const canonicalExportId = eventExportId(
+    String(payload["project_id"]),
+    String(payload["session_id"]),
+    Number(eventIndex),
+    Number(eventTime),
+    String(eventKind),
+  );
+  const recoveryExportId = `event:duration-recovery-v1:${String(payload["project_id"])}:${String(payload["session_id"])}:${String(eventIndex)}:${String(eventTime)}:${String(eventKind)}`;
 
   return (
     payload["event_coverage"] === "sparse" &&
@@ -1042,24 +1050,18 @@ function isValidEventPayload(payload: Record<string, unknown>): boolean {
     isSafeTimestamp(eventTime) &&
     typeof eventKind === "string" &&
     allowedEventKinds.has(eventKind) &&
-    payload["export_id"] ===
-      eventExportId(
-        String(payload["project_id"]),
-        String(payload["session_id"]),
-        eventIndex,
-        eventTime,
-        eventKind,
-      ) &&
+    (payload["export_id"] === canonicalExportId || payload["export_id"] === recoveryExportId) &&
     isNullableText(payload["event_detail"], MAX_EVENT_DETAIL_CHARS)
   );
 }
 
 function isValidDeletionPayload(payload: Record<string, unknown>): boolean {
   if (!hasOnlyKeys(payload, deletionPayloadKeys)) return false;
+  const canonicalExportId = `deletion:${String(payload["project_id"])}:${String(payload["session_id"])}`;
+  const recoveryExportId = `deletion:duration-recovery-v1:${String(payload["project_id"])}:${String(payload["session_id"])}`;
   return (
     payload["event_coverage"] === "none" &&
-    payload["export_id"] ===
-      `deletion:${String(payload["project_id"])}:${String(payload["session_id"])}` &&
+    (payload["export_id"] === canonicalExportId || payload["export_id"] === recoveryExportId) &&
     isSafeTimestamp(payload["deleted_at"]) &&
     payload["deleted_at"] === payload["recorded_at"] &&
     isNonEmptyText(payload["delete_reason"], 200)

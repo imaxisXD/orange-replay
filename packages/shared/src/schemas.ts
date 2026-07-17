@@ -303,6 +303,10 @@ export const finalizeMessageSchema: z.ZodType<FinalizeMessage> = z
     analyticsSidecarKey: analyticsSidecarKeySchema.optional(),
     startedAt: z.number(),
     endedAt: z.number(),
+    // Optional so messages queued by a pre-upgrade DO still parse during a
+    // deploy window; the consumer falls back to the server-time span.
+    durationMs: z.number().nonnegative().optional(),
+    hasCheckpoint: z.boolean().optional(),
     bytes: z.number().int().nonnegative(),
     segments: z.number().int().nonnegative(),
     flags: z.number().int().nonnegative(),

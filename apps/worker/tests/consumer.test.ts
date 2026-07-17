@@ -50,6 +50,10 @@ describe("consumer queue and sweeper", () => {
     expect(body.session?.["quick_backs"]).toBe(2);
     expect(body.session?.["interaction_time_ms"]).toBe(8_500);
     expect(body.session?.["segment_count"]).toBe(2);
+    // Recorded event-time duration from the message, not the server-arrival
+    // span (endedAt - startedAt = 12,345 here).
+    expect(body.session?.["duration_ms"]).toBe(9_800);
+    expect(body.session?.["has_checkpoint"]).toBe(1);
     expect(body.session?.["flags"]).toBe(message.flags);
     expect(body.session?.["manifest_key"]).toBe(message.manifestKey);
     expect(body.session?.["indexed_at"]).toEqual(expect.any(Number));
@@ -74,6 +78,10 @@ describe("consumer queue and sweeper", () => {
     delete message.analyticsVersion;
     delete message.insights;
     delete message.attrs.pageCount;
+    // Messages queued by a pre-upgrade DO carry neither field; the consumer
+    // falls back to the server-time span and an unknown playability fact.
+    delete message.durationMs;
+    delete message.hasCheckpoint;
 
     await sendFinalizeMessage(message);
     const body = await waitForSession(message.sessionId);
@@ -83,6 +91,8 @@ describe("consumer queue and sweeper", () => {
     expect(body.session?.["max_scroll_depth"]).toBeNull();
     expect(body.session?.["quick_backs"]).toBeNull();
     expect(body.session?.["interaction_time_ms"]).toBeNull();
+    expect(body.session?.["duration_ms"]).toBe(message.endedAt - message.startedAt);
+    expect(body.session?.["has_checkpoint"]).toBeNull();
   }, 30_000);
 
   it("does not double count a redelivered finalize message", async () => {
@@ -321,6 +331,8 @@ function makeFinalizeMessage(
     manifestKey: manifestKey(projectId, sessionId),
     startedAt,
     endedAt,
+    durationMs: 9_800,
+    hasCheckpoint: true,
     bytes: 12_345,
     segments: 2,
     flags: 6,

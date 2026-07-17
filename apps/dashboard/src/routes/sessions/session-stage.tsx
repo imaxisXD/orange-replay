@@ -148,7 +148,11 @@ function SelectedSession({
     );
   }
 
-  const hasReplay = manifest.segments.length > 0 || sessionView.mode === "live";
+  // A confirmed checkpoint-less recording renders the metadata empty state:
+  // its segments hold no full snapshot, so a player would show nothing.
+  const hasReplay =
+    sessionView.mode === "live" ||
+    (manifest.segments.length > 0 && sessionView.hasCheckpoint !== false);
 
   return (
     <div className="flex flex-col gap-3">

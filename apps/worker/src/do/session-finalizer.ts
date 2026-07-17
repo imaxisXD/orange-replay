@@ -12,7 +12,11 @@ import {
   createAnalyticsSidecarStream,
 } from "./session-analytics-sidecar.ts";
 import { buildFinalizeTimelineData } from "./session-finalize-data.ts";
-import { buildSessionManifest } from "./session-manifest.ts";
+import {
+  buildSessionManifest,
+  manifestHasCheckpoint,
+  sessionServerBounds,
+} from "./session-manifest.ts";
 import { rebuildFinalPageAnalytics } from "./session-page-tracking.ts";
 import type { FinalizedTombstone, SessionRecorderStore } from "./session-recorder-store.ts";
 import type { SessionSegmentWriter } from "./session-segment-writer.ts";
@@ -117,6 +121,9 @@ export class SessionFinalizer {
     const key = manifestKey(state.projectId, state.sessionId);
     const sidecarKey = analyticsSidecarKey(state.projectId, state.sessionId);
     const analyticsVersion = Math.min(2, state.analyticsVersion);
+    // D1 keeps server-observed bounds for ordering and retention; the
+    // recorded-time duration and checkpoint fact ride alongside them.
+    const serverBounds = sessionServerBounds(state, manifest.segments);
 
     const message = capFinalizeMessageToBudget({
       type: "session.finalized",
@@ -127,8 +134,10 @@ export class SessionFinalizer {
       requestId: state.firstRequestId,
       manifestKey: key,
       analyticsSidecarKey: sidecarKey,
-      startedAt: manifest.startedAt,
-      endedAt: manifest.endedAt,
+      startedAt: serverBounds.startedAt,
+      endedAt: serverBounds.endedAt,
+      durationMs: manifest.durationMs,
+      hasCheckpoint: manifestHasCheckpoint(manifest.segments),
       bytes: manifest.bytes,
       segments: manifest.segments.length,
       flags: manifest.flags,

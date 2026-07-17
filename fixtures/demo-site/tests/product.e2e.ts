@@ -69,7 +69,8 @@ test("records, replays, masks, and follows a live session from the dashboard", a
         formatLocation(recordedSession.country, recordedSession.city),
       );
       await expect(row).toContainText(formatErrorCount(recordedSession.errors));
-      await expect(row).toContainText(/\d+:\d{2}/);
+      // Recorded-time durations can be sub-second for a fast scripted visit.
+      await expect(row).toContainText(/(\d+:\d{2}|<1s)/);
 
       await row.click();
       await expect(row).toHaveAttribute("aria-selected", "true");
@@ -98,20 +99,27 @@ test("records, replays, masks, and follows a live session from the dashboard", a
         page.locator('[aria-label="Replay timeline"] span.bg-danger').first(),
       ).toBeVisible();
 
+      // The recording plays its true ~1s span, so free-running playback can
+      // finish before slow pollers. Hold the player paused mid-replay while
+      // asserting the overlay and cursor.
+      const earlyPause = page.getByRole("button", { name: "Pause replay" });
+      if (await earlyPause.isVisible()) await earlyPause.click();
+      const earlyTimeline = page.getByRole("slider", { name: "Replay timeline" });
+      await earlyTimeline.click({ position: { x: 120, y: 13 } });
+
       const overlayCanvas = page.locator("canvas[aria-hidden='true']").first();
       await expect(overlayCanvas).toBeVisible();
       await expect
         .poll(async () => {
           return overlayCanvas.evaluate((element) => {
             const canvas = element as HTMLCanvasElement;
-            return (
-              canvas.width > 0 &&
-              canvas.height > 0 &&
-              window.getComputedStyle(canvas).position === "absolute"
-            );
+            return {
+              sized: canvas.width > 0 && canvas.height > 0,
+              position: window.getComputedStyle(canvas).position,
+            };
           });
         })
-        .toBe(true);
+        .toEqual({ sized: true, position: "absolute" });
 
       const replayCursor = page.locator(".replayer-mouse").first();
       await expect(replayCursor).toBeVisible();
@@ -181,10 +189,30 @@ test("records, replays, masks, and follows a live session from the dashboard", a
       await expect
         .poll(async () => readNumber(await timeline.getAttribute("aria-valuenow")))
         .toBe(readNumber(await timeline.getAttribute("aria-valuemax")));
+      // Timeline offsets are recorded event time, so the first error seeks
+      // to the marker's real position inside the replay rather than a
+      // clamped zero. The marker itself is the deterministic reference.
+      const timelineMax = readNumber(await timeline.getAttribute("aria-valuemax"));
+      const errorMarkerRatio = await page
+        .locator('[aria-label="Replay timeline"] span.bg-danger')
+        .first()
+        .evaluate((element) => {
+          const parentRect = element.parentElement?.getBoundingClientRect();
+          const rect = element.getBoundingClientRect();
+          if (parentRect === undefined || parentRect.width === 0) return 0;
+          return (rect.left + rect.width / 2 - parentRect.left) / parentRect.width;
+        });
+      const expectedErrorOffsetMs = errorMarkerRatio * timelineMax;
+      const seekToleranceMs = Math.max(150, timelineMax * 0.1);
+      // The button rewinds two seconds of lead-in context before the error
+      // (replay-markers.ts firstErrorOffset), clamped to the replay start.
+      const buttonTargetMs = Math.max(0, expectedErrorOffsetMs - 2_000);
       await page.getByTestId("first-error-button").click();
       await expect
-        .poll(async () => readNumber(await timeline.getAttribute("aria-valuenow")))
-        .toBe(0);
+        .poll(async () => readNumber(await timeline.getAttribute("aria-valuenow")), {
+          timeout: 20_000,
+        })
+        .toBeLessThanOrEqual(buttonTargetMs + seekToleranceMs);
 
       await expect(page.getByRole("heading", { name: "Segments" })).toHaveCount(0);
 
@@ -201,9 +229,15 @@ test("records, replays, masks, and follows a live session from the dashboard", a
         .poll(async () => readNumber(await timeline.getAttribute("aria-valuenow")))
         .toBe(readNumber(await timeline.getAttribute("aria-valuemax")));
       await errorRow.click();
+      // The sidebar error row seeks to the same marker position.
       await expect
-        .poll(async () => readNumber(await timeline.getAttribute("aria-valuenow")))
-        .toBe(0);
+        .poll(async () => readNumber(await timeline.getAttribute("aria-valuenow")), {
+          timeout: 20_000,
+        })
+        .toBeGreaterThan(expectedErrorOffsetMs - seekToleranceMs);
+      expect(readNumber(await timeline.getAttribute("aria-valuenow"))).toBeLessThanOrEqual(
+        expectedErrorOffsetMs + seekToleranceMs,
+      );
 
       // The replayer rebuilds its iframe document on play/seek, and playback
       // may have advanced into the page2 portion of the recording by now —

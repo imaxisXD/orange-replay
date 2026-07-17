@@ -268,6 +268,7 @@ export const sessions = sqliteTable(
     expiresAt: integer("expires_at").notNull(),
     activityHist: text("activity_hist"),
     indexedAt: integer("indexed_at").notNull().default(0),
+    hasCheckpoint: integer("has_checkpoint"),
   },
   (table) => [
     primaryKey({ columns: [table.projectId, table.sessionId] }),
@@ -291,6 +292,12 @@ export const sessions = sqliteTable(
     index("idx_sessions_project_region_time").on(
       table.projectId,
       table.region,
+      desc(table.startedAt),
+      desc(table.sessionId),
+    ),
+    index("idx_sessions_project_city_time").on(
+      table.projectId,
+      table.city,
       desc(table.startedAt),
       desc(table.sessionId),
     ),

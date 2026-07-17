@@ -126,7 +126,9 @@ export function buildSessionRecord(message: FinalizeMessage): AnalyticsSessionRe
     org_id: message.orgId,
     started_at: message.startedAt,
     ended_at: message.endedAt,
-    duration_ms: durationMsFromTimes(message.startedAt, message.endedAt),
+    // Recorded event-time span when the DO provided it; the server-arrival
+    // span only remains as the fallback for pre-upgrade queue messages.
+    duration_ms: message.durationMs ?? durationMsFromTimes(message.startedAt, message.endedAt),
     country: boundedOptionalText(message.attrs.country, MAX_DIMENSION_CHARS),
     region: boundedOptionalText(message.attrs.region, MAX_DIMENSION_CHARS),
     city: boundedOptionalText(message.attrs.city, MAX_DIMENSION_CHARS),

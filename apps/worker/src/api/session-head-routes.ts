@@ -16,10 +16,10 @@ import {
 } from "../do/presence-logic.ts";
 import {
   buildSessionWhere,
+  d1SessionRowColumns,
   isValidPathId,
   parseSessionListQuery,
   sessionRowToListItem,
-  sessionRowColumns,
   type SessionListOptions,
   type SessionRow,
   type SessionSort,
@@ -212,6 +212,7 @@ function provisionalHead(projectId: string, row: PresenceSessionHead, orgId: str
     flags: row.flags ?? 0,
     manifest_key: manifestKey(projectId, row.session_id),
     expires_at: row.last_seen + CLOSE_SESSION_AFTER_IDLE_MS + SESSION_HEAD_HANDOFF_GRACE_MS,
+    has_checkpoint: null,
     activity: row.activity,
     details_state: "provisional",
     replay_source: row.activity === "finalizing" ? "recorded" : "live",
@@ -258,6 +259,7 @@ function manifestHead(manifest: SessionManifest): SessionHead {
     flags: manifest.flags,
     manifest_key: manifestKey(manifest.projectId, manifest.sessionId),
     expires_at: manifest.endedAt,
+    has_checkpoint: manifest.segments.some((segment) => (segment.checkpoints?.length ?? 0) > 0),
     activity: "finalizing",
     details_state: "provisional",
     replay_source: "recorded",
@@ -271,7 +273,7 @@ async function readExactSession(
 ): Promise<SessionRow | null> {
   return await shardDb(env, 0)
     .prepare(
-      `SELECT ${sessionRowColumns.join(", ")}
+      `SELECT ${d1SessionRowColumns.join(", ")}
       FROM sessions
       WHERE project_id = ? AND session_id = ?
         AND NOT EXISTS (
@@ -382,7 +384,7 @@ export function buildExactSessionHeadQuery(
     sql: `WITH candidate_ids(session_id) AS (
       SELECT CAST(value AS TEXT) FROM json_each(?)
     )
-    SELECT ${sessionRowColumns.map((column) => `s.${column}`).join(", ")}
+    SELECT ${d1SessionRowColumns.map((column) => `s.${column}`).join(", ")}
     FROM candidate_ids c
     CROSS JOIN sessions AS s INDEXED BY sqlite_autoindex_sessions_1
     WHERE s.session_id = c.session_id AND ${where.sql}`,
@@ -475,6 +477,7 @@ function buildPresenceHeadQuery(
     ...(options.to === undefined ? {} : { to: options.to }),
     ...(options.country === undefined ? {} : { country: options.country }),
     ...(options.region === undefined ? {} : { region: options.region }),
+    ...(options.city === undefined ? {} : { city: options.city }),
     ...(options.device === undefined ? {} : { device: options.device }),
     ...(options.browser === undefined ? {} : { browser: options.browser }),
     ...(options.os === undefined ? {} : { os: options.os }),
@@ -517,6 +520,7 @@ function provisionalRowMatches(row: PresenceSessionHead, options: SessionListOpt
   if (options.to !== undefined && row.started_at > options.to) return false;
   if (options.country !== undefined && row.country !== options.country) return false;
   if (options.region !== undefined && row.region !== options.region) return false;
+  if (options.city !== undefined && row.city !== options.city) return false;
   if (options.device !== undefined && row.device !== options.device) return false;
   if (options.browser !== undefined && row.browser !== options.browser) return false;
   if (options.os !== undefined && row.os !== options.os) return false;

@@ -115,6 +115,7 @@ function makeHead(overrides: Partial<SessionHead> = {}): SessionHead {
     flags: 3,
     manifest_key: "p/p1/session_1/manifest.json",
     expires_at: 9_999,
+    has_checkpoint: null,
     activity: "live",
     details_state: "provisional",
     replay_source: "live",

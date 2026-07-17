@@ -5,6 +5,7 @@ export const ANALYTICS_OUTBOX_PAYLOAD_MAX_BYTES = 32 * 1024;
 // command wrapping and future fixed SQL text.
 export const D1_OUTBOX_INSERT_SQL_MAX_BYTES = 90_000;
 export const D1_BACKFILL_READ_SQL_MAX_BYTES = 90_000;
+export const MAX_RECOVERED_DURATION_MS = 24 * 60 * 60 * 1000;
 
 const MAX_EVENT_DETAIL_CHARS = 200;
 const MAX_DIMENSION_CHARS = 512;
@@ -66,6 +67,7 @@ export function parseBackfillArguments(argumentsList, defaults) {
     pageSize: 100,
     persistTo: undefined,
     recordingsBucket: undefined,
+    recoverDurations: false,
     reportPath: undefined,
     source: undefined,
     wranglerEnvironment: undefined,
@@ -86,6 +88,10 @@ export function parseBackfillArguments(argumentsList, defaults) {
     const argument = argumentsList[index];
     if (argument === "--apply") {
       options.apply = true;
+      continue;
+    }
+    if (argument === "--recover-durations") {
+      options.recoverDurations = true;
       continue;
     }
     if (argument === "--help" || argument === "-h") {
@@ -225,6 +231,37 @@ export function validateManifestText(key, text, inventoryKeys) {
   return { ok: true };
 }
 
+export function recoverManifestSessionFacts(text) {
+  let manifest;
+  try {
+    manifest = JSON.parse(text);
+  } catch (error) {
+    throw new Error("The recording manifest is not valid JSON.", { cause: error });
+  }
+  const segments = Array.isArray(manifest?.segments) ? manifest.segments : [];
+  if (
+    segments.length === 0 ||
+    segments.some((segment) => !Number.isFinite(segment?.t0) || !Number.isFinite(segment?.t1))
+  ) {
+    throw new Error("The recording manifest has no valid recorded-time segments.");
+  }
+
+  const recordedStart = Math.min(...segments.map((segment) => segment.t0));
+  const recordedEnd = Math.max(...segments.map((segment) => segment.t1));
+  const durationMs = Math.min(
+    Math.max(0, Math.trunc(recordedEnd - recordedStart)),
+    MAX_RECOVERED_DURATION_MS,
+  );
+  const hasCheckpoint = segments.some(
+    (segment) => Array.isArray(segment.checkpoints) && segment.checkpoints.length > 0,
+  )
+    ? 1
+    : segments.every((segment) => Array.isArray(segment.checkpoints))
+      ? 0
+      : null;
+  return { durationMs, hasCheckpoint };
+}
+
 export function classifySession(session, inventoryKeys, manifestChecks, now) {
   if (Number(session.is_deleted) > 0) return "deleted";
   if (asSafeInteger(session.expires_at, "expires_at") < now) return "expired";
@@ -237,22 +274,40 @@ export function usesDefaultAnalyticsCatalog(jurisdiction) {
   return jurisdiction === null;
 }
 
-export function buildSessionOutboxRecord(session, eventCount = 0) {
+export function buildSessionOutboxRecord(session, eventCount = 0, options = {}) {
   const projectId = requireId(session.project_id, "project_id");
   const sessionId = requireId(session.session_id, "session_id");
   const startedAt = nonNegativeSafeInteger(session.started_at, "started_at");
   const endedAt = nonNegativeSafeInteger(session.ended_at, "ended_at");
   if (endedAt < startedAt) throw new Error("ended_at cannot be before started_at.");
   const durationMs = nonNegativeSafeInteger(session.duration_ms, "duration_ms");
-  if (durationMs !== endedAt - startedAt) {
-    throw new Error("duration_ms must equal ended_at minus started_at.");
-  }
   const expiresAt = nonNegativeSafeInteger(session.expires_at, "expires_at");
   if (expiresAt < endedAt) throw new Error("expires_at cannot be before ended_at.");
+  const eventCoverage = options.eventCoverage ?? "sparse";
+  if (eventCoverage !== "sparse" && eventCoverage !== "complete") {
+    throw new Error("event_coverage must be sparse or complete.");
+  }
+  const analyticsSidecarKey =
+    options.analyticsSidecarKey === undefined
+      ? null
+      : requireBoundedText(
+          options.analyticsSidecarKey,
+          "analytics_sidecar_key",
+          MAX_MANIFEST_KEY_CHARS,
+        );
+  if (eventCoverage === "complete" && analyticsSidecarKey === null) {
+    throw new Error("Complete analytics coverage needs an analytics sidecar key.");
+  }
+  if (eventCoverage === "sparse" && analyticsSidecarKey !== null) {
+    throw new Error("Sparse analytics coverage cannot have an analytics sidecar key.");
+  }
   const payload = {
     schema_version: 1,
     record_kind: "session",
-    export_id: `session:${projectId}:${sessionId}`,
+    export_id:
+      options.exportId === undefined
+        ? `session:${projectId}:${sessionId}`
+        : requireBoundedText(options.exportId, "export_id", 200),
     project_id: projectId,
     session_id: sessionId,
     recorded_at: endedAt,
@@ -294,15 +349,53 @@ export function buildSessionOutboxRecord(session, eventCount = 0) {
     segment_count: nonNegativeSafeInteger(session.segment_count, "segment_count"),
     flags: nonNegativeSafeInteger(session.flags, "flags"),
     manifest_key: requireBoundedText(session.manifest_key, "manifest_key", MAX_MANIFEST_KEY_CHARS),
-    analytics_sidecar_key: null,
+    analytics_sidecar_key: analyticsSidecarKey,
     expires_at: expiresAt,
-    event_coverage: "sparse",
+    event_coverage: eventCoverage,
     event_count: nonNegativeSafeInteger(eventCount, "event_count"),
   };
   return outboxRecord(payload);
 }
 
-export function buildEventOutboxRecords(session, events) {
+export function durationRecoveryExportId(projectIdValue, sessionIdValue) {
+  const projectId = requireId(projectIdValue, "project_id");
+  const sessionId = requireId(sessionIdValue, "session_id");
+  return `session:duration-recovery-v1:${projectId}:${sessionId}`;
+}
+
+export function durationRecoveryDeletionExportId(projectIdValue, sessionIdValue) {
+  const projectId = requireId(projectIdValue, "project_id");
+  const sessionId = requireId(sessionIdValue, "session_id");
+  return `deletion:duration-recovery-v1:${projectId}:${sessionId}`;
+}
+
+export function buildDurationRecoverySql(changes) {
+  if (!Array.isArray(changes) || changes.length === 0) return undefined;
+  return changes
+    .map((change) => {
+      const projectId = requireId(change.projectId, "project_id");
+      const sessionId = requireId(change.sessionId, "session_id");
+      const currentDurationMs = nonNegativeSafeInteger(
+        change.currentDurationMs,
+        "current_duration_ms",
+      );
+      const recoveredDurationMs = nonNegativeSafeInteger(
+        change.recoveredDurationMs,
+        "recovered_duration_ms",
+      );
+      const currentHasCheckpoint = nullableCheckpoint(change.currentHasCheckpoint);
+      const recoveredHasCheckpoint = nullableCheckpoint(change.recoveredHasCheckpoint);
+      return `UPDATE sessions
+SET duration_ms = ${recoveredDurationMs}, has_checkpoint = ${sqlCheckpoint(recoveredHasCheckpoint)}
+WHERE project_id = ${sqlString(projectId)}
+  AND session_id = ${sqlString(sessionId)}
+  AND duration_ms = ${currentDurationMs}
+  AND has_checkpoint IS ${sqlCheckpoint(currentHasCheckpoint)};`;
+    })
+    .join("\n");
+}
+
+export function buildEventOutboxRecords(session, events, options = {}) {
   const projectId = requireId(session.project_id, "project_id");
   const sessionId = requireId(session.session_id, "session_id");
   return [...events]
@@ -313,10 +406,14 @@ export function buildEventOutboxRecords(session, events) {
     .map((event, index) => {
       const eventTime = nonNegativeSafeInteger(event.t, "event_time");
       const eventKind = requireEventKind(event.kind);
+      const baseExportId = `event:${projectId}:${sessionId}:${index}:${eventTime}:${eventKind}`;
       const payload = {
         schema_version: 1,
         record_kind: "event",
-        export_id: `event:${projectId}:${sessionId}:${index}:${eventTime}:${eventKind}`,
+        export_id:
+          options.durationRecovery === true
+            ? `event:duration-recovery-v1:${projectId}:${sessionId}:${index}:${eventTime}:${eventKind}`
+            : baseExportId,
         project_id: projectId,
         session_id: sessionId,
         recorded_at: eventTime,
@@ -328,6 +425,27 @@ export function buildEventOutboxRecords(session, events) {
       };
       return outboxRecord(payload);
     });
+}
+
+export function buildDeletionOutboxRecord(input, options = {}) {
+  const projectId = requireId(input.project_id, "project_id");
+  const sessionId = requireId(input.session_id, "session_id");
+  const deletedAt = nonNegativeSafeInteger(input.deleted_at, "deleted_at");
+  const payload = {
+    schema_version: 1,
+    record_kind: "deletion",
+    export_id:
+      options.durationRecovery === true
+        ? durationRecoveryDeletionExportId(projectId, sessionId)
+        : `deletion:${projectId}:${sessionId}`,
+    project_id: projectId,
+    session_id: sessionId,
+    recorded_at: deletedAt,
+    event_coverage: "none",
+    deleted_at: deletedAt,
+    delete_reason: requireBoundedText(input.delete_reason, "delete_reason", 200),
+  };
+  return outboxRecord(payload);
 }
 
 export function buildOutboxInsertSql(records, createdAt) {
@@ -349,17 +467,35 @@ export function buildOutboxInsertSql(records, createdAt) {
     WHERE NOT EXISTS (
       SELECT 1 FROM analytics_export_ledger ledger WHERE ledger.export_id = incoming.export_id
     )
-      AND EXISTS (
-        SELECT 1
-        FROM projects project
-        WHERE project.id = incoming.project_id
-          AND project.jurisdiction IS NULL
-      )
-      AND NOT EXISTS (
-        SELECT 1
-        FROM session_deletions deletion
-        WHERE deletion.project_id = incoming.project_id
-          AND deletion.session_id = incoming.session_id
+      AND (
+        (
+          incoming.record_kind = 'deletion'
+          AND EXISTS (
+            SELECT 1
+            FROM session_deletions deletion
+            INNER JOIN analytics_deletion_jobs job
+              ON job.project_id = deletion.project_id
+              AND job.session_id = deletion.session_id
+            WHERE deletion.project_id = incoming.project_id
+              AND deletion.session_id = incoming.session_id
+              AND job.requires_warehouse_tombstone = 1
+          )
+        )
+        OR (
+          incoming.record_kind <> 'deletion'
+          AND EXISTS (
+            SELECT 1
+            FROM projects project
+            WHERE project.id = incoming.project_id
+              AND project.jurisdiction IS NULL
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM session_deletions deletion
+            WHERE deletion.project_id = incoming.project_id
+              AND deletion.session_id = incoming.session_id
+          )
+        )
       )
     ORDER BY record_order;`;
 }
@@ -601,6 +737,19 @@ function nullableSafeIntegerInRange(value, label, minimum, maximum) {
   const number = nullableSafeInteger(value, label);
   if (number === null || (number >= minimum && number <= maximum)) return number;
   throw new Error(`${label} must be between ${minimum} and ${maximum}.`);
+}
+
+function nullableCheckpoint(value) {
+  if (value === null || value === undefined) return null;
+  const number = asSafeInteger(value, "has_checkpoint");
+  if (number !== 0 && number !== 1) {
+    throw new Error("has_checkpoint must be 0, 1, or NULL.");
+  }
+  return number;
+}
+
+function sqlCheckpoint(value) {
+  return value === null ? "NULL" : String(value);
 }
 
 function asSafeInteger(value, label) {

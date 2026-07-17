@@ -149,6 +149,7 @@ function makeSessionHead(sessionId: string, activity: SessionHead["activity"]): 
     flags: 0,
     manifest_key: `p/p1/${sessionId}/manifest.json`,
     expires_at: 9_999,
+    has_checkpoint: null,
     activity,
     details_state: activity === "complete" ? "exact" : "provisional",
     replay_source: activity === "finalizing" || activity === "complete" ? "recorded" : "live",

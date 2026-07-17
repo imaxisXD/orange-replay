@@ -42,6 +42,10 @@ export const sessionRowColumns = [
   "expires_at",
 ] as const;
 
+// Columns that exist only in D1, not in the analytics warehouse tables.
+// Warehouse SQL keeps `sessionRowColumns`; D1 list/head reads select these too.
+export const d1SessionRowColumns = [...sessionRowColumns, "has_checkpoint"] as const;
+
 export type SessionColumn = (typeof sessionRowColumns)[number];
 
 export const sessionSortValues = ["newest", "friction", "duration", "clicks", "pages"] as const;
@@ -107,6 +111,8 @@ export interface SessionRow {
   flags: number;
   manifest_key: string;
   expires_at: number;
+  /** 1/0 playability fact; NULL on rows indexed before migration 0020. */
+  has_checkpoint: number | null;
 }
 
 /** Maps a private D1 query row to the stable dashboard wire model. */
@@ -141,6 +147,7 @@ export function sessionRowToListItem(row: SessionRow): SessionListItem {
     flags: row.flags,
     manifest_key: row.manifest_key,
     expires_at: row.expires_at,
+    has_checkpoint: row.has_checkpoint === null ? null : row.has_checkpoint !== 0,
   };
 }
 
@@ -232,7 +239,7 @@ export function buildSessionsQuery(projectId: string, options: SessionListOption
   const sort = sessionSortSql[options.sort];
 
   return {
-    sql: `SELECT ${sessionRowColumns.join(", ")} FROM sessions WHERE ${where.sql} ORDER BY ${sort.orderBy} LIMIT ?`,
+    sql: `SELECT ${d1SessionRowColumns.join(", ")} FROM sessions WHERE ${where.sql} ORDER BY ${sort.orderBy} LIMIT ?`,
     bindings: [...where.bindings, options.limit],
   };
 }
@@ -312,6 +319,11 @@ export function buildSessionWhere(
   if (filter.region !== undefined) {
     whereClauses.push(`${column("region")} = ?`);
     bindings.push(filter.region);
+  }
+
+  if (filter.city !== undefined) {
+    whereClauses.push(`${column("city")} = ?`);
+    bindings.push(filter.city);
   }
 
   if (filter.device !== undefined) {

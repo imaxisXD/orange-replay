@@ -15,6 +15,7 @@ export interface SessionViewState {
   detailsState: SessionDetailsState | null;
   displayedManifest: SessionManifest | null;
   error: unknown;
+  hasCheckpoint: boolean | null;
   loading: boolean;
   mode: ReplayMode;
   notFound: boolean;
@@ -127,6 +128,7 @@ export function useSessionView({
     detailsState,
     displayedManifest,
     error: !hasUsableManifest && !notFound ? viewQuery.error : null,
+    hasCheckpoint: queryResult?.hasCheckpoint ?? null,
     loading: viewQuery.isPending && localManifest === null,
     mode,
     notFound,

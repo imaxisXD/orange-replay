@@ -251,6 +251,10 @@ export interface FinalizeMessage {
   analyticsSidecarKey?: string;
   startedAt: number;
   endedAt: number;
+  /** Recorded event-time span; absent from messages queued by older DOs. */
+  durationMs?: number;
+  /** True when any segment carries a full-snapshot checkpoint. */
+  hasCheckpoint?: boolean;
   bytes: number;
   segments: number;
   flags: number;

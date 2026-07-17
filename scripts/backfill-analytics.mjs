@@ -6,15 +6,19 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import {
+  buildDurationRecoverySql,
+  buildDeletionOutboxRecord,
   buildEventOutboxRecords,
   buildBackfillCompletionSql,
   buildOutboxInsertBatches,
   buildSessionEventsQueries,
   buildSessionOutboxRecord,
   classifySession,
+  durationRecoveryExportId,
   manifestIdentityFromKey,
   parseBackfillArguments,
   parseManifestInventory,
+  recoverManifestSessionFacts,
   sessionColumns,
   sqlString,
   usesDefaultAnalyticsCatalog,
@@ -32,6 +36,7 @@ Required:
 
 Optional:
   --apply                        Write idempotent rows into analytics_export_outbox
+  --recover-durations            Recompute D1 duration/playability and emit versioned session corrections
   --config <file>                Wrangler config
   --env <name>                   Wrangler environment
   --persist-to <dir>             Local Wrangler state directory (local only)
@@ -40,8 +45,9 @@ Optional:
   --report <file>                Report path
   --help                         Show this help
 
-Without --apply, the script only reads data and writes an audit report. It reads
-manifest.json files only. It never reads or inflates replay segments.`;
+Without --apply, the script only reads data and writes an audit report. Recovery
+mode updates D1 only with --apply and never updates warehouse tables directly.
+The script reads manifest.json files only. It never reads or inflates replay segments.`;
 
 class BackfillStateChangedError extends Error {
   constructor(kind, message) {
@@ -85,6 +91,11 @@ try {
   const indexedManifestKeys = new Set();
   const sourceSessionCounts = emptyProjectSessionCounts(options);
   const sourceDeletionCounts = readProjectDeletionCounts(options);
+  const recoveryDeletionRecords = options.recoverDurations
+    ? readDurationRecoveryDeletionRecords(options, activeDeletionRows)
+    : [];
+  report.totals.recoveryDeletionExports = recoveryDeletionRecords.length;
+  report.totals.outboxRowsExpected += recoveryDeletionRecords.length;
   scanSourceSessions(
     options,
     inventorySet,
@@ -112,7 +123,12 @@ try {
         "Analytics backfill stopped before writing because a current recording is missing or invalid.",
       );
     }
-    const applied = applySourceSessions(options, inventorySet, manifestChecks);
+    const applied = applySourceSessions(
+      options,
+      inventorySet,
+      manifestChecks,
+      recoveryDeletionRecords,
+    );
     assertSameProjectState(
       sourceSessionCounts,
       sourceDeletionCounts,
@@ -132,6 +148,7 @@ try {
     appliedRequiredSequences = applied.requiredSequences;
     report.projects = projectCountReport(sourceSessionCounts, appliedRequiredSequences);
     report.totals.outboxRowsInserted = applied.inserted;
+    report.totals.recoveryRowsUpdated = applied.recoveryRowsUpdated;
     report.totals.outboxRowsAlreadyPresent =
       report.totals.outboxRowsExpected - report.totals.outboxRowsInserted;
   }
@@ -191,7 +208,10 @@ function readSessionPage(options, cursor) {
       : `AND (s.project_id > ${sqlString(cursor.projectId)} OR (s.project_id = ${sqlString(
           cursor.projectId,
         )} AND s.session_id > ${sqlString(cursor.sessionId)}))`;
-  const sql = `SELECT ${sessionColumns.map((column) => `s.${column}`).join(", ")},
+  const selectedSessionColumns = options.recoverDurations
+    ? [...sessionColumns, "has_checkpoint"]
+    : sessionColumns;
+  const sql = `SELECT ${selectedSessionColumns.map((column) => `s.${column}`).join(", ")},
       p.id AS catalog_project_id,
       p.jurisdiction AS project_jurisdiction,
       EXISTS (
@@ -241,12 +261,32 @@ function validateManifests(keys, inventoryKeys, options) {
       ],
       { allowFailure: true },
     );
-    checks.set(
-      key,
-      result.ok
-        ? validateManifestText(key, result.stdout, inventoryKeys)
-        : { ok: false, reason: "read_failed" },
-    );
+    if (!result.ok) {
+      checks.set(key, { ok: false, reason: "read_failed" });
+      continue;
+    }
+    const validation = validateManifestText(key, result.stdout, inventoryKeys);
+    if (!validation.ok || !options.recoverDurations) {
+      checks.set(key, validation);
+      continue;
+    }
+    try {
+      const identity = manifestIdentityFromKey(key);
+      const sidecarKey =
+        identity === undefined
+          ? undefined
+          : `p/${identity.projectId}/${identity.sessionId}/analytics.ndjson`;
+      const manifest = JSON.parse(result.stdout);
+      checks.set(key, {
+        ...validation,
+        analyticsSidecarKey:
+          sidecarKey !== undefined && inventoryKeys.has(sidecarKey) ? sidecarKey : null,
+        completeEventCount: Array.isArray(manifest.timeline) ? manifest.timeline.length : null,
+        recoveryFacts: recoverManifestSessionFacts(result.stdout),
+      });
+    } catch {
+      checks.set(key, { ok: false, reason: "invalid_recovery_facts" });
+    }
   }
   return checks;
 }
@@ -299,6 +339,12 @@ function verifyOutboxRecords(records, options) {
          WHERE deletion.project_id = expected.project_id
            AND deletion.session_id = expected.session_id
        ) AS is_deleted
+       , EXISTS (
+         SELECT 1 FROM analytics_deletion_jobs job
+         WHERE job.project_id = expected.project_id
+           AND job.session_id = expected.session_id
+           AND job.requires_warehouse_tombstone = 1
+       ) AS has_deletion_job
      FROM expected
      LEFT JOIN analytics_export_outbox outbox ON outbox.export_id = expected.export_id
      LEFT JOIN analytics_export_ledger ledger
@@ -314,13 +360,20 @@ function verifyOutboxRecords(records, options) {
     if (stored === undefined) {
       throw new Error(`Analytics backfill could not verify export ${record.exportId}.`);
     }
-    if (Number(stored.is_deleted) > 0) {
+    if (record.recordKind === "deletion") {
+      if (Number(stored.is_deleted) !== 1 || Number(stored.has_deletion_job) !== 1) {
+        throw new BackfillStateChangedError(
+          "deletion",
+          `Analytics backfill aborted because deletion ${record.projectId}/${record.sessionId} no longer needs a warehouse tombstone.`,
+        );
+      }
+    } else if (Number(stored.is_deleted) > 0) {
       throw new BackfillStateChangedError(
         "deletion",
         `Analytics backfill aborted and skipped session ${record.projectId}/${record.sessionId} because it was deleted during apply.`,
       );
     }
-    if (Number(stored.project_is_default) !== 1) {
+    if (record.recordKind !== "deletion" && Number(stored.project_is_default) !== 1) {
       throw new BackfillStateChangedError(
         "residency",
         `Analytics backfill aborted and skipped project ${record.projectId} because it was removed or changed away from default residency during apply.`,
@@ -371,7 +424,7 @@ function scanSourceSessions(
       report.totals[classification] += 1;
       if (classification === "migrated") migratedSessions.push(session);
     }
-    const records = recordsForSessions(migratedSessions, options, report.totals);
+    const records = recordsForSessions(migratedSessions, options, manifestChecks, report.totals);
     report.totals.outboxRowsExpected += records.length;
     const last = sessions.at(-1);
     cursor = { projectId: last.project_id, sessionId: last.session_id };
@@ -379,9 +432,10 @@ function scanSourceSessions(
   }
 }
 
-function applySourceSessions(options, inventorySet, manifestChecks) {
+function applySourceSessions(options, inventorySet, manifestChecks, recoveryDeletionRecords) {
   let cursor;
   let inserted = 0;
+  let totalRecoveryRowsUpdated = 0;
   const sourceSessionCounts = emptyProjectSessionCounts(options);
   const deletionCounts = readProjectDeletionCounts(options);
   const requiredSequences = new Map();
@@ -398,14 +452,32 @@ function applySourceSessions(options, inventorySet, manifestChecks) {
         isDefaultCatalogSession(session) &&
         classifySession(session, inventorySet, manifestChecks, options.now) === "migrated",
     );
-    const result = insertOutboxRecords(recordsForSessions(migratedSessions, options), options);
+    const recoveryRowsUpdated = options.recoverDurations
+      ? applyDurationRecoveries(migratedSessions, manifestChecks, options)
+      : 0;
+    const result = insertOutboxRecords(
+      recordsForSessions(migratedSessions, options, manifestChecks),
+      options,
+    );
     inserted += result.inserted;
+    totalRecoveryRowsUpdated += recoveryRowsUpdated;
     mergeHighestSequences(requiredSequences, result.requiredSequences);
     const last = sessions.at(-1);
     cursor = { projectId: last.project_id, sessionId: last.session_id };
     if (sessions.length < options.pageSize) break;
   }
-  return { deletionCounts, inserted, requiredSequences, sourceSessionCounts };
+  if (recoveryDeletionRecords.length > 0) {
+    const result = insertOutboxRecords(recoveryDeletionRecords, options);
+    inserted += result.inserted;
+    mergeHighestSequences(requiredSequences, result.requiredSequences);
+  }
+  return {
+    deletionCounts,
+    inserted,
+    recoveryRowsUpdated: totalRecoveryRowsUpdated,
+    requiredSequences,
+    sourceSessionCounts,
+  };
 }
 
 function emptyProjectSessionCounts(options) {
@@ -624,19 +696,162 @@ function completionStateChangedError(
   );
 }
 
-function recordsForSessions(sessions, options, totals) {
+function recordsForSessions(sessions, options, manifestChecks, totals) {
   const eventsBySession = readEventsForSessions(sessions, options);
   const records = [];
   for (const session of sessions) {
     const events = eventsBySession.get(`${session.project_id}\0${session.session_id}`) ?? [];
-    records.push(...buildEventOutboxRecords(session, events));
-    records.push(buildSessionOutboxRecord(session, events.length));
+    if (options.recoverDurations) {
+      const recovered = recoveredSession(session, manifestChecks);
+      const manifestCheck = manifestChecks.get(session.manifest_key);
+      const hasCompleteSidecar = typeof manifestCheck?.analyticsSidecarKey === "string";
+      const eventCount = hasCompleteSidecar
+        ? Number(manifestCheck.completeEventCount)
+        : events.length;
+      if (!Number.isSafeInteger(eventCount) || eventCount < 0) {
+        throw new Error(
+          `Analytics duration recovery has no verified event count for ${session.project_id}/${session.session_id}.`,
+        );
+      }
+      if (!hasCompleteSidecar) {
+        const eventRecords = buildEventOutboxRecords(session, events, {
+          durationRecovery: true,
+        });
+        records.push(...eventRecords);
+        if (totals !== undefined) totals.recoveryEventExports += eventRecords.length;
+      }
+      records.push(
+        buildSessionOutboxRecord(recovered, eventCount, {
+          ...(hasCompleteSidecar
+            ? {
+                analyticsSidecarKey: manifestCheck.analyticsSidecarKey,
+                eventCoverage: "complete",
+              }
+            : {}),
+          exportId: durationRecoveryExportId(session.project_id, session.session_id),
+        }),
+      );
+      if (totals !== undefined) {
+        totals.recoverySessionExports += 1;
+        if (Number(session.duration_ms) !== recovered.duration_ms) {
+          totals.durationCorrections += 1;
+        }
+        if (normalizeCheckpoint(session.has_checkpoint) !== recovered.has_checkpoint) {
+          totals.checkpointCorrections += 1;
+        }
+      }
+    } else {
+      records.push(...buildEventOutboxRecords(session, events));
+      records.push(buildSessionOutboxRecord(session, events.length));
+    }
     if (totals !== undefined) {
       totals.sparseSessions += 1;
       totals.sparseEvents += events.length;
     }
   }
   return records;
+}
+
+function readDurationRecoveryDeletionRecords(options, expectedCount) {
+  const rows = queryRows(
+    `SELECT deletion.project_id,
+       deletion.session_id,
+       job.requested_at AS deleted_at,
+       job.delete_reason
+     FROM session_deletions deletion
+     INNER JOIN analytics_deletion_jobs job
+       ON job.project_id = deletion.project_id
+       AND job.session_id = deletion.session_id
+     WHERE job.requires_warehouse_tombstone = 1
+     ORDER BY deletion.project_id, deletion.session_id`,
+    options,
+  );
+  if (rows.length !== expectedCount) {
+    throw new Error(
+      "Analytics duration recovery stopped because an active deletion has no required warehouse tombstone job.",
+    );
+  }
+  return rows.map((row) => buildDeletionOutboxRecord(row, { durationRecovery: true }));
+}
+
+function recoveredSession(session, manifestChecks) {
+  const facts = manifestChecks.get(session.manifest_key)?.recoveryFacts;
+  if (facts === undefined) {
+    throw new Error(
+      `Analytics duration recovery has no verified manifest facts for ${session.project_id}/${session.session_id}.`,
+    );
+  }
+  const currentHasCheckpoint = normalizeCheckpoint(session.has_checkpoint);
+  return {
+    ...session,
+    duration_ms: facts.durationMs,
+    has_checkpoint: facts.hasCheckpoint ?? currentHasCheckpoint,
+  };
+}
+
+function applyDurationRecoveries(sessions, manifestChecks, options) {
+  const changes = sessions
+    .map((session) => {
+      const recovered = recoveredSession(session, manifestChecks);
+      return {
+        currentDurationMs: Number(session.duration_ms),
+        currentHasCheckpoint: normalizeCheckpoint(session.has_checkpoint),
+        projectId: String(session.project_id),
+        recoveredDurationMs: recovered.duration_ms,
+        recoveredHasCheckpoint: recovered.has_checkpoint,
+        sessionId: String(session.session_id),
+      };
+    })
+    .filter(
+      (change) =>
+        change.currentDurationMs !== change.recoveredDurationMs ||
+        change.currentHasCheckpoint !== change.recoveredHasCheckpoint,
+    );
+
+  let updated = 0;
+  for (let index = 0; index < changes.length; index += 100) {
+    const batch = changes.slice(index, index + 100);
+    const sql = buildDurationRecoverySql(batch);
+    if (sql === undefined) continue;
+    const results = runD1(sql, options);
+    updated += results.reduce((total, item) => total + Number(item.meta?.changes ?? 0), 0);
+    verifyDurationRecoveries(batch, options);
+  }
+  return updated;
+}
+
+function verifyDurationRecoveries(changes, options) {
+  if (changes.length === 0) return;
+  const conditions = changes.map(
+    (change) =>
+      `(project_id = ${sqlString(change.projectId)} AND session_id = ${sqlString(change.sessionId)})`,
+  );
+  const rows = queryRows(
+    `SELECT project_id, session_id, duration_ms, has_checkpoint
+     FROM sessions
+     WHERE ${conditions.join(" OR ")}`,
+    options,
+  );
+  const byIdentity = new Map(rows.map((row) => [`${row.project_id}\0${row.session_id}`, row]));
+  for (const change of changes) {
+    const row = byIdentity.get(`${change.projectId}\0${change.sessionId}`);
+    if (
+      Number(row?.duration_ms) !== change.recoveredDurationMs ||
+      normalizeCheckpoint(row?.has_checkpoint) !== change.recoveredHasCheckpoint
+    ) {
+      throw new BackfillStateChangedError(
+        "source",
+        `Analytics duration recovery could not verify ${change.projectId}/${change.sessionId} after its guarded update.`,
+      );
+    }
+  }
+}
+
+function normalizeCheckpoint(value) {
+  if (value === null || value === undefined) return null;
+  const number = Number(value);
+  if (number === 0 || number === 1) return number;
+  throw new Error("D1 returned an invalid has_checkpoint value.");
 }
 
 function queryRows(sql, options) {
@@ -676,9 +891,20 @@ function markStateChangeInReport(report, error) {
 
 function assertD1Schema(options) {
   requireColumns("projects", ["id", "jurisdiction"], options);
-  requireColumns("sessions", sessionColumns, options);
+  requireColumns(
+    "sessions",
+    options.recoverDurations ? [...sessionColumns, "has_checkpoint"] : sessionColumns,
+    options,
+  );
   requireColumns("session_events", ["project_id", "session_id", "t", "kind", "detail"], options);
   requireColumns("session_deletions", ["project_id", "session_id"], options);
+  if (options.recoverDurations) {
+    requireColumns(
+      "analytics_deletion_jobs",
+      ["project_id", "session_id", "requested_at", "delete_reason", "requires_warehouse_tombstone"],
+      options,
+    );
+  }
   if (options.apply) {
     requireColumns(
       "analytics_export_outbox",
@@ -787,6 +1013,7 @@ function makeReport(options, reportId, inventoryObjects, manifestObjects, active
     noReplayPayloadRead: true,
     projects: [],
     reportId,
+    recoveryMode: options.recoverDurations,
     source: options.source,
     sourceCutoffMs: options.now,
     startedAt: new Date().toISOString(),
@@ -797,6 +1024,7 @@ function makeReport(options, reportId, inventoryObjects, manifestObjects, active
       concurrentResidencySkipped: 0,
       concurrentStateChangeAborted: 0,
       deleted: 0,
+      durationCorrections: 0,
       expired: 0,
       invalid: 0,
       invalidManifests: 0,
@@ -809,6 +1037,11 @@ function makeReport(options, reportId, inventoryObjects, manifestObjects, active
       outboxRowsAlreadyPresent: 0,
       outboxRowsExpected: 0,
       outboxRowsInserted: 0,
+      checkpointCorrections: 0,
+      recoveryRowsUpdated: 0,
+      recoveryDeletionExports: 0,
+      recoveryEventExports: 0,
+      recoverySessionExports: 0,
       residencySkipped: 0,
       skipped: 0,
       sourceSessions: 0,

@@ -18,6 +18,8 @@ export interface SessionViewQueryResult {
   notFound: boolean;
   activity: SessionActivity | null;
   detailsState: SessionDetailsState | null;
+  /** False only when the server confirmed the recording has no checkpoint. */
+  hasCheckpoint: boolean | null;
 }
 
 export async function loadSessionView(
@@ -38,6 +40,7 @@ export async function loadSessionView(
       notFound: false,
       activity: state.activity,
       detailsState: state.details_state,
+      hasCheckpoint: state.has_checkpoint,
     };
   } catch (caughtError) {
     if (!isNotFound(caughtError)) throw caughtError;
@@ -47,6 +50,7 @@ export async function loadSessionView(
       notFound: true,
       activity: null,
       detailsState: null,
+      hasCheckpoint: null,
     };
   }
 }

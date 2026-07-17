@@ -10,6 +10,7 @@ import {
   formatAbsoluteTime,
   formatDuration,
   formatErrorCount,
+  formatSessionDuration,
   formatShortRelativeTime,
 } from "@/lib/format";
 import { MousePointer } from "@/lib/icon-map";
@@ -91,7 +92,9 @@ export function SessionCard({
       </div>
 
       <div className="mt-[9px] flex min-w-0 items-center gap-1.5">
-        {evidence.kind === "provisional" ? (
+        {evidence.kind === "starting" ? (
+          <span className="min-w-0 truncate text-[11.5px] text-muted-foreground">Just started</span>
+        ) : evidence.kind === "provisional" ? (
           <span className="font-mono text-[11px] tabular-nums text-foreground">
             {formatDuration(evidence.durationMs)}
           </span>
@@ -106,7 +109,7 @@ export function SessionCard({
               {evidence.clicks} {evidence.clicks === 1 ? "click" : "clicks"}
             </span>
             <span className="text-dim">·</span>
-            <span className="text-foreground">{formatDuration(evidence.durationMs)}</span>
+            <span className="text-foreground">{formatSessionDuration(evidence.durationMs)}</span>
           </span>
         )}
         <span className="flex-1" />
@@ -163,7 +166,11 @@ export function SessionCard({
 }
 
 function cardLabel(session: SessionDisplayItem, location: string, isWatched: boolean): string {
-  const parts = [entryPath(session.entry_url), formatDuration(session.duration_ms)];
+  const evidence = sessionCardEvidence(session);
+  const parts = [
+    entryPath(session.entry_url),
+    evidence.kind === "starting" ? "Just started" : formatSessionDuration(session.duration_ms),
+  ];
   const status = sessionCardStatus(session);
   if (status === "live") parts.push("Live");
   if (status === "pending") parts.push("Final details pending");

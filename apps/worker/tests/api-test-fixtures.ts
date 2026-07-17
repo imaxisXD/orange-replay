@@ -79,6 +79,7 @@ export function makeSession(overrides: Partial<SessionRow>): SessionRow {
     flags: overrides.flags ?? 0,
     manifest_key: overrides.manifest_key ?? manifestKey(projectId, sessionId),
     expires_at: overrides.expires_at ?? 9_999_999_999,
+    has_checkpoint: overrides.has_checkpoint ?? 1,
   };
 }
 
