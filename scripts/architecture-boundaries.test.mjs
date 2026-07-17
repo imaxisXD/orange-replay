@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vite-plus/test";
 
 const scriptsDirectory = path.dirname(fileURLToPath(import.meta.url));
+const workerSourceDirectory = path.resolve(scriptsDirectory, "../apps/worker/src");
 const analyticsDirectory = path.resolve(scriptsDirectory, "../apps/worker/src/analytics");
 
 describe("Worker architecture boundaries", () => {
@@ -19,6 +20,33 @@ describe("Worker architecture boundaries", () => {
     }
 
     expect(invalidImports).toEqual([]);
+  });
+
+  it("keeps public-page storage rules in the publication owner", async () => {
+    const sourcePaths = await listTypeScriptFiles(workerSourceDirectory);
+    const allowedTableOwners = new Set([
+      "db/schema.ts",
+      "public-page/publication.ts",
+      "test/database-schema.ts",
+    ]);
+    const invalidTableOwners = [];
+
+    for (const sourcePath of sourcePaths) {
+      const relativePath = path.relative(workerSourceDirectory, sourcePath);
+      if (allowedTableOwners.has(relativePath)) continue;
+      const source = await readFile(sourcePath, "utf8");
+      if (/\b(?:project_public_pages|public_page_sessions)\b/u.test(source)) {
+        invalidTableOwners.push(relativePath);
+      }
+    }
+
+    expect(invalidTableOwners).toEqual([]);
+
+    const publicationSource = await readFile(
+      path.join(workerSourceDirectory, "public-page/publication.ts"),
+      "utf8",
+    );
+    expect(publicationSource).not.toMatch(/from\s+["']\.\.\/api\//u);
   });
 });
 

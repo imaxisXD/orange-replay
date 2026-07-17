@@ -5,13 +5,20 @@ import {
   assetSessionId,
   authHeaders,
   listProjectId,
+  makeManifest,
+  makeSession,
   segmentBytes,
   segmentName,
+  seedSession,
   setupApiTestWorkers,
   worker,
 } from "./api-test-helpers.ts";
 
 setupApiTestWorkers();
+
+const privateEntryUrl =
+  "https://private:secret@example.com/checkout/complete?email=private@example.com#access-token";
+const privateSessionId = "api_public_private_session";
 
 describe.sequential("public project pages", () => {
   it("keeps publication settings private and validates the selected recordings", async () => {
@@ -64,16 +71,38 @@ describe.sequential("public project pages", () => {
     expect(await otherProject.json()).toEqual({ error: "recording_not_available" });
   });
 
-  it("publishes safe SSR analytics and one curated recording, then revokes both", async () => {
-    const publishedResponse = await updateSettings(assetProjectId, true, [assetSessionId], 0);
+  it("publishes safe SSR analytics and revokes recording access from every public route", async () => {
+    const privateSession = makeSession({
+      session_id: privateSessionId,
+      project_id: assetProjectId,
+      started_at: 6_000,
+      ended_at: 7_000,
+      duration_ms: 1_000,
+      entry_url: privateEntryUrl,
+      bytes: segmentBytes.byteLength,
+      segment_count: 1,
+    });
+    await seedSession(
+      privateSession,
+      makeManifest(privateSession, [{ name: segmentName, bytes: segmentBytes }]),
+      [{ name: segmentName, bytes: segmentBytes }],
+    );
+
+    const publishedResponse = await updateSettings(assetProjectId, true, [privateSessionId], 0);
     expect(publishedResponse.status).toBe(200);
-    const settings = (await publishedResponse.json()) as PublicPageSettings;
+    const settingsText = await publishedResponse.text();
+    const settings = JSON.parse(settingsText) as PublicPageSettings;
     expect(settings.enabled).toBe(true);
     expect(settings.publicId).toMatch(/^pub_[a-f0-9]{36}$/);
     expect(settings.publicUrl).toMatch(new RegExp(`/p/${settings.publicId}$`));
     expect(settings.recordings).toHaveLength(1);
-    expect(settings.recordings[0]?.sessionId).toBe(assetSessionId);
+    expect(settings.recordings[0]?.sessionId).toBe(privateSessionId);
+    expect(settings.recordings[0]?.entryPath).toBe("/checkout/complete");
     expect(settings.recordings[0]?.replayId).toMatch(/^replay_[a-f0-9]{36}$/);
+    expect(settingsText).not.toContain("private:secret");
+    expect(settingsText).not.toContain("example.com");
+    expect(settingsText).not.toContain("private@example.com");
+    expect(settingsText).not.toContain("access-token");
 
     const publicId = settings.publicId!;
     const publicReplayId = settings.recordings[0]!.replayId;
@@ -85,11 +114,18 @@ describe.sequential("public project pages", () => {
     const dataText = await dataResponse.text();
     const data = JSON.parse(dataText) as PublicPageData;
     expect(data.publicId).toBe(publicId);
-    expect(data.analytics.sessions).toBe(1);
+    expect(data.analytics.sessions).toBe(2);
+    expect(data.analytics.entryPages).toContainEqual(
+      expect.objectContaining({ label: "/checkout/complete" }),
+    );
     expect(data.recordings).toEqual([
-      expect.objectContaining({ replayId: publicReplayId, entryPath: "/" }),
+      expect.objectContaining({ replayId: publicReplayId, entryPath: "/checkout/complete" }),
     ]);
-    expect(dataText).not.toContain(assetSessionId);
+    expect(dataText).not.toContain(privateSessionId);
+    expect(dataText).not.toContain("private:secret");
+    expect(dataText).not.toContain("example.com");
+    expect(dataText).not.toContain("private@example.com");
+    expect(dataText).not.toContain("access-token");
     expect(dataText).not.toContain('"projectId"');
     expect(dataText).not.toContain('"sessionId"');
     expect(dataText).not.toContain('"orgId"');
@@ -110,7 +146,12 @@ describe.sequential("public project pages", () => {
     expect(html).toContain("Public analytics");
     expect(html).toContain("Sessions");
     expect(html).toContain(publicReplayId);
-    expect(html).not.toContain(assetSessionId);
+    expect(html).toContain("/checkout/complete");
+    expect(html).not.toContain(privateSessionId);
+    expect(html).not.toContain("private:secret");
+    expect(html).not.toContain("example.com");
+    expect(html).not.toContain("private@example.com");
+    expect(html).not.toContain("access-token");
     expect(html).not.toContain('"projectId"');
     expect(html).not.toContain('"sessionId"');
     expect(html).not.toContain('"orgId"');
@@ -135,7 +176,8 @@ describe.sequential("public project pages", () => {
     expect(manifest.attrs).not.toHaveProperty("city");
     expect(manifest.attrs).not.toHaveProperty("entryUrl");
     expect(manifestText).not.toContain(assetProjectId);
-    expect(manifestText).not.toContain(assetSessionId);
+    expect(manifestText).not.toContain(privateSessionId);
+    expect(manifestText).not.toContain("private@example.com");
     expect(manifestText).not.toContain("api_org");
 
     const segmentResponse = await worker.fetch(
@@ -150,23 +192,108 @@ describe.sequential("public project pages", () => {
     const removedResponse = await updateSettings(assetProjectId, true, [], settings.revision);
     expect(removedResponse.status).toBe(200);
     const removedSettings = (await removedResponse.json()) as PublicPageSettings;
-    const removedManifest = await worker.fetch(
-      `/api/v1/public-pages/${publicId}/replays/${publicReplayId}/manifest`,
+    const removedData = await worker.fetch(`/api/v1/public-pages/${publicId}`);
+    expect(removedData.status).toBe(200);
+    expect(((await removedData.json()) as PublicPageData).recordings).toEqual([]);
+    const removedHtml = await worker.fetch(`/p/${publicId}`);
+    expect(removedHtml.status).toBe(200);
+    const removedHtmlText = await removedHtml.text();
+    expect(removedHtmlText).toContain("No session recordings are shared on this page.");
+    expect(removedHtmlText).not.toContain(publicReplayId);
+    expect(
+      (await worker.fetch(`/api/v1/public-pages/${publicId}/replays/${publicReplayId}/manifest`))
+        .status,
+    ).toBe(404);
+    expect(
+      (
+        await worker.fetch(
+          `/api/v1/public-pages/${publicId}/replays/${publicReplayId}/segments/${segmentName}`,
+        )
+      ).status,
+    ).toBe(404);
+
+    const restoredResponse = await updateSettings(
+      assetProjectId,
+      true,
+      [privateSessionId],
+      removedSettings.revision,
     );
-    expect(removedManifest.status).toBe(404);
+    expect(restoredResponse.status).toBe(200);
+    const restoredSettings = (await restoredResponse.json()) as PublicPageSettings;
+    const restoredReplayId = restoredSettings.recordings[0]!.replayId;
 
     const disabledResponse = await updateSettings(
       assetProjectId,
       false,
-      [],
-      removedSettings.revision,
+      [privateSessionId],
+      restoredSettings.revision,
     );
     expect(disabledResponse.status).toBe(200);
+    const disabledSettings = (await disabledResponse.json()) as PublicPageSettings;
+    expect(disabledSettings.recordings[0]?.sessionId).toBe(privateSessionId);
     const disabledData = await worker.fetch(`/api/v1/public-pages/${publicId}`);
     const disabledHtml = await worker.fetch(`/p/${publicId}`);
     expect(disabledData.status).toBe(404);
     expect(disabledHtml.status).toBe(404);
     expect(disabledHtml.headers.get("x-robots-tag")).toContain("noindex");
+    expect(
+      (await worker.fetch(`/api/v1/public-pages/${publicId}/replays/${restoredReplayId}/manifest`))
+        .status,
+    ).toBe(404);
+    expect(
+      (
+        await worker.fetch(
+          `/api/v1/public-pages/${publicId}/replays/${restoredReplayId}/segments/${segmentName}`,
+        )
+      ).status,
+    ).toBe(404);
+
+    const republishedResponse = await updateSettings(
+      assetProjectId,
+      true,
+      [privateSessionId],
+      disabledSettings.revision,
+    );
+    expect(republishedResponse.status).toBe(200);
+    const republishedSettings = (await republishedResponse.json()) as PublicPageSettings;
+    expect(republishedSettings.recordings[0]?.replayId).toBe(restoredReplayId);
+
+    const deletion = await worker.fetch("/__test/consumer/seed-deletion", {
+      method: "POST",
+      body: JSON.stringify({ projectId: assetProjectId, sessionId: privateSessionId }),
+    });
+    expect(deletion.status).toBe(200);
+
+    const deletedDataResponse = await worker.fetch(`/api/v1/public-pages/${publicId}`);
+    expect(deletedDataResponse.status).toBe(200);
+    expect(((await deletedDataResponse.json()) as PublicPageData).recordings).toEqual([]);
+    const deletedHtmlResponse = await worker.fetch(`/p/${publicId}`);
+    expect(deletedHtmlResponse.status).toBe(200);
+    expect(await deletedHtmlResponse.text()).not.toContain(restoredReplayId);
+    expect(
+      (await worker.fetch(`/api/v1/public-pages/${publicId}/replays/${restoredReplayId}/manifest`))
+        .status,
+    ).toBe(404);
+    expect(
+      (
+        await worker.fetch(
+          `/api/v1/public-pages/${publicId}/replays/${restoredReplayId}/segments/${segmentName}`,
+        )
+      ).status,
+    ).toBe(404);
+    expect((await readSettings(assetProjectId)).recordings).toEqual([]);
+
+    const deletedReselection = await updateSettings(
+      assetProjectId,
+      true,
+      [privateSessionId],
+      republishedSettings.revision,
+    );
+    expect(deletedReselection.status).toBe(400);
+    expect(await deletedReselection.json()).toEqual({ error: "recording_not_available" });
+
+    const cleanup = await updateSettings(assetProjectId, false, [], republishedSettings.revision);
+    expect(cleanup.status).toBe(200);
   });
 
   it("does not publish a valid recording from another project", async () => {

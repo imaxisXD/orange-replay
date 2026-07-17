@@ -92,6 +92,8 @@ describe("public page settings", () => {
     await waitForUi(() => {
       expect(apiMocks.listSessions).toHaveBeenCalled();
       expect(document.body.textContent).toContain("/checkout");
+      expect(document.body.textContent).not.toContain("example.com");
+      expect(document.body.textContent).not.toContain("private@example.com");
     });
 
     await act(async () => {

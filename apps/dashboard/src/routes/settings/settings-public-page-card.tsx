@@ -1,4 +1,5 @@
 import { MAX_PUBLIC_PAGE_RECORDINGS } from "@orange-replay/shared";
+import { safePublicEntryPath } from "@orange-replay/shared/analytics-privacy";
 import type {
   PublicPageSelectedRecording,
   PublicPageSettingsUpdate,
@@ -358,20 +359,11 @@ function sessionToChoice(session: SessionListItem): RecordingChoice {
     sessionId: session.session_id,
     startedAt: session.started_at,
     durationMs: session.duration_ms,
-    entryPath: safeEntryPath(session.entry_url),
+    entryPath: safePublicEntryPath(session.entry_url),
     country: session.country,
     device: session.device,
     browser: session.browser,
   };
-}
-
-function safeEntryPath(value: string | null): string {
-  if (!value) return "/";
-  try {
-    return new URL(value, "https://dashboard.invalid").pathname || "/";
-  } catch {
-    return "/";
-  }
 }
 
 function publicPageError(error: unknown, fallback: string): string {

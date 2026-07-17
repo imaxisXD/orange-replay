@@ -22,6 +22,15 @@ export function isUrlMetadataKey(key: string): boolean {
   return simpleKey === "location" || URL_KEY_ENDINGS.some((ending) => simpleKey.endsWith(ending));
 }
 
+/**
+ * Returns only the path that is safe to show on a public project page.
+ * Hosts, credentials, queries, fragments, and non-HTTP URLs never leave this boundary.
+ */
+export function safePublicEntryPath(value: string | null): string {
+  if (!value) return "/";
+  return cleanAnalyticsUrl(value) ?? "/";
+}
+
 function cleanAnalyticsUrl(value: string): string | null {
   try {
     const url = new URL(value, "https://orange-replay.invalid");
