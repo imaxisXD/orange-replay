@@ -48,6 +48,28 @@ describe("Worker architecture boundaries", () => {
     );
     expect(publicationSource).not.toMatch(/from\s+["']\.\.\/api\//u);
   });
+
+  it("keeps analytics erasure transitions in one owner", async () => {
+    const sourcePaths = await listTypeScriptFiles(workerSourceDirectory);
+    const transitionOwner = "analytics/erasure-lifecycle.ts";
+    const jobMutation =
+      /\b(?:INSERT(?:\s+OR\s+\w+)?\s+INTO|UPDATE|DELETE\s+FROM)\s+analytics_deletion_jobs\b/iu;
+    const invalidTransitionOwners = [];
+
+    for (const sourcePath of sourcePaths) {
+      const relativePath = path.relative(workerSourceDirectory, sourcePath);
+      if (relativePath === transitionOwner) continue;
+      const source = await readFile(sourcePath, "utf8");
+      if (jobMutation.test(source)) invalidTransitionOwners.push(relativePath);
+    }
+
+    expect(invalidTransitionOwners).toEqual([]);
+
+    const ownerSource = await readFile(path.join(workerSourceDirectory, transitionOwner), "utf8");
+    expect(ownerSource).not.toMatch(
+      /from\s+["'](?:\.\.\/(?:api|consumer)\/|\.\.\/env\.ts|\.\/(?:deletion-v2|maintenance|purge-api|purge-jobs|r2-sql-client|rate-limited-pipeline|runtime)\.ts)/u,
+    );
+  });
 });
 
 async function listTypeScriptFiles(directory) {

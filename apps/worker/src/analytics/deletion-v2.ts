@@ -1,4 +1,16 @@
 import { runR2SqlProjectQuery, type R2SqlSettings } from "./r2-sql-client.ts";
+import {
+  listAnalyticsDeletionV2JobsAwaitingVisibility,
+  listUnsentAnalyticsDeletionV2Jobs,
+  markAnalyticsDeletionV2Failed,
+  markAnalyticsDeletionV2Sent,
+  markAnalyticsDeletionV2Visible,
+  readAnalyticsDeletionV2Counts,
+  resetAnalyticsDeletionV2ForRetry,
+  saveAnalyticsDeletionV2State,
+  type AnalyticsDeletionV2Counts,
+  type AnalyticsDeletionV2Job,
+} from "./erasure-lifecycle.ts";
 import { sqlText } from "./sql.ts";
 
 export const ANALYTICS_DELETION_V2_SCHEMA_VERSION = 2;
@@ -46,19 +58,8 @@ export interface MaintainAnalyticsDeletionV2Result {
   ready: boolean;
 }
 
-interface DeletionV2JobRow {
-  projectId: string;
-  sessionId: string;
-  requestedAt: number;
-  deleteReason: string;
-  sessionStartedAt: number | null;
-  exportSequence: number;
-}
-
-interface DeletionV2CountRow {
-  requiredJobs: number;
-  visibleJobs: number;
-}
+type DeletionV2JobRow = AnalyticsDeletionV2Job;
+type DeletionV2CountRow = AnalyticsDeletionV2Counts;
 
 interface DeletionV2WarehouseRow extends Record<string, unknown> {
   schema_version: number;
@@ -95,7 +96,7 @@ export async function maintainAnalyticsDeletionV2(
   let visible = 0;
   let missing = 0;
 
-  const unsent = await listDeletionV2Jobs(db, `j.deletion_v2_sent_at IS NULL`, [], batchSize);
+  const unsent = await listUnsentAnalyticsDeletionV2Jobs(db, batchSize);
   selected = unsent.length;
 
   const validUnsent: DeletionV2JobRow[] = [];
@@ -105,7 +106,7 @@ export async function maintainAnalyticsDeletionV2(
       records.push(buildAnalyticsDeletionV2Record(job));
       validUnsent.push(job);
     } catch (error) {
-      await markDeletionV2Failed(db, [job], storedError(error));
+      await markAnalyticsDeletionV2Failed(db, [job], storedError(error));
       failed += 1;
     }
   }
@@ -113,22 +114,21 @@ export async function maintainAnalyticsDeletionV2(
   if (records.length > 0) {
     try {
       await pipeline.send(records);
-      await markDeletionV2Sent(db, validUnsent, now);
+      await markAnalyticsDeletionV2Sent(db, validUnsent, now);
       sent = records.length;
     } catch (error) {
       const message = storedError(error);
-      await markDeletionV2Failed(db, validUnsent, message);
-      const counts = await readDeletionV2Counts(db);
-      await saveDeletionV2State(db, counts, now, message, false);
+      await markAnalyticsDeletionV2Failed(db, validUnsent, message);
+      const counts = await readAnalyticsDeletionV2Counts(db);
+      await saveAnalyticsDeletionV2State(db, counts, now, message, false);
       throw new Error(`Analytics deletion v2 delivery failed: ${message}`, { cause: error });
     }
   }
 
   const visibilityCutoff = Math.max(0, now - visibilityDelayMs);
-  const waiting = await listDeletionV2Jobs(
+  const waiting = await listAnalyticsDeletionV2JobsAwaitingVisibility(
     db,
-    `j.deletion_v2_sent_at IS NOT NULL AND j.deletion_v2_sent_at <= ?`,
-    [visibilityCutoff],
+    visibilityCutoff,
     batchSize,
   );
   checked = waiting.length;
@@ -141,8 +141,8 @@ export async function maintainAnalyticsDeletionV2(
         expectedRecords.push(buildAnalyticsDeletionV2Record(job));
         validWaiting.push(job);
       } catch (error) {
-        await resetDeletionV2ForRetry(db, [job]);
-        await markDeletionV2Failed(db, [job], storedError(error));
+        await resetAnalyticsDeletionV2ForRetry(db, [job]);
+        await markAnalyticsDeletionV2Failed(db, [job], storedError(error));
         failed += 1;
       }
     }
@@ -157,8 +157,8 @@ export async function maintainAnalyticsDeletionV2(
       visibleIds = answer instanceof Set ? answer : new Set(answer);
     } catch (error) {
       const message = storedError(error);
-      const counts = await readDeletionV2Counts(db);
-      await saveDeletionV2State(db, counts, now, message, false);
+      const counts = await readAnalyticsDeletionV2Counts(db);
+      await saveAnalyticsDeletionV2State(db, counts, now, message, false);
       throw new Error(`Analytics deletion v2 visibility failed: ${message}`, { cause: error });
     }
 
@@ -168,13 +168,13 @@ export async function maintainAnalyticsDeletionV2(
       if (visibleIds.has(deletionV2ExportId(job.projectId, job.sessionId))) found.push(job);
       else notFound.push(job);
     }
-    await markDeletionV2Visible(db, found, now);
-    await resetDeletionV2ForRetry(db, notFound);
+    await markAnalyticsDeletionV2Visible(db, found, now);
+    await resetAnalyticsDeletionV2ForRetry(db, notFound);
     visible += found.length;
     missing += notFound.length;
   }
 
-  const counts = await readDeletionV2Counts(db);
+  const counts = await readAnalyticsDeletionV2Counts(db);
   const ready = counts.requiredJobs === counts.visibleJobs;
   let stateError = deletionV2StateError(failed, missing, counts);
 
@@ -185,12 +185,12 @@ export async function maintainAnalyticsDeletionV2(
       await visibility.proveTableExists("deletion-v2-readiness");
     } catch (error) {
       stateError = storedError(error);
-      await saveDeletionV2State(db, counts, now, stateError, false);
+      await saveAnalyticsDeletionV2State(db, counts, now, stateError, false);
       throw new Error(`Analytics deletion v2 table check failed: ${stateError}`, { cause: error });
     }
   }
 
-  await saveDeletionV2State(db, counts, now, stateError, ready);
+  await saveAnalyticsDeletionV2State(db, counts, now, stateError, ready);
   return {
     selected,
     sent,
@@ -321,203 +321,6 @@ export function createAnalyticsDeletionV2Visibility(
       );
     },
   };
-}
-
-async function listDeletionV2Jobs(
-  db: D1Database,
-  extraWhere: string,
-  bindings: readonly number[],
-  limit: number,
-): Promise<DeletionV2JobRow[]> {
-  const result = await db
-    .prepare(
-      `SELECT
-        j.project_id AS projectId,
-        j.session_id AS sessionId,
-        j.requested_at AS requestedAt,
-        j.delete_reason AS deleteReason,
-        j.session_started_at AS sessionStartedAt,
-        j.deletion_export_sequence AS exportSequence
-      FROM analytics_deletion_jobs j
-      WHERE j.requires_warehouse_tombstone = 1
-        AND j.deletion_v2_visible_at IS NULL
-        AND ${extraWhere}
-      ORDER BY j.deletion_v2_attempt_count, j.requested_at, j.project_id, j.session_id
-      LIMIT ?`,
-    )
-    .bind(...bindings, limit)
-    .all<DeletionV2JobRow>();
-  return result.results;
-}
-
-async function markDeletionV2Sent(
-  db: D1Database,
-  jobs: readonly DeletionV2JobRow[],
-  now: number,
-): Promise<void> {
-  if (jobs.length === 0) return;
-  await db.batch(
-    jobs.map((job) =>
-      db
-        .prepare(
-          `UPDATE analytics_deletion_jobs
-          SET deletion_v2_sent_at = ?,
-            deletion_v2_attempt_count = deletion_v2_attempt_count + 1,
-            deletion_v2_last_error = NULL
-          WHERE project_id = ? AND session_id = ?
-            AND requires_warehouse_tombstone = 1
-            AND requested_at = ?
-            AND delete_reason = ?
-            AND deletion_export_sequence = ?
-            AND session_started_at IS ?
-            AND deletion_v2_visible_at IS NULL`,
-        )
-        .bind(
-          now,
-          job.projectId,
-          job.sessionId,
-          job.requestedAt,
-          job.deleteReason,
-          job.exportSequence,
-          job.sessionStartedAt,
-        ),
-    ),
-  );
-}
-
-async function markDeletionV2Failed(
-  db: D1Database,
-  jobs: readonly DeletionV2JobRow[],
-  error: string,
-): Promise<void> {
-  if (jobs.length === 0) return;
-  await db.batch(
-    jobs.map((job) =>
-      db
-        .prepare(
-          `UPDATE analytics_deletion_jobs
-          SET deletion_v2_attempt_count = deletion_v2_attempt_count + 1,
-            deletion_v2_last_error = ?
-          WHERE project_id = ? AND session_id = ?
-            AND requires_warehouse_tombstone = 1
-            AND deletion_v2_visible_at IS NULL`,
-        )
-        .bind(error, job.projectId, job.sessionId),
-    ),
-  );
-}
-
-async function markDeletionV2Visible(
-  db: D1Database,
-  jobs: readonly DeletionV2JobRow[],
-  now: number,
-): Promise<void> {
-  if (jobs.length === 0) return;
-  await db.batch(
-    jobs.map((job) =>
-      db
-        .prepare(
-          `UPDATE analytics_deletion_jobs
-          SET deletion_v2_visible_at = ?, deletion_v2_last_error = NULL
-          WHERE project_id = ? AND session_id = ?
-            AND deletion_v2_sent_at IS NOT NULL
-            AND requested_at = ?
-            AND delete_reason = ?
-            AND deletion_export_sequence = ?
-            AND session_started_at IS ?
-            AND deletion_v2_visible_at IS NULL`,
-        )
-        .bind(
-          now,
-          job.projectId,
-          job.sessionId,
-          job.requestedAt,
-          job.deleteReason,
-          job.exportSequence,
-          job.sessionStartedAt,
-        ),
-    ),
-  );
-}
-
-async function resetDeletionV2ForRetry(
-  db: D1Database,
-  jobs: readonly DeletionV2JobRow[],
-): Promise<void> {
-  if (jobs.length === 0) return;
-  const error = "Analytics deletion v2 record is not visible yet.";
-  await db.batch(
-    jobs.map((job) =>
-      db
-        .prepare(
-          `UPDATE analytics_deletion_jobs
-          SET deletion_v2_sent_at = NULL, deletion_v2_last_error = ?
-          WHERE project_id = ? AND session_id = ?
-            AND requested_at = ?
-            AND delete_reason = ?
-            AND deletion_export_sequence = ?
-            AND session_started_at IS ?
-            AND deletion_v2_visible_at IS NULL`,
-        )
-        .bind(
-          error,
-          job.projectId,
-          job.sessionId,
-          job.requestedAt,
-          job.deleteReason,
-          job.exportSequence,
-          job.sessionStartedAt,
-        ),
-    ),
-  );
-}
-
-async function readDeletionV2Counts(db: D1Database): Promise<DeletionV2CountRow> {
-  const row = await db
-    .prepare(
-      `SELECT
-        COUNT(*) AS requiredJobs,
-        COALESCE(SUM(CASE WHEN deletion_v2_visible_at IS NOT NULL THEN 1 ELSE 0 END), 0)
-          AS visibleJobs
-      FROM analytics_deletion_jobs
-      WHERE requires_warehouse_tombstone = 1`,
-    )
-    .first<DeletionV2CountRow>();
-  if (
-    row === null ||
-    !Number.isSafeInteger(row.requiredJobs) ||
-    row.requiredJobs < 0 ||
-    !Number.isSafeInteger(row.visibleJobs) ||
-    row.visibleJobs < 0 ||
-    row.visibleJobs > row.requiredJobs
-  ) {
-    throw new Error("Analytics deletion v2 state returned invalid counts.");
-  }
-  return row;
-}
-
-async function saveDeletionV2State(
-  db: D1Database,
-  counts: DeletionV2CountRow,
-  now: number,
-  error: string | null,
-  ready: boolean,
-): Promise<void> {
-  await db
-    .prepare(
-      `INSERT INTO analytics_deletion_v2_state (
-        shard, required_job_count, visible_job_count, last_attempt_at,
-        last_error, backfill_completed_at
-      ) VALUES (0, ?, ?, ?, ?, ?)
-      ON CONFLICT(shard) DO UPDATE SET
-        required_job_count = excluded.required_job_count,
-        visible_job_count = excluded.visible_job_count,
-        last_attempt_at = excluded.last_attempt_at,
-        last_error = excluded.last_error,
-        backfill_completed_at = excluded.backfill_completed_at`,
-    )
-    .bind(counts.requiredJobs, counts.visibleJobs, now, error, ready && error === null ? now : null)
-    .run();
 }
 
 function groupJobsByProject(jobs: readonly DeletionV2JobRow[]): DeletionV2JobRow[][] {

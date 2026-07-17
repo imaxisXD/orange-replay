@@ -5,15 +5,16 @@ import {
   type WideEventOutcome,
 } from "@orange-replay/shared";
 import { isValidPathId } from "../api/helpers.ts";
-import { queueDeletionExportsFromJournal } from "../analytics/deletion-journal.ts";
+import {
+  ANALYTICS_ERASURE_BATCH_SIZE,
+  queueDeletionExportsFromJournal,
+  recordAnalyticsErasureRequests,
+} from "../analytics/erasure-lifecycle.ts";
 import { analyticsExportEnabled, setWorkerLoggerVersion, shardDb, type Env } from "../env.ts";
 import { chunkList } from "./helpers.ts";
 
 const SESSION_SELECT_LIMIT = 200;
 const R2_DELETE_LIMIT = 1_000;
-// The deletion job statement binds six values per session. D1 accepts at
-// most 100 values, so 15 sessions leaves room for future fixed bindings.
-const D1_DELETE_CHUNK_SIZE = 15;
 
 export interface ExpiredSessionRow {
   sessionId: string;
@@ -164,60 +165,7 @@ export async function markRowsForDeletion(
   rows: readonly ExpiredSessionRow[],
   now: number,
 ): Promise<void> {
-  for (const chunk of chunkList(rows, D1_DELETE_CHUNK_SIZE)) {
-    const placeholders = chunk.map(() => "(?, ?, ?, 1)").join(", ");
-    const values = chunk.flatMap((row) => [row.projectId, row.sessionId, now]);
-    const statements = [
-      db
-        .prepare(
-          `INSERT INTO session_deletions (project_id, session_id, requested_at, attempts)
-        VALUES ${placeholders}
-        ON CONFLICT(project_id, session_id) DO UPDATE SET
-          attempts = attempts + 1,
-          last_error = NULL`,
-        )
-        .bind(...values),
-      db
-        .prepare(
-          `INSERT INTO analytics_deletion_jobs (
-            project_id, session_id, requested_at, delete_reason,
-            requires_warehouse_tombstone, session_started_at
-          ) VALUES ${chunk.map(() => "(?, ?, ?, ?, ?, ?)").join(", ")}
-          ON CONFLICT(project_id, session_id) DO UPDATE SET
-            requested_at = MIN(analytics_deletion_jobs.requested_at, excluded.requested_at),
-            delete_reason = excluded.delete_reason,
-            session_started_at = COALESCE(
-              analytics_deletion_jobs.session_started_at,
-              excluded.session_started_at
-            ),
-            requires_warehouse_tombstone = CASE
-              WHEN analytics_deletion_jobs.requires_warehouse_tombstone = 1
-                OR excluded.requires_warehouse_tombstone = 1
-              THEN 1
-              ELSE 0
-            END,
-            completed_at = NULL`,
-        )
-        .bind(
-          ...chunk.flatMap((row) => [
-            row.projectId,
-            row.sessionId,
-            now,
-            row.deleteReason,
-            row.requiresWarehouseTombstone,
-            row.startedAt,
-          ]),
-        ),
-      db
-        .prepare(
-          `DELETE FROM analytics_export_outbox
-          WHERE record_kind IN ('session', 'event')
-            AND (project_id, session_id) IN (${chunk.map(() => "(?, ?)").join(", ")})`,
-        )
-        .bind(...chunk.flatMap((row) => [row.projectId, row.sessionId])),
-    ];
-    await db.batch(statements);
-  }
+  await recordAnalyticsErasureRequests(db, rows, now);
 }
 
 async function recordDeletionFailure(
@@ -244,7 +192,7 @@ async function deleteRowsForSessions(
 ): Promise<number> {
   let rowsDeleted = 0;
 
-  for (const chunk of chunkList(rows, D1_DELETE_CHUNK_SIZE)) {
+  for (const chunk of chunkList(rows, ANALYTICS_ERASURE_BATCH_SIZE)) {
     const placeholders = chunk.map(() => "(?, ?)").join(", ");
     const values = chunk.flatMap((row) => [row.projectId, row.sessionId]);
     const results = await db.batch([
