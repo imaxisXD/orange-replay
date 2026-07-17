@@ -71,6 +71,20 @@ describe("consumer queue and sweeper", () => {
         bytes: message.bytes,
       },
     ]);
+    expect(await readUsageLedger(message.projectId, message.sessionId)).toBeNull();
+    const lateReservation = await worker.fetch("/__test/consumer/reserve-usage", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        projectId: message.projectId,
+        sessionId: message.sessionId,
+        orgId: message.orgId,
+        month: "2026-01",
+        bytes: message.bytes + 1,
+      }),
+    });
+    expect(lateReservation.status).toBe(409);
+    expect(await readUsage(message.orgId)).toEqual(body.usage);
   }, 30_000);
 
   it("keeps page count unknown for legacy finalize messages", async () => {
@@ -214,7 +228,47 @@ describe("consumer queue and sweeper", () => {
     expect(body.session).toBeNull();
     expect(body.events).toEqual([]);
     expect(body.outbox).toEqual([]);
-    expect(usage).toEqual([]);
+    expect(usage).toEqual([
+      { org_id: message.orgId, month: "2026-01", sessions: 0, bytes: message.bytes },
+    ]);
+    expect(await readUsageLedger(message.projectId, message.sessionId)).toMatchObject({
+      bytes: message.bytes,
+    });
+  });
+
+  it("cleans the reservation ledger when a deletion fence blocks indexing", async () => {
+    const message = makeFinalizeMessage("deletion-fence");
+    const reservation = await worker.fetch("/__test/consumer/reserve-usage", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        projectId: message.projectId,
+        sessionId: message.sessionId,
+        orgId: message.orgId,
+        month: "2026-01",
+        bytes: message.bytes,
+      }),
+    });
+    expect(reservation.status).toBe(200);
+    expect(await readUsageLedger(message.projectId, message.sessionId)).not.toBeNull();
+
+    const marker = await worker.fetch("/__test/consumer/seed-deletion", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ projectId: message.projectId, sessionId: message.sessionId }),
+    });
+    expect(marker.status).toBe(200);
+
+    const response = await worker.fetch("/__test/consumer/index-now", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message }),
+    });
+    expect(response.status).toBe(200);
+    expect(await readUsage(message.orgId)).toEqual([
+      { org_id: message.orgId, month: "2026-01", sessions: 0, bytes: message.bytes },
+    ]);
+    expect(await readUsageLedger(message.projectId, message.sessionId)).toBeNull();
   });
 
   it("acks an invalid message and keeps the worker healthy", async () => {
@@ -510,6 +564,18 @@ async function readUsage(orgId: string): Promise<Record<string, unknown>[]> {
   expect(res.status).toBe(200);
   const body = (await res.json()) as { usage: Record<string, unknown>[] };
   return body.usage;
+}
+
+async function readUsageLedger(
+  projectId: string,
+  sessionId: string,
+): Promise<Record<string, unknown> | null> {
+  const url = new URL("/__test/consumer/usage-ledger", "https://worker.test");
+  url.searchParams.set("project", projectId);
+  url.searchParams.set("session", sessionId);
+  const response = await worker.fetch(`${url.pathname}${url.search}`);
+  expect(response.status).toBe(200);
+  return ((await response.json()) as { ledger: Record<string, unknown> | null }).ledger;
 }
 
 async function expectR2Object(key: string, exists: boolean): Promise<void> {

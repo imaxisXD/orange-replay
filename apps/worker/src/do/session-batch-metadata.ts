@@ -1,3 +1,4 @@
+import { MAX_CHECKPOINTS_PER_SEGMENT } from "@orange-replay/shared";
 import type { BatchIndex, IndexEvent, SegmentCheckpoint } from "@orange-replay/shared";
 
 export interface StoredBatchMetadata {
@@ -73,6 +74,18 @@ export function parseStoredSegmentMetadata(raw: string): StoredSegmentMetadata {
     events: parsed["events"] as IndexEvent[],
     checkpoints,
   };
+}
+
+/** Parses the checkpoint-only JSON selected by the finalization query. */
+export function parseStoredSegmentCheckpoints(raw: string): SegmentCheckpoint[] {
+  const parsed = parseMetadata(raw);
+  if (!Array.isArray(parsed)) return [];
+
+  const checkpoints = parsed.filter(isSegmentCheckpoint);
+  if (checkpoints.length > MAX_CHECKPOINTS_PER_SEGMENT) {
+    throw new Error("Stored segment has too many checkpoints.");
+  }
+  return checkpoints;
 }
 
 export function parseStoredSidecarEvents(raw: string): IndexEvent[] {

@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, expect } from "vite-plus/test";
 import { decodeIngestBody, parseSegment, segmentBatch } from "@orange-replay/shared";
-import type { BatchIndex, SessionManifest } from "@orange-replay/shared";
+import type { BatchIndex, FinalizeMessage, SessionManifest } from "@orange-replay/shared";
 import { unstable_dev } from "wrangler";
 
 const workerDir = fileURLToPath(new URL("..", import.meta.url));
@@ -21,6 +21,7 @@ beforeAll(async () => {
     config: `${workerDir}wrangler.jsonc`,
     vars: {
       DEV_TEST_ROUTES: "1",
+      ACCEPTED_USAGE_RESERVATIONS: "1",
       TEST_TIMINGS: JSON.stringify(timing),
     },
     persist: false,
@@ -37,6 +38,7 @@ afterAll(async () => {
 
 export interface AppendInput {
   projectId: string;
+  orgId?: string;
   sessionId: string;
   tab: string;
   seq: number;
@@ -92,6 +94,16 @@ export interface LiveConnection {
 }
 
 export async function append(input: AppendInput): Promise<AppendResultBody> {
+  const response = await sendAppend(input);
+  expect(response.status).toBe(200);
+  return (await response.json()) as AppendResultBody;
+}
+
+export async function appendStatus(input: AppendInput): Promise<number> {
+  return (await sendAppend(input)).status;
+}
+
+async function sendAppend(input: AppendInput): Promise<Response> {
   const index: BatchIndex = {
     v: 1,
     s: input.sessionId,
@@ -109,7 +121,7 @@ export async function append(input: AppendInput): Promise<AppendResultBody> {
     method: "POST",
     body: JSON.stringify({
       projectId: input.projectId,
-      orgId: "org",
+      orgId: input.orgId ?? "org",
       shard: 0,
       retentionDays: 7,
       requestId: `req-${input.projectId}-${input.sessionId}-${input.tab}-${input.seq}`,
@@ -123,9 +135,38 @@ export async function append(input: AppendInput): Promise<AppendResultBody> {
       receivedAt: input.receivedAt ?? Date.now(),
     }),
   });
+  return response;
+}
 
+export async function readUsage(orgId: string): Promise<Record<string, unknown>[]> {
+  const response = await worker.fetch(`/__test/consumer/usage?org=${encodeURIComponent(orgId)}`);
   expect(response.status).toBe(200);
-  return (await response.json()) as AppendResultBody;
+  const body = (await response.json()) as { usage: Record<string, unknown>[] };
+  return body.usage;
+}
+
+export async function readUsageLedger(
+  projectId: string,
+  sessionId: string,
+): Promise<Record<string, unknown> | null> {
+  const response = await worker.fetch(
+    `/__test/consumer/usage-ledger?project=${encodeURIComponent(projectId)}&session=${encodeURIComponent(sessionId)}`,
+  );
+  expect(response.status).toBe(200);
+  const body = (await response.json()) as { ledger: Record<string, unknown> | null };
+  return body.ledger;
+}
+
+export async function configureUsageReservationFailure(input: {
+  projectId: string;
+  sessionId: string;
+  enabled: boolean;
+}): Promise<void> {
+  const response = await worker.fetch("/__test/consumer/fail-usage-reservation", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  expect(response.status).toBe(200);
 }
 
 export async function seedDeletionMarker(projectId: string, sessionId: string): Promise<void> {
@@ -189,6 +230,34 @@ export async function forceFinalize(projectId: string, sessionId: string): Promi
   const response = await worker.fetch("/__test/do/finalize", {
     method: "POST",
     body: JSON.stringify({ projectId, sessionId }),
+  });
+
+  expect(response.status).toBe(200);
+}
+
+export async function markFinalizingForTest(projectId: string, sessionId: string): Promise<void> {
+  const response = await worker.fetch("/__test/do/mark-finalizing", {
+    method: "POST",
+    body: JSON.stringify({ projectId, sessionId }),
+  });
+
+  expect(response.status).toBe(200);
+}
+
+export async function runAlarmForTest(projectId: string, sessionId: string): Promise<void> {
+  const response = await worker.fetch("/__test/do/alarm", {
+    method: "POST",
+    body: JSON.stringify({ projectId, sessionId }),
+  });
+
+  expect(response.status).toBe(200);
+}
+
+export async function indexSessionNowForTest(message: FinalizeMessage): Promise<void> {
+  const response = await worker.fetch("/__test/consumer/index-now", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ message }),
   });
 
   expect(response.status).toBe(200);

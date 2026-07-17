@@ -3,6 +3,7 @@ import { isValidPathId, parseRecordingObjectKey } from "../api/helpers.ts";
 import { finalizeTraceKey, indexSession } from "../consumer/queue.ts";
 import { sweepExpiredSessions } from "../consumer/sweeper.ts";
 import type { Env } from "../env.ts";
+import { reserveAcceptedUsage } from "../usage/accepted-usage.ts";
 import { createTestDatabaseSchema } from "./database-schema.ts";
 
 const SESSION_COLUMNS = [
@@ -67,8 +68,20 @@ export async function handleConsumerTestRoutes(
     return readUsage(url, env);
   }
 
+  if (request.method === "GET" && path === "/__test/consumer/usage-ledger") {
+    return readUsageLedger(url, env);
+  }
+
   if (request.method === "POST" && path === "/__test/consumer/index-now") {
     return indexFinalizeMessageNow(request, env);
+  }
+
+  if (request.method === "POST" && path === "/__test/consumer/reserve-usage") {
+    return reserveUsageNow(request, env);
+  }
+
+  if (request.method === "POST" && path === "/__test/consumer/fail-usage-reservation") {
+    return configureUsageReservationFailure(request, env);
   }
 
   if (request.method === "POST" && path === "/__test/consumer/seed-session") {
@@ -192,6 +205,88 @@ async function readUsage(url: URL, env: Env): Promise<Response> {
     .all<JsonRecord>();
 
   return Response.json({ usage: usage.results });
+}
+
+async function readUsageLedger(url: URL, env: Env): Promise<Response> {
+  const projectId = url.searchParams.get("project");
+  const sessionId = url.searchParams.get("session");
+  if (projectId === null || sessionId === null) {
+    return Response.json({ error: "missing session identity" }, { status: 400 });
+  }
+
+  const ledger = await env.IDX_00.prepare(
+    `SELECT project_id, session_id, org_id, month, bytes, updated_at
+    FROM accepted_usage_sessions
+    WHERE project_id = ? AND session_id = ?`,
+  )
+    .bind(projectId, sessionId)
+    .first<JsonRecord>();
+  return Response.json({ ledger: ledger ?? null });
+}
+
+async function reserveUsageNow(request: Request, env: Env): Promise<Response> {
+  const body = await readJsonBody(request);
+  if (body instanceof Response) return body;
+  const projectId = body["projectId"];
+  const sessionId = body["sessionId"];
+  const orgId = body["orgId"];
+  const month = body["month"];
+  const bytes = body["bytes"];
+  if (
+    typeof projectId !== "string" ||
+    typeof sessionId !== "string" ||
+    typeof orgId !== "string" ||
+    typeof month !== "string" ||
+    typeof bytes !== "number"
+  ) {
+    return Response.json({ error: "invalid usage reservation" }, { status: 400 });
+  }
+
+  try {
+    await reserveAcceptedUsage(env.IDX_00, {
+      projectId,
+      sessionId,
+      orgId,
+      month,
+      bytes,
+      updatedAt: Date.now(),
+      source: "append",
+    });
+    return Response.json({ ok: true });
+  } catch {
+    return Response.json({ error: "usage_reservation_failed" }, { status: 409 });
+  }
+}
+
+async function configureUsageReservationFailure(request: Request, env: Env): Promise<Response> {
+  const body = await readJsonBody(request);
+  if (body instanceof Response) return body;
+  const projectId = body["projectId"];
+  const sessionId = body["sessionId"];
+  const enabled = body["enabled"];
+  if (
+    typeof projectId !== "string" ||
+    typeof sessionId !== "string" ||
+    typeof enabled !== "boolean" ||
+    !isValidPathId(projectId) ||
+    !isValidPathId(sessionId)
+  ) {
+    return Response.json({ error: "invalid usage failure" }, { status: 400 });
+  }
+
+  await env.IDX_00.prepare("DROP TRIGGER IF EXISTS __test_fail_usage_reservation").run();
+  if (enabled) {
+    await env.IDX_00.prepare(
+      `CREATE TRIGGER __test_fail_usage_reservation
+      BEFORE INSERT ON accepted_usage_sessions
+      WHEN NEW.project_id = ${quoteSqlString(projectId)}
+        AND NEW.session_id = ${quoteSqlString(sessionId)}
+      BEGIN
+        SELECT RAISE(ABORT, 'forced accepted usage reservation failure');
+      END`,
+    ).run();
+  }
+  return Response.json({ ok: true });
 }
 
 async function indexFinalizeMessageNow(request: Request, env: Env): Promise<Response> {

@@ -6,6 +6,7 @@ import {
   updatePageTrackingWithBatch,
 } from "../src/do/session-logic.ts";
 import type { SessionState } from "../src/do/session-logic.ts";
+import type { StoredPageBatch } from "../src/do/session-page-tracking.ts";
 
 describe("SessionRecorder pure logic", () => {
   it("does not count repeated same-URL timer batches", () => {
@@ -208,11 +209,11 @@ describe("SessionRecorder pure logic", () => {
     rebuildFinalPageAnalytics(state, [
       {
         tab: "tab-a",
-        seq: 2,
-        t0: 2_000,
-        t1: 2_000,
+        seq: 0,
+        t0: 0,
+        t1: 0,
         url: "/a",
-        events: [{ t: 2_000, k: "nav", d: "/a" }],
+        events: [],
         pageAnalyticsVersion: 1,
       },
       {
@@ -226,11 +227,11 @@ describe("SessionRecorder pure logic", () => {
       },
       {
         tab: "tab-a",
-        seq: 0,
-        t0: 0,
-        t1: 0,
+        seq: 2,
+        t0: 2_000,
+        t1: 2_000,
         url: "/a",
-        events: [],
+        events: [{ t: 2_000, k: "nav", d: "/a" }],
         pageAnalyticsVersion: 1,
       },
     ]);
@@ -240,6 +241,89 @@ describe("SessionRecorder pure logic", () => {
       urlCount: 3,
       pageCount: 3,
       quickBacks: 1,
+    });
+  });
+
+  it("rebuilds final page analytics from a one-pass batch stream", () => {
+    const state = {
+      entryUrl: "/kept-until-stream-is-proven-compatible",
+      urlCount: 99,
+      pageCount: 99,
+      quickBacks: 99,
+      pageTabs: [],
+    };
+    let iteratorCount = 0;
+    const batches: Iterable<StoredPageBatch> = {
+      *[Symbol.iterator]() {
+        iteratorCount += 1;
+        if (iteratorCount > 1) throw new Error("page batches were read more than once");
+        yield {
+          tab: "tab-a",
+          seq: 0,
+          t0: 1_000,
+          t1: 1_000,
+          url: "/a",
+          events: [],
+          pageAnalyticsVersion: 1,
+        };
+        yield {
+          tab: "tab-a",
+          seq: 1,
+          t0: 2_000,
+          t1: 2_000,
+          url: "/b",
+          events: [{ t: 2_000, k: "nav", d: "/b" }],
+          pageAnalyticsVersion: 1,
+        };
+      },
+    };
+
+    rebuildFinalPageAnalytics(state, batches);
+
+    expect(iteratorCount).toBe(1);
+    expect(state).toMatchObject({
+      entryUrl: "/a",
+      urlCount: 2,
+      pageCount: 2,
+      quickBacks: 0,
+    });
+  });
+
+  it("keeps stored page analytics unchanged when a streamed legacy batch appears", () => {
+    const state = {
+      entryUrl: "/existing",
+      urlCount: 4,
+      pageCount: 5,
+      quickBacks: 2,
+      pageTabs: [{ tab: "tab-old", url: "/existing" }],
+    };
+
+    rebuildFinalPageAnalytics(state, [
+      {
+        tab: "tab-a",
+        seq: 0,
+        t0: 1_000,
+        t1: 1_000,
+        url: "/new",
+        events: [],
+        pageAnalyticsVersion: 1,
+      },
+      {
+        tab: "tab-a",
+        seq: 1,
+        t0: 2_000,
+        t1: 2_000,
+        events: [],
+        pageAnalyticsVersion: 0,
+      },
+    ]);
+
+    expect(state).toEqual({
+      entryUrl: "/existing",
+      urlCount: 4,
+      pageCount: 5,
+      quickBacks: 2,
+      pageTabs: [{ tab: "tab-old", url: "/existing" }],
     });
   });
 });

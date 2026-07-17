@@ -4,16 +4,89 @@ import { analyticsSidecarKey, manifestKey } from "@orange-replay/shared";
 import type { SessionManifest } from "@orange-replay/shared";
 import {
   append,
+  appendStatus,
   bytes,
+  configureUsageReservationFailure,
   forceFinalize,
   readDebug,
   readR2Bytes,
+  readUsage,
+  readUsageLedger,
   seedBatches,
   waitForR2Bytes,
 } from "./do-test-helpers.ts";
 import type { AppendInput } from "./do-test-helpers.ts";
 
 describe("SessionRecorder Durable Object", () => {
+  it("charges accepted bytes before finalization and does not charge a duplicate twice", async () => {
+    const projectId = "project-accepted-usage";
+    const sessionId = "session-accepted-usage";
+    const orgId = "org-accepted-usage";
+    const receivedAt = Date.now();
+    const input = {
+      projectId,
+      orgId,
+      sessionId,
+      tab: "tab-a",
+      seq: 0,
+      payload: bytes("charge-before-finalization"),
+      t0: receivedAt,
+      receivedAt,
+    };
+
+    expect(await readUsage(orgId)).toEqual([]);
+    await append(input);
+    const afterAccepted = await readUsage(orgId);
+    expect(afterAccepted).toHaveLength(1);
+    expect(afterAccepted[0]?.["sessions"]).toBe(0);
+    expect(Number(afterAccepted[0]?.["bytes"])).toBeGreaterThan(input.payload.byteLength);
+    const firstLedger = await readUsageLedger(projectId, sessionId);
+    expect(firstLedger).not.toBeNull();
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await append(input);
+    expect(await readUsage(orgId)).toEqual(afterAccepted);
+    expect(await readUsageLedger(projectId, sessionId)).toEqual(firstLedger);
+  });
+
+  it("repairs a failed D1 reservation on the duplicate retry", async () => {
+    const projectId = "project-usage-repair";
+    const sessionId = "session-usage-repair";
+    const orgId = "org-usage-repair";
+    const receivedAt = Date.now();
+    const input = {
+      projectId,
+      orgId,
+      sessionId,
+      tab: "tab-a",
+      seq: 0,
+      payload: bytes("repair-this-reservation"),
+      t0: receivedAt,
+      receivedAt,
+    };
+
+    await configureUsageReservationFailure({ projectId, sessionId, enabled: true });
+    try {
+      expect(await appendStatus(input)).toBe(500);
+    } finally {
+      await configureUsageReservationFailure({ projectId, sessionId, enabled: false });
+    }
+
+    expect(await readUsage(orgId)).toEqual([]);
+    expect(await readDebug(projectId, sessionId)).toMatchObject({
+      pendingBatches: 1,
+      bufferedBytes: input.payload.byteLength,
+    });
+
+    await append(input);
+    expect(await readUsage(orgId)).toMatchObject([{ sessions: 0, bytes: expect.any(Number) }]);
+    expect(await readUsageLedger(projectId, sessionId)).not.toBeNull();
+    expect(await readDebug(projectId, sessionId)).toMatchObject({
+      pendingBatches: 1,
+      bufferedBytes: input.payload.byteLength,
+    });
+  });
+
   it("dedupes batches by tab and seq", async () => {
     const projectId = "project-dedupe";
     const sessionId = "session-dedupe";

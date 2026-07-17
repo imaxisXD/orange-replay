@@ -145,5 +145,16 @@ describe("SessionRecorder pure logic", () => {
         eventBytes: 1,
       }),
     ).toBe(false);
+
+    expect(
+      shouldDropForSessionCap({
+        totalPayloadBytes: 10,
+        totalEventBytes: 10,
+        batchCount: 50_000,
+        segmentCount: 0,
+        payloadBytes: 1,
+        eventBytes: 1,
+      }),
+    ).toBe(true);
   });
 });

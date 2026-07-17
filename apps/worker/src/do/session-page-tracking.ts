@@ -20,7 +20,19 @@ export interface StoredPageBatch {
 
 export const MAX_TRACKED_PAGE_TABS = 16;
 
-/** Rebuilds finalized URL metrics in durable per-tab sequence order. */
+interface RebuiltPageAnalytics {
+  entryUrl?: string;
+  urlCount: number;
+  pageCount: number;
+  quickBacks: number;
+  pageTabs: PageTabState[];
+}
+
+/**
+ * Rebuilds finalized URL metrics from batches already ordered by tab and
+ * sequence. The scratch state stays bounded by MAX_TRACKED_PAGE_TABS and is
+ * only committed after every visited batch is known to use the covered format.
+ */
 export function rebuildFinalPageAnalytics(
   state: {
     entryUrl?: string;
@@ -29,37 +41,66 @@ export function rebuildFinalPageAnalytics(
     pageTabs: PageTabState[];
     quickBacks?: number;
   },
-  batches: readonly StoredPageBatch[],
+  batches: Iterable<StoredPageBatch>,
 ): void {
-  delete state.entryUrl;
-  state.urlCount = 0;
-  state.pageCount = 0;
-  state.quickBacks = 0;
-  state.pageTabs = [];
+  const rebuilt: RebuiltPageAnalytics = {
+    urlCount: 0,
+    pageCount: 0,
+    quickBacks: 0,
+    pageTabs: [],
+  };
+  let hasBatches = false;
+  let entryBatch: Pick<StoredPageBatch, "tab" | "seq" | "t0" | "url"> | undefined;
+  let previousTab: string | undefined;
+  let previousSeq = -1;
 
-  const entryBatch = batches
-    .filter((batch) => nonEmptyUrl(batch.url) !== undefined)
-    .toSorted(
-      (left, right) =>
-        left.t0 - right.t0 || left.tab.localeCompare(right.tab) || left.seq - right.seq,
-    )[0];
-  state.entryUrl = nonEmptyUrl(entryBatch?.url);
-
-  for (const batch of batches.toSorted(
-    (left, right) => left.tab.localeCompare(right.tab) || left.seq - right.seq,
-  )) {
-    const currentUrl = nonEmptyUrl(batch.url);
-    if (currentUrl !== undefined) {
-      const lastTabUrl = state.pageTabs.find((pageTab) => pageTab.tab === batch.tab)?.url;
-      if (lastTabUrl !== currentUrl) state.urlCount += 1;
+  for (const batch of batches) {
+    hasBatches = true;
+    if (
+      previousTab !== undefined &&
+      (batch.tab < previousTab || (batch.tab === previousTab && batch.seq <= previousSeq))
+    ) {
+      throw new Error("Stored page batches are not ordered by tab and sequence.");
     }
-    updatePageTrackingWithBatch(state, batch.tab, {
+    previousTab = batch.tab;
+    previousSeq = batch.seq;
+
+    // Older batches did not preserve enough information for an exact rebuild.
+    // Leave the stored state untouched rather than mixing coverage levels.
+    if (batch.pageAnalyticsVersion !== 1) return;
+
+    const currentUrl = nonEmptyUrl(batch.url);
+    if (
+      currentUrl !== undefined &&
+      (entryBatch === undefined ||
+        batch.t0 < entryBatch.t0 ||
+        (batch.t0 === entryBatch.t0 &&
+          (batch.tab < entryBatch.tab ||
+            (batch.tab === entryBatch.tab && batch.seq < entryBatch.seq))))
+    ) {
+      entryBatch = { tab: batch.tab, seq: batch.seq, t0: batch.t0, url: currentUrl };
+    }
+
+    if (currentUrl !== undefined) {
+      const lastTabUrl = rebuilt.pageTabs.find((pageTab) => pageTab.tab === batch.tab)?.url;
+      if (lastTabUrl !== currentUrl) rebuilt.urlCount += 1;
+    }
+    updatePageTrackingWithBatch(rebuilt, batch.tab, {
       u: currentUrl,
       t0: batch.t0,
       t1: batch.t1,
       e: batch.events,
     });
   }
+
+  if (!hasBatches) return;
+  delete state.entryUrl;
+  const entryUrl = nonEmptyUrl(entryBatch?.url);
+  if (entryUrl !== undefined) state.entryUrl = entryUrl;
+  state.urlCount = rebuilt.urlCount;
+  state.pageCount = rebuilt.pageCount;
+  state.quickBacks = rebuilt.quickBacks;
+  state.pageTabs = rebuilt.pageTabs;
 }
 
 export function updatePageTrackingWithBatch(

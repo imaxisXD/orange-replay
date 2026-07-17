@@ -14,6 +14,14 @@ export const MAX_SEGMENT_TIMELINE_BYTES = 128 * 1024;
 export const MAX_MANIFEST_TIMELINE_BYTES = 256 * 1024;
 export const MAX_SESSION_STORED_BYTES = 512 * 1024 * 1024;
 export const MAX_SESSION_EVENT_BYTES = 64 * 1024 * 1024;
+// Bounds the synchronous work needed to finalize one Durable Object. At the
+// default SDK flush interval this still permits more than eight continuous days.
+export const MAX_SESSION_BATCHES = 50_000;
+// Full analytics are deliberately lower than the storage cap. Each sanitized
+// batch may carry up to 16 KiB of event metadata, so these limits keep a
+// finalization pass near 8 MiB and skip the second sidecar pass above them.
+export const MAX_FINALIZE_ANALYTICS_BATCHES = 512;
+export const MAX_FINALIZE_ANALYTICS_EVENT_BYTES = 8 * 1024 * 1024;
 // The recovery intent shares a Durable Object SQLite row with metadata.
 // Keep its body below the platform row limit with room for those fields.
 export const MAX_SEGMENT_INTENT_BODY_BYTES = 1_500_000;
@@ -150,7 +158,7 @@ export function shouldDropForSessionCap(input: {
   eventBytes: number;
 }): boolean {
   return (
-    input.batchCount >= MAX_SEQ ||
+    input.batchCount >= Math.min(MAX_SEQ, MAX_SESSION_BATCHES) ||
     input.segmentCount >= MAX_MANIFEST_SEGMENTS ||
     input.totalEventBytes + input.eventBytes > MAX_SESSION_EVENT_BYTES ||
     input.totalPayloadBytes + input.payloadBytes + input.totalEventBytes + input.eventBytes >

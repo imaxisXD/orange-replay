@@ -5,6 +5,7 @@ import {
   SessionFinalizer,
   type SessionFinalizerDependencies,
 } from "../src/do/session-finalizer.ts";
+import { MAX_FINALIZE_ANALYTICS_BATCHES, MAX_SESSION_BATCHES } from "../src/do/session-budgets.ts";
 import { SessionLiveHub, type SessionLiveHubDependencies } from "../src/do/session-live-hub.ts";
 import type { SessionState } from "../src/do/session-state.ts";
 
@@ -22,6 +23,7 @@ describe("session final handoff", () => {
 
     const dependencies = {
       recordings: {
+        get: async () => null,
         put: async () => ({ etag: "manifest-written" }),
         head: async () => ({ etag: "sidecar-exists" }),
       },
@@ -36,11 +38,11 @@ describe("session final handoff", () => {
         finalPageBatches: () => [
           {
             tab: "tab-a",
-            seq: 2,
-            t0: 2_000,
-            t1: 2_000,
+            seq: 0,
+            t0: 0,
+            t1: 0,
             url: "/a",
-            events: [{ t: 2_000, k: "nav", d: "/a" }],
+            events: [],
             pageAnalyticsVersion: 1,
           },
           {
@@ -54,11 +56,11 @@ describe("session final handoff", () => {
           },
           {
             tab: "tab-a",
-            seq: 0,
-            t0: 0,
-            t1: 0,
+            seq: 2,
+            t0: 2_000,
+            t1: 2_000,
             url: "/a",
-            events: [],
+            events: [{ t: 2_000, k: "nav", d: "/a" }],
             pageAnalyticsVersion: 1,
           },
         ],
@@ -74,6 +76,8 @@ describe("session final handoff", () => {
       },
       getSessionState: () => state,
       flushPendingBatches: async () => undefined,
+      acceptedUsageReservationsEnabled: true,
+      reserveAcceptedUsage: async () => undefined,
       markPresenceFinalizing: async () => undefined,
       finalizeViewers: (_manifest: SessionManifest) => {
         handoffCount += 1;
@@ -98,6 +102,251 @@ describe("session final handoff", () => {
     expect(tombstoneWritten).toBe(true);
     expect(queuedMessage?.attrs).toMatchObject({ entryUrl: "/a", urlCount: 3, pageCount: 3 });
     expect(queuedMessage?.insights?.quickBacks).toBe(1);
+    expect(queuedMessage?.bytes).toBe(0);
+  });
+
+  it("reserves server-observed bytes without changing displayed replay bytes", async () => {
+    const state = finalizingState();
+    state.totalPayloadBytes = 900_000;
+    state.totalEventBytes = 100_000;
+    let queuedMessage: FinalizeMessage | undefined;
+    let reservedBytes = 0;
+    const dependencies = {
+      recordings: {
+        get: async () => null,
+        put: async () => ({ etag: "written" }),
+        head: async () => ({ etag: "sidecar-exists" }),
+      },
+      finalizeQueue: {
+        send: async (message: FinalizeMessage) => {
+          queuedMessage = message;
+        },
+      },
+      store: {
+        finalPageBatches: () => [],
+        segmentRowsForManifest: () => [
+          {
+            key: "p/project-held/session-held/seg-000001.ors",
+            bytes: 800_000,
+            t0: 1_000,
+            t1: 1_200,
+            batches: 1,
+            events: [],
+          },
+        ],
+        storedEventRows: () => [],
+        replaceStateWithTombstone: () => undefined,
+      },
+      segmentWriter: {
+        assertRecordingMatches: async () => undefined,
+        assertRecordingStreamMatches: async () => undefined,
+      },
+      getSessionState: () => state,
+      flushPendingBatches: async () => undefined,
+      acceptedUsageReservationsEnabled: true,
+      reserveAcceptedUsage: async (_state: SessionState, bytes: number) => {
+        reservedBytes = bytes;
+      },
+      markPresenceFinalizing: async () => undefined,
+      finalizeViewers: () => undefined,
+      rememberTombstone: () => undefined,
+      scheduleTombstonePurge: async () => undefined,
+    } as unknown as SessionFinalizerDependencies;
+
+    await new SessionFinalizer(dependencies).finalize(createSessionFinalizeMetrics());
+
+    expect(queuedMessage?.bytes).toBe(800_000);
+    expect(reservedBytes).toBe(1_000_000);
+  });
+
+  it("keeps recorder reservations off during the first rollout stage", async () => {
+    const state = finalizingState();
+    let reservationCalls = 0;
+    let queuedMessage: FinalizeMessage | undefined;
+    const dependencies = {
+      recordings: {
+        get: async () => null,
+        put: async () => ({ etag: "written" }),
+        head: async () => ({ etag: "sidecar-exists" }),
+      },
+      finalizeQueue: {
+        send: async (message: FinalizeMessage) => {
+          queuedMessage = message;
+        },
+      },
+      store: {
+        finalPageBatches: () => [],
+        segmentRowsForManifest: () => [],
+        storedEventRows: () => [],
+        replaceStateWithTombstone: () => undefined,
+      },
+      segmentWriter: {
+        assertRecordingMatches: async () => undefined,
+        assertRecordingStreamMatches: async () => undefined,
+      },
+      getSessionState: () => state,
+      flushPendingBatches: async () => undefined,
+      acceptedUsageReservationsEnabled: false,
+      reserveAcceptedUsage: async () => {
+        reservationCalls += 1;
+      },
+      markPresenceFinalizing: async () => undefined,
+      finalizeViewers: () => undefined,
+      rememberTombstone: () => undefined,
+      scheduleTombstonePurge: async () => undefined,
+    } as unknown as SessionFinalizerDependencies;
+
+    await new SessionFinalizer(dependencies).finalize(createSessionFinalizeMetrics());
+
+    expect(reservationCalls).toBe(0);
+    expect(queuedMessage).toBeDefined();
+    expect(Object.hasOwn(queuedMessage ?? {}, "usageBytes")).toBe(false);
+  });
+
+  it("reuses an immutable manifest written by an earlier deploy", async () => {
+    const state = finalizingState();
+    state.batchCount = MAX_SESSION_BATCHES;
+    const existingManifest: SessionManifest = {
+      v: 1,
+      projectId: state.projectId,
+      orgId: state.orgId,
+      sessionId: state.sessionId,
+      startedAt: 900,
+      endedAt: 1_400,
+      durationMs: 500,
+      segments: [
+        {
+          key: "p/project-held/session-held/seg-000001.ors",
+          bytes: 777,
+          t0: 900,
+          t1: 1_400,
+          batches: 1,
+          checkpoints: [{ timestamp: 950, tab: "tab-a", batch: 0 }],
+        },
+      ],
+      timeline: [{ t: 1_000, k: "custom", d: "from-the-old-deploy" }],
+      counts: { batches: 1, events: 1, clicks: 0, errors: 0, rages: 0, navs: 0 },
+      bytes: 777,
+      flags: 5,
+      attrs: { country: "CA", entryUrl: "/old-deploy" },
+    };
+    let manifestWrites = 0;
+    let reservedBytes = 0;
+    let queuedMessage: FinalizeMessage | undefined;
+    const dependencies = {
+      recordings: {
+        get: async () => ({ json: async () => existingManifest }),
+        put: async () => {
+          manifestWrites += 1;
+          return { etag: "unexpected-write" };
+        },
+      },
+      finalizeQueue: {
+        send: async (message: FinalizeMessage) => {
+          queuedMessage = message;
+        },
+      },
+      store: {
+        finalPageBatches: () => [],
+        segmentRowsForManifest: () => ({
+          [Symbol.iterator]() {
+            throw new Error("an existing manifest must not be regenerated");
+          },
+        }),
+        storedEventRows: () => [],
+        replaceStateWithTombstone: () => undefined,
+      },
+      segmentWriter: {
+        assertRecordingMatches: async () => undefined,
+        assertRecordingStreamMatches: async () => undefined,
+      },
+      getSessionState: () => state,
+      flushPendingBatches: async () => undefined,
+      acceptedUsageReservationsEnabled: true,
+      reserveAcceptedUsage: async (_state: SessionState, bytes: number) => {
+        reservedBytes = bytes;
+      },
+      markPresenceFinalizing: async () => undefined,
+      finalizeViewers: () => undefined,
+      rememberTombstone: () => undefined,
+      scheduleTombstonePurge: async () => undefined,
+    } as unknown as SessionFinalizerDependencies;
+
+    await new SessionFinalizer(dependencies).finalize(createSessionFinalizeMetrics());
+
+    expect(manifestWrites).toBe(0);
+    expect(reservedBytes).toBe(777);
+    expect(queuedMessage).toMatchObject({
+      durationMs: 500,
+      hasCheckpoint: true,
+      bytes: 777,
+      segments: 1,
+      flags: 5,
+      counts: existingManifest.counts,
+      attrs: existingManifest.attrs,
+    });
+  });
+
+  it("bounds analytics work for the largest accepted session", async () => {
+    const state = finalizingState();
+    state.batchCount = MAX_SESSION_BATCHES;
+    let finalPageReads = 0;
+    let eventRowReads = 0;
+    let queuedMessage: FinalizeMessage | undefined;
+    const writtenKeys: string[] = [];
+    const dependencies = {
+      recordings: {
+        get: async () => null,
+        put: async (key: string) => {
+          writtenKeys.push(key);
+          return { etag: "written" };
+        },
+        head: async () => null,
+      },
+      finalizeQueue: {
+        send: async (message: FinalizeMessage) => {
+          queuedMessage = message;
+        },
+      },
+      store: {
+        finalPageBatches: () => ({
+          [Symbol.iterator]() {
+            finalPageReads += 1;
+            throw new Error("overflow page analytics must use the stored bounded state");
+          },
+        }),
+        segmentRowsForManifest: () => [],
+        storedEventRows: () => ({
+          *[Symbol.iterator]() {
+            for (let index = 0; index < MAX_SESSION_BATCHES; index += 1) {
+              eventRowReads += 1;
+              yield { events: "[]" };
+            }
+          },
+        }),
+        replaceStateWithTombstone: () => undefined,
+      },
+      segmentWriter: {
+        assertRecordingMatches: async () => undefined,
+        assertRecordingStreamMatches: async () => undefined,
+      },
+      getSessionState: () => state,
+      flushPendingBatches: async () => undefined,
+      acceptedUsageReservationsEnabled: true,
+      reserveAcceptedUsage: async () => undefined,
+      markPresenceFinalizing: async () => undefined,
+      finalizeViewers: () => undefined,
+      rememberTombstone: () => undefined,
+      scheduleTombstonePurge: async () => undefined,
+    } as unknown as SessionFinalizerDependencies;
+
+    await new SessionFinalizer(dependencies).finalize(createSessionFinalizeMetrics());
+
+    expect(finalPageReads).toBe(0);
+    expect(eventRowReads).toBe(MAX_FINALIZE_ANALYTICS_BATCHES);
+    expect(queuedMessage?.analyticsVersion).toBe(0);
+    expect(queuedMessage?.analyticsSidecarKey).toBeUndefined();
+    expect(writtenKeys).toEqual([queuedMessage?.manifestKey]);
   });
 
   it("rejects a late live viewer after finalizing starts", async () => {

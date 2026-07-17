@@ -1,18 +1,72 @@
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vite-plus/test";
 import { manifestKey, segmentKey } from "@orange-replay/shared";
-import type { SessionManifest } from "@orange-replay/shared";
+import type { FinalizeMessage, SessionManifest } from "@orange-replay/shared";
 import {
   append,
   bytes,
   forceFinalize,
+  indexSessionNowForTest,
+  markFinalizingForTest,
   readDebug,
   readR2Bytes,
+  readUsageLedger,
+  runAlarmForTest,
   seedDeletionMarker,
   waitForR2Bytes,
 } from "./do-test-helpers.ts";
 
 describe("SessionRecorder Durable Object", () => {
+  it("finishes an alarm recovery after D1 indexed but before the tombstone was stored", async () => {
+    const projectId = "project-alarm-indexed";
+    const sessionId = "session-alarm-indexed";
+    const orgId = "org-alarm-indexed";
+    const base = Date.now();
+    await append({
+      projectId,
+      orgId,
+      sessionId,
+      tab: "tab-a",
+      seq: 0,
+      payload: bytes("alarm-recovery"),
+      t0: base,
+      receivedAt: base,
+    });
+    await markFinalizingForTest(projectId, sessionId);
+
+    const alreadyIndexedMessage: FinalizeMessage = {
+      type: "session.finalized",
+      projectId,
+      orgId,
+      sessionId,
+      shard: 0,
+      requestId: "request-alarm-indexed",
+      manifestKey: manifestKey(projectId, sessionId),
+      startedAt: base,
+      endedAt: base + 50,
+      durationMs: 50,
+      hasCheckpoint: false,
+      bytes: 65_536,
+      segments: 1,
+      flags: 0,
+      analyticsVersion: 0,
+      counts: { batches: 1, events: 1, clicks: 0, errors: 0, rages: 0, navs: 0 },
+      attrs: { country: "US" },
+      retentionDays: 7,
+      events: [{ t: base + 1, k: "custom", d: "alarm-recovery" }],
+    };
+    await indexSessionNowForTest(alreadyIndexedMessage);
+    expect(await readUsageLedger(projectId, sessionId)).toBeNull();
+
+    await runAlarmForTest(projectId, sessionId);
+
+    expect(await readDebug(projectId, sessionId)).toMatchObject({
+      hasState: false,
+      finalized: true,
+    });
+    expect(await readR2Bytes(manifestKey(projectId, sessionId))).not.toHaveLength(0);
+  });
+
   it("finalizes an idle session into a manifest", async () => {
     const projectId = "project-finalize";
     const sessionId = "session-finalize";

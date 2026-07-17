@@ -1,4 +1,5 @@
-import type { EdgeAttrs, SegmentRef } from "@orange-replay/shared";
+import { MAX_MANIFEST_SEGMENTS } from "@orange-replay/shared";
+import type { EdgeAttrs, SegmentCheckpoint, SegmentRef } from "@orange-replay/shared";
 import {
   clampIndexForStorage,
   createFreshState,
@@ -10,6 +11,7 @@ import type { SegmentForManifest, SessionState } from "./session-logic.ts";
 import {
   encodeStoredBatchMetadata,
   parseStoredBatchMetadata,
+  parseStoredSegmentCheckpoints,
   parseStoredSegmentMetadata,
 } from "./session-batch-metadata.ts";
 import type { StoredPageBatch } from "./session-page-tracking.ts";
@@ -69,12 +71,14 @@ export interface SegmentRow {
 
 interface SegmentManifestRow {
   [key: string]: SqlRowValue;
+  n: number;
   key: string;
   bytes: number;
   t0: number;
   t1: number;
   batches: number;
-  events: string;
+  has_checkpoint: number;
+  checkpoints: string;
 }
 
 interface SegmentIntentRow extends SegmentRow {
@@ -126,6 +130,9 @@ export interface StoredBatchInput {
   events: string;
   body: Uint8Array;
 }
+
+const FINALIZE_METADATA_PAGE_SIZE = 50;
+export const MAX_MANIFEST_TOTAL_CHECKPOINTS = 2_048;
 
 export interface TestSeedBatchesArgs {
   requestId: string;
@@ -246,6 +253,20 @@ export class SessionRecorderStore {
   pendingBatchBytes(): number {
     return this.sql
       .exec<CountRow>("SELECT COALESCE(SUM(bytes), 0) AS count FROM batches WHERE body IS NOT NULL")
+      .one().count;
+  }
+
+  storedSegmentBytes(): number {
+    return this.sql.exec<CountRow>("SELECT COALESCE(SUM(bytes), 0) AS count FROM segments").one()
+      .count;
+  }
+
+  storedAcceptedBytes(): number {
+    return this.sql
+      .exec<CountRow>(
+        `SELECT COALESCE(SUM(bytes + length(CAST(events AS BLOB))), 0) AS count
+        FROM batches`,
+      )
       .one().count;
   }
 
@@ -377,26 +398,50 @@ export class SessionRecorderStore {
     };
   }
 
-  finalPageBatches(): StoredPageBatch[] {
-    return this.sql
-      .exec<StoredPageBatchRow>(
-        `SELECT tab, seq, t0, t1, events
-        FROM batches
-        ORDER BY tab, seq`,
-      )
-      .toArray()
-      .map((row) => {
-        const metadata = parseStoredBatchMetadata(row.events);
-        return {
-          tab: row.tab,
-          seq: row.seq,
-          t0: row.t0,
-          t1: row.t1,
-          events: metadata.events,
-          pageAnalyticsVersion: metadata.pageAnalyticsVersion,
-          ...(metadata.url === undefined ? {} : { url: metadata.url }),
-        };
-      });
+  finalPageBatches(): Iterable<StoredPageBatch> {
+    const sql = this.sql;
+    return {
+      *[Symbol.iterator]() {
+        let afterTab = "";
+        let afterSeq = -1;
+
+        for (;;) {
+          // Materialize the small page synchronously so no SQLite cursor can
+          // remain open across later R2 or queue awaits.
+          const page = sql
+            .exec<StoredPageBatchRow>(
+              `SELECT tab, seq, t0, t1, events
+              FROM batches
+              WHERE tab > ? OR (tab = ? AND seq > ?)
+              ORDER BY tab, seq
+              LIMIT ${FINALIZE_METADATA_PAGE_SIZE}`,
+              afterTab,
+              afterTab,
+              afterSeq,
+            )
+            .toArray();
+          if (page.length === 0) return;
+
+          for (const row of page) {
+            const metadata = parseStoredBatchMetadata(row.events);
+            yield {
+              tab: row.tab,
+              seq: row.seq,
+              t0: row.t0,
+              t1: row.t1,
+              events: metadata.events,
+              pageAnalyticsVersion: metadata.pageAnalyticsVersion,
+              ...(metadata.url === undefined ? {} : { url: metadata.url }),
+            };
+          }
+
+          const last = page.at(-1);
+          if (last === undefined || page.length < FINALIZE_METADATA_PAGE_SIZE) return;
+          afterTab = last.tab;
+          afterSeq = last.seq;
+        }
+      },
+    };
   }
 
   segmentRows(): SegmentRow[] {
@@ -504,24 +549,95 @@ export class SessionRecorderStore {
     this.sql.exec("DELETE FROM segment_intents WHERE n = ?", segmentNumber);
   }
 
-  segmentRowsForManifest(): SegmentForManifest[] {
-    return this.sql
-      .exec<SegmentManifestRow>(
-        "SELECT key, bytes, t0, t1, batches, events FROM segments ORDER BY n",
-      )
-      .toArray()
-      .map((row) => {
-        const metadata = parseStoredSegmentMetadata(row.events);
-        return {
-          key: row.key,
-          bytes: row.bytes,
-          t0: row.t0,
-          t1: row.t1,
-          batches: row.batches,
-          ...(metadata.checkpoints.length > 0 ? { checkpoints: metadata.checkpoints } : {}),
-          events: [],
-        };
-      });
+  segmentRowsForManifest(): Iterable<SegmentForManifest> {
+    const sql = this.sql;
+    return {
+      *[Symbol.iterator]() {
+        const totalCheckpointSegments = sql
+          .exec<CountRow>(`SELECT COUNT(*) AS count
+            FROM segments
+            WHERE json_type(events, '$.checkpoints') = 'array'
+              AND json_array_length(json_extract(events, '$.checkpoints')) > 0`)
+          .one().count;
+        const selectedCheckpointSegmentIndexes =
+          totalCheckpointSegments > MAX_MANIFEST_TOTAL_CHECKPOINTS
+            ? evenlySpacedIndexes(totalCheckpointSegments, MAX_MANIFEST_TOTAL_CHECKPOINTS)
+            : null;
+        const checkpointColumn =
+          selectedCheckpointSegmentIndexes === null
+            ? `CASE
+                WHEN json_type(events, '$.checkpoints') = 'array'
+                  THEN json_extract(events, '$.checkpoints')
+                ELSE '[]'
+              END`
+            : `CASE
+                WHEN json_array_length(json_extract(events, '$.checkpoints')) > 0
+                  THEN json_array(json_extract(events, '$.checkpoints[0]'))
+                ELSE '[]'
+              END`;
+        let afterSegment = 0;
+        let segmentCount = 0;
+        let checkpointSegmentCount = 0;
+
+        for (;;) {
+          // Select only checkpoint metadata. Segment timeline events are not
+          // needed because finalization streams the canonical batch sidecars.
+          const page = sql
+            .exec<SegmentManifestRow>(
+              `SELECT n, key, bytes, t0, t1, batches,
+                CASE
+                  WHEN json_type(events, '$.checkpoints') = 'array'
+                    AND json_array_length(json_extract(events, '$.checkpoints')) > 0
+                    THEN 1
+                  ELSE 0
+                END AS has_checkpoint,
+                ${checkpointColumn} AS checkpoints
+              FROM segments
+              WHERE n > ?
+              ORDER BY n
+              LIMIT ${FINALIZE_METADATA_PAGE_SIZE}`,
+              afterSegment,
+            )
+            .toArray();
+          if (page.length === 0) return;
+
+          for (const row of page) {
+            segmentCount += 1;
+            if (segmentCount > MAX_MANIFEST_SEGMENTS) {
+              throw new Error("Stored session has too many segments for its manifest.");
+            }
+            const checkpointLimit =
+              row.has_checkpoint === 0
+                ? 0
+                : checkpointLimitForSegment(
+                    checkpointSegmentCount++,
+                    totalCheckpointSegments,
+                    selectedCheckpointSegmentIndexes,
+                  );
+            const checkpoints =
+              checkpointLimit === 0
+                ? []
+                : thinStoredCheckpoints(
+                    parseStoredSegmentCheckpoints(row.checkpoints),
+                    checkpointLimit,
+                  );
+            yield {
+              key: row.key,
+              bytes: row.bytes,
+              t0: row.t0,
+              t1: row.t1,
+              batches: row.batches,
+              ...(checkpoints.length > 0 ? { checkpoints } : {}),
+              events: [],
+            };
+          }
+
+          const last = page.at(-1);
+          if (last === undefined || page.length < FINALIZE_METADATA_PAGE_SIZE) return;
+          afterSegment = last.n;
+        }
+      },
+    };
   }
 
   replaceStateWithTombstone(tombstone: FinalizedTombstone): void {
@@ -535,6 +651,70 @@ export class SessionRecorderStore {
     this.sql.exec("DELETE FROM state");
     this.sql.exec("INSERT INTO state (id, v) VALUES (1, ?)", JSON.stringify(tombstone));
   }
+}
+
+function checkpointLimitForSegment(
+  checkpointSegmentIndex: number,
+  totalCheckpointSegments: number,
+  selectedCheckpointSegmentIndexes: ReadonlySet<number> | null,
+): number {
+  if (totalCheckpointSegments <= 0) return 0;
+  if (selectedCheckpointSegmentIndexes !== null) {
+    return selectedCheckpointSegmentIndexes.has(checkpointSegmentIndex) ? 1 : 0;
+  }
+
+  const base = Math.floor(MAX_MANIFEST_TOTAL_CHECKPOINTS / totalCheckpointSegments);
+  const remainder = MAX_MANIFEST_TOTAL_CHECKPOINTS % totalCheckpointSegments;
+  return Math.min(128, base + (checkpointSegmentIndex < remainder ? 1 : 0));
+}
+
+function evenlySpacedIndexes(total: number, count: number): Set<number> {
+  if (count <= 0 || total <= 0) return new Set();
+  if (count === 1) return new Set([0]);
+
+  const indexes = new Set<number>();
+  for (let slot = 0; slot < count; slot += 1) {
+    indexes.add(Math.round((slot * (total - 1)) / (count - 1)));
+  }
+  return indexes;
+}
+
+function thinStoredCheckpoints(
+  checkpoints: readonly SegmentCheckpoint[],
+  limit: number,
+): SegmentCheckpoint[] {
+  if (limit <= 0 || checkpoints.length === 0) return [];
+
+  const ordered = checkpoints.toSorted(
+    (left, right) =>
+      left.timestamp - right.timestamp ||
+      left.batch - right.batch ||
+      left.tab.localeCompare(right.tab),
+  );
+  if (ordered.length <= limit) return ordered;
+  if (limit === 1) return ordered.slice(0, 1);
+
+  const selected = new Set<number>([0, ordered.length - 1]);
+  const seenTabs = new Set<string>();
+  for (const [index, checkpoint] of ordered.entries()) {
+    if (selected.size >= limit) break;
+    if (seenTabs.has(checkpoint.tab)) continue;
+    seenTabs.add(checkpoint.tab);
+    selected.add(index);
+  }
+
+  for (let slot = 0; slot < limit && selected.size < limit; slot += 1) {
+    selected.add(Math.round((slot * (ordered.length - 1)) / (limit - 1)));
+  }
+  for (let index = 0; index < ordered.length && selected.size < limit; index += 1) {
+    selected.add(index);
+  }
+
+  return [...selected]
+    .toSorted((left, right) => left - right)
+    .slice(0, limit)
+    .map((index) => ordered[index])
+    .filter((checkpoint) => checkpoint !== undefined);
 }
 
 function exactArrayBuffer(bytes: Uint8Array): ArrayBuffer {

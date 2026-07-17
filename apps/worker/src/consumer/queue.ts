@@ -15,6 +15,7 @@ import { chunkList, expiresAtFromEndedAt, usageMonthFromStartedAt } from "./help
 import { buildFinalizeAnalyticsRecords } from "../analytics/export-record.ts";
 import { maintainAnalyticsWarehouse } from "../analytics/maintenance.ts";
 import { sendPresenceSessionRequest } from "../do/presence-client.ts";
+import { reserveAcceptedUsage } from "../usage/accepted-usage.ts";
 
 const QUEUE_MAX_RETRIES = 10; // Must match wrangler.jsonc queue max_retries.
 const SESSION_EVENT_INSERT_CHUNK_SIZE = 20;
@@ -148,6 +149,19 @@ export async function indexSession(
   const db = shardDb(env, finalizeMessage.shard);
   const expiresAt = expiresAtFromEndedAt(finalizeMessage.endedAt, finalizeMessage.retentionDays);
   const indexedAt = Date.now();
+  const usageMonth = usageMonthFromStartedAt(finalizeMessage.startedAt);
+  // Old recorders have no ledger row, so the immutable replay size is the
+  // safe fallback. New recorders already reserved the larger accepted-byte
+  // total; this monotonic call then changes nothing.
+  await reserveAcceptedUsage(db, {
+    projectId: finalizeMessage.projectId,
+    sessionId: finalizeMessage.sessionId,
+    orgId: finalizeMessage.orgId,
+    month: usageMonth,
+    bytes: finalizeMessage.bytes,
+    updatedAt: indexedAt,
+    source: "finalize",
+  });
   const analyticsRecords = buildFinalizeAnalyticsRecords(finalizeMessage);
   const sessionRecord = analyticsRecords.session;
   const statements = [
@@ -230,17 +244,12 @@ export async function indexSession(
     db
       .prepare(
         `INSERT INTO usage_monthly (org_id, month, sessions, bytes)
-        SELECT ?, ?, 1, ?
+        SELECT ?, ?, 1, 0
         WHERE (SELECT changes()) > 0
         ON CONFLICT(org_id, month) DO UPDATE SET
-          sessions = sessions + 1,
-          bytes = bytes + excluded.bytes`,
+          sessions = sessions + 1`,
       )
-      .bind(
-        finalizeMessage.orgId,
-        usageMonthFromStartedAt(finalizeMessage.startedAt),
-        finalizeMessage.bytes,
-      ),
+      .bind(finalizeMessage.orgId, usageMonth),
   ];
 
   const eventStatementIndexes: number[] = [];
@@ -318,6 +327,33 @@ export async function indexSession(
         .bind(JSON.stringify(outboxRows), Date.now()),
     );
   }
+
+  // The short-lived ledger is only needed until this transaction either
+  // indexes the session or confirms a deletion fence. Monthly usage keeps the
+  // durable total, while late append retries then fail against the final row.
+  statements.push(
+    db
+      .prepare(
+        `DELETE FROM accepted_usage_sessions
+        WHERE project_id = ? AND session_id = ?
+          AND (
+            EXISTS (
+              SELECT 1 FROM sessions WHERE project_id = ? AND session_id = ?
+            )
+            OR EXISTS (
+              SELECT 1 FROM session_deletions WHERE project_id = ? AND session_id = ?
+            )
+          )`,
+      )
+      .bind(
+        finalizeMessage.projectId,
+        finalizeMessage.sessionId,
+        finalizeMessage.projectId,
+        finalizeMessage.sessionId,
+        finalizeMessage.projectId,
+        finalizeMessage.sessionId,
+      ),
+  );
 
   const results = await db.batch(statements);
   const inserted = results[0]?.meta.changes ?? 0;

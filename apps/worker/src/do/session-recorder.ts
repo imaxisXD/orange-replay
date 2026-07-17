@@ -1,8 +1,15 @@
 import { startWideEvent } from "@orange-replay/shared";
 import type { WideEventOutcome } from "@orange-replay/shared";
 import { DurableObject } from "cloudflare:workers";
+import { usageMonthFromStartedAt } from "../consumer/helpers.ts";
 import type { Env } from "../env.ts";
-import { devTestRoutesFlag, setWorkerLoggerVersion, shardDb } from "../env.ts";
+import {
+  acceptedUsageReservationsEnabled,
+  devTestRoutesFlag,
+  setWorkerLoggerVersion,
+  shardDb,
+} from "../env.ts";
+import { reserveAcceptedUsage as reserveAcceptedUsageInD1 } from "../usage/accepted-usage.ts";
 import type { AppendArgs, AppendResult } from "./contract.ts";
 import { sendPresenceSessionRequest } from "./presence-client.ts";
 import { resolvePresenceTiming, shouldSendPresencePing } from "./presence-logic.ts";
@@ -91,6 +98,8 @@ export class SessionRecorder extends DurableObject<Env> {
       flushPendingBatches: async () => {
         await this.flushSegment("finalize");
       },
+      acceptedUsageReservationsEnabled: acceptedUsageReservationsEnabled(env),
+      reserveAcceptedUsage: (state, bytes) => this.reserveAcceptedUsage(state, bytes, "finalize"),
       markPresenceFinalizing: (projectId, sessionId, requestId, finalizingAt) =>
         this.markPresenceFinalizing(projectId, sessionId, requestId, finalizingAt),
       finalizeViewers: (manifest) => this.liveHub.finalizeViewers(manifest),
@@ -246,6 +255,7 @@ export class SessionRecorder extends DurableObject<Env> {
       viewerCount = this.liveHub.viewerCount();
 
       if (duplicate) {
+        await this.ensureAcceptedUsageAndAlarm(state, timing.flushTailMs, true);
         result = {
           live: viewerCount > 0,
           closed: false,
@@ -297,6 +307,7 @@ export class SessionRecorder extends DurableObject<Env> {
       });
 
       if (duplicate) {
+        await this.ensureAcceptedUsageAndAlarm(state, timing.flushTailMs, true);
         result = {
           live: viewerCount > 0,
           closed: false,
@@ -345,12 +356,18 @@ export class SessionRecorder extends DurableObject<Env> {
         timing,
       });
 
-      await this.setAlarmIfUseful(state.lastActivity + timing.flushTailMs, timing.flushTailMs);
+      // The local batch write is already durable. Attempt the D1 reservation
+      // and recovery alarm together so either service can repair the other on
+      // a retry, without acknowledging uncharged accepted bytes.
+      await this.ensureAcceptedUsageAndAlarm(state, timing.flushTailMs);
 
       if (flushDecision.shouldFlush && flushDecision.reason !== undefined) {
         const flushed = await this.flushSegment(flushDecision.reason);
         flushReason = flushed?.reason;
         bufferedBytes = this.sessionState?.bufferedBytes ?? 0;
+        if (flushed !== null && acceptedUsageReservationsEnabled(this.env)) {
+          await this.reserveCurrentAcceptedUsage(state, "append", true);
+        }
       }
 
       viewerCount = this.liveHub.viewerCount();
@@ -439,6 +456,18 @@ export class SessionRecorder extends DurableObject<Env> {
     await this.finalize();
   }
 
+  async markFinalizingForTest(): Promise<void> {
+    const state = this.sessionState;
+    if (state === null || state.finalizingAt !== undefined) return;
+    state.finalizingAt = Date.now();
+    this.sessionState = state;
+    this.store.persistState(state);
+  }
+
+  async alarmForTest(): Promise<void> {
+    await this.alarm();
+  }
+
   override async alarm(): Promise<void> {
     const event = startWideEvent(
       "worker",
@@ -476,6 +505,21 @@ export class SessionRecorder extends DurableObject<Env> {
       projectId = state.projectId;
       orgId = state.orgId;
       sessionId = state.sessionId;
+      // A previous finalization can finish indexing in D1 before this Durable
+      // Object stores its tombstone. Resume that handoff as finalization. An
+      // append reservation would treat the already closed D1 row as a late
+      // write and make this alarm fail forever.
+      if (state.finalizingAt !== undefined) {
+        alarmKind = "close";
+        if (acceptedUsageReservationsEnabled(this.env)) {
+          await this.reserveCurrentAcceptedUsage(state, "finalize", true);
+        }
+        await this.finalize();
+        return;
+      }
+      if (acceptedUsageReservationsEnabled(this.env)) {
+        await this.reserveCurrentAcceptedUsage(state, "append", true);
+      }
 
       const now = Date.now();
       const idleMs = now - state.lastActivity;
@@ -489,6 +533,9 @@ export class SessionRecorder extends DurableObject<Env> {
       if (idleMs >= timing.flushTailMs && this.store.pendingBatchCount() > 0) {
         alarmKind = "tail_flush";
         await this.flushSegment("tail_flush");
+        if (this.sessionState !== null && acceptedUsageReservationsEnabled(this.env)) {
+          await this.reserveCurrentAcceptedUsage(this.sessionState, "append", true);
+        }
       }
 
       if (this.sessionState !== null) {
@@ -594,6 +641,57 @@ export class SessionRecorder extends DurableObject<Env> {
       await this.ctx.storage.setAlarm(desiredAt);
       this.alarmAt = desiredAt;
     }
+  }
+
+  private async ensureAcceptedUsageAndAlarm(
+    state: SessionState,
+    flushTailMs: number,
+    verifyStoredBytes = false,
+  ): Promise<void> {
+    const operations: Promise<unknown>[] = [
+      this.setAlarmIfUseful(state.lastActivity + flushTailMs, flushTailMs),
+    ];
+    if (acceptedUsageReservationsEnabled(this.env)) {
+      operations.push(this.reserveCurrentAcceptedUsage(state, "append", verifyStoredBytes));
+    }
+
+    const results = await Promise.allSettled(operations);
+    const failure = results.find(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    if (failure !== undefined) throw failure.reason;
+  }
+
+  private async reserveCurrentAcceptedUsage(
+    state: SessionState,
+    source: "append" | "finalize",
+    verifyStoredBytes = false,
+  ): Promise<void> {
+    await this.reserveAcceptedUsage(
+      state,
+      Math.max(
+        state.totalPayloadBytes + state.totalEventBytes,
+        verifyStoredBytes ? this.store.storedSegmentBytes() : 0,
+        verifyStoredBytes ? this.store.storedAcceptedBytes() : 0,
+      ),
+      source,
+    );
+  }
+
+  private async reserveAcceptedUsage(
+    state: SessionState,
+    bytes: number,
+    source: "append" | "finalize",
+  ): Promise<void> {
+    await reserveAcceptedUsageInD1(shardDb(this.env, state.shard), {
+      projectId: state.projectId,
+      sessionId: state.sessionId,
+      orgId: state.orgId,
+      month: usageMonthFromStartedAt(state.startedAt),
+      bytes,
+      updatedAt: Date.now(),
+      source,
+    });
   }
 
   private async finalize(): Promise<void> {

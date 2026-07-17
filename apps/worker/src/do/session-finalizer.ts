@@ -5,7 +5,11 @@ import {
   sessionManifestSchema,
 } from "@orange-replay/shared";
 import type { FinalizeMessage, IndexEvent, SessionManifest } from "@orange-replay/shared";
-import { capFinalizeMessageToBudget } from "./session-budgets.ts";
+import {
+  capFinalizeMessageToBudget,
+  MAX_FINALIZE_ANALYTICS_BATCHES,
+  MAX_FINALIZE_ANALYTICS_EVENT_BYTES,
+} from "./session-budgets.ts";
 import {
   analyticsSidecarByteLength,
   analyticsSidecarParts,
@@ -48,6 +52,8 @@ export interface SessionFinalizerDependencies {
   >;
   getSessionState: () => SessionState | null;
   flushPendingBatches: () => Promise<void>;
+  acceptedUsageReservationsEnabled: boolean;
+  reserveAcceptedUsage: (state: SessionState, bytes: number) => Promise<void>;
   markPresenceFinalizing: (
     projectId: string,
     sessionId: string,
@@ -86,31 +92,90 @@ export class SessionFinalizer {
       return;
     }
 
-    const finalPageBatches = this.dependencies.store.finalPageBatches();
-    if (
-      finalPageBatches.length > 0 &&
-      finalPageBatches.every((batch) => batch.pageAnalyticsVersion === 1)
-    ) {
-      rebuildFinalPageAnalytics(state, finalPageBatches);
+    let analyticsWorkTruncated =
+      state.batchCount >= MAX_FINALIZE_ANALYTICS_BATCHES ||
+      state.totalEventBytes >= MAX_FINALIZE_ANALYTICS_EVENT_BYTES;
+    if (!analyticsWorkTruncated) {
+      rebuildFinalPageAnalytics(state, this.dependencies.store.finalPageBatches());
     }
 
-    const segmentsForManifest = this.dependencies.store.segmentRowsForManifest();
-    const timelineRows = this.dependencies.store.storedEventRows();
+    const key = manifestKey(state.projectId, state.sessionId);
+    // A deploy can change bounded manifest generation after the immutable
+    // object was already written but before this Durable Object stored its
+    // tombstone. In that recovery window, the existing valid object is the
+    // canonical replay and must also drive the queue message.
+    const existingManifest = await this.readExistingManifest(key, state);
+    // Segment references are the only unavoidably retained list because the
+    // manifest itself contains them. Skip rebuilding them when an earlier
+    // finalization already published the canonical immutable manifest.
+    const segmentsForManifest =
+      existingManifest === null ? [...this.dependencies.store.segmentRowsForManifest()] : [];
+    const timelineRows = takeRowsWithinBudget(
+      this.dependencies.store.storedEventRows(),
+      MAX_FINALIZE_ANALYTICS_BATCHES,
+      MAX_FINALIZE_ANALYTICS_EVENT_BYTES,
+    );
     const timelineData = buildFinalizeTimelineData(
       timelineRows,
       state.startedAt,
       state.lastActivity,
     );
+    analyticsWorkTruncated ||= timelineRows.truncated;
     const derived = timelineData.insights;
     metrics.rageBursts = derived.rageEvents.length;
     metrics.maxScrollDepth = derived.maxScrollDepth;
     metrics.interactionTimeMs = derived.interactionTimeMs;
-    const manifest = buildSessionManifest(
-      state,
-      segmentsForManifest,
-      timelineData.timeline,
-      timelineData.counts,
-    );
+    const manifestState = analyticsWorkTruncated ? { ...state, analyticsVersion: 0 } : state;
+    let manifest =
+      existingManifest ??
+      buildSessionManifest(
+        manifestState,
+        segmentsForManifest,
+        timelineData.timeline,
+        timelineData.counts,
+      );
+    sessionManifestSchema.parse(manifest);
+    const sidecarKey = analyticsWorkTruncated
+      ? undefined
+      : analyticsSidecarKey(state.projectId, state.sessionId);
+    const analyticsVersion = analyticsWorkTruncated ? 0 : Math.min(2, state.analyticsVersion);
+
+    // Reserve the final delta before publishing the immutable manifest or its
+    // queue job. A retry repeats the same monotonic reservation.
+    if (this.dependencies.acceptedUsageReservationsEnabled) {
+      await this.dependencies.reserveAcceptedUsage(
+        state,
+        Math.max(manifest.bytes, state.totalPayloadBytes + state.totalEventBytes),
+      );
+    }
+
+    if (existingManifest === null) {
+      const manifestWritten = await this.dependencies.recordings.put(
+        key,
+        JSON.stringify(manifest),
+        {
+          httpMetadata: { contentType: "application/json" },
+          onlyIf: { etagDoesNotMatch: "*" },
+        },
+      );
+      if (manifestWritten === null) {
+        const concurrentlyWrittenManifest = await this.readExistingManifest(key, state);
+        if (concurrentlyWrittenManifest === null) {
+          throw new Error("The session manifest was not available after its write conflict.");
+        }
+        manifest = concurrentlyWrittenManifest;
+        // The winner's immutable manifest can report a larger byte total than
+        // this candidate. Keep the accepted reservation monotonic before the
+        // queue message makes that winner visible to D1.
+        if (this.dependencies.acceptedUsageReservationsEnabled) {
+          await this.dependencies.reserveAcceptedUsage(
+            state,
+            Math.max(manifest.bytes, state.totalPayloadBytes + state.totalEventBytes),
+          );
+        }
+      }
+    }
+
     metrics.segmentCount = manifest.segments.length;
     metrics.bytes = manifest.bytes;
     metrics.batchCount = manifest.counts.batches;
@@ -118,13 +183,9 @@ export class SessionFinalizer {
       0,
       timelineData.counts.events - manifest.timeline.length,
     );
-    const key = manifestKey(state.projectId, state.sessionId);
-    const sidecarKey = analyticsSidecarKey(state.projectId, state.sessionId);
-    const analyticsVersion = Math.min(2, state.analyticsVersion);
     // D1 keeps server-observed bounds for ordering and retention; the
     // recorded-time duration and checkpoint fact ride alongside them.
     const serverBounds = sessionServerBounds(state, manifest.segments);
-
     const message = capFinalizeMessageToBudget({
       type: "session.finalized",
       sessionId: state.sessionId,
@@ -133,7 +194,7 @@ export class SessionFinalizer {
       shard: state.shard,
       requestId: state.firstRequestId,
       manifestKey: key,
-      analyticsSidecarKey: sidecarKey,
+      ...(sidecarKey === undefined ? {} : { analyticsSidecarKey: sidecarKey }),
       startedAt: serverBounds.startedAt,
       endedAt: serverBounds.endedAt,
       durationMs: manifest.durationMs,
@@ -157,19 +218,7 @@ export class SessionFinalizer {
       retentionDays: state.retentionDays,
       events: timelineData.finalizeEvents,
     } satisfies FinalizeMessage);
-    sessionManifestSchema.parse(manifest);
     finalizeMessageSchema.parse(message);
-
-    const manifestWritten = await this.dependencies.recordings.put(key, JSON.stringify(manifest), {
-      httpMetadata: { contentType: "application/json" },
-      onlyIf: { etagDoesNotMatch: "*" },
-    });
-    if (manifestWritten === null) {
-      await this.dependencies.segmentWriter.assertRecordingMatches(
-        key,
-        utf8Encoder.encode(JSON.stringify(manifest)),
-      );
-    }
 
     // The immutable replay is ready. Hand it to current viewers before any
     // analytics or queue work so those background steps cannot hold playback.
@@ -182,7 +231,9 @@ export class SessionFinalizer {
       state.finalizingAt ?? Date.now(),
     );
 
-    await this.writeAnalyticsSidecar(sidecarKey, derived.rageEvents);
+    if (sidecarKey !== undefined) {
+      await this.writeAnalyticsSidecar(sidecarKey, derived.rageEvents);
+    }
 
     await this.dependencies.finalizeQueue.send(message, { contentType: "json" });
     // A final sweep closes any socket accepted just before finalizing started.
@@ -204,6 +255,29 @@ export class SessionFinalizer {
     await this.dependencies.scheduleTombstonePurge(purgeAt);
   }
 
+  private async readExistingManifest(
+    key: string,
+    state: SessionState,
+  ): Promise<SessionManifest | null> {
+    const object = await this.dependencies.recordings.get(key);
+    if (object === null) return null;
+
+    let manifest: SessionManifest;
+    try {
+      manifest = sessionManifestSchema.parse(await object.json<unknown>());
+    } catch {
+      throw new Error("The existing session manifest is invalid.");
+    }
+    if (
+      manifest.projectId !== state.projectId ||
+      manifest.orgId !== state.orgId ||
+      manifest.sessionId !== state.sessionId
+    ) {
+      throw new Error("The existing session manifest belongs to a different session.");
+    }
+    return manifest;
+  }
+
   private async writeAnalyticsSidecar(
     sidecarKey: string,
     derivedEvents: readonly IndexEvent[],
@@ -214,9 +288,7 @@ export class SessionFinalizer {
       return;
     }
 
-    const parts = analyticsSidecarParts(this.dependencies.store.storedEventRows(), derivedEvents)[
-      Symbol.iterator
-    ]();
+    const parts = analyticsSidecarParts(this.analyticsRows(), derivedEvents)[Symbol.iterator]();
     const first = parts.next();
     if (first.done) throw new Error("Analytics sidecar did not contain a header.");
     const second = parts.next();
@@ -258,14 +330,54 @@ export class SessionFinalizer {
   ): Promise<void> {
     // Every pass starts a fresh, paged query instead of keeping the full
     // sidecar in Worker memory.
-    const length = analyticsSidecarByteLength(
-      this.dependencies.store.storedEventRows(),
-      derivedEvents,
-    );
+    const length = analyticsSidecarByteLength(this.analyticsRows(), derivedEvents);
     await this.dependencies.segmentWriter.assertRecordingStreamMatches(
       sidecarKey,
-      createAnalyticsSidecarStream(this.dependencies.store.storedEventRows(), derivedEvents),
+      createAnalyticsSidecarStream(this.analyticsRows(), derivedEvents),
       length,
     );
   }
+
+  private analyticsRows(): Iterable<{ events: string }> {
+    return takeRowsWithinBudget(
+      this.dependencies.store.storedEventRows(),
+      MAX_FINALIZE_ANALYTICS_BATCHES,
+      MAX_FINALIZE_ANALYTICS_EVENT_BYTES,
+    );
+  }
+}
+
+interface BoundedEventRows<T> extends Iterable<T> {
+  truncated: boolean;
+}
+
+function takeRowsWithinBudget<T extends { events: string }>(
+  rows: Iterable<T>,
+  rowLimit: number,
+  byteLimit: number,
+): BoundedEventRows<T> {
+  const result: BoundedEventRows<T> = {
+    truncated: false,
+    *[Symbol.iterator]() {
+      const iterator = rows[Symbol.iterator]();
+      let bytesUsed = 0;
+      try {
+        for (let count = 0; count < rowLimit; count += 1) {
+          const next = iterator.next();
+          if (next.done) return;
+          const nextBytes = utf8Encoder.encode(next.value.events).byteLength;
+          if (bytesUsed + nextBytes > byteLimit) {
+            result.truncated = true;
+            return;
+          }
+          bytesUsed += nextBytes;
+          yield next.value;
+        }
+        result.truncated = true;
+      } finally {
+        iterator.return?.();
+      }
+    },
+  };
+  return result;
 }

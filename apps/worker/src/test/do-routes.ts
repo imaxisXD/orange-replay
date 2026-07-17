@@ -70,6 +70,24 @@ export async function handleDoTestRoutes(
     return Response.json({ ok: true });
   }
 
+  if (request.method === "POST" && url.pathname === "/__test/do/mark-finalizing") {
+    const body = (await request.json()) as SessionRequestBody;
+    if (!hasValidSessionIds(body)) {
+      return Response.json({ error: "invalid_id" }, { status: 400 });
+    }
+    await sessionStub(env, body.projectId, body.sessionId).markFinalizingForTest();
+    return Response.json({ ok: true });
+  }
+
+  if (request.method === "POST" && url.pathname === "/__test/do/alarm") {
+    const body = (await request.json()) as SessionRequestBody;
+    if (!hasValidSessionIds(body)) {
+      return Response.json({ error: "invalid_id" }, { status: 400 });
+    }
+    await sessionStub(env, body.projectId, body.sessionId).alarmForTest();
+    return Response.json({ ok: true });
+  }
+
   if (request.method === "GET" && url.pathname === "/__test/do/r2") {
     const rawKey = url.searchParams.get("key");
     const analyticsMatch =
