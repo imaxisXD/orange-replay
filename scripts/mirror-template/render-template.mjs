@@ -23,6 +23,9 @@ export function buildTemplateWrangler(source) {
       binding: "CF_VERSION_METADATA",
     },
   );
+  // A fresh self-host install applies every D1 migration before its first
+  // deploy, so it can enable accepted-byte reservations immediately.
+  appendObject(lines, "vars", { ACCEPTED_USAGE_RESERVATIONS: "1" });
   appendAssets(lines, source.env?.production?.assets);
 
   appendDurableObjects(lines, source.durable_objects);

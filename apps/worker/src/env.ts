@@ -48,6 +48,11 @@ export interface Env {
   ANALYTICS_READ_BACKEND?: AnalyticsReadBackend;
   /** "1" keeps warehouse exports active even while reads temporarily use D1. */
   ANALYTICS_EXPORT_ENABLED?: string;
+  /**
+   * "1" charges accepted replay bytes from the recorder. Enable only after
+   * migration 0022 and the compatible queue consumer are deployed.
+   */
+  ACCEPTED_USAGE_RESERVATIONS?: string;
   /** Requested deletion table. Runtime still falls back to v1 until v2 is fully visible. */
   ANALYTICS_DELETION_READ_VERSION?: AnalyticsDeletionReadVersion;
   /** Server-only R2 SQL REST token. */
@@ -123,6 +128,12 @@ export function analyticsReadBackend(
 
 export function analyticsExportEnabled(env: Pick<Env, "ANALYTICS_EXPORT_ENABLED">): boolean {
   return env.ANALYTICS_EXPORT_ENABLED === "1";
+}
+
+export function acceptedUsageReservationsEnabled(
+  env: Pick<Env, "ACCEPTED_USAGE_RESERVATIONS">,
+): boolean {
+  return env.ACCEPTED_USAGE_RESERVATIONS === "1";
 }
 
 export function analyticsDeletionReadVersion(

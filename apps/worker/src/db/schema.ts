@@ -369,10 +369,12 @@ export const projectPublicPages = sqliteTable(
     revision: integer("revision").notNull().default(1),
     publishedAt: integer("published_at"),
     updatedAt: integer("updated_at").notNull(),
+    mutationToken: text("mutation_token"),
   },
   (table) => [
     primaryKey({ columns: [table.projectId] }),
     uniqueIndex("idx_project_public_pages_public_id").on(table.publicId),
+    uniqueIndex("idx_project_public_pages_mutation_token").on(table.mutationToken),
     index("idx_project_public_pages_enabled").on(table.isEnabled, table.publicId),
   ],
 );
@@ -420,6 +422,22 @@ export const usageMonthly = sqliteTable(
     bytes: integer("bytes").notNull().default(0),
   },
   (table) => [primaryKey({ columns: [table.orgId, table.month] })],
+);
+
+export const acceptedUsageSessions = sqliteTable(
+  "accepted_usage_sessions",
+  {
+    projectId: text("project_id").notNull(),
+    sessionId: text("session_id").notNull(),
+    orgId: text("org_id").notNull(),
+    month: text("month").notNull(),
+    bytes: integer("bytes").notNull().default(0),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.projectId, table.sessionId] }),
+    index("idx_accepted_usage_sessions_org_month").on(table.orgId, table.month),
+  ],
 );
 
 export const sessionDeletions = sqliteTable(
