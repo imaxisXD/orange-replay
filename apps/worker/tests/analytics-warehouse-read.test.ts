@@ -89,6 +89,7 @@ describe("analytics warehouse queries", () => {
       to: 200,
       country: "U'S",
       region: "CA",
+      city: "San Francisco",
       device: "desktop",
       browser: "Brave",
       os: "macOS",
@@ -107,6 +108,7 @@ describe("analytics warehouse queries", () => {
     expect(query).toContain("s.project_id = 'project_'' OR 1=1 --'");
     expect(query).not.toContain("s.project_id = 'project_' OR 1=1 --'");
     expect(query).toContain("s.\"country\" = 'U''S'");
+    expect(query).toContain("s.\"city\" = 'San Francisco'");
     expect(query).toContain("substr(s.entry_url, 1, length('/shop/50%_'' OR 1=1 --'))");
     expect(query).toContain("COALESCE(e.event_detail, 'Unknown error') = 'Can''t pay'");
     expect(query).toContain("s.rages = 0");
@@ -134,6 +136,118 @@ describe("analytics warehouse queries", () => {
       "ORDER BY (s.errors * 1000 + s.rages * 100 + s.clicks) DESC, s.session_id DESC",
     );
     expect(query).toContain("LIMIT 25");
+  });
+
+  it("renders every R2 sort and cursor shape from the shared semantics", () => {
+    const cases: {
+      options: SessionListOptions;
+      cursorSql: string;
+      orderSql: string;
+    }[] = [
+      {
+        options: {
+          from: 100,
+          limit: 25,
+          sort: "newest",
+          before: { sort: "newest", sortValue: 3_000 },
+        },
+        cursorSql: "s.started_at < 3000",
+        orderSql: "s.started_at DESC, s.session_id DESC",
+      },
+      {
+        options: {
+          from: 100,
+          limit: 25,
+          sort: "newest",
+          before: { sort: "newest", sortValue: 3_000, sessionId: "session_b" },
+        },
+        cursorSql: "(s.started_at < 3000 OR (s.started_at = 3000 AND s.session_id < 'session_b'))",
+        orderSql: "s.started_at DESC, s.session_id DESC",
+      },
+      {
+        options: {
+          from: 100,
+          limit: 25,
+          sort: "friction",
+          before: { sort: "friction", sortValue: 1_203, sessionId: "session_b" },
+        },
+        cursorSql:
+          "((s.errors * 1000 + s.rages * 100 + s.clicks) < 1203 OR ((s.errors * 1000 + s.rages * 100 + s.clicks) = 1203 AND s.session_id < 'session_b'))",
+        orderSql: "(s.errors * 1000 + s.rages * 100 + s.clicks) DESC, s.session_id DESC",
+      },
+      {
+        options: {
+          from: 100,
+          limit: 25,
+          sort: "duration",
+          before: { sort: "duration", sortValue: 2_500, sessionId: "session_b" },
+        },
+        cursorSql:
+          "(s.duration_ms < 2500 OR (s.duration_ms = 2500 AND s.session_id < 'session_b'))",
+        orderSql: "s.duration_ms DESC, s.session_id DESC",
+      },
+      {
+        options: {
+          from: 100,
+          limit: 25,
+          sort: "clicks",
+          before: { sort: "clicks", sortValue: 3, sessionId: "session_b" },
+        },
+        cursorSql: "(s.clicks < 3 OR (s.clicks = 3 AND s.session_id < 'session_b'))",
+        orderSql: "s.clicks DESC, s.session_id DESC",
+      },
+      {
+        options: {
+          from: 100,
+          limit: 25,
+          sort: "pages",
+          before: { sort: "pages", sortValue: 2, sessionId: "session_b" },
+        },
+        cursorSql:
+          "(s.page_count IS NULL OR s.page_count < 2 OR (s.page_count = 2 AND s.session_id < 'session_b'))",
+        orderSql: "s.page_count IS NULL, s.page_count DESC, s.session_id DESC",
+      },
+      {
+        options: {
+          from: 100,
+          limit: 25,
+          sort: "pages",
+          before: { sort: "pages", sortValue: null, sessionId: "session_b" },
+        },
+        cursorSql: "(s.page_count IS NULL AND s.session_id < 'session_b')",
+        orderSql: "s.page_count IS NULL, s.page_count DESC, s.session_id DESC",
+      },
+    ];
+
+    for (const testCase of cases) {
+      const query = buildWarehouseSessionsQuery("project_1", 9, testCase.options).sql;
+      expect(query).toContain(`WHERE ${testCase.cursorSql}`);
+      expect(query).toContain(`ORDER BY ${testCase.orderSql}`);
+    }
+  });
+
+  it("keeps false filters flat and skips event rows when no error detail is requested", () => {
+    const query = buildWarehouseSessionsQuery("project_1", 9, {
+      from: 100,
+      to: 200,
+      limit: 25,
+      sort: "newest",
+      city: "Toronto",
+      has_errors: false,
+      has_page_coverage: false,
+      has_rage: false,
+      has_quick_back: false,
+      has_insights: false,
+    }).sql;
+
+    expect(query).toContain("s.\"city\" = 'Toronto'");
+    expect(query).toContain("s.errors = 0");
+    expect(query).toContain("(s.analytics_version < 1 OR s.page_count IS NULL)");
+    expect(query).toContain("s.analytics_version >= 2 AND s.rages = 0");
+    expect(query).toContain("s.analytics_version >= 2 AND s.quick_backs = 0");
+    expect(query).toContain("s.analytics_version < 2");
+    expect(query).not.toContain("analytics_events");
+    expect(query).not.toContain("s.org_id IS NOT NULL");
   });
 
   it("does not scan events for a sessions page that does not need them", () => {

@@ -1,10 +1,17 @@
 import type { SessionFilter } from "@orange-replay/shared";
+import { sessionRowColumns } from "../query/session-query.ts";
 import {
-  sessionRowColumns,
-  type SessionCursor,
+  UNKNOWN_ERROR_DETAIL,
+  buildFinalizedSessionCursorSql,
+  buildFinalizedSessionFilterSql,
+  checkSessionCursorSort,
+  checkedSessionSort,
+  finalizedSessionFilterNeedsErrorRows,
+  finalizedSessionOrderSql,
+  type FinalizedSessionColumn,
+  type FinalizedSessionSqlDialect,
   type SessionListOptions,
-  type SessionSort,
-} from "../query/session-query.ts";
+} from "../query/finalized-session-semantics.ts";
 import { sqlAllowedName, sqlText, sqlWholeNumber } from "./sql.ts";
 
 export const analyticsTableNames = {
@@ -68,7 +75,6 @@ const analyticsDeletionV2Columns = [
   "delete_reason",
 ] as const;
 
-const allowedSorts = ["newest", "friction", "duration", "clicks", "pages"] as const;
 const allowedBreakdownColumns = [
   "country",
   "region",
@@ -78,12 +84,6 @@ const allowedBreakdownColumns = [
   "entry_url",
 ] as const;
 
-/** Columns a text filter may target. City is filterable but not part of the
- * generic single-column breakdown loop — its breakdown groups by
- * (country, city) and is emitted as a dedicated branch. */
-const allowedFilterColumns = [...allowedBreakdownColumns, "city"] as const;
-
-const UNKNOWN_ERROR_DETAIL = "Unknown error";
 // Must stay equal to TOP_BREAKDOWN_ROWS in d1-stats.ts: D1 and warehouse
 // answers are compared row-for-row for parity.
 export const TOP_STATS_ROWS = 30;
@@ -136,13 +136,14 @@ export function buildWarehouseSessionsQuery(
     throw new Error("Session limit must be between 1 and 100");
   }
 
-  const sort = checkedSort(options.sort);
-  checkCursor(options.before, sort);
-  const includeEvents = options.error_detail !== undefined;
+  const sort = checkedSessionSort(options.sort);
+  checkSessionCursorSort(options.before, sort);
+  const includeEvents = finalizedSessionFilterNeedsErrorRows(options);
   const ctes = buildWarehouseCtes(projectId, version, includeEvents, options, deletionTableVersion);
   const filterSql = buildFilterSql(projectId, options, includeEvents);
-  const cursorSql = buildCursorSql(options.before, sort);
-  const orderSql = sessionOrderSql(sort);
+  const dialect = warehouseSessionDialect(includeEvents);
+  const cursorSql = buildFinalizedSessionCursorSql(sort, options.before, dialect) ?? "TRUE";
+  const orderSql = finalizedSessionOrderSql(sort, dialect);
 
   return {
     projectId,
@@ -526,132 +527,65 @@ function buildFilterSql(
   filter: SessionFilter,
   eventsAreAvailable: boolean,
 ): string {
-  const clauses = [`s.project_id = ${sqlText(projectId)}`];
+  const clauses = [
+    `s.project_id = ${sqlText(projectId)}`,
+    ...buildFinalizedSessionFilterSql(filter, warehouseSessionDialect(eventsAreAvailable)),
+  ];
+  return clauses.join(" AND ");
+}
 
-  if (filter.from !== undefined) {
-    clauses.push(`s.started_at >= ${sqlWholeNumber(filter.from, "Start time")}`);
-  }
-  if (filter.to !== undefined) {
-    clauses.push(`s.started_at <= ${sqlWholeNumber(filter.to, "End time")}`);
-  }
-  addTextFilter(clauses, "country", filter.country);
-  addTextFilter(clauses, "region", filter.region);
-  addTextFilter(clauses, "city", filter.city);
-  addTextFilter(clauses, "device", filter.device);
-  addTextFilter(clauses, "browser", filter.browser);
-  addTextFilter(clauses, "os", filter.os);
-  addTextFilter(clauses, "entry_url", filter.entry_url);
+const warehouseSessionColumns = {
+  analytics_version: "s.analytics_version",
+  browser: 's."browser"',
+  city: 's."city"',
+  clicks: "s.clicks",
+  country: 's."country"',
+  device: 's."device"',
+  duration_ms: "s.duration_ms",
+  entry_url: 's."entry_url"',
+  errors: "s.errors",
+  os: 's."os"',
+  page_count: "s.page_count",
+  quick_backs: "s.quick_backs",
+  rages: "s.rages",
+  region: 's."region"',
+  session_id: "s.session_id",
+  started_at: "s.started_at",
+} as const satisfies Record<FinalizedSessionColumn, string>;
 
-  if (filter.entry_url_prefix !== undefined) {
-    const prefix = sqlText(filter.entry_url_prefix);
-    clauses.push(`substr(s.entry_url, 1, length(${prefix})) = ${prefix}`);
-  }
-  if (filter.has_errors !== undefined) {
-    clauses.push(filter.has_errors ? "s.errors >= 1" : "s.errors = 0");
-  }
-  if (filter.error_detail !== undefined) {
-    if (!eventsAreAvailable) {
-      throw new Error("Error details need the analytics events table");
-    }
-    clauses.push(`EXISTS (
+function warehouseSessionDialect(eventsAreAvailable: boolean): FinalizedSessionSqlDialect {
+  return {
+    column(name) {
+      return warehouseSessionColumns[name];
+    },
+    wholeNumber(value, label) {
+      return sqlWholeNumber(value, label);
+    },
+    text(value) {
+      return sqlText(value);
+    },
+    entryUrlPrefix(prefixValue) {
+      const prefix = sqlText(prefixValue);
+      return `substr(s.entry_url, 1, length(${prefix})) = ${prefix}`;
+    },
+    errorDetail(detail, unknownDetail, eventKind) {
+      if (!eventsAreAvailable) {
+        throw new Error("Error details need the analytics events table");
+      }
+      return `EXISTS (
       SELECT 1
       FROM latest_events e
       WHERE e.project_id = s.project_id
         AND e.session_id = s.session_id
-        AND e.event_kind = 'error'
-        AND COALESCE(e.event_detail, ${sqlText(UNKNOWN_ERROR_DETAIL)}) = ${sqlText(filter.error_detail)}
-    )`);
-  }
-  if (filter.has_page_coverage !== undefined) {
-    clauses.push(
-      filter.has_page_coverage
-        ? "(s.analytics_version >= 1 AND s.page_count IS NOT NULL)"
-        : "(s.analytics_version < 1 OR s.page_count IS NULL)",
-    );
-  }
-  if (filter.has_rage !== undefined) {
-    clauses.push("s.analytics_version >= 2");
-    clauses.push(filter.has_rage ? "s.rages >= 1" : "s.rages = 0");
-  }
-  if (filter.has_quick_back !== undefined) {
-    clauses.push("s.analytics_version >= 2");
-    clauses.push(filter.has_quick_back ? "s.quick_backs >= 1" : "s.quick_backs = 0");
-  }
-  if (filter.has_insights !== undefined) {
-    clauses.push(filter.has_insights ? "s.analytics_version >= 2" : "s.analytics_version < 2");
-  }
-  if (filter.min_duration_ms !== undefined) {
-    clauses.push(`s.duration_ms >= ${sqlWholeNumber(filter.min_duration_ms, "Minimum duration")}`);
-  }
-
-  return clauses.join(" AND ");
-}
-
-function addTextFilter(clauses: string[], column: string, value: string | undefined): void {
-  if (value === undefined) return;
-  const safeColumn = sqlAllowedName(column, allowedFilterColumns, "filter");
-  clauses.push(`s.${safeColumn} = ${sqlText(value)}`);
-}
-
-function buildCursorSql(before: SessionCursor | undefined, sort: SessionSort): string {
-  if (before === undefined) return "TRUE";
-  const sessionId = before.sessionId === undefined ? undefined : sqlText(before.sessionId);
-
-  if (sort === "newest") {
-    if (typeof before.sortValue !== "number") {
-      throw new Error("Newest cursor is not valid");
-    }
-    const value = sqlWholeNumber(before.sortValue, "Newest cursor");
-    return sessionId === undefined
-      ? `s.started_at < ${value}`
-      : `(s.started_at < ${value} OR (s.started_at = ${value} AND s.session_id < ${sessionId}))`;
-  }
-  if (sessionId === undefined) {
-    throw new Error("Session cursor is missing its session id");
-  }
-  if (sort === "pages") {
-    if (before.sortValue === null) {
-      return `(s.page_count IS NULL AND s.session_id < ${sessionId})`;
-    }
-    const value = sqlWholeNumber(before.sortValue, "Pages cursor");
-    return `(s.page_count IS NULL OR s.page_count < ${value} OR (s.page_count = ${value} AND s.session_id < ${sessionId}))`;
-  }
-
-  if (typeof before.sortValue !== "number") {
-    throw new Error(`${sort} cursor is not valid`);
-  }
-  const value = sqlWholeNumber(before.sortValue, `${sort} cursor`);
-  const expression =
-    sort === "friction" ? frictionSql("s") : `s.${sort === "duration" ? "duration_ms" : "clicks"}`;
-  return `(${expression} < ${value} OR (${expression} = ${value} AND s.session_id < ${sessionId}))`;
-}
-
-function sessionOrderSql(sort: SessionSort): string {
-  switch (sort) {
-    case "newest":
-      return "s.started_at DESC, s.session_id DESC";
-    case "friction":
-      return `${frictionSql("s")} DESC, s.session_id DESC`;
-    case "duration":
-      return "s.duration_ms DESC, s.session_id DESC";
-    case "clicks":
-      return "s.clicks DESC, s.session_id DESC";
-    case "pages":
-      return "s.page_count IS NULL, s.page_count DESC, s.session_id DESC";
-  }
-}
-
-function checkedSort(value: string): SessionSort {
-  if (!allowedSorts.includes(value as SessionSort)) {
-    throw new Error("Unknown analytics session sort");
-  }
-  return value as SessionSort;
-}
-
-function checkCursor(before: SessionCursor | undefined, sort: SessionSort): void {
-  if (before !== undefined && before.sort !== sort) {
-    throw new Error("Session cursor does not match its sort");
-  }
+        AND e.event_kind = ${sqlText(eventKind)}
+        AND COALESCE(e.event_detail, ${sqlText(unknownDetail)}) = ${sqlText(detail)}
+    )`;
+    },
+    warehouseVersion() {
+      // R2 applies the version while selecting and deduplicating exported rows.
+      return undefined;
+    },
+  };
 }
 
 function checkProject(projectId: string): void {
@@ -662,8 +596,4 @@ function checkProject(projectId: string): void {
 
 function selectColumns(alias: string, columns: readonly string[]): string {
   return columns.map((column) => `${alias}."${column}"`).join(", ");
-}
-
-function frictionSql(alias: string): string {
-  return `(${alias}.errors * 1000 + ${alias}.rages * 100 + ${alias}.clicks)`;
 }

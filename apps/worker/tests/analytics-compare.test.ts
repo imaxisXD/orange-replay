@@ -61,35 +61,34 @@ describe("analytics compare proof", () => {
     expect(warehouseIncludesD1Errors(d1, new Map())).toBe(false);
   });
 
-  it("compares the D1 session page without warehouse-only response fields", () => {
-    const page = {
-      sessions: [
-        {
-          session_id: "session_1",
-          project_id: "project_1",
-          started_at: 100,
-        },
-      ],
-      nextBefore: null,
+  it("ignores only D1 checkpoint state when comparing complete session pages", () => {
+    const d1Session = { ...sessionRow("project_1"), has_checkpoint: true };
+    const d1Page = { sessions: [d1Session], nextBefore: "1000:session_1" };
+    const warehousePage = {
+      sessions: [{ ...d1Session, has_checkpoint: null }],
+      nextBefore: "1000:session_1",
+      warehouseVersion: 12,
+      metrics: { bytesScanned: 1, filesScanned: 1 },
     };
 
-    expect(
-      sameSessionPage(
-        page as never,
-        {
-          ...page,
-          warehouseVersion: 12,
-          metrics: { bytesScanned: 1, filesScanned: 1 },
-        } as never,
-      ),
-    ).toBe(true);
+    expect(sameSessionPage(d1Page as never, warehousePage as never)).toBe(true);
 
     expect(
       sameSessionPage(
-        page as never,
+        d1Page as never,
         {
-          sessions: [{ ...page.sessions[0], session_id: "session_2" }],
-          nextBefore: null,
+          ...warehousePage,
+          sessions: [{ ...warehousePage.sessions[0], duration_ms: 1_001 }],
+        } as never,
+      ),
+    ).toBe(false);
+
+    expect(
+      sameSessionPage(
+        d1Page as never,
+        {
+          ...warehousePage,
+          nextBefore: "999:session_1",
         } as never,
       ),
     ).toBe(false);
@@ -145,6 +144,43 @@ describe("analytics compare routes", () => {
       analytics_compare_status: "match",
       outcome: "success",
       request_id: "request_stats",
+      warehouse_version: 12,
+    });
+  });
+
+  it("reports a successful session shadow match when only checkpoint state differs", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(100_001_000);
+    const queries: D1Query[] = [];
+    const env = compareEnv(queries);
+    const ctx = testContext();
+    const fetchR2 = vi.fn(async () => r2SqlResponse([sessionRow("project_1")]));
+    vi.stubGlobal("fetch", fetchR2);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    const response = await listSessions(
+      new URL("https://replay.test/api/v1/projects/project_1/sessions"),
+      env,
+      "project_1",
+      "session",
+      "request_sessions_match",
+      startWideEvent("test", "sessions"),
+      ctx.value,
+    );
+
+    expect(response.status).toBe(200);
+    expect(listSessionsResponseSchema.parse(await response.json())).toMatchObject({
+      analyticsState: "compare",
+      warehouseVersion: 12,
+      sessions: [{ project_id: "project_1", session_id: "session_1" }],
+    });
+
+    await ctx.finish();
+    expect(fetchR2).toHaveBeenCalledTimes(1);
+    expect(readCompareLog(log.mock.calls, "sessions_list")).toMatchObject({
+      analytics_compare_status: "match",
+      analytics_compare_match: true,
+      outcome: "success",
+      request_id: "request_sessions_match",
       warehouse_version: 12,
     });
   });
@@ -585,6 +621,7 @@ function sessionRow(projectId: string): Record<string, unknown> {
     flags: 0,
     manifest_key: "p/project_1/session_1/manifest.json",
     expires_at: 5_000,
+    has_checkpoint: 1,
   };
 }
 

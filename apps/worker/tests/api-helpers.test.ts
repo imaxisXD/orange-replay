@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { sessionFilterQueryKeys } from "@orange-replay/shared";
 import {
   buildSessionsQuery,
   encodeSessionCursor,
@@ -40,25 +41,30 @@ describe("api helper decisions", () => {
   });
 
   it("builds the sessions list query with filters and a capped limit", () => {
-    const parsed = parseSessionListQuery(
-      new URLSearchParams(
-        "limit=250&before=4000&from=1000&to=3000&country=US&region=CA&device=desktop&browser=Chrome&os=macOS&entry_url=%2Fcheckout%2Fcomplete&entry_url_prefix=%2Fcheckout&has_errors=1&error_detail=Checkout+failed&has_page_coverage=1&has_rage=1&has_quick_back=1&has_insights=1&min_duration_ms=500",
-      ),
+    const params = new URLSearchParams(
+      "limit=250&before=4000&from=1000&to=3000&country=US&region=CA&city=San+Francisco&device=desktop&browser=Chrome&os=macOS&entry_url=%2Fcheckout%2Fcomplete&entry_url_prefix=%2Fcheckout&has_errors=1&error_detail=Checkout+failed&has_page_coverage=1&has_rage=1&has_quick_back=1&has_insights=1&min_duration_ms=500&warehouse_version=7",
     );
+    expect(sessionFilterQueryKeys.filter((key) => !params.has(key))).toEqual([]);
+    const parsed = parseSessionListQuery(params);
 
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
 
     const query = buildSessionsQuery("project_1", parsed.options);
     expect(query).toEqual({
-      sql: "SELECT session_id, project_id, org_id, started_at, ended_at, duration_ms, country, region, city, device, browser, os, entry_url, url_count, page_count, analytics_version, max_scroll_depth, quick_backs, interaction_time_ms, activity_hist, clicks, errors, rages, navs, bytes, segment_count, flags, manifest_key, expires_at, has_checkpoint FROM sessions WHERE project_id = ? AND NOT EXISTS (SELECT 1 FROM session_deletions d WHERE d.project_id = sessions.project_id AND d.session_id = sessions.session_id) AND started_at < ? AND started_at >= ? AND started_at <= ? AND country = ? AND region = ? AND device = ? AND browser = ? AND os = ? AND entry_url = ? AND entry_url >= ? AND entry_url < ? AND errors >= ? AND EXISTS (SELECT 1 FROM session_events e WHERE e.project_id = sessions.project_id AND e.session_id = sessions.session_id AND e.kind = ? AND COALESCE(e.detail, ?) = ?) AND (analytics_version >= ? AND page_count IS NOT NULL) AND analytics_version >= ? AND rages >= ? AND analytics_version >= ? AND quick_backs >= ? AND analytics_version >= ? AND duration_ms >= ? ORDER BY started_at DESC, session_id DESC LIMIT ?",
+      sql: "SELECT session_id, project_id, org_id, started_at, ended_at, duration_ms, country, region, city, device, browser, os, entry_url, url_count, page_count, analytics_version, max_scroll_depth, quick_backs, interaction_time_ms, activity_hist, clicks, errors, rages, navs, bytes, segment_count, flags, manifest_key, expires_at, has_checkpoint FROM sessions WHERE project_id = ? AND NOT EXISTS (SELECT 1 FROM session_deletions d WHERE d.project_id = sessions.project_id AND d.session_id = sessions.session_id) AND (EXISTS (SELECT 1 FROM analytics_export_outbox a WHERE a.project_id = sessions.project_id AND a.session_id = sessions.session_id AND a.record_kind = ? AND a.export_sequence <= ?)\n        OR EXISTS (SELECT 1 FROM analytics_export_ledger l WHERE l.project_id = sessions.project_id AND l.session_id = sessions.session_id AND l.record_kind = ? AND l.export_sequence <= ?)) AND started_at < ? AND started_at >= ? AND started_at <= ? AND country = ? AND region = ? AND city = ? AND device = ? AND browser = ? AND os = ? AND entry_url = ? AND entry_url >= ? AND entry_url < ? AND errors >= ? AND EXISTS (SELECT 1 FROM session_events e WHERE e.project_id = sessions.project_id AND e.session_id = sessions.session_id AND e.kind = ? AND COALESCE(e.detail, ?) = ?) AND (analytics_version >= ? AND page_count IS NOT NULL) AND analytics_version >= ? AND rages >= ? AND analytics_version >= ? AND quick_backs >= ? AND analytics_version >= ? AND duration_ms >= ? ORDER BY started_at DESC, session_id DESC LIMIT ?",
       bindings: [
         "project_1",
+        "session",
+        7,
+        "session",
+        7,
         4000,
         1000,
         3000,
         "US",
         "CA",
+        "San Francisco",
         "desktop",
         "Chrome",
         "macOS",

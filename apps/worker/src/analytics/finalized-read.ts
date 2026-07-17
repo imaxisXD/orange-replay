@@ -14,6 +14,7 @@ import {
   type SessionListOptions,
   type SessionRow,
 } from "../query/session-query.ts";
+import { sessionCursorText } from "../query/finalized-session-semantics.ts";
 import { readAnalyticsCache, writeAnalyticsCache, type AnalyticsCacheRequests } from "./cache.ts";
 import { readFinalizedProjectStats } from "./d1-stats.ts";
 import { analyticsDeletionReadVersion, shardDb, type Env } from "../env.ts";
@@ -533,12 +534,18 @@ export function statsCacheRequests(
 
 export function sameSessionPage(left: FinalizedSessionPage, right: FinalizedSessionPage): boolean {
   return (
-    JSON.stringify(left) ===
-    JSON.stringify({
-      sessions: right.sessions,
-      nextBefore: right.nextBefore,
-    })
+    JSON.stringify(comparableSessionPage(left)) === JSON.stringify(comparableSessionPage(right))
   );
+}
+
+function comparableSessionPage(page: FinalizedSessionPage): {
+  sessions: Omit<SessionListItem, "has_checkpoint">[];
+  nextBefore: string | null;
+} {
+  return {
+    sessions: page.sessions.map(({ has_checkpoint: _d1OnlyPlayability, ...session }) => session),
+    nextBefore: page.nextBefore,
+  };
 }
 
 export function sameStatsWithoutErrors(
@@ -657,16 +664,6 @@ function safeCachedPage(value: unknown, projectId: string): value is FinalizedSe
     const row = session as Record<string, unknown>;
     return row["project_id"] === projectId && typeof row["session_id"] === "string";
   });
-}
-
-function sessionCursorText(cursor: NonNullable<SessionListOptions["before"]>): string {
-  if (cursor.sort === "newest") {
-    return cursor.sessionId === undefined
-      ? String(cursor.sortValue)
-      : `${cursor.sortValue}:${cursor.sessionId}`;
-  }
-  const value = cursor.sortValue === null ? "null" : String(cursor.sortValue);
-  return `${cursor.sort}:${value}:${cursor.sessionId}`;
 }
 
 function cacheRequest(baseUrl: string, params: URLSearchParams): Request {
