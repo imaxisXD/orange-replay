@@ -24,7 +24,7 @@ playwright-report/
 .agents/
 .codex/hooks.json
 .pnpm-store/
-audits/
+/audits/
 design-directions*.html
 /artifacts/
 /design-qa.md
