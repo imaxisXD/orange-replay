@@ -1,6 +1,7 @@
 import { getAuthMode } from "../auth/config.ts";
 import { getHostedSession, isGlobalAdmin, type HostedSession } from "../auth/server.ts";
 import { isDevTestMode, type Env } from "../env.ts";
+import { projectRouteAccess, type DashboardProjectRouteName } from "./dashboard-request-policy.ts";
 import { isValidPathId } from "./helpers.ts";
 import { jsonError } from "./http.ts";
 
@@ -26,39 +27,7 @@ export type SessionAuthContext = {
 
 export type ApiAuthContext = DemoAuthContext | SessionAuthContext;
 
-export type ApiRouteName =
-  | "sessions_list"
-  | "session_heads"
-  | "session_state"
-  | "project_stats"
-  | "project_live"
-  | "project_config_read"
-  | "project_config_write"
-  | "public_page_read"
-  | "public_page_write"
-  | "install_status"
-  | "project_keys"
-  | "manifest"
-  | "live_ticket"
-  | "segment";
-
-const DEMO_READABLE_ROUTES = new Set<ApiRouteName>([
-  "sessions_list",
-  "session_heads",
-  "session_state",
-  "project_stats",
-  "project_live",
-  "manifest",
-  "segment",
-  "live_ticket",
-]);
-
-const MANAGER_ROUTES = new Set<ApiRouteName>([
-  "project_config_write",
-  "project_keys",
-  "public_page_read",
-  "public_page_write",
-]);
+export type ApiRouteName = DashboardProjectRouteName;
 
 interface ProjectMembershipRow {
   [key: string]: unknown;
@@ -125,7 +94,8 @@ export function projectAuthError(
   projectId: string,
   route: ApiRouteName,
 ): Response | null {
-  if (auth.mode === "demo" && !DEMO_READABLE_ROUTES.has(route)) {
+  const access = projectRouteAccess(route);
+  if (auth.mode === "demo" && !access.demoReadable) {
     return jsonError("unauthorized", 401);
   }
 
@@ -133,7 +103,7 @@ export function projectAuthError(
     return jsonError("forbidden", 403);
   }
 
-  if (auth.mode === "session" && MANAGER_ROUTES.has(route)) {
+  if (auth.mode === "session" && access.minimumRole === "manager") {
     const role = auth.projectRoles.get(projectId);
     if (role !== "owner" && role !== "admin") {
       return jsonError("forbidden", 403);
