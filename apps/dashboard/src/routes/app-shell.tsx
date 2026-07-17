@@ -79,7 +79,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
     <div className="flex h-screen flex-col overflow-hidden text-foreground">
       <header className="z-40 shrink-0">
         <ScrollArea orientation="horizontal" viewportClassName="scroll-fade-x">
-          <nav className="flex min-w-max items-center gap-3.5 px-4 py-2 sm:px-7">
+          <nav className="flex min-w-max items-center gap-3.5 px-4 pt-2.5 pb-4 sm:px-7">
             <Link
               className="flex items-center gap-2.5 text-[14px] font-semibold tracking-[-0.01em] text-foreground"
               {...(isDemo
@@ -107,7 +107,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
             >
               <SelectTrigger
                 aria-label="Project"
-                className="h-7.5 min-w-33 rounded-lg border border-subtle-border bg-secondary px-2.75 py-1.25 text-[12.5px] text-foreground"
+                className="h-7.5 min-w-33 bg-transparent rounded-lg border-none hover:bg-secondary px-2.75 py-1.25 text-[12.5px] hover:text-foreground text-muted-foreground"
                 placeholder="Project"
               />
               <SelectContent className="rounded-lg border border-border bg-popover">
@@ -171,7 +171,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
             )}
           >
             <ScrollArea orientation="horizontal" viewportClassName="scroll-fade-x">
-              <nav className="flex min-w-max gap-1 border-b border-border px-4 sm:px-7">
+              <nav className="flex min-w-max gap-1 border-b border-border px-4 py-1 sm:px-7">
                 {dashboardNavItems(isDemo, canManageProject(activeProject)).map((item) => (
                   <TopNavTab isDemo={isDemo} item={item} key={item.label} projectId={projectId} />
                 ))}
