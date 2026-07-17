@@ -62,11 +62,22 @@ The API validates the ten-recording limit and replaces the ordered selection in 
 
 - Better Auth owner/admin session only.
 - Hosted session mutations require an exact trusted origin.
-- Body is capped at 8 KiB and accepts only `{ enabled, sessionIds }`.
+- Body is capped at 8 KiB and accepts only `{ enabled, expectedRevision, sessionIds }`.
+- `expectedRevision` must equal the `revision` returned by the settings `GET`. Use `0` only when
+  no public-page row exists yet.
 - `sessionIds` must be unique, valid path IDs, finalized, readable, in the same project, and at most
   ten.
 - Existing public replay IDs are preserved for recordings that stay selected. Newly selected
   recordings receive new random IDs.
+- A stale replacement returns `409 { error: "public_page_settings_changed" }`. The client must
+  fetch the latest settings and ask the user to review them; it must not retry the stale full
+  replacement automatically.
+
+Migration `0021_public_page_mutation_token.sql` is the deploy boundary for this contract. It is an
+additive, nullable change that is safe with the old Worker, so apply the migration first and then
+deploy the combined Worker and dashboard assets. Do not deploy the new Worker before the migration.
+An already-open old dashboard tab does not send `expectedRevision`; its save fails closed with
+`400` until the page is reloaded onto the new assets.
 
 ## Public routes
 

@@ -23,6 +23,7 @@ vi.mock("@number-flow/react", () => ({
 }));
 
 import { PublicPageCard } from "../src/routes/settings/settings-public-page-card";
+import { ApiError } from "../src/lib/api";
 
 let container: HTMLDivElement;
 let root: Root;
@@ -37,11 +38,14 @@ beforeEach(() => {
   apiMocks.fetchPublicPageSettings.mockImplementation(async () => privateSettings);
   apiMocks.listSessions.mockImplementation(async () => ({ sessions: [session], nextBefore: null }));
   apiMocks.savePublicPageSettings.mockImplementation(
-    async (_projectId: string, update: { enabled: boolean; sessionIds: string[] }) => ({
+    async (
+      _projectId: string,
+      update: { enabled: boolean; expectedRevision: number; sessionIds: string[] },
+    ) => ({
       enabled: update.enabled,
       publicId: "pub_one",
       publicUrl: "https://public.example.com/p/pub_one",
-      revision: 1,
+      revision: update.expectedRevision + 1,
       recordings: update.sessionIds.length === 0 ? [] : [selectedRecording],
     }),
   );
@@ -55,16 +59,24 @@ afterEach(async () => {
 
 describe("public page settings", () => {
   it("asks for confirmation before publishing", async () => {
-    await renderCard();
+    const queryClient = await renderCard();
 
     await act(async () => findSwitch("Publish public page").click());
     expect(document.body.textContent).toContain("Publish this project page?");
     expect(apiMocks.savePublicPageSettings).not.toHaveBeenCalled();
 
+    await act(async () => {
+      queryClient.setQueryData(["public-page-settings", "project_one"], {
+        ...privateSettings,
+        revision: 9,
+      });
+    });
+
     await act(async () => findButton("Publish page").click());
     await waitForUi(() =>
       expect(apiMocks.savePublicPageSettings).toHaveBeenCalledWith("project_one", {
         enabled: true,
+        expectedRevision: 0,
         sessionIds: [],
       }),
     );
@@ -74,12 +86,19 @@ describe("public page settings", () => {
   });
 
   it("saves only the recordings chosen by the owner", async () => {
-    await renderCard();
+    const queryClient = await renderCard();
 
     await act(async () => findButton("Choose recordings").click());
     await waitForUi(() => {
       expect(apiMocks.listSessions).toHaveBeenCalled();
       expect(document.body.textContent).toContain("/checkout");
+    });
+
+    await act(async () => {
+      queryClient.setQueryData(["public-page-settings", "project_one"], {
+        ...privateSettings,
+        revision: 7,
+      });
     });
 
     await act(async () => findSwitch("Share recording from").parentElement?.click());
@@ -88,9 +107,28 @@ describe("public page settings", () => {
     await waitForUi(() =>
       expect(apiMocks.savePublicPageSettings).toHaveBeenCalledWith("project_one", {
         enabled: false,
+        expectedRevision: 0,
         sessionIds: ["session_one"],
       }),
     );
+  });
+
+  it("shows a conflict once and refreshes instead of retrying the stale save", async () => {
+    apiMocks.savePublicPageSettings.mockRejectedValueOnce(
+      new ApiError("Public page settings changed.", 409, "public_page_settings_changed"),
+    );
+    await renderCard();
+
+    await act(async () => findSwitch("Publish public page").click());
+    await act(async () => findButton("Publish page").click());
+
+    await waitForUi(() => {
+      expect(apiMocks.savePublicPageSettings).toHaveBeenCalledTimes(1);
+      expect(apiMocks.fetchPublicPageSettings).toHaveBeenCalledTimes(2);
+      expect(container.textContent).toContain(
+        "Public page settings changed elsewhere. Review the latest values and try again.",
+      );
+    });
   });
 });
 
@@ -151,7 +189,7 @@ const selectedRecording = {
   pages: 1,
 };
 
-async function renderCard(): Promise<void> {
+async function renderCard(): Promise<QueryClient> {
   const queryClient = new QueryClient({
     defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
   });
@@ -166,12 +204,12 @@ async function renderCard(): Promise<void> {
     expect(apiMocks.fetchPublicPageSettings).toHaveBeenCalled();
     expect(container.textContent).toContain("Choose recordings");
   });
+  return queryClient;
 }
 
 async function waitForUi(assertion: () => void): Promise<void> {
-  await vi.waitFor(async () => {
-    await act(async () => Promise.resolve());
-    assertion();
+  await act(async () => {
+    await vi.waitFor(assertion);
   });
 }
 

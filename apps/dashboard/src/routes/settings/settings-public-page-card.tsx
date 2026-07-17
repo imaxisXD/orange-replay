@@ -1,7 +1,10 @@
 import { MAX_PUBLIC_PAGE_RECORDINGS } from "@orange-replay/shared";
-import type { PublicPageSelectedRecording } from "@orange-replay/shared/types";
+import type {
+  PublicPageSelectedRecording,
+  PublicPageSettingsUpdate,
+} from "@orange-replay/shared/types";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { AnimatedNumber } from "@/components/animated-number";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -25,10 +28,22 @@ import {
 
 const publicPageQueryKey = (projectId: string) => ["public-page-settings", projectId] as const;
 
+interface PublishDraft {
+  expectedRevision: number;
+  sessionIds: string[];
+}
+
+interface RecordingDraft {
+  enabled: boolean;
+  expectedRevision: number;
+}
+
 export function PublicPageCard({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
   const [publishConfirmationOpen, setPublishConfirmationOpen] = useState(false);
   const [recordingPickerOpen, setRecordingPickerOpen] = useState(false);
+  const publishDraft = useRef<PublishDraft | null>(null);
+  const recordingDraft = useRef<RecordingDraft | null>(null);
   const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([]);
   const [pickerError, setPickerError] = useState("");
   const [copied, setCopied] = useState(false);
@@ -43,13 +58,23 @@ export function PublicPageCard({ projectId }: { projectId: string }) {
     enabled: recordingPickerOpen,
   });
   const saveMutation = useMutation({
-    mutationFn: (update: { enabled: boolean; sessionIds: string[] }) =>
-      savePublicPageSettings(projectId, update),
+    mutationFn: (update: PublicPageSettingsUpdate) => savePublicPageSettings(projectId, update),
     onSuccess: (settings) => {
       queryClient.setQueryData(publicPageQueryKey(projectId), settings);
       setSelectedSessionIds(settings.recordings.map((recording) => recording.sessionId));
       setPublishConfirmationOpen(false);
       setRecordingPickerOpen(false);
+      publishDraft.current = null;
+      recordingDraft.current = null;
+      setPickerError("");
+    },
+    onError: (error) => {
+      if (!(error instanceof ApiError) || error.code !== "public_page_settings_changed") return;
+      void settingsQuery.refetch();
+      setPublishConfirmationOpen(false);
+      setRecordingPickerOpen(false);
+      publishDraft.current = null;
+      recordingDraft.current = null;
       setPickerError("");
     },
   });
@@ -66,13 +91,35 @@ export function PublicPageCard({ projectId }: { projectId: string }) {
     saveMutation.reset();
     saveMutation.mutate({
       enabled,
+      expectedRevision: settings.revision,
       sessionIds: settings.recordings.map((recording) => recording.sessionId),
+    });
+  }
+
+  function openPublishConfirmation(): void {
+    if (settings === undefined) return;
+    publishDraft.current = {
+      expectedRevision: settings.revision,
+      sessionIds: settings.recordings.map((recording) => recording.sessionId),
+    };
+    saveMutation.reset();
+    setPublishConfirmationOpen(true);
+  }
+
+  function publishPage(): void {
+    const draft = publishDraft.current;
+    if (draft === null) return;
+    saveMutation.mutate({
+      enabled: true,
+      expectedRevision: draft.expectedRevision,
+      sessionIds: draft.sessionIds,
     });
   }
 
   function openRecordingPicker(): void {
     if (settings === undefined) return;
     setSelectedSessionIds(settings.recordings.map((recording) => recording.sessionId));
+    recordingDraft.current = { enabled: settings.enabled, expectedRevision: settings.revision };
     setPickerError("");
     saveMutation.reset();
     setRecordingPickerOpen(true);
@@ -166,7 +213,7 @@ export function PublicPageCard({ projectId }: { projectId: string }) {
                 label="Publish public page"
                 onToggle={() => {
                   if (settings.enabled) saveEnabled(false);
-                  else setPublishConfirmationOpen(true);
+                  else openPublishConfirmation();
                 }}
               />
             </div>
@@ -242,8 +289,11 @@ export function PublicPageCard({ projectId }: { projectId: string }) {
       <PublishPublicPageDialog
         error={saveError}
         isSaving={saveMutation.isPending}
-        onOpenChange={setPublishConfirmationOpen}
-        onPublish={() => saveEnabled(true)}
+        onOpenChange={(open) => {
+          setPublishConfirmationOpen(open);
+          if (!open) publishDraft.current = null;
+        }}
+        onPublish={publishPage}
         open={publishConfirmationOpen}
       />
 
@@ -255,18 +305,24 @@ export function PublicPageCard({ projectId }: { projectId: string }) {
         loadFailed={sessionsQuery.isError}
         onOpenChange={(open) => {
           setRecordingPickerOpen(open);
-          if (!open) setPickerError("");
+          if (!open) {
+            recordingDraft.current = null;
+            setPickerError("");
+          }
         }}
         onClear={() => {
           setSelectedSessionIds([]);
           setPickerError("");
         }}
-        onSave={() =>
+        onSave={() => {
+          const draft = recordingDraft.current;
+          if (draft === null) return;
           saveMutation.mutate({
-            enabled: settings?.enabled ?? false,
+            enabled: draft.enabled,
+            expectedRevision: draft.expectedRevision,
             sessionIds: selectedSessionIds,
-          })
-        }
+          });
+        }}
         onToggleRecording={toggleRecording}
         open={recordingPickerOpen}
         pickerError={pickerError}
@@ -329,6 +385,9 @@ function publicPageError(error: unknown, fallback: string): string {
   }
   if (error.code === "recording_not_available") {
     return "One selected recording is no longer available. Reload and choose again.";
+  }
+  if (error.code === "public_page_settings_changed") {
+    return "Public page settings changed elsewhere. Review the latest values and try again.";
   }
   return fallback;
 }

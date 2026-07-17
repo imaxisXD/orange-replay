@@ -231,6 +231,7 @@ export interface PublicPageSettings {
 
 export interface PublicPageSettingsUpdate {
   enabled: boolean;
+  expectedRevision: number;
   sessionIds: string[];
 }
 

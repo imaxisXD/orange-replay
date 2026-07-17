@@ -29,25 +29,43 @@ describe.sequential("public project pages", () => {
       recordings: [],
     });
 
+    const missingRevision = await worker.fetch(path, {
+      method: "PUT",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({ enabled: true, sessionIds: [] }),
+    });
+    expect(missingRevision.status).toBe(400);
+    expect(await missingRevision.json()).toEqual({ error: "invalid_public_page_settings" });
+
+    const invalidRevision = await updateSettings(assetProjectId, true, [], -1);
+    expect(invalidRevision.status).toBe(400);
+    expect(await invalidRevision.json()).toEqual({ error: "invalid_public_page_settings" });
+
     const tooMany = await updateSettings(
       assetProjectId,
       true,
       Array.from({ length: 11 }, (_, index) => `recording_${index}`),
+      0,
     );
     expect(tooMany.status).toBe(400);
     expect(await tooMany.json()).toEqual({ error: "too_many_public_recordings" });
 
-    const duplicate = await updateSettings(assetProjectId, true, [assetSessionId, assetSessionId]);
+    const duplicate = await updateSettings(
+      assetProjectId,
+      true,
+      [assetSessionId, assetSessionId],
+      0,
+    );
     expect(duplicate.status).toBe(400);
     expect(await duplicate.json()).toEqual({ error: "duplicate_recording_id" });
 
-    const otherProject = await updateSettings(assetProjectId, true, ["api_new"]);
+    const otherProject = await updateSettings(assetProjectId, true, ["api_new"], 0);
     expect(otherProject.status).toBe(400);
     expect(await otherProject.json()).toEqual({ error: "recording_not_available" });
   });
 
   it("publishes safe SSR analytics and one curated recording, then revokes both", async () => {
-    const publishedResponse = await updateSettings(assetProjectId, true, [assetSessionId]);
+    const publishedResponse = await updateSettings(assetProjectId, true, [assetSessionId], 0);
     expect(publishedResponse.status).toBe(200);
     const settings = (await publishedResponse.json()) as PublicPageSettings;
     expect(settings.enabled).toBe(true);
@@ -129,14 +147,20 @@ describe.sequential("public project pages", () => {
       Array.from(segmentBytes),
     );
 
-    const removedResponse = await updateSettings(assetProjectId, true, []);
+    const removedResponse = await updateSettings(assetProjectId, true, [], settings.revision);
     expect(removedResponse.status).toBe(200);
+    const removedSettings = (await removedResponse.json()) as PublicPageSettings;
     const removedManifest = await worker.fetch(
       `/api/v1/public-pages/${publicId}/replays/${publicReplayId}/manifest`,
     );
     expect(removedManifest.status).toBe(404);
 
-    const disabledResponse = await updateSettings(assetProjectId, false, []);
+    const disabledResponse = await updateSettings(
+      assetProjectId,
+      false,
+      [],
+      removedSettings.revision,
+    );
     expect(disabledResponse.status).toBe(200);
     const disabledData = await worker.fetch(`/api/v1/public-pages/${publicId}`);
     const disabledHtml = await worker.fetch(`/p/${publicId}`);
@@ -146,16 +170,96 @@ describe.sequential("public project pages", () => {
   });
 
   it("does not publish a valid recording from another project", async () => {
-    const response = await updateSettings(listProjectId, true, [assetSessionId]);
+    const response = await updateSettings(listProjectId, true, [assetSessionId], 0);
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "recording_not_available" });
   });
+
+  it("rejects concurrent first saves and stale full replacements", async () => {
+    const [first, second] = await Promise.all([
+      updateSettings(listProjectId, true, ["api_old"], 0),
+      updateSettings(listProjectId, true, ["api_new"], 0),
+    ]);
+    expect([first.status, second.status].toSorted((left, right) => left - right)).toEqual([
+      200, 409,
+    ]);
+    expect(await (first.status === 409 ? first : second).json()).toEqual({
+      error: "public_page_settings_changed",
+    });
+
+    const created = await readSettings(listProjectId);
+    const preparedResponse = await updateSettings(
+      listProjectId,
+      true,
+      ["api_old", "api_new"],
+      created.revision,
+    );
+    expect(preparedResponse.status).toBe(200);
+    const prepared = (await preparedResponse.json()) as PublicPageSettings;
+
+    const revokedResponse = await updateSettings(
+      listProjectId,
+      true,
+      ["api_old"],
+      prepared.revision,
+    );
+    expect(revokedResponse.status).toBe(200);
+    const revoked = (await revokedResponse.json()) as PublicPageSettings;
+
+    const staleRecordingSave = await updateSettings(
+      listProjectId,
+      true,
+      ["api_old", "api_new"],
+      prepared.revision,
+    );
+    expect(staleRecordingSave.status).toBe(409);
+    expect(await staleRecordingSave.json()).toEqual({ error: "public_page_settings_changed" });
+    expect(
+      (await readSettings(listProjectId)).recordings.map((recording) => recording.sessionId),
+    ).toEqual(["api_old"]);
+
+    const disabledResponse = await updateSettings(
+      listProjectId,
+      false,
+      ["api_old"],
+      revoked.revision,
+    );
+    expect(disabledResponse.status).toBe(200);
+    const disabled = (await disabledResponse.json()) as PublicPageSettings;
+
+    const staleEnableSave = await updateSettings(
+      listProjectId,
+      true,
+      ["api_old", "api_new"],
+      revoked.revision,
+    );
+    expect(staleEnableSave.status).toBe(409);
+    expect(await staleEnableSave.json()).toEqual({ error: "public_page_settings_changed" });
+
+    const finalSettings = await readSettings(listProjectId);
+    expect(finalSettings.enabled).toBe(false);
+    expect(finalSettings.revision).toBe(disabled.revision);
+    expect(finalSettings.recordings.map((recording) => recording.sessionId)).toEqual(["api_old"]);
+  });
 });
 
-function updateSettings(projectId: string, enabled: boolean, sessionIds: string[]) {
+async function readSettings(projectId: string): Promise<PublicPageSettings> {
+  const response = await worker.fetch(`/api/v1/projects/${projectId}/public-page`, {
+    headers: authHeaders(),
+  });
+  expect(response.status).toBe(200);
+  return (await response.json()) as PublicPageSettings;
+}
+
+function updateSettings(
+  projectId: string,
+  enabled: boolean,
+  sessionIds: string[],
+  expectedRevision: number,
+) {
   return worker.fetch(`/api/v1/projects/${projectId}/public-page`, {
     method: "PUT",
     headers: { ...authHeaders(), "content-type": "application/json" },
-    body: JSON.stringify({ enabled, sessionIds }),
+    body: JSON.stringify({ enabled, expectedRevision, sessionIds }),
   });
 }

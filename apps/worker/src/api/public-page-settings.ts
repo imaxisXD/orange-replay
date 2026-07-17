@@ -75,24 +75,26 @@ export async function putPublicPageSettings(
   );
   if (selectedRows === null) return jsonError("recording_not_available", 400);
 
-  const currentPage = await readPublicPageRow(env.IDX_00, projectId);
   const currentReplayIds = await readCurrentReplayIds(env.IDX_00, projectId);
   const now = Date.now();
-  const publicId = currentPage?.public_id ?? makeRandomPathId("pub");
+  const publicId = makeRandomPathId("pub");
+  const mutationToken = crypto.randomUUID();
   const statements: D1PreparedStatement[] = [];
 
-  if (currentPage === null) {
+  if (update.value.expectedRevision === 0) {
     statements.push(
       env.IDX_00.prepare(
         `INSERT INTO project_public_pages (
-          project_id, public_id, is_enabled, revision, published_at, updated_at
-        ) VALUES (?, ?, ?, 1, ?, ?)`,
+          project_id, public_id, is_enabled, revision, published_at, updated_at, mutation_token
+        ) VALUES (?, ?, ?, 1, ?, ?, ?)
+        ON CONFLICT(project_id) DO NOTHING`,
       ).bind(
         projectId,
         publicId,
         update.value.enabled ? 1 : 0,
         update.value.enabled ? now : null,
         now,
+        mutationToken,
       ),
     );
   } else {
@@ -105,32 +107,65 @@ export async function putPublicPageSettings(
                 WHEN ? = 1 AND published_at IS NULL THEN ?
                 ELSE published_at
               END,
-              updated_at = ?
-          WHERE project_id = ?`,
-      ).bind(update.value.enabled ? 1 : 0, update.value.enabled ? 1 : 0, now, now, projectId),
+              updated_at = ?,
+              mutation_token = ?
+          WHERE project_id = ?
+            AND revision = ?`,
+      ).bind(
+        update.value.enabled ? 1 : 0,
+        update.value.enabled ? 1 : 0,
+        now,
+        now,
+        mutationToken,
+        projectId,
+        update.value.expectedRevision,
+      ),
     );
   }
 
   statements.push(
-    env.IDX_00.prepare("DELETE FROM public_page_sessions WHERE project_id = ?").bind(projectId),
+    env.IDX_00.prepare(
+      `DELETE FROM public_page_sessions
+        WHERE project_id = ?
+          AND EXISTS (
+            SELECT 1
+            FROM project_public_pages
+            WHERE project_id = ?
+              AND mutation_token = ?
+          )`,
+    ).bind(projectId, projectId, mutationToken),
   );
   for (const [position, sessionId] of update.value.sessionIds.entries()) {
     statements.push(
       env.IDX_00.prepare(
         `INSERT INTO public_page_sessions (
           project_id, session_id, public_replay_id, position, added_at
-        ) VALUES (?, ?, ?, ?, ?)`,
+        )
+        SELECT ?, ?, ?, ?, ?
+        WHERE EXISTS (
+          SELECT 1
+          FROM project_public_pages
+          WHERE project_id = ?
+            AND mutation_token = ?
+        )`,
       ).bind(
         projectId,
         sessionId,
         currentReplayIds.get(sessionId) ?? makeRandomPathId("replay"),
         position,
         now,
+        projectId,
+        mutationToken,
       ),
     );
   }
 
-  await env.IDX_00.batch(statements);
+  const results = await env.IDX_00.batch(statements);
+  if (results[0]?.meta.changes !== 1) {
+    return jsonError("public_page_settings_changed", 409, {
+      "cache-control": "private, no-store",
+    });
+  }
   const settings = await readPublicPageSettings(env.IDX_00, projectId, origin.origin);
   wideEvent.set({
     project_id: projectId,
@@ -342,10 +377,20 @@ function parsePublicPageSettingsUpdate(
   }
   const record = value as Record<string, unknown>;
   const keys = Object.keys(record).sort();
-  if (keys.length !== 2 || keys[0] !== "enabled" || keys[1] !== "sessionIds") {
+  if (
+    keys.length !== 3 ||
+    keys[0] !== "enabled" ||
+    keys[1] !== "expectedRevision" ||
+    keys[2] !== "sessionIds"
+  ) {
     return { ok: false, error: "invalid_public_page_settings" };
   }
-  if (typeof record.enabled !== "boolean" || !Array.isArray(record.sessionIds)) {
+  if (
+    typeof record.enabled !== "boolean" ||
+    !Number.isSafeInteger(record.expectedRevision) ||
+    (record.expectedRevision as number) < 0 ||
+    !Array.isArray(record.sessionIds)
+  ) {
     return { ok: false, error: "invalid_public_page_settings" };
   }
   if (record.sessionIds.length > MAX_PUBLIC_PAGE_RECORDINGS) {
@@ -361,7 +406,14 @@ function parsePublicPageSettingsUpdate(
   if (new Set(sessionIds).size !== sessionIds.length) {
     return { ok: false, error: "duplicate_recording_id" };
   }
-  return { ok: true, value: { enabled: record.enabled, sessionIds } };
+  return {
+    ok: true,
+    value: {
+      enabled: record.enabled,
+      expectedRevision: record.expectedRevision as number,
+      sessionIds,
+    },
+  };
 }
 
 function makeRandomPathId(prefix: "pub" | "replay"): string {
