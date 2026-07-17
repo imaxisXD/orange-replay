@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -24,6 +24,13 @@ import {
   usesDefaultAnalyticsCatalog,
   validateManifestText,
 } from "./analytics/backfill-lib.mjs";
+import {
+  BackfillCompletionProtocolError,
+  backfillArtifactPaths,
+  prepareBackfillArtifactPaths,
+  publishBackfillApplyArtifacts,
+} from "./analytics/backfill-report-protocol.mjs";
+import { writePrivateFileOnceAtomically } from "./private-file.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const helpText = `Usage: node scripts/backfill-analytics.mjs [options]
@@ -42,7 +49,7 @@ Optional:
   --persist-to <dir>             Local Wrangler state directory (local only)
   --page-size <1..500>           D1 page size (default: 100)
   --now <milliseconds>           Fixed expiry cutoff for a repeatable report
-  --report <file>                Report path
+  --report <file>                New immutable audit path in an existing private directory
   --help                         Show this help
 
 Without --apply, the script only reads data and writes an audit report. Recovery
@@ -59,6 +66,8 @@ class BackfillStateChangedError extends Error {
 
 let activeReport;
 let activeReportPath;
+let activeReportRoot;
+let activeReportPublished = false;
 
 try {
   const options = parseBackfillArguments(process.argv.slice(2), {});
@@ -67,10 +76,14 @@ try {
     process.exit(0);
   }
 
+  const reportPath = options.reportPath ?? defaultReportPath(options.source);
+  const reportRoot = options.reportPath === undefined ? repoRoot : path.dirname(reportPath);
+  const reportArtifacts = backfillArtifactPaths(reportPath);
+  await prepareBackfillArtifactPaths(reportRoot, reportArtifacts, options.apply);
+  activeReportPath = reportArtifacts.reportPath;
+  activeReportRoot = reportRoot;
   const inventoryKeys = parseManifestInventory(await readFile(options.inventoryPath, "utf8"));
   assertD1Schema(options);
-  const reportPath = options.reportPath ?? defaultReportPath(options.source);
-  activeReportPath = reportPath;
   const reportId = `backfill_${randomUUID()}`;
   const manifestKeys = inventoryKeys.filter((key) => key.endsWith("/manifest.json"));
   const inventorySet = new Set(manifestKeys);
@@ -153,26 +166,35 @@ try {
       report.totals.outboxRowsExpected - report.totals.outboxRowsInserted;
   }
   const completedAt = Date.now();
-  report.completedAt = new Date(completedAt).toISOString();
-  report.status = "complete";
-
-  await writeBackfillReport(reportPath, report);
   if (options.apply) {
-    writeBackfillCompletions(
-      options,
-      sourceSessionCounts,
-      sourceDeletionCounts,
-      appliedRequiredSequences,
-      reportId,
+    await publishBackfillApplyArtifacts({
+      artifacts: reportArtifacts,
       completedAt,
-    );
+      report,
+      trustedRoot: reportRoot,
+      writeCompletions: () =>
+        writeBackfillCompletions(
+          options,
+          sourceSessionCounts,
+          sourceDeletionCounts,
+          appliedRequiredSequences,
+          reportId,
+          completedAt,
+        ),
+    });
+  } else {
+    report.completedAt = new Date(completedAt).toISOString();
+    report.status = "complete";
+    await writeBackfillReport(reportArtifacts.reportPath, report, reportRoot);
   }
+  activeReportPublished = true;
   console.log(
     JSON.stringify(
       {
         event: "analytics.backfill",
         mode: options.apply ? "apply" : "dry_run",
-        reportPath,
+        reportPath: reportArtifacts.reportPath,
+        ...(options.apply ? { completionReceiptPath: reportArtifacts.completionReceiptPath } : {}),
         source: options.source,
         totals: report.totals,
       },
@@ -182,13 +204,21 @@ try {
   );
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
-  if (activeReport !== undefined && activeReportPath !== undefined) {
+  const preparedArtifactPublished =
+    error instanceof BackfillCompletionProtocolError && error.preparedArtifactPublished;
+  if (
+    !activeReportPublished &&
+    !preparedArtifactPublished &&
+    activeReport !== undefined &&
+    activeReportPath !== undefined &&
+    activeReportRoot !== undefined
+  ) {
     activeReport.status = "aborted";
     activeReport.abortReason = message;
     activeReport.completedAt = new Date().toISOString();
     markStateChangeInReport(activeReport, error);
     try {
-      await writeBackfillReport(activeReportPath, activeReport);
+      await writeBackfillReport(activeReportPath, activeReport, activeReportRoot);
     } catch (reportError) {
       console.error(
         reportError instanceof Error
@@ -196,6 +226,13 @@ try {
           : "Analytics backfill also failed to write its aborted report.",
       );
     }
+  }
+  if (
+    error instanceof BackfillCompletionProtocolError &&
+    error.failureReceiptRequired &&
+    !error.failureReceiptPublished
+  ) {
+    console.error("Analytics backfill also could not publish its completion failure receipt.");
   }
   console.error(message);
   process.exit(1);
@@ -869,9 +906,12 @@ function queryCount(sql, options) {
   return value;
 }
 
-async function writeBackfillReport(reportPath, report) {
-  await mkdir(path.dirname(reportPath), { recursive: true });
-  await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, { mode: 0o600 });
+async function writeBackfillReport(reportPath, report, trustedRoot) {
+  await writePrivateFileOnceAtomically(
+    reportPath,
+    `${JSON.stringify(report, null, 2)}\n`,
+    trustedRoot,
+  );
 }
 
 function markStateChangeInReport(report, error) {

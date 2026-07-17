@@ -1,5 +1,5 @@
-import { chmod, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { writePrivateFileOnceAtomically } from "../private-file.mjs";
 
 const DEFAULT_PAGE_SIZE = 1_000;
 const MAX_PAGE_SIZE = 5_000;
@@ -159,10 +159,15 @@ export function defaultAcceptanceReportPath(repoRoot, now = new Date()) {
   return path.join(repoRoot, "audits", "analytics-acceptance", `production-${timestamp}.json`);
 }
 
-export async function writePrivateJsonReport(outputPath, value) {
-  await mkdir(path.dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
-  await chmod(outputPath, 0o600);
+export async function writePrivateJsonReport(outputPath, value, trustedRoot) {
+  if (typeof trustedRoot !== "string" || trustedRoot.length === 0) {
+    throw new Error("Private report writing requires a trusted output directory.");
+  }
+  await writePrivateFileOnceAtomically(
+    outputPath,
+    `${JSON.stringify(value, null, 2)}\n`,
+    trustedRoot,
+  );
 }
 
 export function buildAcceptanceProjectsSql(projectIds = [], sourceCutoffMs = Date.now()) {

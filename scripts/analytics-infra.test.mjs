@@ -1068,7 +1068,8 @@ describe("analytics backfill", () => {
 
   it("writes completion markers only inside the apply guard", async () => {
     const source = await readFile(path.join(scriptsDirectory, "backfill-analytics.mjs"), "utf8");
-    expect(source).toMatch(/if \(options\.apply\) \{\s+writeBackfillCompletions\(/);
+    expect(source).toMatch(/if \(options\.apply\) \{\s+await publishBackfillApplyArtifacts\(/);
+    expect(source).toMatch(/writeCompletions: \(\) =>\s+writeBackfillCompletions\(/);
   });
 
   it("fails closed for restricted or missing project residency", () => {

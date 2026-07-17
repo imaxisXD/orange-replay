@@ -279,6 +279,23 @@ node scripts/backfill-analytics.mjs \
   --report audits/analytics-backfill/local-dry-run.json
 ```
 
+The default audit directories are created with owner-only write access, and each report is
+published once with mode `0600`. The command refuses an existing file, destination link, linked
+directory, or directory writable by another user. When `--report` points outside this repository,
+its parent directory must already exist, belong to the current operating-system user, and not be
+group- or world-writable. Choose a new filename for every run. Apply mode also reserves new sibling
+paths ending in `.completion.json` and `.completion-failed.json`; those files use the same
+create-once, no-link rules.
+
+The whole path is checked, not only the report directory. Every ancestor must belong to the current
+user or the operating-system root user. A group- or world-writable ancestor is accepted only when
+it has the sticky bit, as standard temporary directories do, and every following path component
+still belongs to the current user or root. Both the written path and its resolved path are checked,
+so an untrusted link cannot hide an unsafe ancestor. The report directory itself never gets the
+sticky exception: it must belong to the current user and must not be writable by other users. These
+checks require POSIX ownership and `O_NOFOLLOW` support (Linux and macOS); the command stops without
+writing on a platform that cannot provide them.
+
 The report uses disjoint session outcomes:
 
 - `migrated`: live D1 session with a readable, matching manifest
@@ -313,6 +330,37 @@ node scripts/backfill-analytics.mjs \
 ```
 
 The script commits small `INSERT OR IGNORE` batches. Stable export IDs make a stopped run resumable: rerun the same command. A successful second run reports `outboxRowsInserted: 0` and moves the expected rows into `outboxRowsAlreadyPresent`.
+
+Apply mode uses three immutable local artifacts so D1 and the local audit cannot disagree about a
+successful completion:
+
+1. Before writing any `analytics_backfill_completions` row, the command publishes the requested
+   report with `status: "prepared_for_completion"`. It contains the `reportId`, reviewed projects,
+   expected sequences, and the names of both receipt files. It does not claim success. The report
+   file and its containing directory are synced before D1 completion starts.
+2. D1 completion rows are then written with that same `reportId`. A valid D1 completion therefore
+   always has its matching local audit already on disk.
+3. Only after every guarded D1 completion succeeds does the command publish the sibling
+   `.completion.json` receipt. The receipt has `status: "complete"` and the SHA-256 hash of the
+   prepared audit. If D1 fails or only some project markers are written, the command publishes
+   `.completion-failed.json` instead; no local file claims success.
+
+Keep the prepared audit and its completion receipt together. Treat the apply as fully completed
+only when the `.completion.json` receipt exists and its `reportId` matches D1. If the command exits
+nonzero, read `.completion-failed.json`: `d1Completion: "failed_or_partial"` means rerun the
+idempotent command with a new report path after fixing the cause. `d1Completion: "complete"` means
+the D1 markers succeeded but the local success receipt could not be published; keep the prepared
+audit, verify the D1 `report_id`, and investigate the local filesystem before continuing.
+
+There is one crash-safe edge case with no failure receipt: the success receipt can be visible after
+its create-once link succeeds even if the following directory sync reports an error. The command
+checks the exact receipt bytes and retries the directory sync. If that retry succeeds, the run
+finishes normally and does not create a contradictory failure receipt. If the retry also fails, the
+command exits nonzero and leaves only `.completion.json`. Fix the filesystem and rerun the
+idempotent command with a new report path; do not continue from the receipt whose durability could
+not be confirmed. If the command cannot safely tell whether the success path exists, it also exits
+without creating a failure receipt; this avoids two files making opposite claims. Inspect the
+private directory, fix the filesystem, and rerun with a new report path.
 
 The script only fills the D1 delivery outbox. The Worker exporter sends those rows to Pipelines, and the reconciler advances the warehouse watermark only after R2 SQL sees every stable ID. Do not switch reads merely because the outbox insert completed.
 
@@ -396,7 +444,7 @@ node scripts/verify-analytics-backfill.mjs \
 unset ORANGE_REPLAY_R2_SQL_READ_TOKEN
 ```
 
-By default the command writes a private, timestamped JSON file under `audits/analytics-acceptance/`. Keep this file as the cutover artifact. It contains the D1 and R2 session IDs, exact UTC-day totals, and exact per-session field differences. It starts from every current non-deleted D1 session, so a missing session export cannot disappear from both sides and falsely pass.
+By default the command writes a private, timestamped JSON file under `audits/analytics-acceptance/`. Keep this file as the cutover artifact. It contains the D1 and R2 session IDs, exact UTC-day totals, and exact per-session field differences. It starts from every current non-deleted D1 session, so a missing session export cannot disappear from both sides and falsely pass. Report paths follow the same create-once rules as the backfill reports above: existing files and links are rejected, and a custom external parent must already be private and trusted.
 
 The verifier freezes one expiry cutoff at startup and fails if D1 still has an expired session without a deletion marker. This avoids comparing a session that the backfill correctly skipped as expired. If `expiredUnsweptSessions` is above zero, run the retention sweep and repeat the verifier.
 
@@ -404,7 +452,7 @@ The verifier also pages through every expected D1 outbox or ledger export up to 
 
 Deletion is the deliberate exception to the fixed watermark snapshot. Session and event rows stay at or below the selected `warehouse_version`, but every published deletion tombstone hides its session even when the tombstone is newer. Privacy removal is more important than reproducing an older visible result. The verifier reads D1 again after the R2 queries and fails if the source, receipt, deletion count, residency, session set, or watermark changed during the check.
 
-The command exits nonzero for a missing completion receipt, incomplete Pipeline visibility, missing export, cross-project R2 row, changed source, or any ID, total, or sequence mismatch. Do not continue to `r2_sql` after a nonzero result. You may repeat `--project PROJECT_ID` to check a smaller reviewed set, or pass `--report PATH` to choose the private report path.
+The command exits nonzero for a missing D1 completion marker, incomplete Pipeline visibility, missing export, cross-project R2 row, changed source, or any ID, total, or sequence mismatch. Do not continue to `r2_sql` after a nonzero result. You may repeat `--project PROJECT_ID` to check a smaller reviewed set, or pass `--report PATH` to choose the private report path.
 
 After the automated report matches, also prove:
 

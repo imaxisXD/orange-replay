@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -477,11 +477,30 @@ describe("analytics backfill acceptance", () => {
         directory,
         new Date("2026-07-13T12:34:56.789Z"),
       );
-      await writePrivateJsonReport(reportPath, { match: true });
+      await writePrivateJsonReport(reportPath, { match: true }, directory);
 
       expect(reportPath).toContain("production-2026-07-13T12-34-56.789Z.json");
       expect(JSON.parse(await readFile(reportPath, "utf8"))).toEqual({ match: true });
       expect((await stat(reportPath)).mode & 0o777).toBe(0o600);
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  it("does not follow a planted report link", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "orange-replay-acceptance-link-"));
+    try {
+      const reportsDirectory = path.join(directory, "reports");
+      const targetPath = path.join(directory, "target.json");
+      const reportPath = path.join(reportsDirectory, "report.json");
+      await mkdir(reportsDirectory, { mode: 0o700 });
+      await writePrivateJsonReport(targetPath, { safe: true }, directory);
+      await symlink(targetPath, reportPath);
+
+      await expect(writePrivateJsonReport(reportPath, { secret: true }, directory)).rejects.toThrow(
+        "already exists",
+      );
+      expect(JSON.parse(await readFile(targetPath, "utf8"))).toEqual({ safe: true });
     } finally {
       await rm(directory, { force: true, recursive: true });
     }

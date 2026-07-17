@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { preparePrivateOutputFile } from "./private-file.mjs";
 import {
   assertReadOnlySql,
   buildAcceptanceProjectsSql,
@@ -40,7 +41,7 @@ Optional:
   --env <name>               Wrangler environment
   --project <id>             Check one project; repeat to check several
   --page-size <1..5000>      Exact session page size (default: 1000)
-  --report <file>            JSON report path
+  --report <file>            New JSON report path in an existing private directory
   --offline                  Build and print the read-only query plan only
   --help                     Show this help
 
@@ -52,6 +53,7 @@ project, day, session id, aggregate, or verified sequence differs.`;
 
 let report;
 let reportPath;
+let reportRoot;
 
 try {
   const options = parseAcceptanceArguments(process.argv.slice(2));
@@ -68,6 +70,8 @@ try {
   const settings = readR2Settings(options, resources);
   const sourceCutoffMs = Date.now();
   reportPath = options.reportPath ?? defaultReportPath();
+  reportRoot = options.reportPath === undefined ? repoRoot : path.dirname(reportPath);
+  await preparePrivateOutputFile(reportRoot, reportPath);
   report = makeReport(options, settings, reportPath, sourceCutoffMs);
   await verifyD1Schema(options);
 
@@ -95,7 +99,7 @@ try {
   report.match = report.projects.every((project) => project.match);
   report.status = report.match ? "matched" : "mismatched";
   report.completedAt = new Date().toISOString();
-  await writePrivateJsonReport(reportPath, report);
+  await writePrivateJsonReport(reportPath, report, reportRoot);
   console.log(
     JSON.stringify(
       {
@@ -112,13 +116,13 @@ try {
   if (!report.match) process.exitCode = 1;
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
-  if (report !== undefined && reportPath !== undefined) {
+  if (report !== undefined && reportPath !== undefined && reportRoot !== undefined) {
     report.status = "failed";
     report.match = false;
     report.error = message;
     report.completedAt = new Date().toISOString();
     try {
-      await writePrivateJsonReport(reportPath, report);
+      await writePrivateJsonReport(reportPath, report, reportRoot);
     } catch (reportError) {
       console.error(
         reportError instanceof Error
