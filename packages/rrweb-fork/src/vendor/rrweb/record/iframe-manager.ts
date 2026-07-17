@@ -45,6 +45,7 @@ export class IframeManager {
   private observerCleanups = new Map<HTMLIFrameElement, () => void>();
   private snapshotListener?: (iframe: HTMLIFrameElement, doc: Document) => void;
   private documentRemovedListener?: (doc: Document) => void;
+  private readonly shouldRecordIframe: (iframe: HTMLIFrameElement) => boolean;
 
   constructor(options: {
     mirror: Mirror;
@@ -58,12 +59,13 @@ export class IframeManager {
     this.wrappedEmit = options.wrappedEmit;
     this.stylesheetManager = options.stylesheetManager;
     this.mirror = options.mirror;
+    this.shouldRecordIframe = options.shouldRecordIframe ?? (() => true);
     if (includesCrossOriginIframes) {
       this.crossOriginManager = new CrossOriginIframeManager({
         mirror: this.mirror,
         stylesheetManager: this.stylesheetManager,
         wrappedEmit: this.wrappedEmit,
-        shouldRecordIframe: options.shouldRecordIframe ?? (() => true),
+        shouldRecordIframe: this.shouldRecordIframe,
         enabled: options.recordCrossOriginIframes,
       });
     }
@@ -225,6 +227,10 @@ export class IframeManager {
       this.stylesheetManager.adoptStyleSheets(
         iframeEl.contentDocument.adoptedStyleSheets,
         this.mirror.getId(iframeEl.contentDocument),
+        {
+          host: iframeEl.contentDocument,
+          shouldRecord: () => this.shouldRecordIframe(iframeEl),
+        },
       );
   }
 
@@ -266,6 +272,7 @@ export class IframeManager {
 
       this.observerCleanups.get(currentIframe)?.();
       this.observerCleanups.delete(currentIframe);
+      this.stylesheetManager.removeAdopter(currentDocument);
       if (this.mirror.hasNode(currentDocument)) this.mirror.removeNodeFromMap(currentDocument);
       this.observedDocuments.delete(currentDocument);
       this.capturedDocuments.delete(currentDocument);

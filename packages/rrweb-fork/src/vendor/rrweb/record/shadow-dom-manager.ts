@@ -96,14 +96,11 @@ export class ShadowDomManager {
     setTimeout(() => {
       const activeCleanups = this.trackedShadowRoots.get(shadowRoot);
       if (activeCleanups === undefined) return;
-      if (
-        shouldRecord() &&
-        shadowRoot.adoptedStyleSheets &&
-        shadowRoot.adoptedStyleSheets.length > 0
-      )
+      if (shadowRoot.adoptedStyleSheets && shadowRoot.adoptedStyleSheets.length > 0)
         this.bypassOptions.stylesheetManager.adoptStyleSheets(
           shadowRoot.adoptedStyleSheets,
           this.mirror.getId(dom.host(shadowRoot)),
+          { host: shadowRoot, shouldRecord },
         );
       activeCleanups.push(
         initAdoptedStyleSheetObserver(
@@ -122,18 +119,17 @@ export class ShadowDomManager {
     for (const shadowRoot of this.trackedShadowRoots.keys()) {
       const hostId = this.mirror.getId(dom.host(shadowRoot));
       const adoptedStyleSheets = shadowRoot.adoptedStyleSheets;
-      if (
-        hostId > 0 &&
-        !isBlocked(
-          dom.host(shadowRoot),
-          this.bypassOptions.blockClass,
-          this.bypassOptions.blockSelector,
-          true,
-        ) &&
-        adoptedStyleSheets &&
-        adoptedStyleSheets.length > 0
-      ) {
-        this.bypassOptions.stylesheetManager.adoptStyleSheets(adoptedStyleSheets, hostId);
+      if (adoptedStyleSheets && adoptedStyleSheets.length > 0) {
+        this.bypassOptions.stylesheetManager.adoptStyleSheets(adoptedStyleSheets, hostId, {
+          host: shadowRoot,
+          shouldRecord: () =>
+            !isBlocked(
+              dom.host(shadowRoot),
+              this.bypassOptions.blockClass,
+              this.bypassOptions.blockSelector,
+              true,
+            ),
+        });
       }
     }
   }

@@ -36,6 +36,128 @@ afterEach(() => {
 });
 
 describe("record", () => {
+  it("does not emit stylesheet content after its owner becomes blocked", async () => {
+    const style = document.createElement("style");
+    style.textContent = "@media screen { .private-target { color: black; } }";
+    document.head.appendChild(style);
+    const events: eventWithTime[] = [];
+    stopRecording = record({
+      emit: (event) => events.push(event),
+      recordAfter: "DOMContentLoaded",
+      blockSelector: "[data-orange-block]",
+    });
+    await waitForFullSnapshot(events);
+    const eventCut = events.length;
+    const mediaRule = style.sheet?.cssRules[0] as CSSMediaRule | undefined;
+
+    style.dataset.orangeBlock = "";
+    await waitForMutationFlush();
+    style.sheet?.insertRule(
+      '.private-rule { background-image: url("https://private.example/stylesheet-leak"); }',
+    );
+    const firstRule = style.sheet?.cssRules[0] as CSSStyleRule | undefined;
+    firstRule?.style.setProperty(
+      "background-image",
+      'url("https://private.example/declaration-leak")',
+    );
+    style.sheet?.deleteRule(0);
+    mediaRule?.insertRule(
+      '.private-nested { background-image: url("https://private.example/nested-leak"); }',
+    );
+    mediaRule?.deleteRule(0);
+    await waitForMutationFlush();
+
+    expect(JSON.stringify(events.slice(eventCut))).not.toContain("private.example");
+    expect(
+      events
+        .slice(eventCut)
+        .filter(
+          (event) =>
+            event.type === EventType.IncrementalSnapshot &&
+            (event.data.source === IncrementalSource.StyleSheetRule ||
+              event.data.source === IncrementalSource.StyleDeclaration),
+        ),
+    ).toEqual([]);
+  });
+
+  it("does not emit stylesheet content after a shadow host becomes blocked", async () => {
+    const host = document.createElement("section");
+    document.body.appendChild(host);
+    const shadowRoot = host.attachShadow({ mode: "open" });
+    const style = document.createElement("style");
+    style.textContent = ".public-shadow { color: orange; }";
+    shadowRoot.appendChild(style);
+    const constructedSheet = new CSSStyleSheet();
+    constructedSheet.replaceSync(".public-constructed { color: orange; }");
+    shadowRoot.adoptedStyleSheets = [constructedSheet];
+    const events: eventWithTime[] = [];
+    stopRecording = record({
+      emit: (event) => events.push(event),
+      recordAfter: "DOMContentLoaded",
+      blockSelector: "[data-orange-block]",
+    });
+    await waitForFullSnapshot(events);
+    await waitForMutationFlush();
+    const eventCut = events.length;
+
+    host.dataset.orangeBlock = "";
+    style.sheet?.insertRule(
+      '.private-shadow { background-image: url("https://private.example/shadow-leak"); }',
+    );
+    constructedSheet.replaceSync(
+      '.private-replace-sync { background-image: url("https://private.example/replace-sync"); }',
+    );
+    await constructedSheet.replace(
+      '.private-replace { background-image: url("https://private.example/replace"); }',
+    );
+    await waitForMutationFlush();
+
+    expect(JSON.stringify(events.slice(eventCut))).not.toContain("private.example");
+  });
+
+  it("does not emit stylesheet content after an iframe becomes blocked", async () => {
+    const iframe = document.createElement("iframe");
+    document.body.appendChild(iframe);
+    const iframeDocument = iframe.contentDocument!;
+    const style = iframeDocument.createElement("style");
+    style.textContent = ".public-frame { color: orange; }";
+    iframeDocument.head.appendChild(style);
+    const events: eventWithTime[] = [];
+    stopRecording = record({
+      emit: (event) => events.push(event),
+      recordAfter: "DOMContentLoaded",
+      blockSelector: "[data-orange-block]",
+    });
+    await waitForFullSnapshot(events);
+    await waitForMutationFlush();
+    const eventCut = events.length;
+
+    iframe.dataset.orangeBlock = "";
+    style.sheet?.insertRule(
+      '.private-frame { background-image: url("https://private.example/frame-leak"); }',
+    );
+    await waitForMutationFlush();
+
+    expect(JSON.stringify(events.slice(eventCut))).not.toContain("private.example/frame-leak");
+  });
+
+  it("continues recording stylesheet changes owned by unblocked elements", async () => {
+    const style = document.createElement("style");
+    document.head.appendChild(style);
+    const events: eventWithTime[] = [];
+    stopRecording = record({
+      emit: (event) => events.push(event),
+      recordAfter: "DOMContentLoaded",
+    });
+    await waitForFullSnapshot(events);
+    const eventCut = events.length;
+
+    style.sheet?.insertRule(".public-rule { color: orange; }");
+    await waitForMutationFlush();
+
+    expect(JSON.stringify(events.slice(eventCut))).toContain("public-rule");
+  });
+
   it("keeps interaction events when DOM recording is disabled", () => {
     const input = document.createElement("input");
     document.body.appendChild(input);
@@ -2588,6 +2710,39 @@ describe("ImageManager", () => {
 });
 
 describe("adopted stylesheet observer", () => {
+  it("records a shared constructed sheet only while an allowed adopter remains", () => {
+    const blockedHost = document.createElement("div").attachShadow({ mode: "open" });
+    const publicHost = document.createElement("div").attachShadow({ mode: "open" });
+    const sheet = new CSSStyleSheet();
+    let publicHostAllowed = true;
+    const adoptedStyleSheetCb = vi.fn();
+    const stylesheetManager = new StylesheetManager({
+      mutationCb: vi.fn(),
+      adoptedStyleSheetCb,
+    });
+
+    stylesheetManager.adoptStyleSheets([sheet], 1, {
+      host: blockedHost,
+      shouldRecord: () => false,
+    });
+    expect(stylesheetManager.prepareAdoptedSheetMutation(sheet)).toBe(false);
+    expect(adoptedStyleSheetCb).not.toHaveBeenCalled();
+
+    stylesheetManager.adoptStyleSheets([sheet], 2, {
+      host: publicHost,
+      shouldRecord: () => publicHostAllowed,
+    });
+    expect(stylesheetManager.prepareAdoptedSheetMutation(sheet)).toBe(true);
+    expect(adoptedStyleSheetCb).toHaveBeenCalledTimes(1);
+
+    publicHostAllowed = false;
+    expect(stylesheetManager.prepareAdoptedSheetMutation(sheet)).toBe(false);
+
+    publicHostAllowed = true;
+    stylesheetManager.removeAdopter(publicHost);
+    expect(stylesheetManager.prepareAdoptedSheetMutation(sheet)).toBe(false);
+  });
+
   it("resolves the document ID when the stylesheet changes after startup", () => {
     const prototype = window.Document.prototype;
     const originalDescriptor = Object.getOwnPropertyDescriptor(prototype, "adoptedStyleSheets");
@@ -2612,11 +2767,20 @@ describe("adopted stylesheet observer", () => {
 
     try {
       document.adoptedStyleSheets = [sheet];
-      expect(adoptStyleSheets).not.toHaveBeenCalled();
+      expect(adoptStyleSheets).toHaveBeenCalledWith(
+        [sheet],
+        -1,
+        expect.objectContaining({ host: document, shouldRecord: expect.any(Function) }),
+      );
 
       mirror.add(document, { type: NodeType.Document, id: 1, childNodes: [] });
+      adoptStyleSheets.mockClear();
       document.adoptedStyleSheets = [sheet];
-      expect(adoptStyleSheets).toHaveBeenCalledWith([sheet], 1);
+      expect(adoptStyleSheets).toHaveBeenCalledWith(
+        [sheet],
+        1,
+        expect.objectContaining({ host: document, shouldRecord: expect.any(Function) }),
+      );
     } finally {
       cleanup();
       Reflect.deleteProperty(document, "adoptedStyleSheets");
@@ -2655,7 +2819,11 @@ describe("adopted stylesheet observer", () => {
 
     try {
       shadowRoot.adoptedStyleSheets = [sheet];
-      expect(adoptStyleSheets).not.toHaveBeenCalled();
+      expect(adoptStyleSheets).toHaveBeenCalledWith(
+        [sheet],
+        -1,
+        expect.objectContaining({ host: shadowRoot, shouldRecord: expect.any(Function) }),
+      );
 
       mirror.add(host, {
         type: NodeType.Element,
@@ -2664,8 +2832,13 @@ describe("adopted stylesheet observer", () => {
         attributes: {},
         childNodes: [],
       });
+      adoptStyleSheets.mockClear();
       shadowRoot.adoptedStyleSheets = [sheet];
-      expect(adoptStyleSheets).toHaveBeenCalledWith([sheet], 2);
+      expect(adoptStyleSheets).toHaveBeenCalledWith(
+        [sheet],
+        2,
+        expect.objectContaining({ host: shadowRoot, shouldRecord: expect.any(Function) }),
+      );
     } finally {
       cleanup();
       Reflect.deleteProperty(shadowRoot, "adoptedStyleSheets");

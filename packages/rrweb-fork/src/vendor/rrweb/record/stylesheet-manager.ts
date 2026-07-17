@@ -9,9 +9,20 @@ import type {
 } from "../../rrweb-types/index.ts";
 import { StyleSheetMirror } from "../utils";
 
+type StyleSheetHost = Document | ShadowRoot;
+
+interface StyleSheetAdopter {
+  emitted: boolean;
+  hostId: number;
+  sheets: Set<CSSStyleSheet>;
+  shouldRecord: () => boolean;
+}
+
 export class StylesheetManager {
   private mutationCb: mutationCallBack;
   private adoptedStyleSheetCb: adoptedStyleSheetCallback;
+  private adopters = new Map<StyleSheetHost, StyleSheetAdopter>();
+  private adoptersBySheet = new Map<CSSStyleSheet, Set<StyleSheetHost>>();
   public styleMirror = new StyleSheetMirror();
 
   constructor(options: {
@@ -37,8 +48,72 @@ export class StylesheetManager {
       });
   }
 
-  public adoptStyleSheets(sheets: CSSStyleSheet[] | readonly CSSStyleSheet[], hostId: number) {
-    if (sheets.length === 0) return;
+  public adoptStyleSheets(
+    sheets: CSSStyleSheet[] | readonly CSSStyleSheet[],
+    hostId: number,
+    options?: { host: StyleSheetHost; shouldRecord: () => boolean },
+  ) {
+    if (options !== undefined) {
+      this.trackAdopters(options.host, sheets, hostId, options.shouldRecord);
+    }
+    if (sheets.length === 0 || hostId <= 0 || options?.shouldRecord() === false) return;
+    this.emitAdoptedStyleSheets(sheets, hostId);
+    if (options !== undefined) {
+      const adopter = this.adopters.get(options.host);
+      if (adopter !== undefined) adopter.emitted = true;
+    }
+  }
+
+  /**
+   * A constructed sheet may be shared by several roots. Record its mutation
+   * only while at least one current adopter is allowed to be captured.
+   */
+  public prepareAdoptedSheetMutation(sheet: CSSStyleSheet): boolean {
+    const hosts = this.adoptersBySheet.get(sheet);
+    if (hosts === undefined) return false;
+    for (const host of hosts) {
+      const adopter = this.adopters.get(host);
+      if (adopter === undefined || adopter.hostId <= 0 || !adopter.shouldRecord()) continue;
+      if (!adopter.emitted || !this.styleMirror.has(sheet)) {
+        this.emitAdoptedStyleSheets([...adopter.sheets], adopter.hostId);
+        adopter.emitted = true;
+      }
+      return this.styleMirror.has(sheet);
+    }
+    return false;
+  }
+
+  public removeAdopter(host: StyleSheetHost): void {
+    const current = this.adopters.get(host);
+    if (current === undefined) return;
+    for (const sheet of current.sheets) {
+      const hosts = this.adoptersBySheet.get(sheet);
+      hosts?.delete(host);
+      if (hosts?.size === 0) this.adoptersBySheet.delete(sheet);
+    }
+    this.adopters.delete(host);
+  }
+
+  private trackAdopters(
+    host: StyleSheetHost,
+    sheets: readonly CSSStyleSheet[],
+    hostId: number,
+    shouldRecord: () => boolean,
+  ): void {
+    this.removeAdopter(host);
+    const sheetSet = new Set(sheets);
+    this.adopters.set(host, { emitted: false, hostId, sheets: sheetSet, shouldRecord });
+    for (const sheet of sheetSet) {
+      const hosts = this.adoptersBySheet.get(sheet) ?? new Set<StyleSheetHost>();
+      hosts.add(host);
+      this.adoptersBySheet.set(sheet, hosts);
+    }
+  }
+
+  private emitAdoptedStyleSheets(
+    sheets: CSSStyleSheet[] | readonly CSSStyleSheet[],
+    hostId: number,
+  ): void {
     const adoptedStyleSheetData: adoptedStyleSheetParam = {
       id: hostId,
       styleIds: [] as number[],
@@ -64,5 +139,7 @@ export class StylesheetManager {
 
   public reset() {
     this.styleMirror.reset();
+    this.adopters.clear();
+    this.adoptersBySheet.clear();
   }
 }

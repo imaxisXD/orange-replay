@@ -63,6 +63,8 @@ const privateBrowserProperty = new RegExp(
     totalRawBytes isAvailable wrappedEmit eventRawBytes rawFlushBytes onClosed queueBatchSync timeoutId
     addRrwebEvent queueCustomEvent flushing startIdReservation stopIdReservation
     drainPendingCustomEvents trackCanvas kill adoptedStyleSheetCb fetchFn warned addIndexEvent
+    adopters adoptersBySheet prepareAdoptedSheetMutation removeAdopter trackAdopters
+    emitAdoptedStyleSheets
     originalReplaceState originalPushState recorder scrollCb styleMirror requestSnapshot
     removesSubTreeCache batcher pendingCustomEvents onNavigation drainPreBuffer onUnhandledRejection
     genTextAreaValueMutation removeNodeFromMap encoder unattachedDoc styleIDMap lastScrollAt updateMeta

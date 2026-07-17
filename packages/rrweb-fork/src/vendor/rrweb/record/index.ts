@@ -1166,7 +1166,14 @@ function record<T = eventWithTime>(options: recordOptions<T> = {}): listenerHand
           await attachPendingIframes(pendingIframeLoads);
           shadowDomManager.emitAdoptedStyleSheetsForSnapshot();
           if (document.adoptedStyleSheets && document.adoptedStyleSheets.length > 0) {
-            stylesheetManager.adoptStyleSheets(document.adoptedStyleSheets, mirror.getId(document));
+            stylesheetManager.adoptStyleSheets(
+              document.adoptedStyleSheets,
+              mirror.getId(document),
+              {
+                host: document,
+                shouldRecord: () => true,
+              },
+            );
           }
           if (
             (deferIframeDocuments || queuedIframeSnapshots.size === 0) &&
@@ -1271,6 +1278,13 @@ function record<T = eventWithTime>(options: recordOptions<T> = {}): listenerHand
         stylesheetManager.adoptStyleSheets(
           iframeDocument.adoptedStyleSheets,
           mirror.getId(iframeDocument),
+          {
+            host: iframeDocument,
+            shouldRecord: () =>
+              isCurrentIframeDocument(iframe, iframeDocument) &&
+              !isBlocked(iframe, blockClass, blockSelector, true) &&
+              !isBlocked(iframe, maskTextClass, maskTextSelector, true),
+          },
         );
       }
     } finally {

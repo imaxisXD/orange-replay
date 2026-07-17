@@ -15,7 +15,6 @@ import {
   getWindowWidth,
   isBlocked,
   legacy_isTouchEvent,
-  StyleSheetMirror,
   nowTimestamp,
 } from "../utils";
 import { patch } from "../../rrweb-utils/index.ts";
@@ -558,23 +557,32 @@ function getNestedCSSRulePositions(rule: CSSRule): number[] {
 function getIdAndStyleId(
   sheet: CSSStyleSheet | undefined | null,
   mirror: Mirror,
-  styleMirror: StyleSheetMirror,
+  stylesheetManager: observerParam["stylesheetManager"],
+  blockClass: observerParam["blockClass"],
+  blockSelector: observerParam["blockSelector"],
+  shouldRecord: observerParam["shouldRecord"],
 ): {
   styleId?: number;
   id?: number;
 } {
-  let id, styleId;
-  if (!sheet) return {};
-  if (sheet.ownerNode) id = mirror.getId(sheet.ownerNode as Node);
-  else styleId = styleMirror.getId(sheet);
-  return {
-    styleId,
-    id,
-  };
+  if (sheet === undefined || sheet === null || shouldRecord?.() === false) return {};
+  if (sheet.ownerNode != null) {
+    if (isBlocked(sheet.ownerNode as Node, blockClass, blockSelector, true)) return {};
+    return { id: mirror.getId(sheet.ownerNode as Node) };
+  }
+  if (!stylesheetManager.prepareAdoptedSheetMutation(sheet)) return {};
+  return { styleId: stylesheetManager.styleMirror.getId(sheet) };
 }
 
 function initStyleSheetObserver(
-  { styleSheetRuleCb, mirror, stylesheetManager }: observerParam,
+  {
+    styleSheetRuleCb,
+    mirror,
+    stylesheetManager,
+    blockClass,
+    blockSelector,
+    shouldRecord,
+  }: observerParam,
   { win }: { win: IWindow },
 ): listenerHandler {
   if (!win.CSSStyleSheet || !win.CSSStyleSheet.prototype) {
@@ -583,6 +591,8 @@ function initStyleSheetObserver(
       // Do nothing
     };
   }
+  const getStyleSheetIds = (sheet: CSSStyleSheet | undefined | null) =>
+    getIdAndStyleId(sheet, mirror, stylesheetManager, blockClass, blockSelector, shouldRecord);
 
   // eslint-disable-next-line @typescript-eslint/unbound-method
   const insertRule = win.CSSStyleSheet.prototype.insertRule;
@@ -595,7 +605,7 @@ function initStyleSheetObserver(
       ) => {
         const [rule, index] = argumentsList;
 
-        const { id, styleId } = getIdAndStyleId(thisArg, mirror, stylesheetManager.styleMirror);
+        const { id, styleId } = getStyleSheetIds(thisArg);
 
         if ((id && id !== -1) || (styleId && styleId !== -1)) {
           styleSheetRuleCb({
@@ -627,7 +637,7 @@ function initStyleSheetObserver(
       (target: typeof deleteRule, thisArg: CSSStyleSheet, argumentsList: [number]) => {
         const [index] = argumentsList;
 
-        const { id, styleId } = getIdAndStyleId(thisArg, mirror, stylesheetManager.styleMirror);
+        const { id, styleId } = getStyleSheetIds(thisArg);
 
         if ((id && id !== -1) || (styleId && styleId !== -1)) {
           styleSheetRuleCb({
@@ -656,7 +666,7 @@ function initStyleSheetObserver(
         (target: typeof replace, thisArg: CSSStyleSheet, argumentsList: [string]) => {
           const [text] = argumentsList;
 
-          const { id, styleId } = getIdAndStyleId(thisArg, mirror, stylesheetManager.styleMirror);
+          const { id, styleId } = getStyleSheetIds(thisArg);
 
           if ((id && id !== -1) || (styleId && styleId !== -1)) {
             styleSheetRuleCb({
@@ -680,7 +690,7 @@ function initStyleSheetObserver(
         (target: typeof replaceSync, thisArg: CSSStyleSheet, argumentsList: [string]) => {
           const [text] = argumentsList;
 
-          const { id, styleId } = getIdAndStyleId(thisArg, mirror, stylesheetManager.styleMirror);
+          const { id, styleId } = getStyleSheetIds(thisArg);
 
           if ((id && id !== -1) || (styleId && styleId !== -1)) {
             styleSheetRuleCb({
@@ -740,11 +750,7 @@ function initStyleSheetObserver(
         ) => {
           const [rule, index] = argumentsList;
 
-          const { id, styleId } = getIdAndStyleId(
-            thisArg.parentStyleSheet,
-            mirror,
-            stylesheetManager.styleMirror,
-          );
+          const { id, styleId } = getStyleSheetIds(thisArg.parentStyleSheet);
 
           if ((id && id !== -1) || (styleId && styleId !== -1)) {
             styleSheetRuleCb({
@@ -771,11 +777,7 @@ function initStyleSheetObserver(
         (target: typeof deleteRule, thisArg: CSSRule, argumentsList: [number]) => {
           const [index] = argumentsList;
 
-          const { id, styleId } = getIdAndStyleId(
-            thisArg.parentStyleSheet,
-            mirror,
-            stylesheetManager.styleMirror,
-          );
+          const { id, styleId } = getStyleSheetIds(thisArg.parentStyleSheet);
 
           if ((id && id !== -1) || (styleId && styleId !== -1)) {
             styleSheetRuleCb({
@@ -831,18 +833,17 @@ export function initAdoptedStyleSheetObserver(
     set(sheets: CSSStyleSheet[]) {
       const result = originalPropertyDescriptor.set?.call(this, sheets);
       const hostId = mirror.getId(mirrorHost);
-      if (hostId > 0 && shouldRecord()) {
-        try {
-          stylesheetManager.adoptStyleSheets(sheets, hostId);
-        } catch (e) {
-          // for safety
-        }
+      try {
+        stylesheetManager.adoptStyleSheets(sheets, hostId, { host, shouldRecord });
+      } catch (e) {
+        // for safety
       }
       return result;
     },
   });
 
   return callbackWrapper(() => {
+    stylesheetManager.removeAdopter(host);
     Object.defineProperty(host, "adoptedStyleSheets", {
       configurable: originalPropertyDescriptor.configurable,
       enumerable: originalPropertyDescriptor.enumerable,
@@ -855,9 +856,19 @@ export function initAdoptedStyleSheetObserver(
 }
 
 function initStyleDeclarationObserver(
-  { styleDeclarationCb, mirror, ignoreCSSAttributes, stylesheetManager }: observerParam,
+  {
+    styleDeclarationCb,
+    mirror,
+    ignoreCSSAttributes,
+    stylesheetManager,
+    blockClass,
+    blockSelector,
+    shouldRecord,
+  }: observerParam,
   { win }: { win: IWindow },
 ): listenerHandler {
+  const getStyleSheetIds = (sheet: CSSStyleSheet | undefined | null) =>
+    getIdAndStyleId(sheet, mirror, stylesheetManager, blockClass, blockSelector, shouldRecord);
   // eslint-disable-next-line @typescript-eslint/unbound-method
   const setProperty = win.CSSStyleDeclaration.prototype.setProperty;
   win.CSSStyleDeclaration.prototype.setProperty = new Proxy(setProperty, {
@@ -873,11 +884,8 @@ function initStyleDeclarationObserver(
         if (!isOrangeReplaySdk && ignoreCSSAttributes.has(property)) {
           return setProperty.apply(thisArg, [property, value, priority]);
         }
-        const { id, styleId } = getIdAndStyleId(
-          thisArg.parentRule?.parentStyleSheet,
-          mirror,
-          stylesheetManager.styleMirror,
-        );
+        const sheet = thisArg.parentRule?.parentStyleSheet;
+        const { id, styleId } = getStyleSheetIds(sheet);
         if ((id && id !== -1) || (styleId && styleId !== -1)) {
           styleDeclarationCb({
             id,
@@ -907,11 +915,8 @@ function initStyleDeclarationObserver(
         if (!isOrangeReplaySdk && ignoreCSSAttributes.has(property)) {
           return removeProperty.apply(thisArg, [property]);
         }
-        const { id, styleId } = getIdAndStyleId(
-          thisArg.parentRule?.parentStyleSheet,
-          mirror,
-          stylesheetManager.styleMirror,
-        );
+        const sheet = thisArg.parentRule?.parentStyleSheet;
+        const { id, styleId } = getStyleSheetIds(sheet);
         if ((id && id !== -1) || (styleId && styleId !== -1)) {
           styleDeclarationCb({
             id,
