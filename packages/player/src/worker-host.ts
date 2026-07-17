@@ -127,7 +127,9 @@ export class DecodeWorkerHost {
     this.restartCount = 0;
 
     if ("error" in message) {
-      pending.reject(new Error(message.error));
+      const error = new Error(message.error);
+      if (message.errorName) error.name = message.errorName;
+      pending.reject(error);
       return;
     }
 

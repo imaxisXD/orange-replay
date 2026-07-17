@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vite-plus/test";
+import { runInNewContext } from "node:vm";
+import { EventType, IncrementalSource } from "rrweb";
 import type { ReplayEvent } from "../src/types.ts";
 import { installDecodeWorkerEntry, makeDecodeWorkerSource } from "../src/worker-entry.ts";
 import {
@@ -93,6 +95,21 @@ describe("decode worker protocol", () => {
     );
   });
 
+  it.each([
+    [
+      "far-future timestamp",
+      { type: EventType.Load, timestamp: Date.now() + 10 * 60_000, data: {} },
+    ],
+    [
+      "unsafe stored delay",
+      { type: EventType.Load, timestamp: 1, delay: 2 * 24 * 60 * 60_000, data: {} },
+    ],
+  ])("rejects a replay event with an unsafe %s", async (_name, event) => {
+    const payload = encoder.encode(JSON.stringify([event]));
+
+    await expect(decodeBatchBytes(payload)).rejects.toMatchObject({ name: "ReplayDataError" });
+  });
+
   it("rejects full snapshots without a valid root node", async () => {
     const payload = encoder.encode(JSON.stringify([{ type: 2, timestamp: 1, data: {} }]));
 
@@ -158,8 +175,106 @@ describe("decode worker protocol", () => {
     );
 
     await expect(decodeBatchBytes(payload)).rejects.toThrow(
-      "Replay batch contains invalid mutation data.",
+      "Replay batch contains invalid incremental replay data.",
     );
+  });
+
+  it.each([
+    ["empty mouse movement", { source: IncrementalSource.MouseMove, positions: [] }],
+    [
+      "incomplete touch movement",
+      { source: IncrementalSource.TouchMove, positions: [{ x: 1, y: 2, id: 1 }] },
+    ],
+    ["incomplete drag movement", { source: IncrementalSource.Drag, positions: [{}] }],
+    [
+      "far-future mouse movement",
+      {
+        source: IncrementalSource.MouseMove,
+        positions: [{ x: 1, y: 2, id: 1, timeOffset: 2_000 }],
+      },
+    ],
+    [
+      "stale touch movement",
+      {
+        source: IncrementalSource.TouchMove,
+        positions: [{ x: 1, y: 2, id: 1, timeOffset: -10 * 60_000 }],
+      },
+    ],
+    [
+      "out-of-order drag movement",
+      {
+        source: IncrementalSource.Drag,
+        positions: [
+          { x: 1, y: 2, id: 1, timeOffset: -10 },
+          { x: 2, y: 3, id: 1, timeOffset: -2_000 },
+        ],
+      },
+    ],
+    ["missing mouse interaction type", { source: IncrementalSource.MouseInteraction, id: 1 }],
+    ["missing scroll coordinates", { source: IncrementalSource.Scroll, id: 1 }],
+    ["missing input value", { source: IncrementalSource.Input, id: 1 }],
+    ["missing media action", { source: IncrementalSource.MediaInteraction, id: 1 }],
+    [
+      "invalid stylesheet rule",
+      { source: IncrementalSource.StyleSheetRule, id: 1, adds: [{ rule: 3 }] },
+    ],
+    [
+      "invalid canvas commands",
+      { source: IncrementalSource.CanvasMutation, id: 1, type: 0, commands: "clearRect" },
+    ],
+    ["missing font source", { source: IncrementalSource.Font, family: "Inter", buffer: false }],
+    ["unsupported log event", { source: IncrementalSource.Log, payload: [] }],
+    [
+      "invalid style declaration path",
+      { source: IncrementalSource.StyleDeclaration, id: 1, index: [Number.NaN] },
+    ],
+    [
+      "invalid selection range",
+      { source: IncrementalSource.Selection, ranges: [{ start: 1, end: 1 }] },
+    ],
+    [
+      "invalid adopted stylesheet IDs",
+      { source: IncrementalSource.AdoptedStyleSheet, id: 1, styleIds: ["private"] },
+    ],
+    [
+      "invalid custom element name",
+      { source: IncrementalSource.CustomElement, define: { name: 42 } },
+    ],
+  ])("rejects %s before it reaches rrweb", async (_name, data) => {
+    const payload = encoder.encode(
+      JSON.stringify([{ type: EventType.IncrementalSnapshot, timestamp: 1, data }]),
+    );
+
+    await expect(decodeBatchBytes(payload)).rejects.toThrow("invalid incremental replay data");
+  });
+
+  it.each(validIncrementalFixtures())("accepts valid %s replay data", async (_name, data) => {
+    const event = { type: EventType.IncrementalSnapshot, timestamp: 1, data };
+    const payload = encoder.encode(JSON.stringify([event]));
+
+    await expect(decodeBatchBytes(payload)).resolves.toEqual([event]);
+  });
+
+  it("uses the same semantic movement bounds inside the generated inline worker", async () => {
+    const payload = encoder.encode(
+      JSON.stringify([
+        {
+          type: EventType.IncrementalSnapshot,
+          timestamp: 1,
+          data: {
+            source: IncrementalSource.MouseMove,
+            positions: [{ x: 1, y: 2, id: 1, timeOffset: 2_000 }],
+          },
+        },
+      ]),
+    );
+
+    await expect(decodeWithGeneratedWorker(payload)).resolves.toMatchObject({
+      type: "decoded",
+      id: 1,
+      error: expect.stringContaining("invalid incremental replay data"),
+      errorName: "ReplayDataError",
+    });
   });
 
   it("rejects mutation adds with malformed child node trees", async () => {
@@ -180,7 +295,7 @@ describe("decode worker protocol", () => {
     );
 
     await expect(decodeBatchBytes(payload)).rejects.toThrow(
-      "Replay batch contains invalid mutation data.",
+      "Replay batch contains invalid incremental replay data.",
     );
   });
 
@@ -199,7 +314,7 @@ describe("decode worker protocol", () => {
     );
 
     await expect(decodeBatchBytes(payload)).rejects.toThrow(
-      "Replay batch contains invalid mutation data.",
+      "Replay batch contains invalid incremental replay data.",
     );
   });
 
@@ -207,10 +322,10 @@ describe("decode worker protocol", () => {
     const source = makeDecodeWorkerSource();
 
     expect(source).toContain("validateFullSnapshotData");
-    expect(source).toContain("validateSnapshotAttributes");
-    expect(source).toContain("MAX_REPLAY_EVENT_ARRAY_ITEMS");
+    expect(source).toContain("validateIncrementalData");
+    expect(source).toContain("limits.maxArrayItems");
     expect(source).toContain("MAX_REPLAY_JSON_TRAILING_WHITESPACE_CHARS");
-    expect(source).toContain("validateTextLikeNode");
+    expect(source).toContain("ReplayDataError");
     expect(source).toContain("decodedBytes");
     expect(source).toContain("Replay batch contains an invalid full snapshot.");
   });
@@ -381,4 +496,128 @@ async function gzipBytes(bytes: Uint8Array): Promise<Uint8Array> {
 
 function makeEvent(timestamp: number, name: string): ReplayEvent {
   return { type: 0, timestamp, data: { name } } as ReplayEvent;
+}
+
+function validIncrementalFixtures(): Array<[string, Record<string, unknown>]> {
+  return [
+    [
+      "mutation",
+      {
+        source: IncrementalSource.Mutation,
+        texts: [{ id: 1, value: null }],
+        attributes: [],
+        removes: [],
+        adds: [],
+      },
+    ],
+    [
+      "mouse movement",
+      {
+        source: IncrementalSource.MouseMove,
+        positions: [
+          { x: 10, y: 20, id: 1, timeOffset: -500 },
+          { x: 12, y: 22, id: 1, timeOffset: 0 },
+        ],
+      },
+    ],
+    [
+      "mouse interaction",
+      { source: IncrementalSource.MouseInteraction, type: 2, id: 1, x: 10, y: 20, pointerType: 0 },
+    ],
+    ["scroll", { source: IncrementalSource.Scroll, id: 1, x: 0, y: 50 }],
+    ["viewport resize", { source: IncrementalSource.ViewportResize, width: 1280, height: 720 }],
+    ["input", { source: IncrementalSource.Input, id: 1, text: "masked", isChecked: false }],
+    [
+      "touch movement",
+      {
+        source: IncrementalSource.TouchMove,
+        positions: [{ x: 10, y: 20, id: 1, timeOffset: 0 }],
+      },
+    ],
+    [
+      "media interaction",
+      { source: IncrementalSource.MediaInteraction, type: 0, id: 1, currentTime: 2 },
+    ],
+    [
+      "stylesheet rule",
+      { source: IncrementalSource.StyleSheetRule, id: 1, adds: [{ rule: ".safe {}", index: 0 }] },
+    ],
+    [
+      "canvas mutation",
+      {
+        source: IncrementalSource.CanvasMutation,
+        id: 1,
+        type: 0,
+        commands: [{ property: "clearRect", args: [0, 0, 10, 10] }],
+      },
+    ],
+    [
+      "font",
+      {
+        source: IncrementalSource.Font,
+        family: "Inter",
+        fontSource: "url(inter.woff2)",
+        buffer: false,
+      },
+    ],
+    [
+      "drag movement",
+      {
+        source: IncrementalSource.Drag,
+        positions: [{ x: 10, y: 20, id: 1, timeOffset: 0 }],
+      },
+    ],
+    [
+      "style declaration",
+      {
+        source: IncrementalSource.StyleDeclaration,
+        id: 1,
+        index: [0],
+        set: { property: "color", value: "red", priority: "" },
+      },
+    ],
+    [
+      "selection",
+      {
+        source: IncrementalSource.Selection,
+        ranges: [{ start: 1, startOffset: 0, end: 1, endOffset: 2 }],
+      },
+    ],
+    [
+      "adopted stylesheet",
+      {
+        source: IncrementalSource.AdoptedStyleSheet,
+        id: 1,
+        styleIds: [1],
+        styles: [{ styleId: 1, rules: [{ rule: ".safe {}", index: 0 }] }],
+      },
+    ],
+    ["custom element", { source: IncrementalSource.CustomElement }],
+  ];
+}
+
+async function decodeWithGeneratedWorker(payload: Uint8Array): Promise<unknown> {
+  return await new Promise((resolve, reject) => {
+    const scope = {
+      onmessage: null as ((event: MessageEvent<unknown>) => void) | null,
+      postMessage: resolve,
+      close: vi.fn(),
+    };
+    try {
+      runInNewContext(makeDecodeWorkerSource(), {
+        DecompressionStream,
+        Response,
+        TextDecoder,
+        Uint8Array,
+        self: scope,
+      });
+      const buffer = payload.buffer.slice(
+        payload.byteOffset,
+        payload.byteOffset + payload.byteLength,
+      ) as ArrayBuffer;
+      scope.onmessage?.({ data: { type: "decode", id: 1, payload: buffer } } as MessageEvent);
+    } catch (error) {
+      reject(error);
+    }
+  });
 }

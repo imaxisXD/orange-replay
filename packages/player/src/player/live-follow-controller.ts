@@ -15,12 +15,12 @@ import {
 } from "../live.ts";
 import {
   chooseSegmentWindow,
-  decodeSegmentBatches,
+  createReplayHistoryDecodeState,
+  decodeReplayHistorySegment,
   eventsFromCheckpoint,
   findPrimaryReplayTab,
   mergeReplayEvents,
   validateSegmentCheckpoints,
-  type DecodedReplayBatch,
 } from "../segments.ts";
 import {
   MAX_ACTIVE_REPLAY_DECODED_BYTES,
@@ -35,6 +35,8 @@ import type {
 } from "@orange-replay/shared/types";
 import type { OrangePlayerOptions, PlayerErrorEvent, ReplayEvent } from "../types.ts";
 import type { DecodeWorkerHost } from "../worker-host.ts";
+import { isReplayDataError } from "../worker-core.ts";
+import { validateReplayEventTimesAgainstIndex } from "../replay-event-validation.ts";
 
 const LIVE_BASE_RECONNECT_MS = 500;
 const LIVE_MAX_RECONNECT_MS = 8_000;
@@ -362,7 +364,9 @@ export class LiveFollowController {
           .catch((error) => {
             this.emit({
               type: "error",
-              message: "Could not load replay received before the live viewer joined.",
+              message: isReplayDataError(error)
+                ? "This live recording contains an unreadable replay event. Waiting for newer data."
+                : "Could not load replay received before the live viewer joined.",
               error,
               severity: "warning",
             });
@@ -427,7 +431,7 @@ export class LiveFollowController {
       targetTimestamp: lastSegment.t1,
       replayTab,
     });
-    const batches: DecodedReplayBatch[] = [];
+    const decodeState = createReplayHistoryDecodeState(window.checkpoint?.tab ?? replayTab);
 
     for (const segmentIndex of window.neededIndexes) {
       const segment = hello.segments[segmentIndex];
@@ -439,32 +443,25 @@ export class LiveFollowController {
         segment,
         signal: this.options.signal,
       });
-      const decoded = await decodeSegmentBatches(bytes, this.options.worker);
-      validateSegmentCheckpoints(segment, decoded);
-      batches.push(...decoded);
+      const decoded = await decodeReplayHistorySegment(
+        bytes,
+        this.options.worker,
+        decodeState,
+        segment,
+      );
+      validateSegmentCheckpoints(segment, decoded, decodeState.activeTab);
     }
 
     if (this.isStopped()) {
       return;
     }
 
-    const activeTab =
-      window.checkpoint?.tab ?? replayTab ?? firstFullSnapshotTab(batches) ?? batches[0]?.index.tab;
+    const activeTab = decodeState.activeTab;
     if (activeTab === undefined) {
       return;
     }
 
-    const activeBatches = batches.filter((batch) => batch.index.tab === activeTab);
-    const activeEventCount = activeBatches.reduce((total, batch) => total + batch.events.length, 0);
-    const activeDecodedBytes = retainedDecodedBytesForTab(activeBatches, activeTab);
-    if (activeEventCount > MAX_ACTIVE_REPLAY_EVENTS) {
-      throw new Error("Live replay history has too many events to load safely.");
-    }
-    if (activeDecodedBytes > MAX_ACTIVE_REPLAY_DECODED_BYTES) {
-      throw new Error("Live replay history is too large after decoding.");
-    }
-
-    let events = mergeReplayEvents(activeBatches.flatMap((batch) => batch.events));
+    let events = mergeReplayEvents(decodeState.batches.flatMap((batch) => batch.events));
     if (window.checkpoint !== undefined) {
       events = eventsFromCheckpoint(events, window.checkpoint.timestamp);
     }
@@ -483,7 +480,7 @@ export class LiveFollowController {
     this.liveKeyframes.estimatedBytes = 0;
     this.liveKeyframes.waitingStartedAt = 0;
     this.activeEventCount = events.length;
-    this.activeDecodedBytes = activeDecodedBytes;
+    this.activeDecodedBytes = decodeState.activeDecodedBytes;
     this.emit({ type: "waiting", waiting: false });
     this.emit({ type: "events", events });
   }
@@ -501,7 +498,9 @@ export class LiveFollowController {
       .catch((error) => {
         this.emit({
           type: "error",
-          message: "Could not decode live replay frame.",
+          message: isReplayDataError(error)
+            ? "This live recording contains an unreadable replay event. Waiting for newer data."
+            : "Could not decode live replay frame.",
           error,
           severity: "warning",
         });
@@ -539,6 +538,7 @@ export class LiveFollowController {
 
     const decoded = await this.options.worker.decodeBatchWithStats(frame.payload);
     const events = decoded.events;
+    validateReplayEventTimesAgainstIndex(events, frame.index);
     if (
       this.isStopped() ||
       generation !== this.connectionGeneration ||
@@ -677,12 +677,6 @@ export function retainedDecodedBytesForTab(
     (total, batch) => total + (batch.index.tab === activeTab ? batch.decodedBytes : 0),
     0,
   );
-}
-
-function firstFullSnapshotTab(batches: readonly DecodedReplayBatch[]): string | undefined {
-  return batches.find((batch) =>
-    batch.events.some((event) => event.type === EventType.FullSnapshot),
-  )?.index.tab;
 }
 
 function cloneSegment(segment: SegmentRef): SegmentRef {

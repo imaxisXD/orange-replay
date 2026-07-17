@@ -25,6 +25,7 @@ import type {
   SegmentWindow,
 } from "./types.ts";
 import { DecodeWorkerHost } from "./worker-host.ts";
+import { isReplayDataError } from "./worker-core.ts";
 
 const DEFAULT_SPEED = 1;
 const MIN_SPEED = 0.1;
@@ -464,6 +465,17 @@ export class OrangePlayer {
       // segment before its parent mutations can produce a different page.
       await this.segmentLoader.loadSegmentsInOrder(window.neededIndexes);
       this.appendLiveReviewTail(window);
+    } catch (error) {
+      if (isReplayDataError(error)) {
+        this.playRequested = false;
+        this.playing = false;
+        this.emitError(
+          "This recording contains an unreadable replay event. Playback stopped safely.",
+          error,
+          "warning",
+        );
+      }
+      throw error;
     } finally {
       this.endBuffering(window.activeIndex);
     }

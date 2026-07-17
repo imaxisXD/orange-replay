@@ -7,6 +7,8 @@ import {
   findSegmentIndex,
   findPrimaryReplayTab,
   type DecodedReplayBatch,
+  MAX_REPLAY_HISTORY_DECODED_BYTES,
+  MAX_REPLAY_HISTORY_EVENTS,
   validateSegmentCheckpoints,
 } from "../segments.ts";
 import type { OrangePlayerOptions, SegmentWindow } from "../types.ts";
@@ -30,8 +32,8 @@ interface LoadedSegmentStats {
   decodedBytes: number;
 }
 
-export const MAX_ACTIVE_REPLAY_EVENTS = 250_000;
-export const MAX_ACTIVE_REPLAY_DECODED_BYTES = 128 * 1024 * 1024;
+export const MAX_ACTIVE_REPLAY_EVENTS = MAX_REPLAY_HISTORY_EVENTS;
+export const MAX_ACTIVE_REPLAY_DECODED_BYTES = MAX_REPLAY_HISTORY_DECODED_BYTES;
 
 export interface ActiveReplayWindowSize {
   events: number;
@@ -256,7 +258,7 @@ export class RecordedSegmentLoader {
       return;
     }
 
-    const batches = await decodeSegmentBatches(bytes, this.options.worker);
+    const batches = await decodeSegmentBatches(bytes, this.options.worker, segment);
     if (this.isStaleLoad(index, generation, signal)) {
       return;
     }

@@ -25,6 +25,7 @@ export interface DecodeErrorMessage {
   type: "decoded";
   id: number;
   error: string;
+  errorName?: string;
 }
 
 export type DecodeWorkerResponse = DecodeSuccessMessage | DecodeErrorMessage;
@@ -67,6 +68,7 @@ self.onmessage = (rawEvent) => {
         type: "decoded",
         id: message.id,
         error: stringFromUnknown(error) || "Replay worker decode failed.",
+        errorName: errorNameFromUnknown(error),
       });
     });
 };
@@ -81,6 +83,10 @@ function stringFromUnknown(value) {
   }
 
   return "";
+}
+
+function errorNameFromUnknown(value) {
+  return value instanceof Error && value.name ? value.name : undefined;
 }
 `;
 }
@@ -115,6 +121,7 @@ export function installDecodeWorkerEntry(
           type: "decoded",
           id: message.id,
           error: stringFromUnknown(error) || "Replay worker decode failed.",
+          errorName: errorNameFromUnknown(error),
         });
       });
   };
@@ -130,6 +137,10 @@ function stringFromUnknown(value: unknown): string {
   }
 
   return "";
+}
+
+function errorNameFromUnknown(value: unknown): string | undefined {
+  return value instanceof Error && value.name ? value.name : undefined;
 }
 
 const maybeWorkerScope = globalThis as unknown as WorkerScope & { document?: unknown };

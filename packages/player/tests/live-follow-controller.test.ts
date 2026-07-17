@@ -81,6 +81,7 @@ describe("LiveFollowController", () => {
     const sockets: HistoryWebSocket[] = [];
     const errors: string[] = [];
     const receivedEvents: ReplayEvent[][] = [];
+    const decodedPayloads: number[] = [];
 
     class HistoryWebSocket {
       binaryType = "";
@@ -124,10 +125,12 @@ describe("LiveFollowController", () => {
       },
       signal: new AbortController().signal,
       worker: {
-        decodeBatchWithStats: async (payload: Uint8Array) =>
-          payload[0] === 1
+        decodeBatchWithStats: async (payload: Uint8Array) => {
+          decodedPayloads.push(payload[0] ?? -1);
+          return payload[0] === 1
             ? { events: activeEvents, decodedBytes: 10 }
-            : { events: [], decodedBytes: 30 * 1024 * 1024 },
+            : { events: [], decodedBytes: 30 * 1024 * 1024 };
+        },
       } as unknown as DecodeWorkerHost,
       host: {
         acceptsReplayTab: () => true,
@@ -161,6 +164,131 @@ describe("LiveFollowController", () => {
 
     expect(errors).toEqual([]);
     expect(receivedEvents).toEqual([activeEvents]);
+    expect(decodedPayloads).toEqual([1]);
+    controller.stopFollowing();
+  });
+
+  it("stops loading live history as soon as the active tab crosses its byte limit", async () => {
+    const fullSnapshot = {
+      type: EventType.FullSnapshot,
+      timestamp: 1_000,
+      data: {
+        node: { id: 1, type: 0, childNodes: [] },
+        initialOffset: { left: 0, top: 0 },
+      },
+    } as ReplayEvent;
+    const segmentBytes = Array.from({ length: 6 }, (_unused, index) =>
+      buildSegment([
+        encodeIngestBody(
+          {
+            v: 1,
+            s: "session",
+            tab: "tab-active",
+            seq: index,
+            t0: 1_000 + index,
+            t1: 1_000 + index,
+            e: [],
+            ...(index === 0 ? { checkpointTimestamps: [1_000] } : {}),
+          },
+          new Uint8Array([index]),
+        ),
+      ]),
+    );
+    const segments: SegmentRef[] = segmentBytes.map((bytes, index) => ({
+      key: `p/project/session/seg-${index}.ors`,
+      bytes: bytes.byteLength,
+      t0: 1_000 + index,
+      t1: 1_000 + index,
+      batches: 1,
+      ...(index === 0 ? { checkpoints: [{ timestamp: 1_000, tab: "tab-active", batch: 0 }] } : {}),
+    }));
+    const sockets: HistoryWebSocket[] = [];
+    const fetchedSegments: string[] = [];
+    const errors: string[] = [];
+    let decodeCount = 0;
+
+    class HistoryWebSocket {
+      binaryType = "";
+      onopen: (() => void) | null = null;
+      onmessage: ((event: { data: unknown }) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onclose: ((event: { code: number }) => void) | null = null;
+
+      constructor(readonly url: string) {
+        sockets.push(this);
+        queueMicrotask(() => this.onopen?.());
+      }
+
+      close(): void {
+        this.onclose?.({ code: 1000 });
+      }
+    }
+    vi.stubGlobal("WebSocket", HistoryWebSocket);
+
+    const controller = new LiveFollowController({
+      request: {
+        api: {
+          baseUrl: "https://api.example.test",
+          fetch: async (url: string | URL | Request) => {
+            const requestUrl =
+              typeof url === "string" ? url : url instanceof URL ? url.href : url.url;
+            if (requestUrl.endsWith("/live-ticket")) {
+              return Response.json({ ticket: "history-ticket", expiresAt: Date.now() + 60_000 });
+            }
+            const segmentIndex = segments.findIndex((segment) =>
+              requestUrl.endsWith(`/${segment.key.split("/").at(-1)}`),
+            );
+            const bytes = segmentBytes[segmentIndex];
+            if (bytes === undefined) return Response.json({ error: "not_found" }, { status: 404 });
+            fetchedSegments.push(segments[segmentIndex]!.key);
+            return new Response(bytes as unknown as BodyInit);
+          },
+        },
+        projectId: "project",
+        sessionId: "session",
+      },
+      signal: new AbortController().signal,
+      worker: {
+        decodeBatchWithStats: async () => {
+          decodeCount += 1;
+          return {
+            events: decodeCount === 1 ? [fullSnapshot] : [],
+            decodedBytes: 30 * 1024 * 1024,
+          };
+        },
+      } as unknown as DecodeWorkerHost,
+      host: {
+        acceptsReplayTab: () => true,
+        onEvent: (event) => {
+          if (event.type === "error") errors.push(event.message);
+        },
+      },
+    });
+
+    controller.startFollowing();
+    controller.connect();
+    await waitFor(() => sockets.length === 1);
+    sockets[0]?.onmessage?.({
+      data: JSON.stringify({
+        type: "hello",
+        sessionId: "session",
+        startedAt: 1_000,
+        segments,
+        pendingBatches: 0,
+        snapshot: {
+          startedAt: 1_000,
+          endedAt: 1_003,
+          durationMs: 3,
+          timeline: [],
+          counts: { batches: 6, events: 1, clicks: 0, errors: 0, rages: 0, navs: 0 },
+        },
+      }),
+    });
+    await waitFor(() => errors.length > 0);
+
+    expect(fetchedSegments).toHaveLength(5);
+    expect(decodeCount).toBe(5);
+    expect(errors).toContain("Could not load replay received before the live viewer joined.");
     controller.stopFollowing();
   });
 
@@ -398,6 +526,101 @@ describe("LiveFollowController", () => {
     await waitFor(() => releaseFirstDecode !== undefined);
     releaseFirstDecode?.();
     await controller.stopAndTakeReviewHistory();
+  });
+
+  it("reports an unreadable live event and keeps accepting a later safe keyframe", async () => {
+    const sockets: RecoveringWebSocket[] = [];
+    const errors: string[] = [];
+    const receivedEvents: ReplayEvent[][] = [];
+    const fullSnapshot = {
+      type: EventType.FullSnapshot,
+      timestamp: 2_000,
+      data: {
+        node: { id: 1, type: 0, childNodes: [] },
+        initialOffset: { left: 0, top: 0 },
+      },
+    } as ReplayEvent;
+    const eventOutsideBatchTime = {
+      type: EventType.Load,
+      timestamp: 10_000,
+      data: {},
+    } as ReplayEvent;
+    class RecoveringWebSocket {
+      binaryType = "";
+      onopen: (() => void) | null = null;
+      onmessage: ((event: { data: unknown }) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onclose: ((event: { code: number }) => void) | null = null;
+
+      constructor(readonly url: string) {
+        sockets.push(this);
+        queueMicrotask(() => this.onopen?.());
+      }
+
+      close(): void {
+        this.onclose?.({ code: 1000 });
+      }
+    }
+    vi.stubGlobal("WebSocket", RecoveringWebSocket);
+    const controller = new LiveFollowController({
+      request: {
+        api: {
+          baseUrl: "https://api.example.test",
+          fetch: async () =>
+            Response.json({ ticket: "recovering-ticket", expiresAt: Date.now() + 60_000 }),
+        },
+        projectId: "project",
+        sessionId: "session",
+      },
+      signal: new AbortController().signal,
+      worker: {
+        decodeBatchWithStats: async (payload: Uint8Array) => {
+          if (payload[0] === 1) {
+            return { events: [eventOutsideBatchTime], decodedBytes: 10 };
+          }
+          return { events: [fullSnapshot], decodedBytes: 10 };
+        },
+      } as unknown as DecodeWorkerHost,
+      host: {
+        acceptsReplayTab: () => true,
+        onEvent: (event) => {
+          if (event.type === "error") errors.push(event.message);
+          if (event.type === "events") receivedEvents.push([...event.events]);
+        },
+      },
+    });
+
+    controller.startFollowing();
+    controller.connect();
+    await waitFor(() => sockets.length === 1);
+    sockets[0]?.onmessage?.({
+      data: encodeIngestBody(
+        { v: 1, s: "session", tab: "tab-a", seq: 0, t0: 1_000, t1: 1_000, e: [] },
+        new Uint8Array([1]),
+      ).buffer,
+    });
+    sockets[0]?.onmessage?.({
+      data: encodeIngestBody(
+        {
+          v: 1,
+          s: "session",
+          tab: "tab-a",
+          seq: 1,
+          t0: 2_000,
+          t1: 2_000,
+          e: [],
+          checkpointTimestamps: [2_000],
+        },
+        new Uint8Array([2]),
+      ).buffer,
+    });
+    await waitFor(() => receivedEvents.length === 1);
+
+    expect(errors).toContain(
+      "This live recording contains an unreadable replay event. Waiting for newer data.",
+    );
+    expect(receivedEvents).toEqual([[fullSnapshot]]);
+    controller.stopFollowing();
   });
 
   it("drains a received frame before returning idle review history", async () => {

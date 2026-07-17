@@ -264,8 +264,8 @@ describe("manifest and segment loading", () => {
     const worker = {
       decodeBatchWithStats: async () => ({
         decodedBytes: 64,
-        events: Array.from({ length: MAX_DECODED_SEGMENT_EVENTS + 1 }, (_, index) =>
-          makeEvent(index, "event"),
+        events: Array.from({ length: MAX_DECODED_SEGMENT_EVENTS + 1 }, () =>
+          makeEvent(1_100, "event"),
         ),
       }),
     } as unknown as DecodeWorkerHost;
