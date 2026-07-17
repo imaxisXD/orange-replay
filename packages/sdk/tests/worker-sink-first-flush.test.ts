@@ -10,6 +10,7 @@ import {
   flushMicrotasks,
   makeCollectingWorkerHost,
   makeSession,
+  makeWorkerSink,
   resetSinkTestState,
 } from "./sink-test-helpers.ts";
 
@@ -25,7 +26,7 @@ describe("WorkerSink first-upload checkpoint gate", () => {
     const fetchMock = vi.fn<typeof fetch>(async () => {
       return new Response(JSON.stringify({ ok: true, live: false, flushMs: 50 }));
     });
-    const sink = new WorkerSink({
+    const sink = makeWorkerSink({
       config: { ...config, flushMs: 50 },
       session: makeSession(["session-one", "tab-one"]),
       window,
@@ -62,7 +63,7 @@ describe("WorkerSink first-upload checkpoint gate", () => {
     const fetchMock = vi.fn<typeof fetch>(async () => {
       return new Response(JSON.stringify({ ok: true, live: false, flushMs: 15_000 }));
     });
-    const sink = new WorkerSink({
+    const sink = makeWorkerSink({
       config,
       session: makeSession(["session-one", "tab-one"]),
       window,
@@ -84,15 +85,20 @@ describe("WorkerSink first-upload checkpoint gate", () => {
 
   it("re-arms the hold after a session rotation", async () => {
     vi.useFakeTimers();
+    let closeSession = true;
     const fetchMock = vi.fn<typeof fetch>(async () => {
-      return new Response(JSON.stringify({ ok: true, live: false, flushMs: 50 }));
+      const closed = closeSession;
+      closeSession = false;
+      return new Response(JSON.stringify({ ok: true, live: false, flushMs: 50, closed }));
     });
-    const sink = new WorkerSink({
+    const requestCheckpoint = vi.fn();
+    const sink = makeWorkerSink({
       config: { ...config, flushMs: 50 },
       session: makeSession(["session-one", "tab-one", "session-two"]),
       window,
       fetch: fetchMock,
       workerHost: makeCollectingWorkerHost(),
+      onCheckpointRequested: requestCheckpoint,
     });
 
     try {
@@ -103,8 +109,7 @@ describe("WorkerSink first-upload checkpoint gate", () => {
       await flushMicrotasks();
       expect(fetchMock).toHaveBeenCalledTimes(1);
 
-      await sink.prepareForSessionRotation();
-      sink.resetAfterSessionRotation();
+      await vi.waitFor(() => expect(requestCheckpoint).toHaveBeenCalledWith(true));
 
       // The fresh recorder emits Meta first; nothing may flush until its new
       // snapshot lands.

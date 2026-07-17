@@ -188,8 +188,6 @@ function makeSink(addIndexEvent: (event: IndexEvent) => void): Sink {
     onNavigation: vi.fn(),
     flush: vi.fn(async () => undefined),
     prepareForSnapshotPart: vi.fn(async () => undefined),
-    prepareForSessionRotation: vi.fn(async () => undefined),
-    resetAfterSessionRotation: vi.fn(),
     stop: vi.fn(async () => undefined),
   };
 }

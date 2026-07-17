@@ -12,7 +12,6 @@ import {
 import { snapshotInChunks } from "../../rrweb-fork/src/vendor/rrweb-snapshot/index.ts";
 import { PAGEHIDE_RAW_FLUSH_BYTES } from "../src/pipeline/batcher.ts";
 import { WorkerHost } from "../src/pipeline/worker-host.ts";
-import { WorkerSink } from "../src/sink.ts";
 import {
   config,
   decoder,
@@ -24,6 +23,7 @@ import {
   makePendingWorkerHost,
   makeSession,
   makeWorkerHost,
+  makeWorkerSink,
   resetSinkTestState,
 } from "./sink-test-helpers.ts";
 
@@ -43,7 +43,7 @@ describe("WorkerSink pagehide final flush", () => {
       return new Response(JSON.stringify({ ok: true, live: false, flushMs: 50 }));
     });
     const workerHost = makeCollectingWorkerHost();
-    const sink = new WorkerSink({
+    const sink = makeWorkerSink({
       config: { ...config, flushMs: 50 },
       session: makeSession(["session-one", "tab-one"]),
       window,
@@ -85,7 +85,7 @@ describe("WorkerSink pagehide final flush", () => {
     });
     const workerHost = makeWorkerHost();
     const session = makeSession(["session-one", "tab-one"]);
-    const sink = new WorkerSink({ config, session, window, fetch: fetchMock, workerHost });
+    const sink = makeWorkerSink({ config, session, window, fetch: fetchMock, workerHost });
 
     sink.addRrwebEvent(makeEvent(10, "initial"));
     sink.addIndexEvent({ t: 12, k: "error", d: "Cannot read properties of undefined (run)" });
@@ -120,7 +120,7 @@ describe("WorkerSink pagehide final flush", () => {
       return new Response(JSON.stringify({ ok: true, live: false, flushMs: 15_000 }));
     });
     const session = makeSession(["session-one", "tab-one"]);
-    const sink = new WorkerSink({
+    const sink = makeWorkerSink({
       config,
       session,
       window,
@@ -150,7 +150,7 @@ describe("WorkerSink pagehide final flush", () => {
   it("does not re-stringify the whole final batch once per dropped event", async () => {
     const fetchMock = vi.fn<typeof fetch>(() => new Promise<Response>(() => {}));
     const session = makeSession(["session-one", "tab-one"]);
-    const sink = new WorkerSink({
+    const sink = makeWorkerSink({
       config,
       session,
       window,
@@ -174,7 +174,7 @@ describe("WorkerSink pagehide final flush", () => {
     const fetchMock = vi.fn<typeof fetch>(() => new Promise<Response>(() => {}));
     const workerHost = makeWorkerHost();
     const session = makeSession(["session-one", "tab-one"]);
-    const sink = new WorkerSink({ config, session, window, fetch: fetchMock, workerHost });
+    const sink = makeWorkerSink({ config, session, window, fetch: fetchMock, workerHost });
 
     sink.addRrwebEvent(makeEvent(1, "current", "x".repeat(10_000)));
     await sink.flush("pagehide");
@@ -187,7 +187,7 @@ describe("WorkerSink pagehide final flush", () => {
   it("counts a queued keepalive batch as dropped when the fetch later fails", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockRejectedValue(new Error("network closed"));
     const session = makeSession(["session-one", "tab-one"]);
-    const sink = new WorkerSink({
+    const sink = makeWorkerSink({
       config,
       session,
       window,
@@ -206,7 +206,7 @@ describe("WorkerSink pagehide final flush", () => {
   it("requests a checkpoint after a medium baseline cannot fit the pagehide body", async () => {
     const fetchMock = vi.fn<typeof fetch>();
     const requestCheckpoint = vi.fn();
-    const sink = new WorkerSink({
+    const sink = makeWorkerSink({
       config,
       session: makeSession(["session-one", "tab-one"]),
       window,
@@ -242,7 +242,7 @@ describe("WorkerSink pagehide final flush", () => {
   it("requests a checkpoint when a required keepalive later rejects", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockRejectedValue(new Error("network closed"));
     const requestCheckpoint = vi.fn();
-    const sink = new WorkerSink({
+    const sink = makeWorkerSink({
       config,
       session: makeSession(["session-one", "tab-one"]),
       window,
@@ -283,7 +283,7 @@ describe("WorkerSink pagehide final flush", () => {
     );
     const requestCheckpoint = vi.fn();
     const pendingWorker = makePendingWorkerHost();
-    const sink = new WorkerSink({
+    const sink = makeWorkerSink({
       config,
       session: makeSession(["session-one", "tab-one"]),
       window,
@@ -344,7 +344,7 @@ describe("WorkerSink pagehide final flush", () => {
     });
     const pendingWorker = makePendingWorkerHost();
     const session = makeSession(["session-one", "tab-one"]);
-    const sink = new WorkerSink({
+    const sink = makeWorkerSink({
       config,
       session,
       window,
@@ -388,7 +388,7 @@ describe("WorkerSink pagehide final flush", () => {
       revokeObjectUrl: vi.fn(),
       warn: vi.fn(),
     });
-    const sink = new WorkerSink({
+    const sink = makeWorkerSink({
       config,
       session: makeSession(["session-one", "tab-one"]),
       window,
@@ -420,7 +420,7 @@ describe("WorkerSink pagehide final flush", () => {
     const pendingWorker = makePendingWorkerHost();
     const requestCheckpoint = vi.fn();
     const session = makeSession(["session-one", "tab-one"]);
-    const sink = new WorkerSink({
+    const sink = makeWorkerSink({
       config,
       session,
       window,
@@ -468,7 +468,7 @@ describe("WorkerSink pagehide final flush", () => {
     });
     const pendingWorker = makePendingWorkerHost();
     const session = makeSession(["session-one", "tab-one"]);
-    const sink = new WorkerSink({
+    const sink = makeWorkerSink({
       config,
       session,
       window,

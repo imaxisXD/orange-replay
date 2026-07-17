@@ -2,16 +2,36 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { decodeIngestBody } from "@orange-replay/shared/wire";
 
+type TestRecordEvent = {
+  type: number;
+  timestamp: number;
+  data: Record<string, unknown>;
+};
+
+interface TestRecordOptions {
+  emit: (event: TestRecordEvent) => void;
+}
+
 const rrwebMocks = vi.hoisted(() => ({
-  record: vi.fn(() => vi.fn()),
+  record: vi.fn<(options: TestRecordOptions) => () => void>(() => vi.fn()),
   addCustomEvent: vi.fn(),
+  takeFullSnapshot: vi.fn(),
   estimateEventBytes: vi.fn(() => 512),
 }));
 
-vi.mock("@orange-replay/rrweb-fork", () => rrwebMocks);
+vi.mock("@orange-replay/rrweb-fork", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@orange-replay/rrweb-fork")>()),
+  ...rrwebMocks,
+}));
 
 afterEach(() => {
   vi.restoreAllMocks();
+  rrwebMocks.record.mockReset();
+  rrwebMocks.record.mockReturnValue(vi.fn());
+  rrwebMocks.addCustomEvent.mockReset();
+  rrwebMocks.takeFullSnapshot.mockReset();
+  rrwebMocks.estimateEventBytes.mockReset();
+  rrwebMocks.estimateEventBytes.mockReturnValue(512);
   window.sessionStorage.clear();
   document.cookie = "or_s=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax";
   document.body.innerHTML = "";
@@ -201,6 +221,74 @@ describe("loader", () => {
     expect(
       decoded.index.e.find((event) => event.k === "vital" && event.d === "navigation")?.m?.["url"],
     ).toBe("/");
+  });
+
+  it("routes a closed ingest ack through the real session transition owner", async () => {
+    const bodies: Uint8Array[] = [];
+    let ingestRequest = 0;
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.endsWith("/v1/config")) {
+        return new Response(
+          JSON.stringify({
+            sampleRate: 1,
+            maskPolicyVersion: 1,
+            maskRules: [],
+            capture: { heatmaps: false, console: false, network: false, canvas: false },
+            version: 1,
+          }),
+        );
+      }
+      bodies.push(init?.body as Uint8Array);
+      ingestRequest += 1;
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          live: false,
+          flushMs: 15_000,
+          closed: ingestRequest === 1,
+        }),
+      );
+    });
+    Object.defineProperty(window, "fetch", { configurable: true, value: fetchMock });
+
+    const { init } = await import("../src/index.ts");
+    const handle = init({
+      key: "write-key",
+      ingestUrl: "https://ingest.test",
+      sampleRate: 1,
+      flushMs: 60_000,
+      transport: "inline",
+    });
+    await vi.waitFor(() => expect(rrwebMocks.record).toHaveBeenCalledOnce());
+    const recordOptions = rrwebMocks.record.mock.calls[0]?.[0];
+    if (recordOptions === undefined) throw new Error("Recorder options were not captured.");
+    rrwebMocks.takeFullSnapshot.mockImplementation(() => {
+      recordOptions.emit({
+        type: 2,
+        timestamp: 2,
+        data: {
+          node: { id: 1, type: 0, childNodes: [] },
+          initialOffset: { left: 0, top: 0 },
+        },
+      });
+    });
+    rrwebMocks.estimateEventBytes.mockReturnValueOnce(200_000);
+
+    recordOptions.emit({
+      type: 0,
+      timestamp: 1,
+      data: { href: "/before-close" },
+    });
+    await vi.waitFor(() => expect(rrwebMocks.takeFullSnapshot).toHaveBeenCalledOnce());
+    await handle.stop();
+
+    expect(bodies).toHaveLength(2);
+    const oldBatch = decodeIngestBody(bodies[0] ?? new Uint8Array());
+    const newBatch = decodeIngestBody(bodies[1] ?? new Uint8Array());
+    expect(newBatch.index.s).not.toBe(oldBatch.index.s);
+    expect(oldBatch.index.seq).toBe(0);
+    expect(newBatch.index).toMatchObject({ seq: 0, checkpointTimestamps: [2] });
   });
 
   it("discards buffered events when a local privacy selector is unsafe", async () => {

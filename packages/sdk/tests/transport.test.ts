@@ -154,23 +154,22 @@ describe("Transport", () => {
     expect(result.ack?.drop).toBe(true);
   });
 
-  it("surfaces closed acks through the rotation callback", async () => {
-    const onClosed = vi.fn();
+  it("keeps closed acks in the parsed response for the sink owner", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()
       .mockResolvedValue(
         new Response(JSON.stringify({ ok: true, live: false, flushMs: 15_000, closed: true })),
       );
-    const transport = new Transport({ config, fetch: fetchMock, onClosed });
+    const transport = new Transport({ config, fetch: fetchMock });
 
-    await transport.sendBatch({
+    const result = await transport.sendBatch({
       body: new Uint8Array([1]),
       index,
       flags: 0,
       keepalive: false,
     });
 
-    expect(onClosed).toHaveBeenCalledTimes(1);
+    expect(result.ack?.closed).toBe(true);
   });
 
   it("keeps checkpoint acks in the parsed response", async () => {

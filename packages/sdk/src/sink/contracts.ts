@@ -15,8 +15,6 @@ export interface Sink {
   onNavigation(url: string): void;
   flush(reason: FlushReason): Promise<void>;
   prepareForSnapshotPart(nextBytes?: number): Promise<void>;
-  prepareForSessionRotation(): Promise<void>;
-  resetAfterSessionRotation(): void;
   stop(): Promise<void>;
 }
 
@@ -25,8 +23,7 @@ export interface InlineSinkOptions {
   session: SessionManager;
   window: Window;
   fetch?: typeof fetch;
-  onSessionClosed?: () => void;
-  onCheckpointRequested?: (required?: boolean) => void;
+  onCheckpointRequested: (required?: boolean) => void;
 }
 
 export interface WorkerSinkOptions extends InlineSinkOptions {

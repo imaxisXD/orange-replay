@@ -39,8 +39,7 @@ export class WorkerSink implements Sink {
   private readonly window: Window;
   private readonly workerHost: WorkerHost;
   private readonly transport: Transport;
-  private readonly onSessionClosed?: () => void;
-  private readonly onCheckpointRequested?: (required?: boolean) => void;
+  private readonly onCheckpointRequested: (required?: boolean) => void;
   private readonly onWorkerUnavailable?: () => void;
   private readonly encoder = new TextEncoder();
   private readonly indexEvents = new IndexEventBuffer();
@@ -69,12 +68,13 @@ export class WorkerSink implements Sink {
   private holdFlushes = true;
   private readonly pendingRequiredFinalBatches = new Set<object>();
   private pageHidden = false;
+  private newSessionPending = false;
+  private sessionChangeRunning = false;
 
   constructor(options: WorkerSinkOptions) {
     this.config = options.config;
     this.session = options.session;
     this.window = options.window;
-    this.onSessionClosed = options.onSessionClosed;
     this.onCheckpointRequested = options.onCheckpointRequested;
     this.onWorkerUnavailable = options.onWorkerUnavailable;
     this.currentUrl = scrubUrl(options.window.location.href, options.config.allowUrlParams);
@@ -215,6 +215,10 @@ export class WorkerSink implements Sink {
     return this.flushInternal(reason);
   }
 
+  resumeSessionAfterIdle(): void {
+    this.requestSessionChange(false);
+  }
+
   async prepareForSnapshotPart(nextBytes?: number): Promise<void> {
     const safeNextBytes =
       nextBytes === undefined || !Number.isFinite(nextBytes)
@@ -239,20 +243,11 @@ export class WorkerSink implements Sink {
     }
   }
 
-  async prepareForSessionRotation(): Promise<void> {
-    if (this.stopped) {
-      return;
-    }
-
-    if (this.flushing !== undefined) {
-      await this.flushing;
-    }
-
+  private async prepareForSessionChange(): Promise<void> {
+    if (this.stopped) return;
+    if (this.flushing !== undefined) await this.flushing;
+    if (this.stopped) return;
     await this.flushInternal("manual");
-  }
-
-  resetAfterSessionRotation(): void {
-    this.resetPipeline();
   }
 
   async stop(): Promise<void> {
@@ -417,7 +412,7 @@ export class WorkerSink implements Sink {
         this.batcher.retuneFromAck(result.ack);
 
         if (result.ack.checkpoint === true) {
-          this.onCheckpointRequested?.();
+          this.onCheckpointRequested();
         }
 
         if (result.ack.drop === true) {
@@ -426,7 +421,7 @@ export class WorkerSink implements Sink {
         }
 
         if (result.ack.closed === true) {
-          this.handleSessionClosed();
+          this.requestSessionChange(true);
           return true;
         }
       }
@@ -686,7 +681,7 @@ export class WorkerSink implements Sink {
     }
     if (!this.requiredCheckpointRequested && !this.pageHidden) {
       this.requiredCheckpointRequested = true;
-      this.onCheckpointRequested?.(true);
+      this.onCheckpointRequested(true);
     }
     if (!this.pageHidden && this.flushing === undefined) this.scheduleTimer();
     return true;
@@ -713,14 +708,41 @@ export class WorkerSink implements Sink {
     this.workerHost.reset();
   }
 
-  private handleSessionClosed(): void {
-    if (this.onSessionClosed !== undefined) {
-      this.onSessionClosed();
-      return;
-    }
+  private requestSessionChange(startNewSession: boolean): void {
+    if (this.stopped) return;
+    if (startNewSession) this.newSessionPending = true;
+    if (this.sessionChangeRunning) return;
+    this.sessionChangeRunning = true;
+    void this.drainSessionChanges(!startNewSession).finally(() => {
+      this.sessionChangeRunning = false;
+      if (!this.stopped && this.newSessionPending) this.requestSessionChange(true);
+    });
+  }
 
-    this.session.rotate();
-    this.resetPipeline();
+  private async drainSessionChanges(shouldResumeAfterIdle: boolean): Promise<void> {
+    do {
+      await this.prepareForSessionChange();
+      if (this.stopped) {
+        this.newSessionPending = false;
+        return;
+      }
+
+      const shouldStartNewSession = this.newSessionPending;
+      this.newSessionPending = false;
+      let sessionChanged = false;
+      if (shouldStartNewSession) {
+        this.session.rotate();
+        sessionChanged = true;
+      } else if (shouldResumeAfterIdle) {
+        sessionChanged = this.session.resumeAfterIdle();
+      }
+
+      if (sessionChanged) {
+        this.resetPipeline();
+        this.onCheckpointRequested(true);
+      }
+      shouldResumeAfterIdle = false;
+    } while (this.newSessionPending);
   }
 
   private queueWorkerEvent(event: eventWithTime, bytes: number): void {

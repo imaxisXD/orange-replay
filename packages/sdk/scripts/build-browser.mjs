@@ -13,13 +13,13 @@ const rrwebTypesPath = resolve(packageDir, "../rrweb-fork/src/vendor/rrweb-types
 // replay wire names (for example, nextId) out of this list.
 const privateBrowserProperty = new RegExp(
   `^(?:${`
-    workerHost onSessionClosed onCheckpointRequested onWorkerUnavailable indexEvents backpressure
+    workerHost onCheckpointRequested onWorkerUnavailable indexEvents backpressure
     rrwebEvents pendingWorkerEvents eventMetas inFlightBatches currentUrl timerId
     addPageLoadEvent addQueuedEvent recordNavigation patchHistory viewport asElement scrollDepth
     addDomListener
     warnedAboutInternalError needsFollowUpFlush workerPostScheduled pagehideResetPending
     oversizedSnapshotBytes needsRequiredCheckpoint requiredCheckpointRequested requiredBaselineMissing
-    pendingRequiredFinalBatches pageHidden
+    pendingRequiredFinalBatches pageHidden newSessionPending sessionChangeRunning
     prepareForSnapshotPart deferIframeDocuments textIndexById attributeIndexById
     containsRequiredSnapshot
     queuedEventCount droppedEventCount requiredSnapshot fullSnapshot pagehideRequiredOversized
@@ -33,7 +33,7 @@ const privateBrowserProperty = new RegExp(
     dropCurrentFinalBatch queueSyncFinalBatch flushWorkerBatch recordDroppedFromWorker resetPipeline
     clearPipelineBuffers stopAfterServerDrop disableAfterInternalError discardPipeline
     continueRequiredCheckpointRecovery markRequiredBaselineMissing discardEventsAfterMissingBaseline
-    handleSessionClosed queueWorkerEvent flushPendingWorkerEvents
+    queueWorkerEvent flushPendingWorkerEvents
     scheduleTimer clearTimer onVisibilityChange onPageHide onPageShow revokeObjectUrl flushTimeoutMs
     yieldToMain onUnavailable objectUrl transferVersion transferQueue unavailableReported
     useDegradedMode sendEvents sendSnapshotTree handleWorkerMessage rejectPending handleWorkerFailure
@@ -54,13 +54,14 @@ const privateBrowserProperty = new RegExp(
     lastActivityPersistedAt
     reclaimForCurrentSession openClaimChannel postTabClaim makeTabId readCookieSession
     writeCookieSession persistSeq claimTabOwnership persist resumeAfterIdle rotate
-    prepareForSessionRotation resetAfterSessionRotation takeFullSnapshot
+    resumeSessionAfterIdle requestSessionChange drainSessionChanges prepareForSessionChange
+    takeFullSnapshot
     projectRef ready nextSeq touch
     afterCapturedTopology capturedChunks capturedNodes capturedParentIndexes capturedFlags
     capturedLiveIds capturedNextIndexes capturedLastChildIndexes addCapturedNode getChunk getNode
     getParentIndex getFlags setFlags getLiveId getNextLiveId releaseReconciliationValues
     stopRecord discardPendingRecords revokeWorkerUrl sink bypassOptions pagehideRawFlushBytes
-    totalRawBytes isAvailable wrappedEmit eventRawBytes rawFlushBytes onClosed queueBatchSync timeoutId
+    totalRawBytes isAvailable wrappedEmit eventRawBytes rawFlushBytes queueBatchSync timeoutId
     addRrwebEvent queueCustomEvent flushing startIdReservation stopIdReservation
     drainPendingCustomEvents trackCanvas kill adoptedStyleSheetCb fetchFn warned addIndexEvent
     adopters adoptersBySheet prepareAdoptedSheetMutation removeAdopter trackAdopters

@@ -3,7 +3,8 @@ import type { eventWithTime } from "@orange-replay/rrweb-fork";
 import type { WorkerBatchResult } from "../src/pipeline/worker-core.ts";
 import type { WorkerEvent, WorkerHost } from "../src/pipeline/worker-host.ts";
 import { SessionManager, type StorageLike } from "../src/session.ts";
-import type { WorkerSink } from "../src/sink/worker-sink.ts";
+import { WorkerSink } from "../src/sink/worker-sink.ts";
+import type { WorkerSinkOptions } from "../src/sink/contracts.ts";
 import type { RecorderConfig } from "../src/types.ts";
 
 class MemoryStorage implements StorageLike {
@@ -19,6 +20,22 @@ class MemoryStorage implements StorageLike {
 
   removeItem(key: string): void {
     this.values.delete(key);
+  }
+}
+
+export class MemoryCookieDocument implements Pick<Document, "cookie"> {
+  private value = "";
+
+  get cookie(): string {
+    return this.value;
+  }
+
+  set cookie(value: string) {
+    this.value = value.split(";", 1)[0] ?? "";
+  }
+
+  clear(): void {
+    this.value = "";
   }
 }
 
@@ -42,6 +59,13 @@ export function droppedEventCount(sink: WorkerSink): number {
   return counters.backpressure.droppedCount() + counters.indexEvents.droppedCount();
 }
 
+export function makeWorkerSink(
+  options: Omit<WorkerSinkOptions, "onCheckpointRequested"> &
+    Partial<Pick<WorkerSinkOptions, "onCheckpointRequested">>,
+): WorkerSink {
+  return new WorkerSink({ onCheckpointRequested: () => undefined, ...options });
+}
+
 export const decoder = new TextDecoder();
 
 export function resetSinkTestState(): void {
@@ -61,12 +85,16 @@ export async function gunzipToText(payload: Uint8Array): Promise<string> {
   return decoder.decode(plain);
 }
 
-export function makeSession(ids: string[]): SessionManager {
+export function makeSession(
+  ids: string[],
+  cookieDocument?: Pick<Document, "cookie">,
+): SessionManager {
   return new SessionManager({
     projectRef: "write-key",
     now: () => 1_000,
     storage: new MemoryStorage(),
-    document,
+    document: cookieDocument,
+    cookieMode: cookieDocument === undefined ? "none" : "secure",
     makeId: () => ids.shift() ?? "extra-id",
   });
 }
@@ -152,10 +180,13 @@ export function makeCollectingWorkerHost(): MockWorkerHost {
 export function makePendingWorkerHost(): {
   workerHost: MockWorkerHost;
   resolve: (result: WorkerBatchResult) => void;
+  reject: (error: Error) => void;
 } {
   let resolveFlush: (result: WorkerBatchResult) => void = () => undefined;
-  const flushPromise = new Promise<WorkerBatchResult>((resolve) => {
+  let rejectFlush: (error: Error) => void = () => undefined;
+  const flushPromise = new Promise<WorkerBatchResult>((resolve, reject) => {
     resolveFlush = resolve;
+    rejectFlush = reject;
   });
   const workerHost = {
     addEvents: vi.fn(),
@@ -164,7 +195,7 @@ export function makePendingWorkerHost(): {
     stop: vi.fn(),
   } as unknown as MockWorkerHost;
 
-  return { workerHost, resolve: resolveFlush };
+  return { workerHost, resolve: resolveFlush, reject: rejectFlush };
 }
 
 export function installSendBeacon(

@@ -49,7 +49,13 @@ describe("InlineSink", () => {
       return new Response(JSON.stringify({ ok: true, live: false, flushMs: 7_000 }));
     });
     const session = makeSession(["session-one", "tab-one"]);
-    const sink = new InlineSink({ config, session, window, fetch: fetchMock });
+    const sink = new InlineSink({
+      config,
+      session,
+      window,
+      fetch: fetchMock,
+      onCheckpointRequested: vi.fn(),
+    });
 
     sink.addRrwebEvent({ type: 0, timestamp: 10, data: { href: "/home" } } as eventWithTime);
     sink.addIndexEvent({ t: 12, k: "click", d: "button#buy", m: { x: 0.5, y: 0.25 } });
@@ -87,7 +93,13 @@ describe("InlineSink", () => {
       return new Response(JSON.stringify({ ok: true, live: false, flushMs: 15_000 }));
     });
     const session = makeSession(["session-one", "tab-one"]);
-    const sink = new InlineSink({ config, session, window, fetch: fetchMock });
+    const sink = new InlineSink({
+      config,
+      session,
+      window,
+      fetch: fetchMock,
+      onCheckpointRequested: vi.fn(),
+    });
 
     sink.addRrwebEvent({ type: 0, timestamp: 1, data: {} } as eventWithTime);
     await sink.flush("manual");
@@ -105,7 +117,13 @@ describe("InlineSink", () => {
       return new Response(JSON.stringify({ ok: true, live: false, flushMs: 15_000 }));
     });
     const session = makeSession(["session-one", "tab-one"]);
-    const sink = new InlineSink({ config, session, window, fetch: fetchMock });
+    const sink = new InlineSink({
+      config,
+      session,
+      window,
+      fetch: fetchMock,
+      onCheckpointRequested: vi.fn(),
+    });
 
     sink.addRrwebEvent({
       type: EventType.FullSnapshot,
@@ -122,10 +140,18 @@ describe("InlineSink", () => {
       return new Response(JSON.stringify({ ok: true, live: false, flushMs: 15_000, closed: true }));
     });
     const session = makeSession(["session-one", "tab-one", "session-two"]);
-    const sink = new InlineSink({ config, session, window, fetch: fetchMock });
+    const requestCheckpoint = vi.fn();
+    const sink = new InlineSink({
+      config,
+      session,
+      window,
+      fetch: fetchMock,
+      onCheckpointRequested: requestCheckpoint,
+    });
 
     sink.addRrwebEvent({ type: 0, timestamp: 1, data: {} } as eventWithTime);
     await sink.flush("manual");
+    await vi.waitFor(() => expect(requestCheckpoint).toHaveBeenCalledWith(true));
 
     expect(session.sessionId).toBe("session-two");
     expect(session.nextSeq()).toBe(0);

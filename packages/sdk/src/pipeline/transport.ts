@@ -27,7 +27,6 @@ export interface TransportOptions {
   config: RecorderConfig;
   fetch?: typeof fetch;
   wait?: (ms: number) => Promise<void>;
-  onClosed?: () => void;
 }
 
 const BASE_RETRY_MS = 2_000;
@@ -39,13 +38,11 @@ export class Transport {
   private readonly config: RecorderConfig;
   private readonly fetchFn: typeof fetch;
   private readonly wait: (ms: number) => Promise<void>;
-  private readonly onClosed?: () => void;
 
   constructor(options: TransportOptions) {
     this.config = options.config;
     this.fetchFn = options.fetch ?? fetch.bind(globalThis);
     this.wait = options.wait ?? defaultWait;
-    this.onClosed = options.onClosed;
   }
 
   async sendBatch(batch: TransportBatch): Promise<TransportResult> {
@@ -85,10 +82,6 @@ export class Transport {
         }
 
         const ack = await readAck(response);
-        if (ack.closed === true) {
-          this.onClosed?.();
-        }
-
         return { sent: true, dropped: false, attempts, ack };
       } catch {
         if (attempts >= MAX_ATTEMPTS) {
@@ -127,11 +120,8 @@ export class Transport {
             return;
           }
 
-          const ack = await readAck(result);
+          await readAck(result);
           onSuccess?.();
-          if (ack.closed === true) {
-            this.onClosed?.();
-          }
         })
         .catch(() => {
           onFailure?.();

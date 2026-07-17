@@ -43,12 +43,6 @@ function makeSink(): Sink {
     async prepareForSnapshotPart() {
       /* test hook */
     },
-    async prepareForSessionRotation() {
-      /* test hook */
-    },
-    resetAfterSessionRotation() {
-      /* test hook */
-    },
     async stop() {
       /* test hook */
     },

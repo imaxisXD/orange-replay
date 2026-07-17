@@ -15,9 +15,11 @@ import {
   flushMicrotasks,
   makeCollectingWorkerHost,
   makeEvent,
+  MemoryCookieDocument,
   makePendingWorkerHost,
   makeResolvedWorkerHost,
   makeSession,
+  makeWorkerSink,
   resetSinkTestState,
 } from "./sink-test-helpers.ts";
 
@@ -30,7 +32,7 @@ describe("WorkerSink unavailable path", () => {
     });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const session = makeSession(["session-one", "tab-one"]);
-    const sink = new WorkerSink({ config, session, window, fetch: fetchMock });
+    const sink = makeWorkerSink({ config, session, window, fetch: fetchMock });
 
     sink.addRrwebEvent({ type: 0, timestamp: 10, data: { href: "/home" } } as eventWithTime);
     sink.addIndexEvent({ t: 12, k: "click", d: "button#buy", m: { x: 0.5, y: 0.25 } });
@@ -48,7 +50,7 @@ describe("WorkerSink unavailable path", () => {
     });
     const workerHost = makeResolvedWorkerHost();
     const session = makeSession(["session-one", "tab-one"]);
-    const sink = new WorkerSink({ config, session, window, fetch: fetchMock, workerHost });
+    const sink = makeWorkerSink({ config, session, window, fetch: fetchMock, workerHost });
 
     sink.addRrwebEvent(makeEvent(1, "one"));
     sink.addRrwebEvent(makeEvent(2, "two"));
@@ -63,7 +65,7 @@ describe("WorkerSink unavailable path", () => {
     const workerHost = makeResolvedWorkerHost();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const onWorkerUnavailable = vi.fn();
-    const sink = new WorkerSink({
+    const sink = makeWorkerSink({
       config,
       session: makeSession(["session-one", "tab-one"]),
       window,
@@ -104,7 +106,7 @@ describe("WorkerSink unavailable path", () => {
       reset: vi.fn(),
       stop,
     } as unknown as WorkerHost;
-    const sink = new WorkerSink({
+    const sink = makeWorkerSink({
       config,
       session: makeSession(["session-one", "tab-one"]),
       window,
@@ -136,7 +138,7 @@ describe("WorkerSink unavailable path", () => {
     const pendingWorker = makePendingWorkerHost();
     const onWorkerUnavailable = vi.fn();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const sink = new WorkerSink({
+    const sink = makeWorkerSink({
       config,
       session: makeSession(["session-one", "tab-one"]),
       window,
@@ -172,7 +174,7 @@ describe("WorkerSink unavailable path", () => {
     const pendingWorker = makePendingWorkerHost();
     const requestCheckpoint = vi.fn();
     const onWorkerUnavailable = vi.fn();
-    const sink = new WorkerSink({
+    const sink = makeWorkerSink({
       config,
       session: makeSession(["session-one", "tab-one"]),
       window,
@@ -219,7 +221,7 @@ describe("WorkerSink unavailable path", () => {
       return new Response(JSON.stringify({ ok: true, live: false, flushMs: 15_000 }));
     });
     const workerHost = makeResolvedWorkerHost();
-    const sink = new WorkerSink({
+    const sink = makeWorkerSink({
       config,
       session: makeSession(["session-one", "tab-one"]),
       window,
@@ -246,37 +248,176 @@ describe("WorkerSink unavailable path", () => {
 });
 
 describe("WorkerSink session rotation", () => {
-  it("flushes pending old-session events before a new full snapshot batch", async () => {
+  it("owns drain, rotate, reset, and required-snapshot order", async () => {
     const bodies: Uint8Array[] = [];
     const fetchMock = vi.fn<typeof fetch>(async (_input, init) => {
       bodies.push(init?.body as Uint8Array);
       return new Response(JSON.stringify({ ok: true, live: false, flushMs: 15_000 }));
     });
     const workerHost = makeCollectingWorkerHost();
-    const session = makeSession(["session-one", "tab-one", "session-two"]);
-    const sink = new WorkerSink({ config, session, window, fetch: fetchMock, workerHost });
+    const cookies = new MemoryCookieDocument();
+    const session = makeSession(["owner-session-0001", "tab-one", "owner-session-0002"], cookies);
+    cookies.clear();
+    let sink: WorkerSink;
+    const requestCheckpoint = vi.fn((required?: boolean) => {
+      expect(required).toBe(true);
+      expect(session.sessionId).toBe("owner-session-0002");
+      expect(workerHost.reset).toHaveBeenCalledOnce();
+      sink.addRrwebEvent(makeFullSnapshot(2));
+    });
+    sink = makeWorkerSink({
+      config,
+      session,
+      window,
+      fetch: fetchMock,
+      workerHost,
+      onCheckpointRequested: requestCheckpoint,
+    });
 
     sink.addRrwebEvent(makeEvent(1, "old-session"));
-    await sink.prepareForSessionRotation();
-    session.rotate();
-    sink.resetAfterSessionRotation();
-    sink.addRrwebEvent({
-      type: EventType.FullSnapshot,
-      timestamp: 2,
-      data: { node: { id: 1, type: 0 }, initialOffset: { left: 0, top: 0 } },
-    } as eventWithTime);
+    sink.resumeSessionAfterIdle();
+    await vi.waitFor(() => expect(requestCheckpoint).toHaveBeenCalledOnce());
     await sink.flush("manual");
 
     expect(bodies).toHaveLength(2);
     const oldBatch = decodeIngestBody(bodies[0] ?? new Uint8Array());
     const newBatch = decodeIngestBody(bodies[1] ?? new Uint8Array());
-    expect(oldBatch.index).toMatchObject({ s: "session-one", seq: 0 });
-    expect(newBatch.index).toMatchObject({ s: "session-two", seq: 0 });
+    expect(oldBatch.index).toMatchObject({ s: "owner-session-0001", seq: 0 });
+    expect(newBatch.index).toMatchObject({ s: "owner-session-0002", seq: 0 });
     expect(newBatch.index.checkpointTimestamps).toEqual([2]);
     expect(JSON.parse(decoder.decode(newBatch.payload))[0]).toMatchObject({
       type: EventType.FullSnapshot,
     });
     expect(workerHost.reset).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the pipeline when idle reconciliation keeps the active cookie", async () => {
+    const workerHost = makeCollectingWorkerHost();
+    const cookies = new MemoryCookieDocument();
+    const session = makeSession(["same-cookie-0001", "tab-one", "same-cookie-0002"], cookies);
+    const resumeAfterIdle = vi.spyOn(session, "resumeAfterIdle");
+    const requestCheckpoint = vi.fn();
+    const sink = makeWorkerSink({
+      config,
+      session,
+      window,
+      fetch: vi.fn<typeof fetch>(),
+      workerHost,
+      onCheckpointRequested: requestCheckpoint,
+    });
+
+    sink.resumeSessionAfterIdle();
+    await vi.waitFor(() => expect(resumeAfterIdle).toHaveBeenCalledOnce());
+
+    expect(session.sessionId).toBe("same-cookie-0001");
+    expect(workerHost.reset).not.toHaveBeenCalled();
+    expect(requestCheckpoint).not.toHaveBeenCalled();
+  });
+
+  it("lets a closed ack win and completes the bounded old-session drain", async () => {
+    const bodies: Uint8Array[] = [];
+    let finishFirstRequest: (response: Response) => void = () => undefined;
+    const firstRequest = new Promise<Response>((resolve) => {
+      finishFirstRequest = resolve;
+    });
+    let requestNumber = 0;
+    let finishSecondRequest: (response: Response) => void = () => undefined;
+    const secondRequest = new Promise<Response>((resolve) => {
+      finishSecondRequest = resolve;
+    });
+    const fetchMock = vi.fn<typeof fetch>(async (_input, init) => {
+      bodies.push(init?.body as Uint8Array);
+      requestNumber += 1;
+      if (requestNumber === 1) return firstRequest;
+      if (requestNumber === 2) return secondRequest;
+      return new Response(JSON.stringify({ ok: true, live: false, flushMs: 15_000 }));
+    });
+    const workerHost = makeCollectingWorkerHost();
+    const cookies = new MemoryCookieDocument();
+    const session = makeSession(
+      ["collision-old-0001", "tab-one", "collision-new-0002", "collision-spare-0003"],
+      cookies,
+    );
+    cookies.clear();
+    const resumeAfterIdle = vi.spyOn(session, "resumeAfterIdle");
+    const rotate = vi.spyOn(session, "rotate");
+    let sink: WorkerSink;
+    const requestCheckpoint = vi.fn(() => sink.addRrwebEvent(makeFullSnapshot(3)));
+    sink = makeWorkerSink({
+      config,
+      session,
+      window,
+      fetch: fetchMock,
+      workerHost,
+      onCheckpointRequested: requestCheckpoint,
+    });
+
+    sink.addRrwebEvent(makeEvent(1, "old-session"));
+    const activeFlush = sink.flush("manual");
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    sink.resumeSessionAfterIdle();
+    sink.addRrwebEvent(makeEvent(2, "old-session-tail"));
+    finishFirstRequest(
+      new Response(JSON.stringify({ ok: true, live: false, flushMs: 15_000, closed: true })),
+    );
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    sink.addRrwebEvent(makeEvent(2.5, "capture-stays-active"));
+    finishSecondRequest(new Response(JSON.stringify({ ok: true, live: false, flushMs: 15_000 })));
+    await activeFlush;
+    await vi.waitFor(() => expect(requestCheckpoint).toHaveBeenCalledOnce());
+    await sink.flush("manual");
+
+    expect(resumeAfterIdle).not.toHaveBeenCalled();
+    expect(rotate).toHaveBeenCalledOnce();
+    expect(workerHost.reset).toHaveBeenCalledOnce();
+    expect(bodies).toHaveLength(3);
+    expect(bodies.slice(0, 2).map((body) => decodeIngestBody(body).index.s)).toEqual([
+      "collision-old-0001",
+      "collision-old-0001",
+    ]);
+    expect(
+      bodies.some((body) =>
+        decoder.decode(decodeIngestBody(body).payload).includes("capture-stays-active"),
+      ),
+    ).toBe(false);
+    expect(decodeIngestBody(bodies[2] ?? new Uint8Array()).index).toMatchObject({
+      s: "collision-new-0002",
+      seq: 0,
+      checkpointTimestamps: [3],
+    });
+  });
+
+  it("does not rotate when stop wins during the old-session drain", async () => {
+    let finishRequest: (response: Response) => void = () => undefined;
+    const request = new Promise<Response>((resolve) => {
+      finishRequest = resolve;
+    });
+    const fetchMock = vi.fn<typeof fetch>(() => request);
+    const workerHost = makeCollectingWorkerHost();
+    const session = makeSession(["stop-session-0001", "tab-one", "stop-session-0002"]);
+    const rotate = vi.spyOn(session, "rotate");
+    const requestCheckpoint = vi.fn();
+    const sink = makeWorkerSink({
+      config,
+      session,
+      window,
+      fetch: fetchMock,
+      workerHost,
+      onCheckpointRequested: requestCheckpoint,
+    });
+
+    sink.addRrwebEvent(makeEvent(1, "old-session"));
+    sink.resumeSessionAfterIdle();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    const stopping = sink.stop();
+    finishRequest(new Response(JSON.stringify({ ok: true, live: false, flushMs: 15_000 })));
+    await stopping;
+    await flushMicrotasks();
+
+    expect(rotate).not.toHaveBeenCalled();
+    expect(session.sessionId).toBe("stop-session-0001");
+    expect(requestCheckpoint).not.toHaveBeenCalled();
   });
 });
 
@@ -304,7 +445,7 @@ describe("WorkerSink stop drain", () => {
       bodies.push(init?.body as Uint8Array);
       return new Response(JSON.stringify({ ok: true, live: false, flushMs: 15_000 }));
     });
-    const sink = new WorkerSink({
+    const sink = makeWorkerSink({
       config,
       session: makeSession(["session-one", "tab-one"]),
       window,
@@ -351,7 +492,7 @@ describe("WorkerSink server and transport drops", () => {
     });
     const workerHost = makeResolvedWorkerHost();
     const session = makeSession(["session-one", "tab-one"]);
-    const sink = new WorkerSink({
+    const sink = makeWorkerSink({
       config,
       session,
       window,
@@ -374,7 +515,7 @@ describe("WorkerSink server and transport drops", () => {
     });
     const workerHost = makeResolvedWorkerHost();
     const session = makeSession(["session-one", "tab-one"]);
-    const sink = new WorkerSink({ config, session, window, fetch: fetchMock, workerHost });
+    const sink = makeWorkerSink({ config, session, window, fetch: fetchMock, workerHost });
 
     sink.addRrwebEvent(makeEvent(10, "before-drop"));
     await sink.flush("manual");
@@ -385,11 +526,47 @@ describe("WorkerSink server and transport drops", () => {
     expect(workerHost.stop).toHaveBeenCalledTimes(1);
   });
 
+  it("cancels a pending session change when a server drop wins", async () => {
+    let finishRequest: (response: Response) => void = () => undefined;
+    const request = new Promise<Response>((resolve) => {
+      finishRequest = resolve;
+    });
+    const fetchMock = vi.fn<typeof fetch>(() => request);
+    const workerHost = makeResolvedWorkerHost();
+    const session = makeSession(["drop-session-0001", "tab-one", "drop-session-0002"]);
+    const rotate = vi.spyOn(session, "rotate");
+    const requestCheckpoint = vi.fn();
+    const sink = makeWorkerSink({
+      config,
+      session,
+      window,
+      fetch: fetchMock,
+      workerHost,
+      onCheckpointRequested: requestCheckpoint,
+    });
+
+    sink.addRrwebEvent(makeEvent(10, "before-drop"));
+    const activeFlush = sink.flush("manual");
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    sink.resumeSessionAfterIdle();
+    finishRequest(
+      new Response(JSON.stringify({ ok: true, live: false, flushMs: 15_000, drop: true }), {
+        status: 202,
+      }),
+    );
+    await activeFlush;
+    await flushMicrotasks();
+
+    expect(rotate).not.toHaveBeenCalled();
+    expect(session.sessionId).toBe("drop-session-0001");
+    expect(requestCheckpoint).not.toHaveBeenCalled();
+  });
+
   it("counts batches dropped by transport failures", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () => new Response("bad key", { status: 401 }));
     const workerHost = makeResolvedWorkerHost();
     const session = makeSession(["session-one", "tab-one"]);
-    const sink = new WorkerSink({ config, session, window, fetch: fetchMock, workerHost });
+    const sink = makeWorkerSink({ config, session, window, fetch: fetchMock, workerHost });
 
     sink.addRrwebEvent(makeEvent(10, "dropped"));
     await sink.flush("manual");
@@ -405,7 +582,7 @@ describe("WorkerSink server and transport drops", () => {
     });
     const fetchMock = vi.fn<typeof fetch>(() => request);
     const workerHost = makeResolvedWorkerHost();
-    const sink = new WorkerSink({
+    const sink = makeWorkerSink({
       config,
       session: makeSession(["session-one", "tab-one"]),
       window,
@@ -431,6 +608,14 @@ describe("WorkerSink server and transport drops", () => {
     expect(droppedEventCount(sink)).toBe(2);
   });
 });
+
+function makeFullSnapshot(timestamp: number): eventWithTime {
+  return {
+    type: EventType.FullSnapshot,
+    timestamp,
+    data: { node: { id: 1, type: 0 }, initialOffset: { left: 0, top: 0 } },
+  } as eventWithTime;
+}
 
 function makeIframeBaseline(
   baseline: eventWithTime,

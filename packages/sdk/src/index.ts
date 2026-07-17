@@ -4,7 +4,6 @@ import { CheckpointSnapshotLimiter } from "./checkpoint.ts";
 import { assertSafePrivacySelectors, loadRecorderProjectConfig } from "./project-config.ts";
 import { Recorder } from "./recorder.ts";
 import { shouldSampleSession } from "./sampling.ts";
-import { createSessionChangeCoordinator } from "./session-change.ts";
 import { SessionManager } from "./session.ts";
 import { startSessionTouchListeners } from "./session-touch.ts";
 import { InlineSink, WorkerSink } from "./sink.ts";
@@ -71,30 +70,18 @@ export function init(options: InitOptions): OrangeReplayHandle {
           if (required) recorder.takeFullSnapshot();
           else checkpointSnapshots?.requestSnapshot();
         };
-        const changeSession = createSessionChangeCoordinator(
-          () => sink.prepareForSessionRotation(),
-          () => session.resumeAfterIdle(),
-          () => session.rotate(),
-          () => {
-            sink.resetAfterSessionRotation();
-            recorder.takeFullSnapshot();
-          },
-        );
-
         sink =
           config.transport === "inline"
             ? new InlineSink({
                 config,
                 session,
                 window,
-                onSessionClosed: () => changeSession(true),
                 onCheckpointRequested: requestCheckpointSnapshot,
               })
             : new WorkerSink({
                 config,
                 session,
                 window,
-                onSessionClosed: () => changeSession(true),
                 onCheckpointRequested: requestCheckpointSnapshot,
                 onWorkerUnavailable: () => stopForWorkerFailure(),
               });
@@ -117,7 +104,7 @@ export function init(options: InitOptions): OrangeReplayHandle {
         }
 
         const stopTouchListeners = startSessionTouchListeners(window, session, () => {
-          changeSession(false);
+          sink.resumeSessionAfterIdle();
         });
         runtime = { sink, sidecar, recorder, stopTouchListeners };
         stopForWorkerFailure = () => {
