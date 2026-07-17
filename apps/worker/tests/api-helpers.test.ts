@@ -292,11 +292,11 @@ describe("stats api decisions", () => {
     });
     expect(buildBreakdownQuery("project_1", filter, "browser")).toMatchObject({
       sql: expect.stringContaining("GROUP BY s.browser"),
-      bindings: ["project_1", 1000, "US", 1, "", 5],
+      bindings: ["project_1", 1000, "US", 1, "", 30],
     });
     expect(buildErrorGroupsQuery("project_1", filter)).toMatchObject({
       sql: expect.stringContaining("COUNT(DISTINCT e.session_id) AS affected_sessions"),
-      bindings: ["Unknown error", "project_1", 1000, "US", 1, "error", "Unknown error", 5],
+      bindings: ["Unknown error", "project_1", 1000, "US", 1, "error", "Unknown error", 30],
     });
   });
 

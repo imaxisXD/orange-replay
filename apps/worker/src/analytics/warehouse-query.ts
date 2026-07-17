@@ -78,8 +78,15 @@ const allowedBreakdownColumns = [
   "entry_url",
 ] as const;
 
+/** Columns a text filter may target. City is filterable but not part of the
+ * generic single-column breakdown loop — its breakdown groups by
+ * (country, city) and is emitted as a dedicated branch. */
+const allowedFilterColumns = [...allowedBreakdownColumns, "city"] as const;
+
 const UNKNOWN_ERROR_DETAIL = "Unknown error";
-const TOP_STATS_ROWS = 5;
+// Must stay equal to TOP_BREAKDOWN_ROWS in d1-stats.ts: D1 and warehouse
+// answers are compared row-for-row for parity.
+export const TOP_STATS_ROWS = 30;
 
 export interface WarehouseProjectQuery {
   projectId: string;
@@ -92,6 +99,8 @@ export interface WarehouseStatsRow extends Record<string, unknown> {
   row_kind: "aggregate" | "breakdown" | "error";
   group_name: string | null;
   label: string | null;
+  /** Country code carried by city breakdown rows; NULL everywhere else. */
+  dimension_country: string | null;
   session_count: number | null;
   event_count: number | null;
   affected_sessions: number | null;
@@ -171,10 +180,15 @@ export function buildWarehouseStatsQuery(
   const breakdownParts = allowedBreakdownColumns.map((column) => {
     const safeColumn = sqlAllowedName(column, allowedBreakdownColumns, "breakdown");
     const groupName = column === "entry_url" ? "entry_page" : column;
-    return `SELECT ${sqlText(groupName)} AS group_name, s.${safeColumn} AS label
+    return `SELECT ${sqlText(groupName)} AS group_name, s.${safeColumn} AS label, CAST(NULL AS VARCHAR) AS dimension_country
     FROM filtered_sessions s
     WHERE s.${safeColumn} IS NOT NULL AND s.${safeColumn} <> ''`;
   });
+  // City is the one two-column dimension: grouped by (country, city) so the
+  // row filter can pin both keys and the dashboard can render a flag.
+  breakdownParts.push(`SELECT 'city' AS group_name, s.city AS label, s.country AS dimension_country
+    FROM filtered_sessions s
+    WHERE s.city IS NOT NULL AND s.city <> '' AND s.country IS NOT NULL AND s.country <> ''`);
 
   return {
     projectId,
@@ -204,18 +218,19 @@ breakdown_candidates AS (
   ${breakdownParts.join("\n  UNION ALL\n  ")}
 ),
 breakdown_counts AS (
-  SELECT group_name, label, COUNT(*) AS session_count
+  SELECT group_name, label, dimension_country, COUNT(*) AS session_count
   FROM breakdown_candidates
-  GROUP BY group_name, label
+  GROUP BY group_name, label, dimension_country
 ),
 ranked_breakdowns AS (
   SELECT
     group_name,
     label,
+    dimension_country,
     session_count,
     ROW_NUMBER() OVER (
       PARTITION BY group_name
-      ORDER BY session_count DESC, label ASC
+      ORDER BY session_count DESC, label ASC, dimension_country ASC
     ) AS group_rank
   FROM breakdown_counts
 ),
@@ -246,6 +261,7 @@ stats_rows AS (
     'aggregate' AS row_kind,
     CAST(NULL AS VARCHAR) AS group_name,
     CAST(NULL AS VARCHAR) AS label,
+    CAST(NULL AS VARCHAR) AS dimension_country,
     a.session_count,
     CAST(NULL AS BIGINT) AS event_count,
     CAST(NULL AS BIGINT) AS affected_sessions,
@@ -268,6 +284,7 @@ stats_rows AS (
     'breakdown' AS row_kind,
     b.group_name,
     b.label,
+    b.dimension_country,
     b.session_count,
     CAST(NULL AS BIGINT) AS event_count,
     CAST(NULL AS BIGINT) AS affected_sessions,
@@ -291,6 +308,7 @@ stats_rows AS (
     'error' AS row_kind,
     'error' AS group_name,
     e.label,
+    CAST(NULL AS VARCHAR) AS dimension_country,
     CAST(NULL AS BIGINT) AS session_count,
     e.event_count,
     e.affected_sessions,
@@ -315,7 +333,8 @@ ORDER BY
   session_count DESC,
   affected_sessions DESC,
   event_count DESC,
-  label ASC`,
+  label ASC,
+  dimension_country ASC`,
   };
 }
 
@@ -331,7 +350,7 @@ export function buildWarehouseErrorEvidenceQuery(
     throw new Error("Compare evidence does not accept an error detail filter");
   }
   if (details.length < 1 || details.length > TOP_STATS_ROWS) {
-    throw new Error("Compare evidence needs between 1 and 5 error details");
+    throw new Error(`Compare evidence needs between 1 and ${TOP_STATS_ROWS} error details`);
   }
   const uniqueDetails = [...new Set(details)];
   if (uniqueDetails.length !== details.length) {
@@ -517,6 +536,7 @@ function buildFilterSql(
   }
   addTextFilter(clauses, "country", filter.country);
   addTextFilter(clauses, "region", filter.region);
+  addTextFilter(clauses, "city", filter.city);
   addTextFilter(clauses, "device", filter.device);
   addTextFilter(clauses, "browser", filter.browser);
   addTextFilter(clauses, "os", filter.os);
@@ -569,7 +589,7 @@ function buildFilterSql(
 
 function addTextFilter(clauses: string[], column: string, value: string | undefined): void {
   if (value === undefined) return;
-  const safeColumn = sqlAllowedName(column, allowedBreakdownColumns, "filter");
+  const safeColumn = sqlAllowedName(column, allowedFilterColumns, "filter");
   clauses.push(`s.${safeColumn} = ${sqlText(value)}`);
 }
 

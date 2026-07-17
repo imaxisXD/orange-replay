@@ -45,6 +45,8 @@ function chipLabel(key: string, value: unknown): string {
       return `Country ${text}`;
     case "region":
       return `Region ${text}`;
+    case "city":
+      return `City ${text}`;
     case "device":
       return `Device ${text}`;
     case "browser":

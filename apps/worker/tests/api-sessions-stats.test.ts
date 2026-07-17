@@ -200,6 +200,10 @@ describe("dashboard api", () => {
       ["US", 2],
       ["IN", 1],
     ]);
+    expect(stats.breakdowns.city.map((row) => [row.label, row.country, row.count.value])).toEqual([
+      ["San Jose", "US", 2],
+      ["Bengaluru", "IN", 1],
+    ]);
     expect(
       stats.errors.map((group) => [group.detail, group.count.value, group.affectedSessions.value]),
     ).toEqual([
@@ -231,6 +235,27 @@ describe("dashboard api", () => {
     const sessions = await getSessions(encodeSessionFilter(countryRow.filter).toString());
     expect(sessions.sessions).toHaveLength(countryRow.count.value);
     expect(sessions.sessions.every((session) => session.country === "US")).toBe(true);
+  });
+
+  it("keeps a city breakdown row set-equal with the sessions endpoint", async () => {
+    const statsResponse = await worker.fetch(`/api/v1/projects/${listProjectId}/stats`, {
+      headers: authHeaders(),
+    });
+    expect(statsResponse.status).toBe(200);
+    const stats = projectStatsResponseSchema.parse(await statsResponse.json());
+    const cityRow = stats.breakdowns.city.find((row) => row.label === "San Jose");
+    expect(cityRow).toBeDefined();
+    if (cityRow === undefined) return;
+
+    // City rows pin both keys so same-named cities in other countries stay out.
+    expect(cityRow.country).toBe("US");
+    expect(cityRow.filter).toEqual({ country: "US", city: "San Jose" });
+
+    const sessions = await getSessions(encodeSessionFilter(cityRow.filter).toString());
+    expect(sessions.sessions).toHaveLength(cityRow.count.value);
+    expect(
+      sessions.sessions.every((session) => session.city === "San Jose" && session.country === "US"),
+    ).toBe(true);
   });
 
   it("keeps the rage insight set-equal with the sessions endpoint", async () => {

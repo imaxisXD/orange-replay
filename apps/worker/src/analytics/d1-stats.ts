@@ -18,7 +18,9 @@ import {
 import type { Env } from "../env.ts";
 import type { PresenceSession } from "../do/presence-logic.ts";
 
-const TOP_BREAKDOWN_ROWS = 5;
+// Must stay equal to TOP_STATS_ROWS in warehouse-query.ts / warehouse-read.ts:
+// D1 and warehouse answers are compared row-for-row for parity.
+const TOP_BREAKDOWN_ROWS = 30;
 const statsFilterKeys = new Set<string>(sessionFilterQueryKeys);
 
 export type StatsDimension = "country" | "region" | "device" | "browser" | "os";
@@ -59,6 +61,10 @@ interface MedianRow {
 interface BreakdownRow {
   label: string;
   session_count: number;
+}
+
+interface CityBreakdownRow extends BreakdownRow {
+  country: string;
 }
 
 interface ErrorGroupRow {
@@ -112,6 +118,16 @@ export function buildBreakdownQuery(
   };
 }
 
+/** City rows group by (country, city): city names repeat across countries,
+ * and the row must carry its country so the dashboard can render a flag. */
+export function buildCityBreakdownQuery(projectId: string, filter: SessionFilter): StatsQuery {
+  const where = buildSessionWhere(projectId, filter, undefined, "s");
+  return {
+    sql: `SELECT s.country AS country, s.city AS label, COUNT(*) AS session_count FROM sessions s WHERE ${where.sql} AND s.city IS NOT NULL AND s.city <> ? AND s.country IS NOT NULL AND s.country <> ? GROUP BY s.country, s.city ORDER BY session_count DESC, label ASC, country ASC LIMIT ?`,
+    bindings: [...where.bindings, "", "", TOP_BREAKDOWN_ROWS],
+  };
+}
+
 export function buildEntryPageCandidatesQuery(
   projectId: string,
   filter: SessionFilter,
@@ -147,35 +163,41 @@ export async function readFinalizedProjectStats(
 ): Promise<FinalizedProjectStats> {
   const dimensions = ["country", "region", "device", "browser", "os"] as const;
   const aggregateQuery = buildAggregateStatsQuery(projectId, filter);
+  const cityQuery = buildCityBreakdownQuery(projectId, filter);
   const entryCandidatesQuery = buildEntryPageCandidatesQuery(projectId, filter);
   const errorGroupsQuery = buildErrorGroupsQuery(projectId, filter);
 
-  const [aggregate, dimensionRows, entryCandidatesResult, errorGroupsResult] = await Promise.all([
-    env.IDX_00.prepare(aggregateQuery.sql)
-      .bind(...aggregateQuery.bindings)
-      .first<AggregateRow>(),
-    Promise.all(
-      dimensions.map(async (dimension) => {
-        const query = buildBreakdownQuery(projectId, filter, dimension);
-        const result = await env.IDX_00.prepare(query.sql)
-          .bind(...query.bindings)
-          .all<BreakdownRow>();
-        return result.results ?? [];
-      }),
-    ),
-    env.IDX_00.prepare(entryCandidatesQuery.sql)
-      .bind(...entryCandidatesQuery.bindings)
-      .all<BreakdownRow>(),
-    env.IDX_00.prepare(errorGroupsQuery.sql)
-      .bind(...errorGroupsQuery.bindings)
-      .all<ErrorGroupRow>(),
-  ]);
+  const [aggregate, dimensionRows, cityResult, entryCandidatesResult, errorGroupsResult] =
+    await Promise.all([
+      env.IDX_00.prepare(aggregateQuery.sql)
+        .bind(...aggregateQuery.bindings)
+        .first<AggregateRow>(),
+      Promise.all(
+        dimensions.map(async (dimension) => {
+          const query = buildBreakdownQuery(projectId, filter, dimension);
+          const result = await env.IDX_00.prepare(query.sql)
+            .bind(...query.bindings)
+            .all<BreakdownRow>();
+          return result.results ?? [];
+        }),
+      ),
+      env.IDX_00.prepare(cityQuery.sql)
+        .bind(...cityQuery.bindings)
+        .all<CityBreakdownRow>(),
+      env.IDX_00.prepare(entryCandidatesQuery.sql)
+        .bind(...entryCandidatesQuery.bindings)
+        .all<BreakdownRow>(),
+      env.IDX_00.prepare(errorGroupsQuery.sql)
+        .bind(...errorGroupsQuery.bindings)
+        .all<ErrorGroupRow>(),
+    ]);
 
   const aggregateRow = aggregate ?? emptyAggregateRow();
   const sessionCount = numberOrZero(aggregateRow.session_count);
   const entryCandidates = entryCandidatesResult.results ?? [];
   const median = await readMedianDuration(env.IDX_00, projectId, filter, sessionCount);
   const entryPageRows = makeEntryPageRows(filter, entryCandidates, sessionCount);
+  const cityRows = makeCityBreakdownRows(filter, cityResult.results ?? [], sessionCount);
 
   const breakdowns = Object.fromEntries(
     dimensions.map((dimension, index) => [
@@ -227,7 +249,7 @@ export async function readFinalizedProjectStats(
       includedSessions: filteredNumber(insightSessions, insightFilter),
       totalSessions: filteredNumber(sessionCount, filter),
     },
-    breakdowns: { ...breakdowns, entryPage: entryPageRows },
+    breakdowns: { ...breakdowns, city: cityRows, entryPage: entryPageRows },
     errors: makeErrorGroups(filter, errorGroupsResult.results ?? []),
   };
 }
@@ -255,6 +277,7 @@ export function countFilteredLiveSessions(
       (filter.to === undefined || session.started_at <= filter.to) &&
       (filter.country === undefined || session.country === filter.country) &&
       (filter.region === undefined || session.region === filter.region) &&
+      (filter.city === undefined || session.city === filter.city) &&
       (filter.device === undefined || session.device === filter.device) &&
       (filter.browser === undefined || session.browser === filter.browser) &&
       (filter.os === undefined || session.os === filter.os) &&
@@ -316,6 +339,21 @@ function makeEntryPageRows(
   return candidates.map((candidate) => {
     const rowFilter: SessionFilter = { ...filter, entry_url: candidate.label };
     return makeBreakdownRow(candidate.label, rowFilter, candidate.session_count, totalSessions);
+  });
+}
+
+function makeCityBreakdownRows(
+  filter: SessionFilter,
+  rows: readonly CityBreakdownRow[],
+  totalSessions: number,
+): StatsBreakdownRow[] {
+  return rows.map((row) => {
+    // Pin both keys: the same city name can exist in several countries.
+    const rowFilter: SessionFilter = { ...filter, country: row.country, city: row.label };
+    return {
+      ...makeBreakdownRow(row.label, rowFilter, row.session_count, totalSessions),
+      country: row.country,
+    };
   });
 }
 

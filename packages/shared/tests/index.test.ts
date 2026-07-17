@@ -389,7 +389,7 @@ describe("session filters", () => {
   it("parses and encodes one canonical shared filter", () => {
     const parsed = parseSessionFilterQuery(
       new URLSearchParams(
-        "from=1000&to=2000&country=US&region=CA&device=desktop&browser=Chrome&os=macOS&entry_url=%2Fcheckout%2Fcomplete&entry_url_prefix=%2Fcheckout&has_errors=1&error_detail=Checkout+failed&has_page_coverage=1&has_rage=1&has_quick_back=1&has_insights=1&min_duration_ms=500",
+        "from=1000&to=2000&country=US&region=CA&city=San+Francisco&device=desktop&browser=Chrome&os=macOS&entry_url=%2Fcheckout%2Fcomplete&entry_url_prefix=%2Fcheckout&has_errors=1&error_detail=Checkout+failed&has_page_coverage=1&has_rage=1&has_quick_back=1&has_insights=1&min_duration_ms=500",
       ),
     );
 
@@ -400,6 +400,7 @@ describe("session filters", () => {
         to: 2000,
         country: "US",
         region: "CA",
+        city: "San Francisco",
         device: "desktop",
         browser: "Chrome",
         os: "macOS",
@@ -417,7 +418,7 @@ describe("session filters", () => {
     if (!parsed.ok) return;
 
     expect(encodeSessionFilter(parsed.filter).toString()).toBe(
-      "from=1000&to=2000&country=US&region=CA&device=desktop&browser=Chrome&os=macOS&entry_url=%2Fcheckout%2Fcomplete&entry_url_prefix=%2Fcheckout&has_errors=1&error_detail=Checkout+failed&has_page_coverage=1&has_rage=1&has_quick_back=1&has_insights=1&min_duration_ms=500",
+      "from=1000&to=2000&country=US&region=CA&city=San+Francisco&device=desktop&browser=Chrome&os=macOS&entry_url=%2Fcheckout%2Fcomplete&entry_url_prefix=%2Fcheckout&has_errors=1&error_detail=Checkout+failed&has_page_coverage=1&has_rage=1&has_quick_back=1&has_insights=1&min_duration_ms=500",
     );
   });
 

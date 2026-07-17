@@ -480,6 +480,7 @@ function validProjectStatsResponse(): Record<string, unknown> {
     breakdowns: {
       country: [],
       region: [],
+      city: [],
       device: [],
       browser: [],
       os: [],

@@ -120,6 +120,7 @@ const insightFilter = { ...baseFilter, has_insights: true } satisfies SessionFil
 const rageFilter = { ...baseFilter, has_rage: true } satisfies SessionFilter;
 const quickBackFilter = { ...baseFilter, has_quick_back: true } satisfies SessionFilter;
 const regionFilter = { ...baseFilter, region: "CA" } satisfies SessionFilter;
+const cityFilter = { ...baseFilter, country: "US", city: "San Francisco" } satisfies SessionFilter;
 const entryPageFilter = { ...baseFilter, entry_url: "/checkout" } satisfies SessionFilter;
 const errorFilter = { ...baseFilter, error_detail: "Checkout failed" } satisfies SessionFilter;
 
@@ -160,6 +161,15 @@ export const validProjectStatsResponse = {
         filter: regionFilter,
         count: { value: 2, filter: regionFilter },
         share: { value: 1, filter: regionFilter },
+      },
+    ],
+    city: [
+      {
+        label: "San Francisco",
+        country: "US",
+        filter: cityFilter,
+        count: { value: 2, filter: cityFilter },
+        share: { value: 1, filter: cityFilter },
       },
     ],
     device: [],

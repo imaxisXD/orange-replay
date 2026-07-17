@@ -584,7 +584,15 @@ export function sameStatsWithoutErrors(
     return false;
   }
 
-  for (const key of ["country", "region", "device", "browser", "os", "entryPage"] as const) {
+  for (const key of [
+    "country",
+    "region",
+    "city",
+    "device",
+    "browser",
+    "os",
+    "entryPage",
+  ] as const) {
     const left = d1.breakdowns[key];
     const right = warehouse.breakdowns[key];
     if (left.length !== right.length) return false;
@@ -595,6 +603,7 @@ export function sameStatsWithoutErrors(
         leftRow === undefined ||
         rightRow === undefined ||
         leftRow.label !== rightRow.label ||
+        leftRow.country !== rightRow.country ||
         !sameFilter(leftRow.filter, rightRow.filter) ||
         !sameFilteredWholeNumber(leftRow.count, rightRow.count) ||
         !sameFilteredNumber(leftRow.share, rightRow.share)

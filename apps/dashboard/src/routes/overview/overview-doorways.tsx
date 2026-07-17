@@ -32,7 +32,7 @@ export function InsightDoorway({
       <span className="block text-[11.5px] text-muted-foreground">{label}</span>
       <span
         className={cn(
-          "mt-1 block font-numeric text-[21px] text-foreground",
+          "overview-metric-value mt-1 block text-foreground",
           accent === "amber" && numericValue != null && numericValue > 0 && "text-amber",
         )}
       >
@@ -66,7 +66,7 @@ export function KpiDoorway({
       projectId={projectId}
     >
       <span className="block text-[11.5px] text-muted-foreground">{label}</span>
-      <span className="mt-1 block font-numeric text-[21px] text-foreground">{value}</span>
+      <span className="overview-metric-value mt-1 block text-foreground">{value}</span>
       <span className="mt-1 block text-[11.5px] text-muted-foreground">{detail}</span>
     </SessionDoorway>
   );
@@ -95,7 +95,7 @@ export function LiveKpiDoorway({
     >
       <span className="block text-[11.5px] text-muted-foreground">{label}</span>
       <span
-        className={cn("mt-1 block font-numeric text-[21px] text-foreground", active && "text-teal")}
+        className={cn("overview-metric-value mt-1 block text-foreground", active && "text-teal")}
       >
         {value}
       </span>

@@ -12,8 +12,7 @@ const oneDecimalFormat = {
   maximumFractionDigits: 1,
 } as const;
 
-const percentFormat = {
-  style: "percent",
+const percentNumberFormat = {
   maximumFractionDigits: 1,
 } as const;
 
@@ -99,7 +98,7 @@ export function OverviewContent({
       <GeoCard isDemo={isDemo} projectId={projectId} stats={stats} />
       <DeviceCard isDemo={isDemo} projectId={projectId} stats={stats} />
       <BreakdownCard
-        description="Pages where these sessions began"
+        description="Where people landed first"
         isDemo={isDemo}
         projectId={projectId}
         rows={stats.breakdowns.entryPage}
@@ -139,9 +138,7 @@ function InsightsCard({
           label="Rage clicks"
           numericValue={stats?.insights.ragePercent.value}
           projectId={projectId}
-          value={
-            <AnimatedNumber format={percentFormat} value={stats?.insights.ragePercent.value} />
-          }
+          value={<MetricPercentage isRatio value={stats?.insights.ragePercent.value} />}
         />
         <InsightDoorway
           accent="amber"
@@ -151,9 +148,7 @@ function InsightsCard({
           label="Quick returns"
           numericValue={stats?.insights.quickBackPercent.value}
           projectId={projectId}
-          value={
-            <AnimatedNumber format={percentFormat} value={stats?.insights.quickBackPercent.value} />
-          }
+          value={<MetricPercentage isRatio value={stats?.insights.quickBackPercent.value} />}
         />
         <InsightDoorway
           detail="Estimated time spent clicking, typing, or scrolling"
@@ -171,16 +166,30 @@ function InsightsCard({
           label="Scroll depth"
           numericValue={stats?.insights.averageMaxScrollDepth.value}
           projectId={projectId}
-          value={
-            <AnimatedNumber
-              format={wholeNumberFormat}
-              suffix="%"
-              value={stats?.insights.averageMaxScrollDepth.value}
-            />
-          }
+          value={<MetricPercentage value={stats?.insights.averageMaxScrollDepth.value} />}
         />
       </div>
     </section>
+  );
+}
+
+function MetricPercentage({
+  isRatio = false,
+  value,
+}: {
+  isRatio?: boolean;
+  value: number | null | undefined;
+}) {
+  const displayedValue = typeof value === "number" && isRatio ? value * 100 : value;
+
+  return (
+    <>
+      <AnimatedNumber
+        format={isRatio ? percentNumberFormat : wholeNumberFormat}
+        value={displayedValue}
+      />
+      {value === null ? null : <span className="overview-metric-symbol">%</span>}
+    </>
   );
 }
 

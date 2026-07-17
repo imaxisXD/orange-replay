@@ -9,14 +9,16 @@ describe("filter chips", () => {
   it("renders one chip per active key with readable labels", () => {
     const filter: SessionFilter = {
       country: "US",
+      city: "San Francisco",
       has_errors: true,
       min_duration_ms: 30_000,
     };
     const labels = filterChips(filter, now).map((chip) => chip.label);
     expect(labels).toContain("Country US");
+    expect(labels).toContain("City San Francisco");
     expect(labels).toContain("Has errors");
     expect(labels).toContain("≥ 0:30");
-    expect(labels).toHaveLength(3);
+    expect(labels).toHaveLength(4);
   });
 
   it("collapses from/to into a single range chip", () => {

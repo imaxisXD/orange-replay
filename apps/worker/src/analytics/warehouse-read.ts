@@ -19,6 +19,7 @@ import {
   buildWarehouseErrorEvidenceQuery,
   buildWarehouseSessionsQuery,
   buildWarehouseStatsQuery,
+  TOP_STATS_ROWS,
   type AnalyticsDeletionTableVersion,
   type WarehouseErrorEvidenceRow,
   type WarehouseStatsRow,
@@ -195,6 +196,7 @@ function readBreakdowns(
   const result: FinalizedProjectStats["breakdowns"] = {
     country: [],
     region: [],
+    city: [],
     device: [],
     browser: [],
     os: [],
@@ -209,15 +211,17 @@ function readBreakdowns(
     const count = requiredCount(row.session_count);
     const groupName = requiredText(row.group_name);
     const target = breakdownTarget(groupName);
-    const rowFilter = breakdownFilter(filter, groupName, label);
+    const country = groupName === "city" ? requiredText(row.dimension_country) : undefined;
+    const rowFilter = breakdownFilter(filter, groupName, label, country);
     const item: StatsBreakdownRow = {
       label,
+      ...(country === undefined ? {} : { country }),
       filter: { ...rowFilter },
       count: filteredNumber(count, rowFilter),
       share: filteredNumber(totalSessions === 0 ? 0 : count / totalSessions, rowFilter),
     };
     result[target].push(item);
-    if (result[target].length > 5) throw badWarehouseAnswer();
+    if (result[target].length > TOP_STATS_ROWS) throw badWarehouseAnswer();
   }
 
   return result;
@@ -240,17 +244,18 @@ function readErrors(
       count: filteredNumber(requiredCount(row.event_count), errorFilter),
       affectedSessions: filteredNumber(requiredCount(row.affected_sessions), errorFilter),
     });
-    if (errors.length > 5) throw badWarehouseAnswer();
+    if (errors.length > TOP_STATS_ROWS) throw badWarehouseAnswer();
   }
   return errors;
 }
 
 function breakdownTarget(
   groupName: string,
-): "country" | "region" | "device" | "browser" | "os" | "entryPage" {
+): "country" | "region" | "city" | "device" | "browser" | "os" | "entryPage" {
   switch (groupName) {
     case "country":
     case "region":
+    case "city":
     case "device":
     case "browser":
     case "os":
@@ -262,8 +267,17 @@ function breakdownTarget(
   }
 }
 
-function breakdownFilter(filter: SessionFilter, groupName: string, label: string): SessionFilter {
+function breakdownFilter(
+  filter: SessionFilter,
+  groupName: string,
+  label: string,
+  country: string | undefined,
+): SessionFilter {
   if (groupName === "entry_page") return { ...filter, entry_url: label };
+  if (groupName === "city") {
+    // City rows pin both keys: city names repeat across countries.
+    return { ...filter, country, city: label };
+  }
   const dimension = groupName as StatsDimension;
   return { ...filter, [dimension]: label };
 }

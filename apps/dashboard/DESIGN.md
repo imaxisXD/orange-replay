@@ -16,19 +16,19 @@ colors:
   player-blue: "oklch(0.693 0.165 253.956)"
 typography:
   page-title:
-    fontFamily: "Inter Variable, Inter, ui-sans-serif, system-ui, sans-serif"
+    fontFamily: "Uncut Sans, ui-sans-serif, system-ui, sans-serif"
     fontSize: "18px"
     fontWeight: 600
     lineHeight: normal
     letterSpacing: "-0.015em"
   body:
-    fontFamily: "Inter Variable, Inter, ui-sans-serif, system-ui, sans-serif"
+    fontFamily: "Uncut Sans, ui-sans-serif, system-ui, sans-serif"
     fontSize: "13px"
     fontWeight: 400
     lineHeight: normal
     letterSpacing: normal
   label:
-    fontFamily: "Inter Variable, Inter, ui-sans-serif, system-ui, sans-serif"
+    fontFamily: "Uncut Sans, ui-sans-serif, system-ui, sans-serif"
     fontSize: "11px"
     fontWeight: 500
     lineHeight: normal
@@ -148,12 +148,12 @@ The palette is a restrained violet-black neutral system with three clear signal 
 
 ## Typography
 
-**Display Font:** Inter Variable with Inter and system sans fallbacks\
-**Body Font:** Inter Variable with Inter and system sans fallbacks\
+**Display Font:** Uncut Sans Variable with system sans fallbacks\
+**Body Font:** Uncut Sans Variable with system sans fallbacks\
 **Label/Code Font:** Uncut Plan8 with SF Mono and Menlo fallbacks\
 **Numeric Font:** Departure Mono with SF Mono and Menlo fallbacks
 
-**Character:** Inter keeps navigation and controls familiar, neutral, and fast to scan. Uncut Plan8 keeps code, URLs, and identifiers distinct. Departure Mono gives measurable values a precise pixel-grid character without turning the whole product into a terminal.
+**Character:** Uncut Sans keeps navigation and controls clear while giving the product a more distinct voice. Uncut Plan8 keeps code, URLs, and identifiers distinct. Departure Mono gives measurable values a precise pixel-grid character without turning the whole product into a terminal.
 
 ### Hierarchy
 

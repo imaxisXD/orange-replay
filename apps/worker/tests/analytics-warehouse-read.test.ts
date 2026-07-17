@@ -375,6 +375,14 @@ describe("warehouse stats rows", () => {
         },
         {
           project_id: "project_1",
+          row_kind: "breakdown",
+          group_name: "city",
+          label: "San Jose",
+          dimension_country: "US",
+          session_count: 2,
+        },
+        {
+          project_id: "project_1",
           row_kind: "error",
           group_name: "error",
           label: "Checkout failed",
@@ -395,6 +403,12 @@ describe("warehouse stats rows", () => {
     });
     expect(stats.breakdowns.browser[0]?.filter).toEqual({ ...filter, browser: "Brave" });
     expect(stats.breakdowns.entryPage[0]?.filter).toEqual({ ...filter, entry_url: "/pricing" });
+    expect(stats.breakdowns.city[0]?.country).toBe("US");
+    expect(stats.breakdowns.city[0]?.filter).toEqual({
+      ...filter,
+      country: "US",
+      city: "San Jose",
+    });
     expect(stats.errors[0]?.filter).toEqual({ ...filter, error_detail: "Checkout failed" });
   });
 

@@ -30,6 +30,9 @@ export const filteredOptionalNumberSchema = z.object({
 
 export const statsBreakdownRowSchema = z.object({
   label: z.string(),
+  /** Present on city rows only: the ISO country code the city belongs to,
+   * since city names are not unique across countries. */
+  country: z.string().optional(),
   filter: responseSessionFilterSchema,
   count: filteredNumberSchema,
   share: filteredNumberSchema,
@@ -67,6 +70,7 @@ const finalizedProjectStatsObjectSchema = z.object({
   breakdowns: z.object({
     country: z.array(statsBreakdownRowSchema),
     region: z.array(statsBreakdownRowSchema),
+    city: z.array(statsBreakdownRowSchema),
     device: z.array(statsBreakdownRowSchema),
     browser: z.array(statsBreakdownRowSchema),
     os: z.array(statsBreakdownRowSchema),
@@ -197,6 +201,22 @@ function validateFinalizedStatsDoorways(
       const expected = { ...stats.filter, [key]: row.label } satisfies SessionFilter;
       validateBreakdownRow(context, ["breakdowns", key, index], expected, row);
     }
+  }
+  for (const [index, row] of stats.breakdowns.city.entries()) {
+    // City rows pin both keys: city names are only unique within a country.
+    const expected = {
+      ...stats.filter,
+      country: row.country,
+      city: row.label,
+    } satisfies SessionFilter;
+    if (row.country === undefined) {
+      context.addIssue({
+        code: "custom",
+        message: "city breakdown rows must carry their country",
+        path: ["breakdowns", "city", index, "country"],
+      });
+    }
+    validateBreakdownRow(context, ["breakdowns", "city", index], expected, row);
   }
   for (const [index, row] of stats.breakdowns.entryPage.entries()) {
     const expected = { ...stats.filter, entry_url: row.label } satisfies SessionFilter;

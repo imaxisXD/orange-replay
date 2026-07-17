@@ -18,11 +18,18 @@ catalog:
   "@types/babel__core": ^7.20.5
   "@types/css-tree": 2.3.11
   "@types/node": ^24
+  "@visx/event": 4.0.0
+  "@visx/grid": 4.0.0
+  "@visx/pattern": 4.0.0
+  "@visx/responsive": 4.0.0
+  "@visx/scale": 4.0.0
+  "@visx/shape": 4.0.0
   babel-plugin-react-compiler: ^1.0.0
   css-tree: 3.2.1
   drizzle-kit: 1.0.0-rc.4
   drizzle-orm: 1.0.0-rc.4
   gradient-spin: ^0.1.0
+  motion: ^12.42.2
   react-doctor: ^0.7.7
   terser: ^5.49.0
   typescript: ^5
