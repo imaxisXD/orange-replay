@@ -14,11 +14,11 @@ import type {
   WideEventOutcome,
 } from "@orange-replay/shared";
 import type { AppendArgs } from "./contract.ts";
-import type { SessionState } from "./session-state.ts";
+import { sessionIsClosed, type SessionLifecycle } from "./session-lifecycle.ts";
 
 export interface SessionLiveHubDependencies {
   ctx: DurableObjectState;
-  getSessionState: () => SessionState | null;
+  getLifecycle: () => SessionLifecycle;
   getSegmentRefs: () => SegmentRef[];
   getPendingBatchCount: () => number;
   getPendingBatches: () => Array<{ index: BatchIndex; payload: Uint8Array }>;
@@ -83,24 +83,30 @@ export class SessionLiveHub {
     let outcome: WideEventOutcome = "server_error";
     let viewerCount = this.viewerCount();
     const pathIds = livePathIds(url.pathname);
-    const state = this.dependencies.getSessionState();
-    let projectId = state?.projectId ?? pathIds?.projectId;
-    let sessionId = state?.sessionId ?? pathIds?.sessionId;
+    const lifecycle = this.dependencies.getLifecycle();
+    const knownState =
+      lifecycle.status === "open" || lifecycle.status === "finalizing" ? lifecycle.state : null;
+    let projectId = knownState?.projectId ?? pathIds?.projectId;
+    let sessionId = knownState?.sessionId ?? pathIds?.sessionId;
 
     try {
-      if (!wantsLiveSocket || state === null) {
+      // A live join needs an open session: nothing recorded yet and an
+      // already-finalized tombstone both read as not-found, while a session
+      // mid-finalization is a conflict the player retries against R2.
+      if (!wantsLiveSocket || lifecycle.status === "empty" || lifecycle.status === "finalized") {
         const response = Response.json({ error: "not_found" }, { status: 404 });
         statusCode = response.status;
         outcome = "client_error";
         return response;
       }
 
-      if (state.finalizingAt !== undefined) {
+      if (sessionIsClosed(lifecycle)) {
         const response = Response.json({ error: "session_finalizing" }, { status: 409 });
         statusCode = response.status;
         outcome = "client_error";
         return response;
       }
+      const state = lifecycle.state;
 
       projectId = state.projectId;
       sessionId = state.sessionId;

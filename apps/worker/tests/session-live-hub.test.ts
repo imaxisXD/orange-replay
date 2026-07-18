@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
+import { sessionLifecycle } from "../src/do/session-lifecycle.ts";
 import { SessionLiveHub, type SessionLiveHubDependencies } from "../src/do/session-live-hub.ts";
 import type { SessionState } from "../src/do/session-state.ts";
 
@@ -9,7 +10,7 @@ describe("live session ticket order", () => {
       ctx: {
         getWebSockets: () => [],
       },
-      getSessionState: () => activeState(),
+      getLifecycle: () => sessionLifecycle(activeState(), null),
       getSegmentRefs: () => [],
       getPendingBatchCount: () => 0,
       getPendingBatches: () => [],

@@ -17,6 +17,7 @@ import { encodeStoredBatchMetadata, parseStoredBatchMetadata } from "./session-b
 import { createSessionFinalizeMetrics, SessionFinalizer } from "./session-finalizer.ts";
 import { buildFinalizeTimelineData } from "./session-finalize-data.ts";
 import { SessionLiveHub } from "./session-live-hub.ts";
+import { beginFinalizing, sessionIsClosed, sessionLifecycle } from "./session-lifecycle.ts";
 import { clampIndexForStorage, shouldDropForSessionCap } from "./session-budgets.ts";
 import { createFreshState, encodedTextBytes, updateStateWithBatch } from "./session-state.ts";
 import {
@@ -77,7 +78,7 @@ export class SessionRecorder extends DurableObject<Env> {
     this.segmentWriter = new SessionSegmentWriter(this.store, env.RECORDINGS);
     this.liveHub = new SessionLiveHub({
       ctx,
-      getSessionState: () => this.sessionState,
+      getLifecycle: () => this.lifecycle(),
       getSegmentRefs: () => this.store.segmentRefs(),
       getPendingBatchCount: () => this.store.pendingBatchCount(),
       getPendingBatches: () => this.pendingLiveBatches(),
@@ -208,26 +209,22 @@ export class SessionRecorder extends DurableObject<Env> {
         return result;
       }
 
-      let state = this.sessionState;
-      if (this.finalizedTombstone !== null) {
+      const closedResult = (): AppendResult => {
         outcome = "dropped";
         dropReason = "session_closed";
-        result = { live: false, closed: true, flushMs: sdkFlushMs(false, timing) };
+        return { live: false, closed: true, flushMs: sdkFlushMs(false, timing) };
+      };
+
+      const lifecycle = this.lifecycle();
+      if (sessionIsClosed(lifecycle)) {
+        result = closedResult();
         return result;
       }
 
-      if (state?.finalizingAt !== undefined) {
-        outcome = "dropped";
-        dropReason = "session_closed";
-        result = { live: false, closed: true, flushMs: sdkFlushMs(false, timing) };
-        return result;
-      }
-
+      let state = lifecycle.status === "open" ? lifecycle.state : null;
       if (state === null) {
         if (args.seq !== 0) {
-          outcome = "dropped";
-          dropReason = "session_closed";
-          result = { live: false, closed: true, flushMs: sdkFlushMs(false, timing) };
+          result = closedResult();
           return result;
         }
 
@@ -235,9 +232,7 @@ export class SessionRecorder extends DurableObject<Env> {
           (await this.segmentWriter.recordingExists(args.projectId, args.sessionId)) ||
           (await this.sessionIsDeletionFenced(args.projectId, args.sessionId, args.shard))
         ) {
-          outcome = "dropped";
-          dropReason = "session_closed";
-          result = { live: false, closed: true, flushMs: sdkFlushMs(false, timing) };
+          result = closedResult();
           return result;
         }
 
@@ -455,10 +450,8 @@ export class SessionRecorder extends DurableObject<Env> {
 
   async markFinalizingForTest(): Promise<void> {
     const state = this.sessionState;
-    if (state === null || state.finalizingAt !== undefined) return;
-    state.finalizingAt = Date.now();
-    this.sessionState = state;
-    this.store.persistState(state);
+    if (state === null) return;
+    beginFinalizing(state, (updated) => this.persistSessionState(updated));
   }
 
   async alarmForTest(): Promise<void> {
@@ -479,8 +472,9 @@ export class SessionRecorder extends DurableObject<Env> {
 
     try {
       this.alarmAt = null;
-      if (this.finalizedTombstone !== null) {
-        const purgeAt = this.finalizedTombstone.purgeAt;
+      const lifecycle = this.lifecycle();
+      if (lifecycle.status === "finalized") {
+        const purgeAt = lifecycle.tombstone.purgeAt;
         if (Date.now() >= purgeAt) {
           alarmKind = "purge_tombstone";
           await this.ctx.storage.deleteAll();
@@ -495,10 +489,10 @@ export class SessionRecorder extends DurableObject<Env> {
         return;
       }
 
-      const state = this.sessionState;
-      if (state === null) {
+      if (lifecycle.status === "empty") {
         return;
       }
+      const state = lifecycle.state;
       projectId = state.projectId;
       orgId = state.orgId;
       sessionId = state.sessionId;
@@ -506,7 +500,7 @@ export class SessionRecorder extends DurableObject<Env> {
       // Object stores its tombstone. Resume that handoff as finalization. An
       // append reservation would treat the already closed D1 row as a late
       // write and make this alarm fail forever.
-      if (state.finalizingAt !== undefined) {
+      if (lifecycle.status === "finalizing") {
         alarmKind = "close";
         if (acceptedUsageReservationsEnabled(this.env)) {
           await this.reserveCurrentAcceptedUsage(state, "finalize", true);
@@ -580,6 +574,15 @@ export class SessionRecorder extends DurableObject<Env> {
     }
 
     state.checkpointRequested = true;
+    this.sessionState = state;
+    this.store.persistState(state);
+  }
+
+  private lifecycle() {
+    return sessionLifecycle(this.sessionState, this.finalizedTombstone);
+  }
+
+  private persistSessionState(state: SessionState): void {
     this.sessionState = state;
     this.store.persistState(state);
   }
@@ -696,16 +699,12 @@ export class SessionRecorder extends DurableObject<Env> {
       return await this.activeFinalize;
     }
 
-    const state = this.sessionState;
-    if (state === null || this.finalizedTombstone !== null) {
+    const lifecycle = this.lifecycle();
+    if (lifecycle.status === "empty" || lifecycle.status === "finalized") {
       return;
     }
 
-    if (state.finalizingAt === undefined) {
-      state.finalizingAt = Date.now();
-      this.sessionState = state;
-      this.store.persistState(state);
-    }
+    beginFinalizing(lifecycle.state, (updated) => this.persistSessionState(updated));
 
     const finalize = this.finalizeNow();
     this.activeFinalize = finalize;

@@ -6,6 +6,7 @@ import {
   type SessionFinalizerDependencies,
 } from "../src/do/session-finalizer.ts";
 import { MAX_FINALIZE_ANALYTICS_BATCHES, MAX_SESSION_BATCHES } from "../src/do/session-budgets.ts";
+import { sessionLifecycle } from "../src/do/session-lifecycle.ts";
 import { SessionLiveHub, type SessionLiveHubDependencies } from "../src/do/session-live-hub.ts";
 import type { SessionState } from "../src/do/session-state.ts";
 
@@ -355,7 +356,7 @@ describe("session final handoff", () => {
       ctx: {
         getWebSockets: () => [],
       },
-      getSessionState: () => state,
+      getLifecycle: () => sessionLifecycle(state, null),
       getSegmentRefs: () => [],
       getPendingBatchCount: () => 0,
       getPendingBatches: () => [],

@@ -16,6 +16,13 @@ Load-bearing terms in this codebase. Architecture authority: ARCHITECTURE.md.
   proof, and both deletion backends all rank rows through it. Scoping differs on purpose:
   session/event reads pin `export_sequence <=` the warehouse version, deletion fencing never
   does (an old doorway snapshot must not resurrect erased sessions).
+- **Session lifecycle** — the one answer to "is this session closed":
+  empty | open | finalizing | finalized, owned by `apps/worker/src/do/session-lifecycle.ts`.
+  A session closes the moment `finalizingAt` persists (append gates and live joins fail
+  closed while manifest/queue work is in flight) and stays closed once only the tombstone
+  remains; the tombstone wins over any lingering state. `beginFinalizing` is the single
+  idempotent transition. The append gate, alarm, live hub, and the ack's `closed` flag all
+  consume this module; the SDK reacts to `ack.closed` and never re-derives the state.
 - **Pipeline** — the fixed dashboard request ordering the handler owns: authenticate → demo
   limit → access (path ids, role matrix, session auth) → analytics limit → mutation origin →
   execute → response policy. Precedence quirks are contract: auth errors before
