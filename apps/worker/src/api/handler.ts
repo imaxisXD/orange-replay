@@ -1,4 +1,9 @@
-import { HDR_REQUEST_ID, startWideEvent, uuidv7 } from "@orange-replay/shared";
+import {
+  HDR_REQUEST_ID,
+  startWideEvent,
+  uuidv7,
+  type WideEventLogger,
+} from "@orange-replay/shared";
 import { getAuthMode, isTrustedMutationOrigin } from "../auth/config.ts";
 import { checkAnalyticsReadRateLimit } from "../analytics/read-rate-limit.ts";
 import { setWorkerLoggerVersion, type Env } from "../env.ts";
@@ -13,10 +18,12 @@ import {
 import {
   matchDashboardRequest,
   type AuthedPlan,
+  type DashboardRequestPlan,
   type KeyIds,
   type ProjectIds,
   type ProjectRoutePlan,
   type PublicPagePlan,
+  type PublicReplayIds,
   type SessionIds,
 } from "./dashboard-request-policy.ts";
 import {
@@ -24,7 +31,6 @@ import {
   finalDashboardRouteError,
   type DashboardExecutors,
   type DashboardRouteContext,
-  type WideEvent,
 } from "./dashboard-routes.ts";
 import { outcomeForStatus } from "../query/session-query.ts";
 import { jsonError, jsonResponse, withSecurityHeaders } from "../http.ts";
@@ -63,7 +69,7 @@ export async function handleApi(
 
 async function routeRequest(
   rctx: DashboardRouteContext,
-  plan: ReturnType<typeof matchDashboardRequest>,
+  plan: DashboardRequestPlan,
   executors: DashboardExecutors,
 ): Promise<Response> {
   switch (plan.kind) {
@@ -105,20 +111,16 @@ async function handlePublicPageRequest(
   }
 
   const params = plan.params;
-  if (!params.ok) {
-    if (params.logged.publicId !== undefined) {
-      wideEvent.set({ public_id: params.logged.publicId, auth_mode: "public" });
-    }
-    if (params.logged.publicReplayId !== undefined) {
-      wideEvent.set({ public_replay_id: params.logged.publicReplayId });
-    }
-    return jsonError(params.error, 400);
+  // One mapping for granted and rejected requests: log every id that
+  // validated before the request settled.
+  const logged: Partial<PublicReplayIds> = params.ok ? params.ids : params.logged;
+  if (logged.publicId !== undefined) {
+    wideEvent.set({ public_id: logged.publicId, auth_mode: "public" });
   }
-
-  wideEvent.set({ public_id: params.ids.publicId, auth_mode: "public" });
-  if ("publicReplayId" in params.ids) {
-    wideEvent.set({ public_replay_id: params.ids.publicReplayId });
+  if (logged.publicReplayId !== undefined) {
+    wideEvent.set({ public_replay_id: logged.publicReplayId });
   }
+  if (!params.ok) return jsonError(params.error, 400);
   return executors.publicPage(rctx, plan);
 }
 
@@ -220,7 +222,7 @@ async function analyticsReadRateLimitError(
   env: Env,
   auth: ApiAuthContext,
   projectId: string,
-  wideEvent: WideEvent,
+  wideEvent: WideEventLogger,
 ): Promise<Response | null> {
   const result = await checkAnalyticsReadRateLimit(
     env,

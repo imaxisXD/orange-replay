@@ -160,7 +160,6 @@ export type ProjectRoutePlan = ProjectRouteFlags &
           | "project_live"
           | "project_config_read"
           | "project_config_write"
-          | "project_config_method_not_allowed"
           | "install_status"
           | "public_page_read"
           | "public_page_write"
@@ -168,16 +167,26 @@ export type ProjectRoutePlan = ProjectRouteFlags &
           | "project_keys_create";
         params: ProjectParams<ProjectIds>;
       }
+    | { action: "project_config_method_not_allowed"; params: ProjectParams<ProjectIds> }
     | { action: "manifest" | "session_state" | "live_ticket"; params: ProjectParams<SessionIds> }
     | { action: "project_key_revoke"; params: ProjectParams<KeyIds> }
     | { action: "segment"; params: ProjectParams<SegmentIds> }
   );
 
+/**
+ * The routes the executor registry dispatches. Method-not-allowed denial is
+ * pipeline semantics and never reaches an executor.
+ */
+export type ExecutableProjectRoutePlan = Exclude<
+  ProjectRoutePlan,
+  { action: "project_config_method_not_allowed" }
+>;
+
 export type AuthedRoute =
-  | { access: "authenticated"; action: "not_found"; mutationOrigin: false }
+  | { access: "authenticated"; action: "not_found" }
   | { access: "session"; action: "account"; mutationOrigin: false }
   | { access: "session"; action: "account_bootstrap"; mutationOrigin: true }
-  | { access: "global_admin"; action: "admin_stats" | "admin_users"; mutationOrigin: false }
+  | { access: "global_admin"; action: "admin_stats" | "admin_users" }
   | ProjectRoutePlan;
 
 export interface AuthedPlan {
@@ -318,21 +327,13 @@ export function matchDashboardRequest(method: string, pathname: string): Dashboa
 
   if (pathname === "/api/v1/admin/stats") {
     return method === "GET"
-      ? authed(pathname, "admin_stats", {
-          access: "global_admin",
-          action: "admin_stats",
-          mutationOrigin: false,
-        })
+      ? authed(pathname, "admin_stats", { access: "global_admin", action: "admin_stats" })
       : unsupported(pathname, "admin_stats");
   }
 
   if (pathname === "/api/v1/admin/users") {
     return method === "GET"
-      ? authed(pathname, "admin_users", {
-          access: "global_admin",
-          action: "admin_users",
-          mutationOrigin: false,
-        })
+      ? authed(pathname, "admin_users", { access: "global_admin", action: "admin_users" })
       : unsupported(pathname, "admin_users");
   }
 
@@ -551,11 +552,7 @@ function authed(pathname: string, routeName: DashboardRouteName, route: AuthedRo
 }
 
 function unsupported(pathname: string, routeName: DashboardRouteName): AuthedPlan {
-  return authed(pathname, routeName, {
-    access: "authenticated",
-    action: "not_found",
-    mutationOrigin: false,
-  });
+  return authed(pathname, routeName, { access: "authenticated", action: "not_found" });
 }
 
 const INVALID_PATH = { ok: false, error: "invalid_path_id" } as const;

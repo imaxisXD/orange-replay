@@ -5,6 +5,7 @@ import {
   projectRouteAccess,
   type DashboardProjectRouteName,
   type DashboardRouteName,
+  type ExecutableProjectRoutePlan,
   type ProjectRoutePlan,
 } from "../src/api/dashboard-request-policy.ts";
 import type { Env } from "../src/env.ts";
@@ -60,7 +61,11 @@ function fakeExecutors() {
     adminStats: vi.fn(async () => jsonResponse({ ok: true })),
     adminUsers: vi.fn(async () => jsonResponse({ ok: true })),
     project: vi.fn(
-      async (_rctx: DashboardRouteContext, _auth: ApiAuthContext, route: ProjectRoutePlan) =>
+      async (
+        _rctx: DashboardRouteContext,
+        _auth: ApiAuthContext,
+        route: ExecutableProjectRoutePlan,
+      ) =>
         route.action === "manifest"
           ? jsonResponse({ error: "not_found" }, 404, {
               "cache-control": "public, max-age=300, must-revalidate",
@@ -162,13 +167,13 @@ describe("dashboard request plans", () => {
       kind: "authed",
       routeName: "admin_stats",
       projectIdForAuth: null,
-      route: { access: "global_admin", action: "admin_stats", mutationOrigin: false },
+      route: { access: "global_admin", action: "admin_stats" },
     });
     expect(matchDashboardRequest("GET", "/api/v1/admin/users")).toEqual({
       kind: "authed",
       routeName: "admin_users",
       projectIdForAuth: null,
-      route: { access: "global_admin", action: "admin_users", mutationOrigin: false },
+      route: { access: "global_admin", action: "admin_users" },
     });
   });
 
@@ -318,7 +323,7 @@ describe("dashboard request plans", () => {
         kind: "authed",
         routeName,
         projectIdForAuth: /^\/api\/v1\/projects\/([^/]+)/.exec(pathname)?.[1] ?? null,
-        route: { access: "authenticated", action: "not_found", mutationOrigin: false },
+        route: { access: "authenticated", action: "not_found" },
       });
     }
 
@@ -337,13 +342,13 @@ describe("dashboard request plans", () => {
       kind: "authed",
       routeName: "not_found",
       projectIdForAuth: "demo_project",
-      route: { access: "authenticated", action: "not_found", mutationOrigin: false },
+      route: { access: "authenticated", action: "not_found" },
     });
     expect(matchDashboardRequest("GET", "/api/v1/projects/project_1/sessions/")).toEqual({
       kind: "authed",
       routeName: "not_found",
       projectIdForAuth: "project_1",
-      route: { access: "authenticated", action: "not_found", mutationOrigin: false },
+      route: { access: "authenticated", action: "not_found" },
     });
     expect(
       matchDashboardRequest(

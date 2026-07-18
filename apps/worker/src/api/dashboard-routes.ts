@@ -1,13 +1,13 @@
-import type { startWideEvent } from "@orange-replay/shared";
+import type { WideEventLogger } from "@orange-replay/shared";
 import { handleBetterAuthRequest } from "../auth/server.ts";
 import type { Env } from "../env.ts";
 import { bootstrapAccount, getAccount } from "./account-routes.ts";
 import { getAdminStats, getAdminUsers } from "./admin-routes.ts";
 import { isSessionAuth, type ApiAuthContext, type SessionAuthContext } from "./auth.ts";
 import type {
+  ExecutableProjectRoutePlan,
   ProjectIds,
   ProjectParams,
-  ProjectRoutePlan,
   PublicPageIds,
   PublicPageParams,
   PublicPagePlan,
@@ -34,14 +34,12 @@ import {
   getPublicSegment,
 } from "../public-page/data.ts";
 
-export type WideEvent = ReturnType<typeof startWideEvent>;
-
 export interface DashboardRouteContext {
   request: Request;
   url: URL;
   env: Env;
   ctx: ExecutionContext;
-  wideEvent: WideEvent;
+  wideEvent: WideEventLogger;
   requestId: string;
 }
 
@@ -63,7 +61,7 @@ export interface DashboardExecutors {
   project(
     rctx: DashboardRouteContext,
     auth: ApiAuthContext,
-    route: ProjectRoutePlan,
+    route: ExecutableProjectRoutePlan,
   ): Promise<Response>;
 }
 
@@ -108,7 +106,7 @@ async function executePublicPageRoute(
 async function executeProjectRoute(
   rctx: DashboardRouteContext,
   auth: ApiAuthContext,
-  route: ProjectRoutePlan,
+  route: ExecutableProjectRoutePlan,
 ): Promise<Response> {
   const { request, url, env, ctx, wideEvent, requestId } = rctx;
   switch (route.action) {
@@ -136,8 +134,6 @@ async function executeProjectRoute(
       const { projectId } = grantedIds(route.params);
       return putProjectConfig(request, env, projectId, wideEvent);
     }
-    case "project_config_method_not_allowed":
-      return finalDashboardRouteError(auth);
     case "install_status": {
       const { projectId } = grantedIds(route.params);
       return getInstallStatus(env, projectId, requestId);
