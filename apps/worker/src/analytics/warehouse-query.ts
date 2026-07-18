@@ -12,6 +12,7 @@ import {
   type FinalizedSessionSqlDialect,
   type SessionListOptions,
 } from "../query/finalized-session-semantics.ts";
+import { latestAcceptedExportsCte } from "./latest-exports.ts";
 import { sqlAllowedName, sqlText, sqlWholeNumber } from "./sql.ts";
 
 export const analyticsTableNames = {
@@ -408,17 +409,14 @@ function buildWarehouseCtes(
   // The Pipeline sink already rejects rows missing required fields. Repeating
   // that full null-check list here makes Cloudflare R2 SQL exceed its current
   // expression-depth limit before the query can run.
-  const sessionCtes = `WITH scoped_session_exports AS (
-  SELECT
-    ${selectColumns("s", analyticsSessionColumns)},
-    ROW_NUMBER() OVER (
-      PARTITION BY s.project_id, s.export_id
-      ORDER BY s.export_sequence DESC, s.recorded_at DESC
-    ) AS export_retry_rank
-  FROM ${sessionsTable} s
-  WHERE s.project_id = ${project}
-    AND s.export_sequence <= ${version}
-),
+  const sessionCtes = `WITH ${latestAcceptedExportsCte({
+    cteName: "scoped_session_exports",
+    table: sessionsTable,
+    alias: "s",
+    select: selectColumns("s", analyticsSessionColumns),
+    rankAlias: "export_retry_rank",
+    where: [`s.project_id = ${project}`, `s.export_sequence <= ${version}`],
+  })},
 one_session_export AS (
   SELECT ${selectColumns("s", analyticsSessionColumns)}
   FROM scoped_session_exports s
@@ -450,20 +448,16 @@ live_sessions AS (
 
   const eventsTable = analyticsQualifiedTableNames.events;
   return `${sessionCtes},
-scoped_event_exports AS (
-  SELECT
-    ${selectColumns("e", analyticsEventColumns)},
-    ROW_NUMBER() OVER (
-      PARTITION BY e.project_id, e.export_id
-      ORDER BY e.export_sequence DESC, e.recorded_at DESC
-    ) AS export_retry_rank
-  FROM ${eventsTable} e
-  INNER JOIN live_sessions target_session
-    ON target_session.project_id = e.project_id AND target_session.session_id = e.session_id
-  WHERE e.project_id = ${project}
-    AND e.export_sequence <= ${version}
-    AND e.event_kind = 'error'
-),
+${latestAcceptedExportsCte({
+  cteName: "scoped_event_exports",
+  table: eventsTable,
+  alias: "e",
+  select: selectColumns("e", analyticsEventColumns),
+  rankAlias: "export_retry_rank",
+  join: `INNER JOIN live_sessions target_session
+    ON target_session.project_id = e.project_id AND target_session.session_id = e.session_id`,
+  where: [`e.project_id = ${project}`, `e.export_sequence <= ${version}`, `e.event_kind = 'error'`],
+})},
 latest_events AS (
   SELECT ${selectColumns("e", analyticsEventColumns)}
   FROM scoped_event_exports e
@@ -477,16 +471,16 @@ function buildDeletionCtes(
   version: AnalyticsDeletionTableVersion,
 ): string {
   if (version === "v1") {
-    return `scoped_deletion_exports AS (
-  SELECT
-    ${selectColumns("d", analyticsDeletionColumns)},
-    ROW_NUMBER() OVER (
-      PARTITION BY d.project_id, d.export_id
-      ORDER BY d.export_sequence DESC, d.recorded_at DESC
-    ) AS export_retry_rank
-  FROM ${analyticsQualifiedTableNames.deletions} d
-  WHERE d.project_id = ${project}
-),
+    // Deletions are deliberately not pinned to the warehouse version: an old
+    // doorway snapshot must never resurrect erased sessions.
+    return `${latestAcceptedExportsCte({
+      cteName: "scoped_deletion_exports",
+      table: analyticsQualifiedTableNames.deletions,
+      alias: "d",
+      select: selectColumns("d", analyticsDeletionColumns),
+      rankAlias: "export_retry_rank",
+      where: [`d.project_id = ${project}`],
+    })},
 deleted_sessions AS (
   SELECT DISTINCT d.project_id, d.session_id
   FROM scoped_deletion_exports d
@@ -503,18 +497,14 @@ deleted_sessions AS (
       : `(d.session_started_at IS NULL OR d.session_started_at <= ${sqlWholeNumber(filter.to, "End time")})`,
   ].filter((clause): clause is string => clause !== undefined);
 
-  return `scoped_deletion_exports AS (
-  SELECT
-    ${selectColumns("d", analyticsDeletionV2Columns)},
-    ROW_NUMBER() OVER (
-      PARTITION BY d.project_id, d.export_id
-      ORDER BY d.export_sequence DESC, d.recorded_at DESC
-    ) AS export_retry_rank
-  FROM ${analyticsQualifiedTableNames.deletionsV2} d
-  WHERE d.project_id = ${project}
-    AND d.schema_version = 2
-    AND ${rangeClauses.join("\n    AND ")}
-),
+  return `${latestAcceptedExportsCte({
+    cteName: "scoped_deletion_exports",
+    table: analyticsQualifiedTableNames.deletionsV2,
+    alias: "d",
+    select: selectColumns("d", analyticsDeletionV2Columns),
+    rankAlias: "export_retry_rank",
+    where: [`d.project_id = ${project}`, `d.schema_version = 2`, ...rangeClauses],
+  })},
 deleted_sessions AS (
   SELECT DISTINCT d.project_id, d.session_id
   FROM scoped_deletion_exports d

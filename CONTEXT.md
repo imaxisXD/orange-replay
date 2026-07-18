@@ -9,6 +9,13 @@ Load-bearing terms in this codebase. Architecture authority: ARCHITECTURE.md.
 - **Route executor** — the work of a granted route, with no ordering responsibilities. The
   registry in `apps/worker/src/api/dashboard-routes.ts` maps plan actions to executors and is
   injectable into `handleApi`, which is the pipeline-test seam.
+- **Latest accepted export** — the one logical warehouse row per (project_id, export_id):
+  accepted producer retries create physical duplicates, and the copy with the highest
+  export_sequence (ties broken by recorded_at) wins. Stated once as a SQL fragment in
+  `apps/worker/src/analytics/latest-exports.ts`; the read queries, the watermark visibility
+  proof, and both deletion backends all rank rows through it. Scoping differs on purpose:
+  session/event reads pin `export_sequence <=` the warehouse version, deletion fencing never
+  does (an old doorway snapshot must not resurrect erased sessions).
 - **Pipeline** — the fixed dashboard request ordering the handler owns: authenticate → demo
   limit → access (path ids, role matrix, session auth) → analytics limit → mutation origin →
   execute → response policy. Precedence quirks are contract: auth errors before

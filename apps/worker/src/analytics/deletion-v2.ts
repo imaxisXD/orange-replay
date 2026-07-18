@@ -1,3 +1,4 @@
+import { latestAcceptedExportsCte } from "./latest-exports.ts";
 import { runR2SqlProjectQuery, type R2SqlSettings } from "./r2-sql-client.ts";
 import {
   listAnalyticsDeletionV2JobsAwaitingVisibility,
@@ -257,9 +258,11 @@ export function buildAnalyticsDeletionV2VisibilityQuery(input: {
   const project = sqlText(input.projectId);
   const ids = input.records.map((record) => sqlText(record.export_id)).join(", ");
 
-  return `WITH scoped_deletions AS (
-  SELECT
-    d.schema_version,
+  const scopedDeletions = latestAcceptedExportsCte({
+    cteName: "scoped_deletions",
+    table: ANALYTICS_DELETION_V2_TABLE,
+    alias: "d",
+    select: `d.schema_version,
     d.record_kind,
     d.project_id,
     d.export_id,
@@ -268,15 +271,12 @@ export function buildAnalyticsDeletionV2VisibilityQuery(input: {
     d.recorded_at,
     d.deleted_at,
     d.delete_reason,
-    d.session_started_at,
-    ROW_NUMBER() OVER (
-      PARTITION BY d.project_id, d.export_id
-      ORDER BY d.export_sequence DESC, d.recorded_at DESC
-    ) AS retry_rank
-  FROM ${ANALYTICS_DELETION_V2_TABLE} d
-  WHERE d.project_id = ${project}
-    AND d.export_id IN (${ids})
-)
+    d.session_started_at`,
+    rankAlias: "retry_rank",
+    where: [`d.project_id = ${project}`, `d.export_id IN (${ids})`],
+  });
+
+  return `WITH ${scopedDeletions}
 SELECT
   schema_version,
   record_kind,

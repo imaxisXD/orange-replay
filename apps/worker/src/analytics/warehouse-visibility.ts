@@ -1,3 +1,4 @@
+import { latestAcceptedExportsCte } from "./latest-exports.ts";
 import { runR2SqlProjectQuery, type R2SqlSettings } from "./r2-sql-client.ts";
 import { sqlText, sqlWholeNumber } from "./sql.ts";
 import { analyticsQualifiedTableNames } from "./warehouse-query.ts";
@@ -28,48 +29,55 @@ export function buildWarehouseVisibilityQuery(input: WarehouseVisibilityInput): 
   const ids = input.exportIds.map(sqlText).join(", ");
   const sessionIds = input.sessionIds.map(sqlText).join(", ");
 
+  const sessionsCte = latestAcceptedExportsCte({
+    cteName: "scoped_sessions",
+    table: analyticsQualifiedTableNames.sessions,
+    alias: "s",
+    select: "s.*",
+    rankAlias: "retry_rank",
+    where: [
+      `s.project_id = ${project}`,
+      `s.export_sequence <= ${version}`,
+      `s.export_id IN (${ids})`,
+    ],
+  });
+  const eventsCte = latestAcceptedExportsCte({
+    cteName: "scoped_events",
+    table: analyticsQualifiedTableNames.events,
+    alias: "e",
+    select: "e.*",
+    rankAlias: "retry_rank",
+    where: [
+      `e.project_id = ${project}`,
+      `e.export_sequence <= ${version}`,
+      `e.session_id IN (${sessionIds})`,
+    ],
+  });
+  const deletionsCte = latestAcceptedExportsCte({
+    cteName: "scoped_deletions",
+    table: analyticsQualifiedTableNames.deletions,
+    alias: "d",
+    select: "d.*",
+    rankAlias: "retry_rank",
+    where: [
+      `d.project_id = ${project}`,
+      `d.export_sequence <= ${version}`,
+      `d.export_id IN (${ids})`,
+    ],
+  });
+
   // The Pipeline sinks already reject rows that miss required fields. Keeping
   // the same long null-check list here makes live R2 SQL reject this proof as
   // too deeply nested before it can check visibility.
-  return `WITH scoped_sessions AS (
-  SELECT s.*,
-    ROW_NUMBER() OVER (
-      PARTITION BY s.project_id, s.export_id
-      ORDER BY s.export_sequence DESC, s.recorded_at DESC
-    ) AS retry_rank
-  FROM ${analyticsQualifiedTableNames.sessions} s
-  WHERE s.project_id = ${project}
-    AND s.export_sequence <= ${version}
-    AND s.export_id IN (${ids})
-),
+  return `WITH ${sessionsCte},
 one_session AS (
   SELECT * FROM scoped_sessions WHERE retry_rank = 1
 ),
-scoped_events AS (
-  SELECT e.*,
-    ROW_NUMBER() OVER (
-      PARTITION BY e.project_id, e.export_id
-      ORDER BY e.export_sequence DESC, e.recorded_at DESC
-    ) AS retry_rank
-  FROM ${analyticsQualifiedTableNames.events} e
-  WHERE e.project_id = ${project}
-    AND e.export_sequence <= ${version}
-    AND e.session_id IN (${sessionIds})
-),
+${eventsCte},
 one_event AS (
   SELECT * FROM scoped_events WHERE retry_rank = 1
 ),
-scoped_deletions AS (
-  SELECT d.*,
-    ROW_NUMBER() OVER (
-      PARTITION BY d.project_id, d.export_id
-      ORDER BY d.export_sequence DESC, d.recorded_at DESC
-    ) AS retry_rank
-  FROM ${analyticsQualifiedTableNames.deletions} d
-  WHERE d.project_id = ${project}
-    AND d.export_sequence <= ${version}
-    AND d.export_id IN (${ids})
-),
+${deletionsCte},
 visible_sessions AS (
   SELECT s.project_id, s.export_id
   FROM one_session s
