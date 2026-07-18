@@ -44,6 +44,7 @@ const SessionDetailPage = lazyRouteComponent(
 const SessionsPage = lazyRouteComponent(() => import("@/routes/sessions"), "SessionsPage");
 const SettingsPage = lazyRouteComponent(() => import("@/routes/settings"), "SettingsPage");
 const ToastLabPage = lazyRouteComponent(() => import("@/routes/toast-lab"), "ToastLabPage");
+const BannerLabPage = lazyRouteComponent(() => import("@/routes/banner-lab"), "BannerLabPage");
 
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -149,6 +150,11 @@ const toastLabRoute = createRoute({
   component: ToastLabPage,
 });
 
+const bannerLabRoute = createRoute({
+  getParentRoute: () => projectRoute,
+  path: "banner-lab",
+  component: BannerLabPage,
+});
 const demoRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/demo",
@@ -215,6 +221,7 @@ const routeTree = rootRoute.addChildren([
     settingsRoute,
     installRoute,
     toastLabRoute,
+    bannerLabRoute,
   ]),
 ]);
 

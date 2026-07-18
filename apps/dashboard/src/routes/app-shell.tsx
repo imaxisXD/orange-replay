@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { BrandMark } from "@/components/brand-mark";
+import { EmberField } from "@/components/ember-field";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -275,22 +276,31 @@ function TopNavTab({
   );
 }
 
+/* The teal ember rail (banner-lab V10, 2026-07-18): a floating rounded rail
+   in the dashboard's contrast color, with the toast's ember-dot field owning
+   the right end. Layers back-to-front: gradient surface, ember dots, then
+   text and CTA. Deliberately not dismissible — this is the signup path. */
 function DemoReadOnlyBanner() {
   return (
-    <div className="demo-banner border-b border-dashed border-amber/25 px-4 py-1.5 sm:px-7">
-      <span aria-hidden className="demo-beam" />
-      <div className="mx-auto flex max-w-300 items-center gap-3">
-        <span aria-hidden className="demo-scan-dot max-sm:hidden" />
-        <p className="text-[12.5px] text-muted-foreground max-sm:hidden">
-          Our <strong className="font-semibold text-foreground">own</strong> landing page, recorded
-          with our <strong className="font-semibold text-foreground">own</strong> product.{" "}
-          <span className="text-foreground">
-            Look closely — you might{" "}
-            <mark className="rounded-[3px] bg-amber/15 px-1 text-amber">spot yourself.</mark>
-          </span>
+    <div className="px-1.5 py-1.5 sm:px-2">
+      <div className="relative flex items-center gap-4 overflow-hidden rounded-xl border border-teal/25 bg-[linear-gradient(90deg,oklch(0.125_0.005_285),oklch(0.17_0.032_205))] px-4 py-4 sm:px-5">
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 right-0 w-2/5 [mask-image:linear-gradient(105deg,transparent_8%,black_55%)]"
+        >
+          <EmberField
+            className="inset-0 h-full w-full text-teal"
+            fadePerRow={0.045}
+            intensity={3.5}
+            pulse={1.8}
+          />
+        </span>
+        <p className="relative text-[14px] font-medium tracking-[-0.005em] text-foreground max-sm:hidden">
+          Our own landing page, recorded with our own product.{" "}
+          <span className="text-teal">Look closely — you might spot yourself.</span>
         </p>
         <Link
-          className="demo-cta group ml-auto flex items-center gap-2.5 rounded-[9px] bg-white py-1.25 pl-3.25 pr-1.5 text-[14px] font-[550] tracking-[-0.01em] text-black"
+          className="demo-cta group relative ml-auto flex items-center gap-2.5 rounded-[9px] bg-white py-1.25 pl-3.25 pr-1.5 text-[14px] font-[550] tracking-[-0.01em] text-black"
           to="/login"
         >
           Start free
