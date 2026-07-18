@@ -9,6 +9,7 @@ import {
 } from "../src/api/dashboard-request-policy.ts";
 import type { Env } from "../src/env.ts";
 import { handleApi } from "../src/api/handler.ts";
+import type { DashboardExecutors, DashboardRouteContext } from "../src/api/dashboard-routes.ts";
 
 const mocks = vi.hoisted(() => ({
   checkAuth: vi.fn(),
@@ -17,23 +18,6 @@ const mocks = vi.hoisted(() => ({
   isTrustedMutationOrigin: vi.fn(),
   checkAnalyticsReadRateLimit: vi.fn(),
   publicPageRateLimitAllows: vi.fn(),
-  getPublicPageDataResponse: vi.fn(),
-  getPublicManifest: vi.fn(),
-  getPublicSegment: vi.fn(),
-  proxyLiveSession: vi.fn(),
-  mintLiveTicket: vi.fn(),
-  getDemoDiscovery: vi.fn(),
-  getInstallStatus: vi.fn(),
-  getProjectConfig: vi.fn(),
-  getProjectKeys: vi.fn(),
-  getProjectStats: vi.fn(),
-  listLiveSessions: vi.fn(),
-  putProjectConfig: vi.fn(),
-  getManifest: vi.fn(),
-  getSegment: vi.fn(),
-  listSessions: vi.fn(),
-  getSessionState: vi.fn(),
-  listSessionHeads: vi.fn(),
 }));
 
 vi.mock("../src/api/auth.ts", async (importOriginal) => {
@@ -56,40 +40,37 @@ vi.mock("../src/analytics/read-rate-limit.ts", () => ({
 }));
 
 vi.mock("../src/public-page/data.ts", () => ({
-  getPublicPageDataResponse: mocks.getPublicPageDataResponse,
-  getPublicManifest: mocks.getPublicManifest,
-  getPublicSegment: mocks.getPublicSegment,
+  getPublicPageDataResponse: vi.fn(),
+  getPublicManifest: vi.fn(),
+  getPublicSegment: vi.fn(),
   publicPageRateLimitAllows: mocks.publicPageRateLimitAllows,
-}));
-
-vi.mock("../src/api/live-ticket.ts", () => ({
-  mintLiveTicket: mocks.mintLiveTicket,
-  proxyLiveSession: mocks.proxyLiveSession,
-}));
-
-vi.mock("../src/api/project-routes.ts", () => ({
-  getDemoDiscovery: mocks.getDemoDiscovery,
-  getInstallStatus: mocks.getInstallStatus,
-  getProjectConfig: mocks.getProjectConfig,
-  getProjectKeys: mocks.getProjectKeys,
-  getProjectStats: mocks.getProjectStats,
-  listLiveSessions: mocks.listLiveSessions,
-  putProjectConfig: mocks.putProjectConfig,
-}));
-
-vi.mock("../src/api/session-routes.ts", () => ({
-  getManifest: mocks.getManifest,
-  getSegment: mocks.getSegment,
-  listSessions: mocks.listSessions,
-}));
-
-vi.mock("../src/api/session-head-routes.ts", () => ({
-  getSessionState: mocks.getSessionState,
-  listSessionHeads: mocks.listSessionHeads,
 }));
 
 const executionContext = {} as Parameters<typeof handleApi>[2];
 const testEnv = { WORKER_ENV: "test", DEV_TEST_ROUTES: "1" } as Env;
+
+function fakeExecutors() {
+  return {
+    betterAuth: vi.fn(async () => new Response("auth")),
+    demoDiscovery: vi.fn(async () => jsonResponse({ projectId: "demo" })),
+    publicPage: vi.fn(async () => jsonResponse({ ok: true })),
+    liveProxy: vi.fn(async () => new Response("live")),
+    account: vi.fn(async () => jsonResponse({ ok: true })),
+    accountBootstrap: vi.fn(async () => jsonResponse({ ok: true })),
+    adminStats: vi.fn(async () => jsonResponse({ ok: true })),
+    adminUsers: vi.fn(async () => jsonResponse({ ok: true })),
+    project: vi.fn(
+      async (_rctx: DashboardRouteContext, _auth: ApiAuthContext, route: ProjectRoutePlan) =>
+        route.action === "manifest"
+          ? jsonResponse({ error: "not_found" }, 404, {
+              "cache-control": "public, max-age=300, must-revalidate",
+            })
+          : jsonResponse({ ok: true }),
+    ),
+  } satisfies DashboardExecutors;
+}
+
+let executors: ReturnType<typeof fakeExecutors>;
 
 beforeEach(() => {
   for (const mock of Object.values(mocks)) mock.mockReset();
@@ -102,27 +83,7 @@ beforeEach(() => {
   mocks.isTrustedMutationOrigin.mockReturnValue(true);
   mocks.checkAnalyticsReadRateLimit.mockResolvedValue({ allowed: true });
   mocks.publicPageRateLimitAllows.mockResolvedValue(true);
-  mocks.getPublicPageDataResponse.mockImplementation(async () => jsonResponse({ ok: true }));
-  mocks.getPublicManifest.mockImplementation(async () => jsonResponse({ ok: true }));
-  mocks.getPublicSegment.mockImplementation(async () => new Response("segment"));
-  mocks.proxyLiveSession.mockImplementation(async () => new Response("live"));
-  mocks.mintLiveTicket.mockImplementation(async () => jsonResponse({ ticket: "ticket_1" }));
-  mocks.getDemoDiscovery.mockImplementation(async () => jsonResponse({ projectId: "demo" }));
-  mocks.getInstallStatus.mockImplementation(async () => jsonResponse({ firstEventAt: null }));
-  mocks.getProjectConfig.mockImplementation(async () => jsonResponse({ sampleRate: 1 }));
-  mocks.getProjectKeys.mockImplementation(async () => jsonResponse({ keys: [] }));
-  mocks.getProjectStats.mockImplementation(async () => jsonResponse({ sessions: { value: 0 } }));
-  mocks.listLiveSessions.mockImplementation(async () => jsonResponse({ sessions: [] }));
-  mocks.putProjectConfig.mockImplementation(async () => jsonResponse({ sampleRate: 1 }));
-  mocks.getManifest.mockImplementation(async () =>
-    jsonResponse({ error: "not_found" }, 404, {
-      "cache-control": "public, max-age=300, must-revalidate",
-    }),
-  );
-  mocks.getSegment.mockImplementation(async () => new Response("segment"));
-  mocks.listSessions.mockImplementation(async () => jsonResponse({ sessions: [] }));
-  mocks.getSessionState.mockImplementation(async () => jsonResponse({ session_id: "session_1" }));
-  mocks.listSessionHeads.mockImplementation(async () => jsonResponse({ sessions: [] }));
+  executors = fakeExecutors();
 });
 
 afterEach(() => {
@@ -451,13 +412,13 @@ describe("dashboard request policy handler order", () => {
     expect(limited.headers.get("cache-control")).toBe("no-store");
     expect(await limited.json()).toEqual({ error: "rate_limited" });
     expect(mocks.checkAuth).not.toHaveBeenCalled();
-    expect(mocks.getPublicPageDataResponse).not.toHaveBeenCalled();
+    expect(executors.publicPage).not.toHaveBeenCalled();
 
     mocks.publicPageRateLimitAllows.mockResolvedValue(true);
     const invalid = await apiRequest("/api/v1/public-pages/bad%2Fid");
     expect(invalid.status).toBe(400);
     expect(await invalid.json()).toEqual({ error: "invalid_path_id" });
-    expect(mocks.getPublicPageDataResponse).not.toHaveBeenCalled();
+    expect(executors.publicPage).not.toHaveBeenCalled();
   });
 
   it("validates ticket-live ids before auth but authenticates private ids first", async () => {
@@ -467,7 +428,7 @@ describe("dashboard request policy handler order", () => {
     expect(live.status).toBe(400);
     expect(await live.json()).toEqual({ error: "invalid_path_id" });
     expect(mocks.checkAuth).not.toHaveBeenCalled();
-    expect(mocks.proxyLiveSession).not.toHaveBeenCalled();
+    expect(executors.liveProxy).not.toHaveBeenCalled();
 
     const unavailable = await apiRequest("/api/v1/projects/bad%2Fid/sessions/session_1/manifest");
     expect(unavailable.status).toBe(503);
@@ -486,7 +447,7 @@ describe("dashboard request policy handler order", () => {
     );
     expect(forbidden.status).toBe(403);
     expect(await forbidden.json()).toEqual({ error: "forbidden" });
-    expect(mocks.getSegment).not.toHaveBeenCalled();
+    expect(executors.project).not.toHaveBeenCalled();
 
     mocks.projectAuthError.mockReturnValue(null);
     const invalid = await apiRequest(
@@ -494,7 +455,7 @@ describe("dashboard request policy handler order", () => {
     );
     expect(invalid.status).toBe(400);
     expect(await invalid.json()).toEqual({ error: "invalid_segment_name" });
-    expect(mocks.getSegment).not.toHaveBeenCalled();
+    expect(executors.project).not.toHaveBeenCalled();
   });
 
   it("checks project access before a mutation origin", async () => {
@@ -506,7 +467,7 @@ describe("dashboard request policy handler order", () => {
     });
     expect(forbidden.status).toBe(403);
     expect(mocks.isTrustedMutationOrigin).not.toHaveBeenCalled();
-    expect(mocks.putProjectConfig).not.toHaveBeenCalled();
+    expect(executors.project).not.toHaveBeenCalled();
 
     mocks.projectAuthError.mockReturnValue(null);
     const untrusted = await apiRequest("/api/v1/projects/project_1/config", {
@@ -516,7 +477,7 @@ describe("dashboard request policy handler order", () => {
     expect(untrusted.status).toBe(403);
     expect(await untrusted.json()).toEqual({ error: "untrusted_origin" });
     expect(mocks.isTrustedMutationOrigin).toHaveBeenCalledOnce();
-    expect(mocks.putProjectConfig).not.toHaveBeenCalled();
+    expect(executors.project).not.toHaveBeenCalled();
   });
 
   it("applies the demo limiter before unknown and mismatched denial but rejects authorization first", async () => {
@@ -684,7 +645,12 @@ function jsonResponse(body: unknown, status = 200, headers: Record<string, strin
 }
 
 function apiRequest(pathname: string, init: RequestInit = {}): Promise<Response> {
-  return handleApi(new Request(`https://replay.test${pathname}`, init), testEnv, executionContext);
+  return handleApi(
+    new Request(`https://replay.test${pathname}`, init),
+    testEnv,
+    executionContext,
+    executors,
+  );
 }
 
 function lastWideEvent(): Record<string, unknown> {
