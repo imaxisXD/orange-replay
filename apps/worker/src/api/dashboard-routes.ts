@@ -13,7 +13,7 @@ import type {
   PublicPagePlan,
   SessionIds,
 } from "./dashboard-request-policy.ts";
-import { jsonError } from "./http.ts";
+import { jsonError } from "../http.ts";
 import { mintLiveTicket, proxyLiveSession } from "./live-ticket.ts";
 import { getSessionState, listSessionHeads } from "./session-head-routes.ts";
 import { createProjectKey, revokeProjectKey } from "./project-keys.ts";

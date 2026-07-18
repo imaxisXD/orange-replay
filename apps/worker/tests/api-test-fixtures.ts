@@ -5,7 +5,7 @@ import {
   type ProjectConfig,
   type SessionManifest,
 } from "@orange-replay/shared";
-import type { SessionRow } from "../src/api/helpers.ts";
+import type { SessionRow } from "../src/query/session-query.ts";
 
 export const betterAuthSecret = "test-better-auth-secret-0000000000000000";
 export const betterAuthOrigin = "http://localhost:8787";

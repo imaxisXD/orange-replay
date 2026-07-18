@@ -8,7 +8,7 @@ import {
   type Env,
 } from "../env.ts";
 import { drainAnalyticsExports, reconcileAnalyticsExports } from "./exporter.ts";
-import { queueDeletionExportsFromJournal } from "./deletion-journal.ts";
+import { queueDeletionExportsFromJournal } from "./erasure-lifecycle.ts";
 import {
   type AnalyticsDeletionV2Record,
   createAnalyticsDeletionV2Visibility,

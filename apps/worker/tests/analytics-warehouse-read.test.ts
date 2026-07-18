@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import type { SessionFilter } from "@orange-replay/shared";
-import type { SessionListOptions } from "../src/api/helpers.ts";
+import type { SessionListOptions } from "../src/query/session-query.ts";
 import {
   AnalyticsReadError,
   runR2SqlProjectQuery,

@@ -7,8 +7,8 @@ import {
 import { readFinalizedSessionPage } from "../analytics/finalized-read.ts";
 import type { Env } from "../env.ts";
 import type { ApiAuthMode } from "./auth.ts";
-import { parseSessionListQuery } from "./helpers.ts";
-import { jsonError, jsonResponse, secureHeaders } from "./http.ts";
+import { parseSessionListQuery } from "../query/session-query.ts";
+import { jsonError, jsonResponse, secureHeaders } from "../http.ts";
 import { sessionHasDeletionFence } from "./session-head-routes.ts";
 
 const DEMO_SESSIONS_LIST_MAX = 50;

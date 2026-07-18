@@ -1,7 +1,7 @@
 import { renderPublicPage } from "@orange-replay/public-page/server";
 import { startWideEvent, uuidv7 } from "@orange-replay/shared";
 import type { Env } from "../env.ts";
-import { isValidPathId, outcomeForStatus } from "../api/helpers.ts";
+import { isValidPathId, outcomeForStatus } from "../query/session-query.ts";
 import { publicPageRateLimitAllows, readPublicPageData } from "./data.ts";
 
 const PUBLIC_PAGE_CONTENT_SECURITY_POLICY = [

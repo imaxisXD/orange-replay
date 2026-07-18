@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vite-plus/test";
 import type { FinalizeMessage } from "@orange-replay/shared";
 import {
-  buildSessionManifest,
   capFinalizeMessageToBudget,
   capTimelineEventsToBudget,
-  countTimelineEvents,
   FINALIZE_MESSAGE_BUDGET_BYTES,
   filterFinalizeEvents,
   MAX_MANIFEST_TIMELINE_EVENTS,
   MAX_SEGMENT_TIMELINE_BYTES,
-} from "../src/do/session-logic.ts";
-import type { SegmentForManifest, SessionState } from "../src/do/session-logic.ts";
+} from "../src/do/session-budgets.ts";
+import { buildSessionManifest, countTimelineEvents } from "../src/do/session-manifest.ts";
+import type { SegmentForManifest } from "../src/do/session-manifest.ts";
+import type { SessionState } from "../src/do/session-state.ts";
 
 describe("SessionRecorder pure logic", () => {
   it("assembles a manifest from segment rows", () => {

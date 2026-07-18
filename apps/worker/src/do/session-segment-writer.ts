@@ -16,8 +16,9 @@ import {
   chunkForSegments,
   MAX_MANIFEST_TIMELINE_EVENTS,
   MAX_SEGMENT_INTENT_BODY_BYTES,
-} from "./session-logic.ts";
-import type { SegmentFlushReason, SessionState } from "./session-logic.ts";
+} from "./session-budgets.ts";
+import type { SessionState } from "./session-state.ts";
+import type { SegmentFlushReason } from "./session-timing.ts";
 
 export interface SegmentFlushResult {
   reason: SegmentFlushReason;

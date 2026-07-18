@@ -19,7 +19,7 @@ import {
   sdkFlushMs,
   shouldSetAlarm,
   trackAppendRateLimit,
-} from "../src/do/session-logic.ts";
+} from "../src/do/session-timing.ts";
 import {
   SESSION_HEAD_HANDOFF_GRACE_MS,
   liveSessionsFromPresenceRows,

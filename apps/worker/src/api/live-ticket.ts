@@ -2,7 +2,7 @@ import { HDR_REQUEST_ID, LIVE_TICKET_TTL_MS } from "@orange-replay/shared";
 import type { LiveTicketResponse } from "@orange-replay/shared";
 import { isDevTestMode, shardDb, type Env } from "../env.ts";
 import { readStoredProjectConfig } from "../project-config/storage.ts";
-import { jsonError, jsonResponse, withSecurityHeaders } from "./http.ts";
+import { jsonError, jsonResponse, withSecurityHeaders } from "../http.ts";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();

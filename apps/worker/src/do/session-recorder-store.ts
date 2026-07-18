@@ -1,13 +1,14 @@
 import { MAX_MANIFEST_SEGMENTS } from "@orange-replay/shared";
 import type { EdgeAttrs, SegmentCheckpoint, SegmentRef } from "@orange-replay/shared";
+import { clampIndexForStorage } from "./session-budgets.ts";
 import {
-  clampIndexForStorage,
   createFreshState,
   encodedTextBytes,
   normalizeSessionState,
   updateStateWithBatch,
-} from "./session-logic.ts";
-import type { SegmentForManifest, SessionState } from "./session-logic.ts";
+} from "./session-state.ts";
+import type { SegmentForManifest } from "./session-manifest.ts";
+import type { SessionState } from "./session-state.ts";
 import {
   encodeStoredBatchMetadata,
   parseStoredBatchMetadata,

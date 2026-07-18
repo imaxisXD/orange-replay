@@ -1,5 +1,5 @@
 import type { Env } from "../env.ts";
-import { jsonError, jsonResponse } from "./http.ts";
+import { jsonError, jsonResponse } from "../http.ts";
 
 interface CountRow {
   [key: string]: unknown;

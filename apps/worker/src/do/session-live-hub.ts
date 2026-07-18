@@ -14,7 +14,7 @@ import type {
   WideEventOutcome,
 } from "@orange-replay/shared";
 import type { AppendArgs } from "./contract.ts";
-import type { SessionState } from "./session-logic.ts";
+import type { SessionState } from "./session-state.ts";
 
 export interface SessionLiveHubDependencies {
   ctx: DurableObjectState;

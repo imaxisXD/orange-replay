@@ -14,7 +14,7 @@ import type { Env } from "../env.ts";
 import { saveProjectConfig } from "../project-config/delivery.ts";
 import { readStoredProjectConfig } from "../project-config/storage.ts";
 import { demoRateLimitAllows, readDemoConfig } from "./auth.ts";
-import { jsonError, jsonResponse, readJsonBodyCapped } from "./http.ts";
+import { jsonError, jsonResponse, readJsonBodyCapped } from "../http.ts";
 import { getProjectKeys as readProjectKeys } from "./project-keys.ts";
 import { countFilteredLiveSessions, parseStatsFilter, withLiveNow } from "../analytics/d1-stats.ts";
 

@@ -23,8 +23,8 @@ import {
   type SessionListOptions,
   type SessionRow,
   type SessionSort,
-} from "./helpers.ts";
-import { jsonError, jsonResponse } from "./http.ts";
+} from "../query/session-query.ts";
+import { jsonError, jsonResponse } from "../http.ts";
 
 export type {
   SessionActivity as SessionHeadActivity,

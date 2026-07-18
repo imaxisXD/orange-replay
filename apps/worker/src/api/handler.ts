@@ -26,8 +26,8 @@ import {
   type DashboardRouteContext,
   type WideEvent,
 } from "./dashboard-routes.ts";
-import { outcomeForStatus } from "./helpers.ts";
-import { jsonError, jsonResponse, withSecurityHeaders } from "./http.ts";
+import { outcomeForStatus } from "../query/session-query.ts";
+import { jsonError, jsonResponse, withSecurityHeaders } from "../http.ts";
 import { publicPageRateLimitAllows } from "../public-page/data.ts";
 
 export async function handleApi(

@@ -5,7 +5,7 @@ import {
   prepareNewProjectAnalyticsReceipt,
 } from "../analytics/project-bootstrap.ts";
 import type { ProjectRole, SessionAuthContext } from "./auth.ts";
-import { jsonResponse } from "./http.ts";
+import { jsonResponse } from "../http.ts";
 
 interface AccountProjectRow {
   [key: string]: unknown;

@@ -4,7 +4,7 @@ import {
   chunkForSegments,
   clampIndexForStorage,
   shouldDropForSessionCap,
-} from "../src/do/session-logic.ts";
+} from "../src/do/session-budgets.ts";
 
 describe("SessionRecorder pure logic", () => {
   it("chunks rows into valid segment-sized groups", () => {

@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { handleAnalyticsPurgeApi } from "../src/analytics/purge-api.ts";
-import { ANALYTICS_PURGE_ALERT_MS, ANALYTICS_PURGE_QUIET_MS } from "../src/analytics/purge-jobs.ts";
+import {
+  ANALYTICS_PURGE_ALERT_MS,
+  ANALYTICS_PURGE_QUIET_MS,
+} from "../src/analytics/erasure-lifecycle.ts";
 import type { Env } from "../src/env.ts";
 import {
   createPurgeTestDatabase,

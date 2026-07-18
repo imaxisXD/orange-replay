@@ -1,5 +1,5 @@
 import { finalizeMessageSchema } from "@orange-replay/shared";
-import { isValidPathId, parseRecordingObjectKey } from "../api/helpers.ts";
+import { isValidPathId, parseRecordingObjectKey } from "../query/session-query.ts";
 import { finalizeTraceKey, indexSession } from "../consumer/queue.ts";
 import { sweepExpiredSessions } from "../consumer/sweeper.ts";
 import type { Env } from "../env.ts";

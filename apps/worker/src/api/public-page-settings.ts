@@ -6,8 +6,8 @@ import {
 } from "@orange-replay/shared";
 import type { Env } from "../env.ts";
 import { readPublicationSettings, replacePublicationSettings } from "../public-page/publication.ts";
-import { isValidPathId } from "./helpers.ts";
-import { jsonError, jsonResponse, readJsonBodyCapped } from "./http.ts";
+import { isValidPathId } from "../query/session-query.ts";
+import { jsonError, jsonResponse, readJsonBodyCapped } from "../http.ts";
 
 export async function getPublicPageSettings(
   requestUrl: URL,

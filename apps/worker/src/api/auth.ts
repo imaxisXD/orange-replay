@@ -2,8 +2,8 @@ import { getAuthMode } from "../auth/config.ts";
 import { getHostedSession, isGlobalAdmin, type HostedSession } from "../auth/server.ts";
 import { isDevTestMode, type Env } from "../env.ts";
 import { projectRouteAccess, type DashboardProjectRouteName } from "./dashboard-request-policy.ts";
-import { isValidPathId } from "./helpers.ts";
-import { jsonError } from "./http.ts";
+import { isValidPathId } from "../query/session-query.ts";
+import { jsonError } from "../http.ts";
 
 const PLACEHOLDER_PREFIX = "REPLACE_WITH_";
 

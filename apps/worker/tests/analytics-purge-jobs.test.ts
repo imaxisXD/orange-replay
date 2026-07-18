@@ -6,7 +6,7 @@ import {
   claimAnalyticsPurgeJobs,
   markPurgeDeadlineAlerted,
   reportAnalyticsPurgeResults,
-} from "../src/analytics/purge-jobs.ts";
+} from "../src/analytics/erasure-lifecycle.ts";
 import {
   createPurgeTestDatabase,
   type PurgeTestDatabase,

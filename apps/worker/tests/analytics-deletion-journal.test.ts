@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vite-plus/test";
-import { queueDeletionExportsFromJournal } from "../src/analytics/deletion-journal.ts";
+import { queueDeletionExportsFromJournal } from "../src/analytics/erasure-lifecycle.ts";
 import type { AnalyticsWarehouseRecord } from "../src/analytics/export-record.ts";
 import { drainAnalyticsExports } from "../src/analytics/exporter.ts";
 import { createD1AnalyticsOutboxStore } from "../src/analytics/outbox.ts";

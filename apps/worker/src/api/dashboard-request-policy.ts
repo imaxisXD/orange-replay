@@ -1,4 +1,4 @@
-import { isValidPathId, isValidSegmentName } from "./helpers.ts";
+import { isValidPathId, isValidSegmentName } from "../query/session-query.ts";
 
 /**
  * Route names used for wide-event logging. A method-mismatched request keeps

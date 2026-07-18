@@ -9,7 +9,7 @@ import {
   markPurgeDeadlineAlerted,
   reportAnalyticsPurgeResults,
   type AnalyticsPurgeResult,
-} from "./purge-jobs.ts";
+} from "./erasure-lifecycle.ts";
 
 const CLAIM_PATH = "/internal/analytics/purge/claim";
 const REPORT_PATH = "/internal/analytics/purge/report";

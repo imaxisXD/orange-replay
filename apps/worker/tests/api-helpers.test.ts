@@ -6,7 +6,7 @@ import {
   isValidPathId,
   isValidSegmentName,
   parseSessionListQuery,
-} from "../src/api/helpers.ts";
+} from "../src/query/session-query.ts";
 import { handleApi } from "../src/api/handler.ts";
 import {
   buildAggregateStatsQuery,
@@ -16,7 +16,7 @@ import {
   countFilteredLiveSessions,
   parseStatsFilter,
   statsCacheRequest,
-} from "../src/api/stats.ts";
+} from "../src/analytics/d1-stats.ts";
 import { isDevTestMode } from "../src/env.ts";
 import type { Env } from "../src/env.ts";
 

@@ -13,25 +13,22 @@ import { reserveAcceptedUsage as reserveAcceptedUsageInD1 } from "../usage/accep
 import type { AppendArgs, AppendResult } from "./contract.ts";
 import { sendPresenceSessionRequest } from "./presence-client.ts";
 import { resolvePresenceTiming, shouldSendPresencePing } from "./presence-logic.ts";
-import { parseStoredBatchMetadata } from "./session-batch-metadata.ts";
+import { encodeStoredBatchMetadata, parseStoredBatchMetadata } from "./session-batch-metadata.ts";
 import { createSessionFinalizeMetrics, SessionFinalizer } from "./session-finalizer.ts";
 import { buildFinalizeTimelineData } from "./session-finalize-data.ts";
 import { SessionLiveHub } from "./session-live-hub.ts";
+import { clampIndexForStorage, shouldDropForSessionCap } from "./session-budgets.ts";
+import { createFreshState, encodedTextBytes, updateStateWithBatch } from "./session-state.ts";
 import {
-  clampIndexForStorage,
-  createFreshState,
   decideSegmentFlush,
-  encodeStoredBatchMetadata,
-  encodedTextBytes,
   nextAlarmAfterAlarm,
   resolveSessionTiming,
-  shouldDropForSessionCap,
   shouldSetAlarm,
   sdkFlushMs,
   trackAppendRateLimit,
-  updateStateWithBatch,
-} from "./session-logic.ts";
-import type { AppendRateLimitState, SegmentFlushReason, SessionState } from "./session-logic.ts";
+} from "./session-timing.ts";
+import type { SessionState } from "./session-state.ts";
+import type { AppendRateLimitState, SegmentFlushReason } from "./session-timing.ts";
 import {
   SessionRecorderStore,
   type FinalizedTombstone,

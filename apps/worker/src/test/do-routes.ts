@@ -1,4 +1,4 @@
-import { isValidPathId, parseRecordingObjectKey } from "../api/helpers.ts";
+import { isValidPathId, parseRecordingObjectKey } from "../query/session-query.ts";
 import type { Env } from "../env.ts";
 import type { AppendArgs, AppendResult } from "../do/contract.ts";
 import {

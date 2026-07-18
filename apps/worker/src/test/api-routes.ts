@@ -8,7 +8,7 @@ import {
   sessionRowColumns,
   type SessionColumn,
   type SessionRow,
-} from "../api/helpers.ts";
+} from "../query/session-query.ts";
 import type { Env } from "../env.ts";
 import { buildExactSessionHeadQuery, sessionHeadCandidateSql } from "../api/session-head-routes.ts";
 import { createTestDatabaseSchema } from "./database-schema.ts";

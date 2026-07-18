@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
-import { buildSessionWhere } from "../src/api/helpers.ts";
+import { buildSessionWhere } from "../src/query/session-query.ts";
 import {
   ANALYTICS_OUTBOX_SAFETY_MS,
   compactVerifiedAnalyticsOutbox,

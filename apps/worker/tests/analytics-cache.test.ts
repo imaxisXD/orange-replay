@@ -10,7 +10,7 @@ import {
   readAnalyticsCache,
   writeAnalyticsCache,
   type AnalyticsCacheRequests,
-} from "../src/api/analytics-cache.ts";
+} from "../src/analytics/cache.ts";
 import { getProjectStats } from "../src/api/project-routes.ts";
 import { listSessions } from "../src/api/session-routes.ts";
 import type { Env } from "../src/env.ts";

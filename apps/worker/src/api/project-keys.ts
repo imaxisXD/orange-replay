@@ -8,7 +8,7 @@ import {
 } from "../project-config/delivery.ts";
 import { readStoredProjectConfig } from "../project-config/storage.ts";
 import type { SessionAuthContext } from "./auth.ts";
-import { jsonError, jsonResponse, readJsonBodyCapped } from "./http.ts";
+import { jsonError, jsonResponse, readJsonBodyCapped } from "../http.ts";
 
 const KEY_BODY_LIMIT_BYTES = 2 * 1024;
 const KEY_NAME_MAX_LENGTH = 64;

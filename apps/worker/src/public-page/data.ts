@@ -12,7 +12,7 @@ import { sessionManifestSchema } from "@orange-replay/shared/schemas";
 import { readFinalizedStats } from "../analytics/finalized-read.ts";
 import { checkAnalyticsReadRateLimit } from "../analytics/read-rate-limit.ts";
 import { isDevTestMode, type Env } from "../env.ts";
-import { jsonError, jsonResponse, secureHeaders } from "../api/http.ts";
+import { jsonError, jsonResponse, secureHeaders } from "../http.ts";
 import {
   publicPageUrl,
   readPublishedProject,

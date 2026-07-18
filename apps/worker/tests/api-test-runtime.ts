@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import type { SessionManifest } from "@orange-replay/shared";
 import { afterAll, beforeAll, expect } from "vite-plus/test";
 import { unstable_dev } from "wrangler";
-import type { SessionRow } from "../src/api/helpers.ts";
+import type { SessionRow } from "../src/query/session-query.ts";
 import {
   assetProjectId,
   assetSessionId,

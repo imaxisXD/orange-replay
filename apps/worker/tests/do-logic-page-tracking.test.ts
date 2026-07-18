@@ -4,8 +4,8 @@ import {
   normalizeSessionAnalyticsVersion,
   rebuildFinalPageAnalytics,
   updatePageTrackingWithBatch,
-} from "../src/do/session-logic.ts";
-import type { SessionState } from "../src/do/session-logic.ts";
+} from "../src/do/session-page-tracking.ts";
+import type { SessionState } from "../src/do/session-state.ts";
 import type { StoredPageBatch } from "../src/do/session-page-tracking.ts";
 
 describe("SessionRecorder pure logic", () => {

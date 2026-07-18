@@ -4,7 +4,7 @@ import {
   uuidv7,
   type WideEventOutcome,
 } from "@orange-replay/shared";
-import { isValidPathId } from "../api/helpers.ts";
+import { isValidPathId } from "../query/session-query.ts";
 import {
   ANALYTICS_ERASURE_BATCH_SIZE,
   queueDeletionExportsFromJournal,
