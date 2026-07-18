@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import type { SessionManifest } from "@orange-replay/shared/types";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -230,22 +230,6 @@ function StageHeader({
   projectId: string;
   sessionId: string;
 }) {
-  const [copied, setCopied] = useState(false);
-
-  async function copySessionId(): Promise<void> {
-    if (copied) {
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(sessionId);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1_500);
-    } catch {
-      setCopied(false);
-    }
-  }
-
   return (
     <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
       <div className="flex min-w-0 flex-wrap items-center gap-x-3.5 gap-y-1">
@@ -267,27 +251,7 @@ function StageHeader({
         ) : detailsState === "provisional" ? (
           <StatusPill kind="neutral">Final details pending</StatusPill>
         ) : null}
-        <Tooltip content={copied ? "Copied session ID" : "Copy session ID"}>
-          <Button
-            aria-label={copied ? "Session ID copied" : "Copy session ID"}
-            className="hidden h-6 shrink-0 gap-1.5 px-2 font-mono text-[11px] text-muted-foreground lg:inline-flex"
-            onClick={() => void copySessionId()}
-            size="sm"
-            variant="secondary"
-          >
-            <span className="flex items-center gap-1.5">
-              <span className="font-sans text-[11px] text-dim">Session ID</span>
-              <span>{sessionId.slice(0, 8)}…</span>
-              <IconSwap className="size-3 shrink-0" swapKey={copied ? "check" : "copy"}>
-                {copied ? (
-                  <Check aria-hidden className="size-3 text-success" />
-                ) : (
-                  <Copy aria-hidden className="size-3 opacity-70" />
-                )}
-              </IconSwap>
-            </span>
-          </Button>
-        </Tooltip>
+        <SessionIdCopyControl sessionId={sessionId} />
       </div>
       <div className="flex w-full shrink-0 items-center justify-between gap-1 sm:w-auto sm:justify-start">
         <Tooltip content="Previous session (↑ or k in the list)">
@@ -337,6 +301,47 @@ function StageHeader({
         </Button>
       </div>
     </div>
+  );
+}
+
+export function SessionIdCopyControl({ sessionId }: { sessionId: string }) {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!copied) return;
+    const timeout = window.setTimeout(() => setCopied(false), 1_500);
+    return () => window.clearTimeout(timeout);
+  }, [copied]);
+
+  async function copySessionId(): Promise<void> {
+    if (copied) return;
+
+    try {
+      await navigator.clipboard.writeText(sessionId);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  return (
+    <Button
+      aria-label={copied ? "Session ID copied" : "Copy session ID"}
+      className="hidden h-6 shrink-0 gap-1.5 px-2 font-mono text-[11px] text-muted-foreground lg:inline-flex"
+      onClick={() => void copySessionId()}
+      size="sm"
+      variant="secondary"
+    >
+      <span className="font-sans text-[11px] text-dim">Session ID</span>
+      <span>{sessionId.slice(0, 8)}…</span>
+      <IconSwap className="size-3 shrink-0" swapKey={copied ? "check" : "copy"}>
+        {copied ? (
+          <Check aria-hidden className="size-3 text-success" />
+        ) : (
+          <Copy aria-hidden className="size-3 opacity-70" />
+        )}
+      </IconSwap>
+    </Button>
   );
 }
 

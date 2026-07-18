@@ -7,7 +7,7 @@ import { fetchDemoWorkspace } from "@/lib/api";
 import { DemoWorkspaceProvider } from "@/lib/dashboard-workspace";
 import { DemoUnavailableStateContent } from "@/lib/demo-unavailable-state";
 import { RotateCcw } from "@/lib/icon-map";
-import { AppShell } from "./app-shell";
+import { DemoBannerAnimatedAppShell } from "./demo-banner-animation";
 
 const fallbackDemoProjectId = "demo";
 
@@ -21,7 +21,7 @@ export function DemoRoute() {
 
   return (
     <DemoWorkspaceProvider projectId={projectId}>
-      <AppShell>
+      <DemoBannerAnimatedAppShell>
         {demoQuery.isPending ? (
           <DemoLoadingState />
         ) : demoQuery.isError ? (
@@ -34,7 +34,7 @@ export function DemoRoute() {
         ) : (
           <Outlet />
         )}
-      </AppShell>
+      </DemoBannerAnimatedAppShell>
     </DemoWorkspaceProvider>
   );
 }

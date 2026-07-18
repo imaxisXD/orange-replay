@@ -4,6 +4,7 @@ import {
   createRoute,
   createRouter,
   lazyRouteComponent,
+  notFound,
   redirect,
   type ErrorComponentProps,
 } from "@tanstack/react-router";
@@ -35,6 +36,11 @@ const DemoRoute = lazyRouteComponent(() => import("@/routes/demo"), "DemoRoute")
 const InstallPage = lazyRouteComponent(() => import("@/routes/install"), "InstallPage");
 const LivePage = lazyRouteComponent(() => import("@/routes/live"), "LivePage");
 const LoginPage = lazyRouteComponent(() => import("@/routes/login"), "LoginPage");
+const LocalLabPage = lazyRouteComponent(() => import("@/routes/local-workbench"), "LocalLabPage");
+const LocalLabsIndexPage = lazyRouteComponent(
+  () => import("@/routes/local-workbench"),
+  "LocalLabsIndexPage",
+);
 const OverviewPage = lazyRouteComponent(() => import("@/routes/overview"), "OverviewPage");
 const ProjectsPage = lazyRouteComponent(() => import("@/routes/projects"), "ProjectsPage");
 const SessionDetailPage = lazyRouteComponent(
@@ -43,8 +49,6 @@ const SessionDetailPage = lazyRouteComponent(
 );
 const SessionsPage = lazyRouteComponent(() => import("@/routes/sessions"), "SessionsPage");
 const SettingsPage = lazyRouteComponent(() => import("@/routes/settings"), "SettingsPage");
-const ToastLabPage = lazyRouteComponent(() => import("@/routes/toast-lab"), "ToastLabPage");
-const BannerLabPage = lazyRouteComponent(() => import("@/routes/banner-lab"), "BannerLabPage");
 
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -54,6 +58,20 @@ const loginRoute = createRoute({
     returnTo: typeof search["returnTo"] === "string" ? search["returnTo"] : undefined,
   }),
   component: LoginPage,
+});
+
+const localLabsIndexRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/local-labs",
+  beforeLoad: requireDevelopmentMode,
+  component: LocalLabsIndexPage,
+});
+
+const localLabRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/local-labs/$labId",
+  beforeLoad: requireDevelopmentMode,
+  component: LocalLabPage,
 });
 
 const rootIndexRoute = createRoute({
@@ -144,17 +162,6 @@ const installRoute = createRoute({
   component: InstallPage,
 });
 
-const toastLabRoute = createRoute({
-  getParentRoute: () => projectRoute,
-  path: "toast-lab",
-  component: ToastLabPage,
-});
-
-const bannerLabRoute = createRoute({
-  getParentRoute: () => projectRoute,
-  path: "banner-lab",
-  component: BannerLabPage,
-});
 const demoRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/demo",
@@ -202,6 +209,8 @@ const demoLiveRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   loginRoute,
+  localLabsIndexRoute,
+  localLabRoute,
   rootIndexRoute,
   projectsRoute,
   adminRoute,
@@ -220,8 +229,6 @@ const routeTree = rootRoute.addChildren([
     liveRoute,
     settingsRoute,
     installRoute,
-    toastLabRoute,
-    bannerLabRoute,
   ]),
 ]);
 
@@ -235,6 +242,12 @@ declare module "@tanstack/react-router" {
 
 function RouteErrorBoundary({ error }: ErrorComponentProps) {
   return <RouteError error={error} />;
+}
+
+function requireDevelopmentMode() {
+  if (!import.meta.env.DEV) {
+    throw notFound();
+  }
 }
 
 function ProjectAppShell() {

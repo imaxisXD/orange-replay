@@ -28,6 +28,19 @@ describe("dashboard loading indicator", () => {
     expect(indicator?.style.getPropertyValue("--gspin-dim")).toBe(
       String(loadingIndicatorSettings.dim),
     );
+    expect(loadingIndicatorSettings).toMatchObject({
+      cellRadius: 1,
+      colorBy: "path",
+      dim: 0.03,
+      period: 350,
+      respectReducedMotion: true,
+    });
+    expect(loadingIndicatorSettings.gradient).toEqual([
+      { color: "#FFE8A8", position: 0 },
+      { color: "#F5A623", position: 0.33 },
+      { color: "#FF735C", position: 0.67 },
+      { color: "#4ED9C4", position: 1 },
+    ]);
     const cells = indicator?.querySelectorAll<HTMLElement>(".gradient-spin-cell");
     expect(cells).toHaveLength(loadingIndicatorSettings.rows * loadingIndicatorSettings.cols);
     expect(cells?.item(0).style.backgroundColor).not.toBe("");

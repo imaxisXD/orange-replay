@@ -10,7 +10,6 @@ import { IconSwap } from "@/components/ui/icon-swap";
 import { LoadingArea } from "@/components/ui/loading-indicator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { StatusPill } from "@/components/status-pill";
-import { Tooltip } from "@/components/ui/tooltip";
 import { ApiError, type SessionActivity, type SessionDetailsState } from "@/lib/api";
 import { formatCountryCode } from "@/lib/country";
 import { useDashboardWorkspace } from "@/lib/dashboard-workspace";
@@ -197,23 +196,21 @@ function CopySessionId({ sessionId }: { sessionId: string }) {
   }
 
   return (
-    <Tooltip content="Copy session id">
-      <Button
-        aria-label="Copy session id"
-        className="text-muted-foreground hover:text-foreground"
-        onClick={() => void copySessionId()}
-        size="icon-sm"
-        variant="ghost"
-      >
-        <IconSwap swapKey={copied ? "check" : "copy"}>
-          {copied ? (
-            <Check aria-hidden className="size-3.5 text-success" />
-          ) : (
-            <Copy aria-hidden className="size-3.5" />
-          )}
-        </IconSwap>
-      </Button>
-    </Tooltip>
+    <Button
+      aria-label={copied ? "Session ID copied" : "Copy session ID"}
+      className="text-muted-foreground hover:text-foreground"
+      onClick={() => void copySessionId()}
+      size="icon-sm"
+      variant="ghost"
+    >
+      <IconSwap swapKey={copied ? "check" : "copy"}>
+        {copied ? (
+          <Check aria-hidden className="size-3.5 text-success" />
+        ) : (
+          <Copy aria-hidden className="size-3.5" />
+        )}
+      </IconSwap>
+    </Button>
   );
 }
 

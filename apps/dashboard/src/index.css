@@ -25,9 +25,9 @@
 }
 
 @font-face {
-  font-family: "Departure Mono Numerals";
-  src: url("/fonts/departure-mono/DepartureMono-Regular.woff2") format("woff2");
-  font-weight: 400;
+  font-family: "Uncut Plan8 Numerals";
+  src: url("/fonts/uncut-plan8/UncutPlan8-Variable.737af1b2.woff2") format("woff2");
+  font-weight: 100 900;
   font-style: normal;
   font-display: swap;
   unicode-range: U+0030-0039;
@@ -175,7 +175,7 @@
     min-width: 320px;
     background: var(--background);
     color: var(--foreground);
-    font-family: "Departure Mono Numerals", "Uncut Sans", ui-sans-serif, system-ui, sans-serif;
+    font-family: "Uncut Plan8 Numerals", "Uncut Sans", ui-sans-serif, system-ui, sans-serif;
     font-optical-sizing: auto;
     font-synthesis: none;
     /* Light text on the near-black canvas renders heavy on macOS/retina
@@ -222,23 +222,51 @@
 
 .font-numeric,
 .font-mono.tabular-nums {
-  font-family: "Departure Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  font-family: "Uncut Plan8", ui-monospace, "SF Mono", Menlo, monospace;
   font-weight: 400;
   font-synthesis: none;
   letter-spacing: normal;
 }
 
+/* The glow is painted from each dot's own background color, so it follows the
+   configured gradient without a second animation or per-frame JavaScript. */
+[data-slot="loading-indicator"] .gradient-spin-cell {
+  position: relative;
+  filter: hue-rotate(0deg) saturate(120%) brightness(116%);
+}
+
+[data-slot="loading-indicator"] .gradient-spin-cell::after {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-color: inherit;
+  content: "";
+  filter: blur(3px);
+  opacity: 0.85;
+  pointer-events: none;
+  transform: scale(1.05);
+}
+
 .overview-metric-value {
   font-family: "Departure Mono", ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 1.5rem;
-  font-weight: 900;
-  font-synthesis: weight;
+  font-weight: 400;
+  font-synthesis: none;
   line-height: 1.1;
-  letter-spacing: -0.015em;
+  letter-spacing: normal;
 }
 
-.overview-metric-symbol {
-  font-family: "Uncut Sans", ui-sans-serif, system-ui, sans-serif;
+/* Departure Mono gives the decimal point a full monospace cell. Number Flow
+   exposes that cell as a part, so tighten only Overview decimals. */
+.overview-metric-value number-flow::part(decimal) {
+  margin-inline: -0.18em;
+}
+
+/* Active nav-tab icon: the brand sunrise gradient (pale amber → amber → coral
+   → teal) applied to the icon strokes. The stops live in an inline <defs>
+   rendered next to the nav, so `url()` resolves within the same document. */
+.nav-icon-gradient :is(path, rect, circle, line, polyline, ellipse)[stroke] {
+  stroke: url(#nav-icon-gradient-stops);
 }
 
 /* Vendored from shadcn's scroll-fade utility, as required by Fluid
@@ -362,8 +390,8 @@
 }
 
 @theme inline {
-  --font-sans: "Departure Mono Numerals", "Uncut Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "Departure Mono Numerals", "Uncut Plan8", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-sans: "Uncut Plan8 Numerals", "Uncut Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Uncut Plan8", ui-monospace, "SF Mono", Menlo, monospace;
   --ease-out-strong: cubic-bezier(0.22, 1, 0.36, 1);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -508,6 +536,21 @@
   border-radius: inherit;
   pointer-events: none;
   background: radial-gradient(60% 45% at 6% 0%, oklch(1 0 0 / 0.05), transparent 60%);
+}
+.demo-banner-notch-lit {
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E"),
+    linear-gradient(90deg, oklch(0.125 0.005 285), oklch(0.17 0.032 205));
+}
+.demo-banner-notch-lit::after {
+  content: none;
+}
+.demo-banner-notch-lit::before {
+  background: radial-gradient(
+    60% 45% at var(--notch-lit-origin, 6%) 0%,
+    oklch(1 0 0 / 0.05),
+    transparent 60%
+  );
 }
 .session-table-panel {
   background:

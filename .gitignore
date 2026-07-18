@@ -28,3 +28,14 @@ playwright-report/
 design-directions*.html
 /artifacts/
 /design-qa.md
+
+# Local dashboard experiments. The development-only /local-labs route discovers
+# these files when they exist, but they are never shipped from Git.
+/apps/dashboard/src/assets/onboarding/
+/apps/dashboard/src/routes/*-lab.*
+/apps/dashboard/src/routes/*-lab/
+/apps/dashboard/src/routes/*-frame-workbench.*
+/apps/dashboard/tests/*-lab.test.*
+/docs/specs/*-lab.md
+/docs/specs/*-playground.md
+/plans/010-tooltip-motion-spring-open.md

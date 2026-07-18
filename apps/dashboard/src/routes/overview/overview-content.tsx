@@ -46,7 +46,7 @@ export function OverviewSummary({
           isDemo={isDemo}
           label="Sessions"
           projectId={projectId}
-          value={<AnimatedNumber value={stats?.sessions.value} />}
+          value={<AnimatedNumber value={stats?.sessions.value ?? 0} />}
           detail="Completed in this time range"
         />
         <KpiDoorway
@@ -54,7 +54,7 @@ export function OverviewSummary({
           isDemo={isDemo}
           label="Average session length"
           projectId={projectId}
-          value={<AnimatedDuration value={stats?.duration.average.value} />}
+          value={<AnimatedDuration value={stats?.duration.average.value ?? 0} />}
           detail={
             stats === undefined
               ? "Waiting for session data"
@@ -66,7 +66,9 @@ export function OverviewSummary({
           isDemo={isDemo}
           label="Pages per session"
           projectId={projectId}
-          value={<AnimatedNumber format={oneDecimalFormat} value={stats?.pagesPerSession.value} />}
+          value={
+            <AnimatedNumber format={oneDecimalFormat} value={stats?.pagesPerSession.value ?? 0} />
+          }
           detail={coverageLabel}
         />
         <LiveKpiDoorway
@@ -74,7 +76,7 @@ export function OverviewSummary({
           isDemo={isDemo}
           label="Live now"
           projectId={projectId}
-          value={<AnimatedNumber value={stats?.liveNow.value} />}
+          value={<AnimatedNumber value={stats?.liveNow.value ?? 0} />}
           detail="Active in the last minute"
         />
       </section>
@@ -157,7 +159,7 @@ function InsightsCard({
           label="Interaction time"
           numericValue={stats?.insights.averageInteractionTimeMs.value}
           projectId={projectId}
-          value={<AnimatedDuration value={stats?.insights.averageInteractionTimeMs.value} />}
+          value={<AnimatedDuration value={stats?.insights.averageInteractionTimeMs.value ?? 0} />}
         />
         <InsightDoorway
           detail="Average furthest point reached"
@@ -173,23 +175,22 @@ function InsightsCard({
   );
 }
 
-function MetricPercentage({
+export function MetricPercentage({
   isRatio = false,
   value,
 }: {
   isRatio?: boolean;
   value: number | null | undefined;
 }) {
-  const displayedValue = typeof value === "number" && isRatio ? value * 100 : value;
+  const valueOrZero = value ?? 0;
+  const displayedValue = isRatio ? valueOrZero * 100 : valueOrZero;
 
   return (
-    <>
-      <AnimatedNumber
-        format={isRatio ? percentNumberFormat : wholeNumberFormat}
-        value={displayedValue}
-      />
-      {value === null ? null : <span className="overview-metric-symbol">%</span>}
-    </>
+    <AnimatedNumber
+      format={isRatio ? percentNumberFormat : wholeNumberFormat}
+      suffix="%"
+      value={displayedValue}
+    />
   );
 }
 

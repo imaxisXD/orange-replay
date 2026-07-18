@@ -110,6 +110,7 @@ export function SessionListPane({
           className="min-h-11 px-0 py-0 lg:min-h-0"
           label="Unwatched"
           onToggle={onToggleUnwatched}
+          size="small"
         />
       </div>
 

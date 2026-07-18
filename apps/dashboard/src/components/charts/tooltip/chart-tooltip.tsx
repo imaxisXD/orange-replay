@@ -44,6 +44,12 @@ export interface ChartTooltipProps {
   /** Custom row renderer - return array of TooltipRow */
   rows?: (point: Record<string, unknown>) => TooltipRow[];
   /**
+   * Visible tooltip heading. Use a function when the chart's category key is an
+   * internal identity rather than user-facing text. Bar charts otherwise use
+   * their category key; line and area charts use the formatted date.
+   */
+  title?: string | ((point: Record<string, unknown>) => string | undefined);
+  /**
    * Override tooltip dot fill. When omitted and `rows` is set, dot colors match row colors.
    * When a function, receives the hovered point and line config.
    */
@@ -97,6 +103,7 @@ const ChartTooltipInner = memo(function ChartTooltipInner({
   indicatorColor: indicatorColorProp,
   content,
   rows: rowsRenderer,
+  title: titleProp,
   dotColor: dotColorProp,
   children,
   className = "",
@@ -212,9 +219,15 @@ const ChartTooltipInner = memo(function ChartTooltipInner({
   }, [indicatorColorProp, tooltipData]);
 
   // Title from date or category
-  const title = useMemo(() => {
+  const tooltipTitle = useMemo(() => {
     if (!tooltipData) {
       return undefined;
+    }
+    if (typeof titleProp === "function") {
+      return titleProp(tooltipData.point);
+    }
+    if (titleProp !== undefined) {
+      return titleProp;
     }
     // For bar charts (horizontal or vertical), use the category name
     if (barXAccessor) {
@@ -222,7 +235,7 @@ const ChartTooltipInner = memo(function ChartTooltipInner({
     }
     // For line/area charts, use the date
     return weekdayDateFmt.format(xAccessor(tooltipData.point));
-  }, [tooltipData, barXAccessor, xAccessor]);
+  }, [tooltipData, titleProp, barXAccessor, xAccessor]);
 
   const tooltipContent = (
     <>
@@ -302,7 +315,7 @@ const ChartTooltipInner = memo(function ChartTooltipInner({
               index: tooltipData.index,
             })
           : !content && (
-              <TooltipContent rows={tooltipRows} title={title}>
+              <TooltipContent rows={tooltipRows} title={tooltipTitle}>
                 {children}
               </TooltipContent>
             )}

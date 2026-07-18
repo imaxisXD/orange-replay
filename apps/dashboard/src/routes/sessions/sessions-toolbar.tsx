@@ -98,8 +98,9 @@ export function SessionsToolbar({
 
       <Switch
         checked={filter.has_errors === true}
-        className="min-h-11 px-0 py-0 sm:min-h-0"
+        className="min-h-11 rounded-none border-0 bg-transparent px-0 py-0 sm:min-h-0"
         label="Has errors"
+        size="small"
         onToggle={() =>
           onFilterChange({
             ...filter,
@@ -110,8 +111,9 @@ export function SessionsToolbar({
 
       <Switch
         checked={filter.has_rage === true}
-        className="min-h-11 px-0 py-0 sm:min-h-0"
+        className="min-h-11 rounded-none border-0 bg-transparent px-0 py-0 sm:min-h-0"
         label="Has rage"
+        size="small"
         onToggle={() =>
           onFilterChange({
             ...filter,

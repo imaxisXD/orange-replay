@@ -7,7 +7,6 @@ import { Bar } from "@/components/charts/bar";
 import { BarChart } from "@/components/charts/bar-chart";
 import { useChartStable } from "@/components/charts/chart-context";
 import { Grid } from "@/components/charts/grid";
-import { ChartTooltip } from "@/components/charts/tooltip";
 import { PatternLines } from "@/components/charts/visx-pattern";
 import {
   Dialog,
@@ -29,6 +28,7 @@ import {
 } from "@/lib/icon-map";
 import { dimensionDisplay, type BreakdownDimension } from "@/lib/dimension-display";
 import { canonicalSessionFilter } from "@/lib/session-filters";
+import { OverviewBreakdownTooltip } from "./overview-breakdown-tooltip";
 import { OverviewCard, OverviewCardFooter, OverviewCardHeader } from "./overview-card";
 import { SessionDoorway } from "./overview-doorways";
 import { numberFormatter, percentFormatter } from "./overview-format";
@@ -414,23 +414,7 @@ function BreakdownChart({
         />
         <Bar dataKey="count" fill={`url(#${patternId})`} lineCap={4} stroke="var(--teal)" />
         <OverviewChartLabels container={chartContainer} data={chartData} dimension={dimension} />
-        <ChartTooltip
-          rows={(point) => [
-            {
-              color: "var(--teal)",
-              label: "Sessions",
-              value: Number(point["count"] ?? 0),
-            },
-            {
-              color: "var(--muted-foreground)",
-              label: "Share",
-              value: percentFormatter.format(Number(point["share"] ?? 0)),
-            },
-          ]}
-          showCrosshair={false}
-          showDatePill={false}
-          showDots={false}
-        />
+        <OverviewBreakdownTooltip />
       </BarChart>
     </div>
   );

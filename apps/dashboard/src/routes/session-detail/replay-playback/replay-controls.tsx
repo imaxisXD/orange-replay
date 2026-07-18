@@ -1,5 +1,6 @@
 import type { ActivityBucket } from "@orange-replay/player";
 import { Button } from "@/components/ui/button";
+import { MorphTooltip } from "@/components/ui/morph-tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
 import { formatDuration } from "@/lib/format";
@@ -38,14 +39,7 @@ export function ReplayControls({
     >
       <div className="flex min-w-full w-max items-center gap-3.5 px-4 py-3.25">
         {!isFollowing && (
-          <button
-            aria-label={playing ? "Pause replay" : "Play replay"}
-            className="flex size-8 shrink-0 items-center justify-center rounded-[9px] bg-foreground text-background outline-none transition-opacity hover:opacity-90 focus-visible:ring-1 focus-visible:ring-amber"
-            onClick={actions.togglePlayback}
-            type="button"
-          >
-            <PlayPauseShape playing={playing} />
-          </button>
+          <ReplayPlayPauseControl onToggle={actions.togglePlayback} playing={playing} />
         )}
 
         <span className="font-mono text-[12px] tabular-nums text-muted-foreground">
@@ -133,6 +127,7 @@ export function ReplayControls({
             className="px-0 py-0 [&>span:last-child]:text-[11.5px]"
             label="Skip idle"
             onToggle={actions.toggleSkipIdle}
+            size="small"
           />
         )}
 
@@ -151,6 +146,45 @@ export function ReplayControls({
         )}
       </div>
     </ScrollArea>
+  );
+}
+
+export function ReplayPlayPauseControl({
+  onToggle,
+  playing,
+}: {
+  onToggle: () => void;
+  playing: boolean;
+}) {
+  const action = playing ? "Pause" : "Play";
+
+  return (
+    <MorphTooltip.Provider delay={0}>
+      <MorphTooltip.Root size="sm">
+        <MorphTooltip.Trigger
+          aria-label={`${action} replay`}
+          render={
+            <button
+              className="flex size-8 shrink-0 items-center justify-center rounded-[9px] bg-transparent text-foreground outline-none transition-[background-color,color,opacity] duration-150 ease-out hover:opacity-90 focus-visible:ring-1 focus-visible:ring-amber data-[surface-visible]:bg-foreground data-[surface-visible]:text-background"
+              onClick={onToggle}
+              type="button"
+            />
+          }
+        >
+          <PlayPauseShape playing={playing} />
+        </MorphTooltip.Trigger>
+        <MorphTooltip.Portal>
+          <MorphTooltip.Positioner side="top">
+            <MorphTooltip.Popup>
+              <MorphTooltip.Arrow />
+              <MorphTooltip.Viewport>
+                <MorphTooltip.Label>{action} replay · Space</MorphTooltip.Label>
+              </MorphTooltip.Viewport>
+            </MorphTooltip.Popup>
+          </MorphTooltip.Positioner>
+        </MorphTooltip.Portal>
+      </MorphTooltip.Root>
+    </MorphTooltip.Provider>
   );
 }
 
@@ -279,8 +313,8 @@ function PlayPauseShape({ playing }: { playing: boolean }) {
   if (playing) {
     return (
       <span className="flex items-center gap-1" aria-hidden>
-        <span className="h-3.5 w-1 rounded-[1px] bg-background" />
-        <span className="h-3.5 w-1 rounded-[1px] bg-background" />
+        <span className="h-3.5 w-1 rounded-[1px] bg-current" />
+        <span className="h-3.5 w-1 rounded-[1px] bg-current" />
       </span>
     );
   }
@@ -288,7 +322,7 @@ function PlayPauseShape({ playing }: { playing: boolean }) {
   return (
     <span
       aria-hidden
-      className="ml-0.5 h-0 w-0 border-y-7 border-l-10 border-y-transparent border-l-background"
+      className="ml-0.5 h-0 w-0 border-y-7 border-l-10 border-y-transparent border-l-current"
     />
   );
 }

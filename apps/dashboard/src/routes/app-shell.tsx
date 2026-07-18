@@ -1,8 +1,8 @@
 import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { LazyMotion, domMax } from "framer-motion";
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { BrandMark } from "@/components/brand-mark";
-import { EmberField } from "@/components/ember-field";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -23,16 +23,31 @@ import {
   signOutDashboardAccess,
 } from "@/lib/dashboard-access";
 import { getDashboardEnvironmentLabel } from "@/lib/dashboard-environment";
-import { ArrowUpRight, ShieldUser } from "@/lib/icon-map";
+import { ShieldUser } from "@/lib/icon-map";
 import { dashboardNavItems, type DashboardNavItem } from "@/lib/dashboard-navigation";
 import { useDashboardWorkspace } from "@/lib/dashboard-workspace";
+import { m, type HTMLMotionProps } from "@/lib/motion";
 import { surfaceClasses } from "@/lib/surface-classes";
 import { SurfaceProvider } from "@/lib/surface-context";
 import { cn } from "@/lib/utils";
 
 const DASHBOARD_SURFACE_LEVEL = 2;
 
-export function AppShell({ children }: { children?: ReactNode }) {
+export function AppShell({
+  children,
+  navigationPathname,
+  showAccountAvatar = true,
+  workspaceKey,
+  workspaceMotion,
+  workspaceOverlay,
+}: {
+  children?: ReactNode;
+  navigationPathname?: string;
+  showAccountAvatar?: boolean;
+  workspaceKey?: number | string;
+  workspaceMotion?: HTMLMotionProps<"div">;
+  workspaceOverlay?: ReactNode;
+}) {
   const { projectId, isDemo } = useDashboardWorkspace();
   const environmentLabel = getDashboardEnvironmentLabel(
     isDemo,
@@ -75,6 +90,30 @@ export function AppShell({ children }: { children?: ReactNode }) {
     }
     setIsSigningOut(false);
   }
+
+  const workspaceContent = (
+    <>
+      <ScrollArea orientation="horizontal" viewportClassName="scroll-fade-x">
+        <TopNav
+          isDemo={isDemo}
+          items={dashboardNavItems(isDemo, canManageProject(activeProject))}
+          pathnameOverride={navigationPathname}
+          projectId={projectId}
+        />
+      </ScrollArea>
+
+      <ScrollArea className="min-h-0 flex-1" viewportClassName="scroll-fade">
+        <main
+          className={cn(
+            "mx-auto w-full max-w-full px-4 py-5 sm:px-7 sm:py-6",
+            wideMain ? "max-w-475" : "max-w-300",
+          )}
+        >
+          {children ?? <Outlet />}
+        </main>
+      </ScrollArea>
+    </>
+  );
 
   return (
     <div className="flex h-screen flex-col overflow-hidden text-foreground">
@@ -150,14 +189,15 @@ export function AppShell({ children }: { children?: ReactNode }) {
                   </Button>
                 </div>
               )}
-              {isDemo ? (
-                <span
-                  aria-hidden="true"
-                  className="size-6.5 rounded-full border border-border bg-[linear-gradient(135deg,var(--teal-soft),var(--teal))]"
-                />
-              ) : (
-                <AccountAvatar image={account?.user.image} name={account?.user.name} />
-              )}
+              {showAccountAvatar &&
+                (isDemo ? (
+                  <span
+                    aria-hidden="true"
+                    className="size-6.5 rounded-full border border-border bg-[linear-gradient(135deg,var(--teal-soft),var(--teal))]"
+                  />
+                ) : (
+                  <AccountAvatar image={account?.user.image} name={account?.user.name} />
+                ))}
             </div>
           </nav>
         </ScrollArea>
@@ -165,33 +205,27 @@ export function AppShell({ children }: { children?: ReactNode }) {
 
       <div className="min-h-0 flex-1 px-2 pb-2 sm:px-3 sm:pb-3">
         <SurfaceProvider value={DASHBOARD_SURFACE_LEVEL}>
-          <div
+          <m.div
+            key={workspaceKey}
+            {...workspaceMotion}
             className={cn(
               "flex h-full min-h-0 flex-col overflow-hidden rounded-xl",
               surfaceClasses(DASHBOARD_SURFACE_LEVEL),
+              // The demo notch overflows into the project-header row. Lift the
+              // transformed workspace layer above that transparent header so
+              // the notch CTA can receive pointer events.
+              workspaceOverlay !== undefined && "relative z-50",
             )}
           >
-            <ScrollArea orientation="horizontal" viewportClassName="scroll-fade-x">
-              <nav className="flex min-w-max gap-1 border-b border-border px-4 py-1 sm:px-7">
-                {dashboardNavItems(isDemo, canManageProject(activeProject)).map((item) => (
-                  <TopNavTab isDemo={isDemo} item={item} key={item.label} projectId={projectId} />
-                ))}
-              </nav>
-            </ScrollArea>
-
-            {isDemo && <DemoReadOnlyBanner />}
-
-            <ScrollArea className="min-h-0 flex-1" viewportClassName="scroll-fade">
-              <main
-                className={cn(
-                  "mx-auto w-full max-w-full px-4 py-5 sm:px-7 sm:py-6",
-                  wideMain ? "max-w-475" : "max-w-300",
-                )}
-              >
-                {children ?? <Outlet />}
-              </main>
-            </ScrollArea>
-          </div>
+            {workspaceOverlay === undefined ? (
+              workspaceContent
+            ) : (
+              <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl">
+                {workspaceContent}
+              </div>
+            )}
+            {workspaceOverlay}
+          </m.div>
         </SurfaceProvider>
       </div>
     </div>
@@ -235,84 +269,118 @@ function readInitials(name: string | undefined): string {
     .join("");
 }
 
+function resolveNavPath(item: DashboardNavItem, isDemo: boolean, projectId: string): string {
+  const demoTo = isDemo ? item.demoTo : undefined;
+  return demoTo ?? item.projectTo.replace("$projectId", projectId);
+}
+
+function TopNav({
+  isDemo,
+  items,
+  pathnameOverride,
+  projectId,
+}: {
+  isDemo: boolean;
+  items: DashboardNavItem[];
+  pathnameOverride?: string;
+  projectId: string;
+}) {
+  const currentPathname = useRouterState({ select: (state) => state.location.pathname });
+  const pathname = pathnameOverride ?? currentPathname;
+  const normalizedPathname = pathname.replace(/\/+$/, "");
+  const activeIndex = items.findIndex((item) => {
+    const resolvedPath = resolveNavPath(item, isDemo, projectId);
+    return normalizedPathname === resolvedPath || normalizedPathname.startsWith(`${resolvedPath}/`);
+  });
+
+  return (
+    <LazyMotion features={domMax}>
+      {/* 6px inset on top and sides + 6px tab radius nests concentrically inside
+          the container's 12px corner (outer radius = inner radius + gap). */}
+      <nav className="flex min-w-max items-end gap-1 border-b border-border px-1.5 pt-1.5">
+        {items.map((item, index) => (
+          <TopNavTab
+            isActive={index === activeIndex}
+            isDemo={isDemo}
+            item={item}
+            key={item.label}
+            projectId={projectId}
+          />
+        ))}
+      </nav>
+    </LazyMotion>
+  );
+}
+
+// Spring timing shared with the tab lab's V1 preview; equal-width tabs keep the
+// layout animation a pure translate, so the notch never distorts mid-flight.
+const notchTransition = { type: "spring", duration: 0.45, bounce: 0.15 } as const;
+
 function TopNavTab({
+  isActive,
   isDemo,
   item,
   projectId,
 }: {
+  isActive: boolean;
   isDemo: boolean;
   item: DashboardNavItem;
   projectId: string;
 }) {
-  if (isDemo && item.demoTo !== undefined) {
-    return (
-      <Link
-        activeProps={{
-          className: "border-amber font-medium text-foreground",
-        }}
+  const demoTo = isDemo ? item.demoTo : undefined;
+  const Icon = item.icon;
+
+  const className = cn(
+    "relative -mb-px flex w-28 items-center justify-center gap-2 rounded-t-md py-2.75 text-[13px] text-muted-foreground transition-[color,background-color,gap,font-weight] duration-200 sm:py-2.25",
+    isActive
+      ? "font-medium text-foreground"
+      : "hover:gap-2.5 hover:bg-secondary/60 hover:font-medium hover:text-foreground",
+  );
+
+  const content = (
+    <>
+      {isActive && (
+        <m.span
+          aria-hidden
+          className="absolute inset-x-0 -bottom-px top-0 rounded-t-md border border-b-0 border-border bg-surface-4"
+          layoutId="top-nav-notch"
+          transition={notchTransition}
+        />
+      )}
+      {/* Active icon sits on an app-icon plate: deep teal rounded square
+          with a lighter rim, dark glyph, soft bloom — the dock-icon glow in the
+          calm accent (local tab lab colorway C2, user-tuned darker
+          2026-07-18). Inactive tabs keep the same box so labels never shift. */}
+      <span
+        aria-hidden
         className={cn(
-          "-mb-px border-b-2 border-transparent px-3.25 py-3 text-[13px] text-muted-foreground transition-colors hover:text-foreground sm:py-2.5",
+          "relative flex size-[17px] shrink-0 items-center justify-center rounded-[5px]",
+          isActive &&
+            "bg-[linear-gradient(160deg,color-mix(in_oklab,var(--teal)_92%,black),color-mix(in_oklab,var(--teal)_74%,black))] text-background shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--teal)_70%,white),0_0_8px_-1px_color-mix(in_oklab,var(--teal)_70%,transparent)]",
         )}
-        to={item.demoTo}
       >
-        {item.label}
+        <Icon size={12} strokeWidth={1.75} />
+      </span>
+      <span className="relative">{item.label}</span>
+    </>
+  );
+
+  if (demoTo !== undefined) {
+    return (
+      <Link aria-current={isActive ? "page" : undefined} className={className} to={demoTo}>
+        {content}
       </Link>
     );
   }
 
   return (
     <Link
-      activeProps={{
-        className: "border-amber font-medium text-foreground",
-      }}
-      className={cn(
-        "-mb-px border-b-2 border-transparent px-3.25 py-3 text-[13px] text-muted-foreground transition-colors hover:text-foreground sm:py-2.5",
-      )}
+      aria-current={isActive ? "page" : undefined}
+      className={className}
       params={{ projectId }}
       to={item.projectTo}
     >
-      {item.label}
+      {content}
     </Link>
-  );
-}
-
-/* The teal ember rail (banner-lab V10, 2026-07-18): a floating rounded rail
-   in the dashboard's contrast color, with the toast's ember-dot field owning
-   the right end. Layers back-to-front: gradient surface, ember dots, then
-   text and CTA. Deliberately not dismissible — this is the signup path. */
-function DemoReadOnlyBanner() {
-  return (
-    <div className="px-1.5 py-1.5 sm:px-2">
-      <div className="relative flex items-center gap-4 overflow-hidden rounded-xl border border-teal/25 bg-[linear-gradient(90deg,oklch(0.125_0.005_285),oklch(0.17_0.032_205))] px-4 py-4 sm:px-5">
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-y-0 right-0 w-2/5 [mask-image:linear-gradient(105deg,transparent_8%,black_55%)]"
-        >
-          <EmberField
-            className="inset-0 h-full w-full text-teal"
-            fadePerRow={0.045}
-            intensity={3.5}
-            pulse={1.8}
-          />
-        </span>
-        <p className="relative text-[14px] font-medium tracking-[-0.005em] text-foreground max-sm:hidden">
-          Our own landing page, recorded with our own product.{" "}
-          <span className="text-teal">Look closely — you might spot yourself.</span>
-        </p>
-        <Link
-          className="demo-cta group relative ml-auto flex items-center gap-2.5 rounded-[9px] bg-white py-1.25 pl-3.25 pr-1.5 text-[14px] font-[550] tracking-[-0.01em] text-black"
-          to="/login"
-        >
-          Start free
-          <span className="flex size-5.5 items-center justify-center rounded-full bg-black text-white">
-            <ArrowUpRight
-              className="transition-transform duration-200 ease-out group-hover:rotate-45"
-              size={13}
-              strokeWidth={1.5}
-            />
-          </span>
-        </Link>
-      </div>
-    </div>
   );
 }

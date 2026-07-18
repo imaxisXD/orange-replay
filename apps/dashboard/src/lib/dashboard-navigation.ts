@@ -1,3 +1,12 @@
+import {
+  Download,
+  LayoutDashboard,
+  LiveStreaming,
+  PlayCircle,
+  Settings,
+  type IconComponent,
+} from "@/lib/icon-map";
+
 export type ProjectNavPath =
   | "/projects/$projectId/install"
   | "/projects/$projectId/live"
@@ -9,16 +18,32 @@ export type DemoNavPath = "/demo/live" | "/demo/overview" | "/demo/sessions";
 
 export interface DashboardNavItem {
   demoTo?: DemoNavPath;
+  icon: IconComponent;
   label: string;
   projectTo: ProjectNavPath;
 }
 
 const allNavItems: DashboardNavItem[] = [
-  { label: "Overview", projectTo: "/projects/$projectId/overview", demoTo: "/demo/overview" },
-  { label: "Sessions", projectTo: "/projects/$projectId/sessions", demoTo: "/demo/sessions" },
-  { label: "Live", projectTo: "/projects/$projectId/live", demoTo: "/demo/live" },
-  { label: "Settings", projectTo: "/projects/$projectId/settings" },
-  { label: "Install", projectTo: "/projects/$projectId/install" },
+  {
+    label: "Overview",
+    icon: LayoutDashboard,
+    projectTo: "/projects/$projectId/overview",
+    demoTo: "/demo/overview",
+  },
+  {
+    label: "Sessions",
+    icon: PlayCircle,
+    projectTo: "/projects/$projectId/sessions",
+    demoTo: "/demo/sessions",
+  },
+  {
+    label: "Live",
+    icon: LiveStreaming,
+    projectTo: "/projects/$projectId/live",
+    demoTo: "/demo/live",
+  },
+  { label: "Settings", icon: Settings, projectTo: "/projects/$projectId/settings" },
+  { label: "Install", icon: Download, projectTo: "/projects/$projectId/install" },
 ];
 
 export function dashboardNavItems(isDemo: boolean, canManageProject = true): DashboardNavItem[] {

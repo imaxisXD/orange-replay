@@ -32,13 +32,14 @@ Analytics Engine verification, Vectorize/AI features, heatmaps UI, the opt-in pr
    - `request_id` (UUIDv7) minted at ingest/API edge, propagated via `x-or-request-id` into DO RPCs and queue messages.
 6. **Testing** (decided in Phase 0 — `@cloudflare/vitest-pool-workers` is incompatible with Vite Plus' vitest 4, "runner not supported"): pure decision logic lives in plain functions unit-tested under `vp test`; worker behavior is integration-tested via `unstable_dev` booting the real worker (see `apps/worker/tests/harness.test.ts` for the canonical pattern) against guarded `/__test/*` routes enabled by `DEV_TEST_ROUTES=1`. tsconfig split: `src/` is workers-typed, `tests/` is node-typed (`tests/tsconfig.json`) — never mix the two type worlds in one config. SDK tested with happy-dom + Playwright e2e against `wrangler dev`.
 7. **Security**: authz on every private API route through Better Auth session plus project membership, R2 key validation (no traversal), prepared statements only, size caps enforced, CORS exact. The public demo is read-only and explicitly allowlisted.
+8. **End-to-end review**: follow `docs/code-review.md` for every review. Trace changed values and behavior through storage, backend rules, API contracts, shared types, frontend mapping, every visible consumer, and every affected interaction. Backend work is not complete when only backend tests pass; verify the resulting frontend behavior. Shared components require all affected call sites and states to be enumerated. A reviewer must not report “pass” when an affected user path has no direct proof.
 
 ## Execution model
 
 - Each phase = one Workflow; each task = one Codex agent in an **isolated git worktree**; Claude merges in dependency order and resolves conflicts.
 - Contract-first sequencing: `packages/shared` lands before parallel fan-out; agents code against its exported types.
 - Every task prompt carries: scope, file budget, interface contract, acceptance criteria, ground rules.
-- **Judge loop** (Claude, per phase): re-run gates → adversarial review workflow (lenses: architecture invariants, correctness, security, logging contract, UI-registry compliance, simplification) → verified findings become fix tasks sent back to Codex agents → re-verify. Max 3 loops; residuals fixed directly by Claude and noted.
+- **Judge loop** (Claude, per phase): re-run gates → build the end-to-end impact map required by `docs/code-review.md` → adversarial review workflow (lenses: architecture invariants, cross-layer correctness, security, logging contract, UI-registry compliance, user-visible behavior, interactions, simplification) → verified findings become fix tasks sent back to Codex agents → re-verify. Max 3 loops; residuals fixed directly by Claude and noted.
 
 ## Phase 0 — Bootstrap (Claude inline, no Codex)
 

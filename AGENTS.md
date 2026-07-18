@@ -19,6 +19,7 @@ Docs are local at `node_modules/vite-plus/docs` or online at https://viteplus.de
 
 - **Design authority**: ARCHITECTURE.md. **Execution contract**: PLAN.md (ground rules, task scopes, logging contract). Read both before changing anything.
 - **Status ledger / handoff**: HANDOFF.md tracks what's done (with commits) and what's pending (with spec pointers). Update it in the same commit as the work; if picking up this repo fresh, start there. Task dispatch specs live in `docs/specs/`.
+- **Code review**: every review must follow `docs/code-review.md`. Trace each change through storage, backend logic, API contracts, frontend consumers, visible text, states, and interactions. A backend change is not fully reviewed until its frontend effects are verified. Generic green gates do not replace exact user-visible and end-to-end checks.
 - **Dev server**: Run only one dev server for this repo. Before starting one, check whether another agent or task already has a dev server running. If one is running, reuse its port instead of starting another server. Start a new dev server only when no existing server is available.
 - Cost invariants are correctness: DO hibernation eligibility (hibernation WebSockets only, no timers outliving a request), minimal `setAlarm()` writes, idempotency by `(session, tab, seq)`, ingest path never decompresses payloads, sidecar scrubbing on by default, immutable R2 objects.
 - **Logging**: wide events only — one JSON event per unit of work via the `@orange-replay/shared` logger, emitted in `finally`. No scattered `console.log`.

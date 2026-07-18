@@ -6,30 +6,77 @@ import { Switch as SwitchPrimitive } from "@base-ui/react/switch";
 import { cn } from "@/lib/utils";
 import { spring } from "@/lib/springs";
 
+type SwitchSize = "small" | "medium" | "large";
+
 interface SwitchProps extends HTMLAttributes<HTMLDivElement> {
   label: string;
   checked: boolean;
   onToggle: () => void;
   disabled?: boolean;
+  size?: SwitchSize;
   thumbTransition?: Transition;
 }
 
-const TRACK_WIDTH = 34;
-const TRACK_HEIGHT = 20;
-const THUMB_SIZE = 16;
-const THUMB_OFFSET = 2;
-const THUMB_TRAVEL = TRACK_WIDTH - THUMB_SIZE - THUMB_OFFSET * 2;
-const PILL_EXTEND = 2;
-const PRESS_EXTEND = 4;
-const PRESS_SHRINK = 4;
-const DRAG_DEAD_ZONE = 2;
+const SWITCH_SIZE_SCALE: Record<SwitchSize, number> = {
+  small: 0.8,
+  medium: 1,
+  large: 1.2,
+};
+
+const SWITCH_THUMB_SIZE: Record<SwitchSize, number> = {
+  small: 12,
+  medium: 16,
+  large: 19.2,
+};
+
+const SWITCH_PRESS_MORPH_SCALE: Record<SwitchSize, number> = {
+  small: 0.5,
+  medium: 1,
+  large: 1,
+};
+
+const SWITCH_THUMB_BACKGROUND =
+  "linear-gradient(to top, oklch(1 0 0) 0%, oklch(0.97 0.003 286) 36%, oklch(0.84 0.008 286) 100%)";
+const SWITCH_THUMB_SHADOW =
+  "inset 0 1px 2px rgb(10 10 12 / 0.28), inset 0 -1px 1px rgb(255 255 255 / 0.95), 0 1px 2px rgb(0 0 0 / 0.22)";
+
+const BASE_TRACK_WIDTH = 34;
+const BASE_TRACK_HEIGHT = 20;
+const BASE_PILL_EXTEND = 2;
+const BASE_PRESS_EXTEND = 4;
+const BASE_PRESS_SHRINK = 4;
+const BASE_DRAG_DEAD_ZONE = 2;
 
 const Switch = forwardRef<HTMLDivElement, SwitchProps>(
-  ({ label, checked, onToggle, disabled = false, thumbTransition, className, ...props }, ref) => {
+  (
+    {
+      label,
+      checked,
+      onToggle,
+      disabled = false,
+      size = "medium",
+      thumbTransition,
+      className,
+      ...props
+    },
+    ref,
+  ) => {
     const labelId = useId();
     const reduceMotion = useReducedMotion();
     const [hovered, setHovered] = useState(false);
     const [pressed, setPressed] = useState(false);
+    const sizeScale = SWITCH_SIZE_SCALE[size];
+    const pressMorphScale = SWITCH_PRESS_MORPH_SCALE[size];
+    const trackWidth = BASE_TRACK_WIDTH * sizeScale;
+    const trackHeight = BASE_TRACK_HEIGHT * sizeScale;
+    const thumbSize = SWITCH_THUMB_SIZE[size];
+    const innerPadding = (trackHeight - thumbSize) / 2;
+    const trackRadius = thumbSize / 2 + innerPadding;
+    const thumbTravel = trackWidth - thumbSize - innerPadding * 2;
+    const pillExtend = BASE_PILL_EXTEND * sizeScale;
+    const pressExtend = BASE_PRESS_EXTEND * sizeScale * pressMorphScale;
+    const pressShrink = BASE_PRESS_SHRINK * sizeScale * pressMorphScale;
+    const dragDeadZone = BASE_DRAG_DEAD_ZONE * sizeScale;
 
     // Drag refs (not state to avoid re-renders during drag)
     const dragging = useRef(false);
@@ -40,18 +87,19 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
     } | null>(null);
 
     // Motion value for thumb x-axis
-    const motionX = useMotionValue(checked ? THUMB_OFFSET + THUMB_TRAVEL : THUMB_OFFSET);
+    const motionX = useMotionValue(checked ? innerPadding + thumbTravel : innerPadding);
 
     // Compute thumb shape
     const thumbWidth = pressed
-      ? THUMB_SIZE + PRESS_EXTEND
+      ? thumbSize + pressExtend
       : hovered
-        ? THUMB_SIZE + PILL_EXTEND
-        : THUMB_SIZE;
-    const thumbHeight = pressed ? THUMB_SIZE - PRESS_SHRINK : THUMB_SIZE;
-    const thumbY = pressed ? THUMB_OFFSET + PRESS_SHRINK / 2 : THUMB_OFFSET;
-    const extraWidth = thumbWidth - THUMB_SIZE;
-    const thumbX = checked ? THUMB_OFFSET + THUMB_TRAVEL - extraWidth : THUMB_OFFSET;
+        ? thumbSize + pillExtend
+        : thumbSize;
+    const thumbHeight = pressed ? thumbSize - pressShrink : thumbSize;
+    const thumbRadius = thumbHeight / 2;
+    const thumbY = pressed ? innerPadding + pressShrink / 2 : innerPadding;
+    const extraWidth = thumbWidth - thumbSize;
+    const thumbX = checked ? innerPadding + thumbTravel - extraWidth : innerPadding;
 
     // Sync motionX when thumbX changes (hover/press/checked) and not dragging
     useEffect(() => {
@@ -79,13 +127,13 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
       const delta = e.clientX - pointerStart.current.clientX;
 
       if (!dragging.current) {
-        if (Math.abs(delta) < DRAG_DEAD_ZONE) return;
+        if (Math.abs(delta) < dragDeadZone) return;
         dragging.current = true;
       }
 
-      const dragMin = THUMB_OFFSET;
-      const pressedThumbWidth = THUMB_SIZE + PRESS_EXTEND;
-      const dragMax = TRACK_WIDTH - THUMB_OFFSET - pressedThumbWidth;
+      const dragMin = innerPadding;
+      const pressedThumbWidth = thumbSize + pressExtend;
+      const dragMax = trackWidth - innerPadding - pressedThumbWidth;
       const rawX = pointerStart.current.originX + delta;
       motionX.set(Math.max(dragMin, Math.min(dragMax, rawX)));
     }
@@ -99,9 +147,9 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
         dragging.current = false;
 
         const currentX = motionX.get();
-        const dragMin = THUMB_OFFSET;
-        const pressedThumbWidth = THUMB_SIZE + PRESS_EXTEND;
-        const dragMax = TRACK_WIDTH - THUMB_OFFSET - pressedThumbWidth;
+        const dragMin = innerPadding;
+        const pressedThumbWidth = thumbSize + pressExtend;
+        const dragMax = trackWidth - innerPadding - pressedThumbWidth;
         const midpoint = (dragMin + dragMax) / 2;
 
         const shouldBeOn = currentX > midpoint;
@@ -110,7 +158,7 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
           onToggle();
         } else {
           // Snap back to current resting position (un-pressed)
-          const snapTarget = checked ? THUMB_OFFSET + THUMB_TRAVEL : THUMB_OFFSET;
+          const snapTarget = checked ? innerPadding + thumbTravel : innerPadding;
           animate(motionX, snapTarget, resolveThumbTransition(reduceMotion, thumbTransition));
         }
 
@@ -129,7 +177,7 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
       if (dragging.current) {
         dragging.current = false;
         // Gesture cancelled by the system — snap back without toggling
-        const snapTarget = checked ? THUMB_OFFSET + THUMB_TRAVEL : THUMB_OFFSET;
+        const snapTarget = checked ? innerPadding + thumbTravel : innerPadding;
         animate(motionX, snapTarget, resolveThumbTransition(reduceMotion, thumbTransition));
       }
 
@@ -170,13 +218,15 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
           disabled={disabled}
           tabIndex={0}
           className={cn(
-            "relative shrink-0 cursor-pointer rounded-full border outline-none",
+            "relative shrink-0 cursor-pointer border outline-none",
             "transition-colors duration-80",
             "focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-background",
           )}
+          data-size={size}
           style={{
-            width: TRACK_WIDTH,
-            height: TRACK_HEIGHT,
+            width: trackWidth,
+            height: trackHeight,
+            borderRadius: trackRadius,
             backgroundColor: checked
               ? hovered
                 ? "color-mix(in oklch, var(--amber) 88%, var(--foreground))"
@@ -206,9 +256,12 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
               return (
                 <m.span
                   {...thumbProps}
-                  className="absolute top-0 left-0 block rounded-full bg-white shadow-sm"
+                  className="absolute -top-px -left-px block bg-white"
                   style={{
                     ...(baseStyle as React.CSSProperties | undefined),
+                    backgroundImage: SWITCH_THUMB_BACKGROUND,
+                    borderRadius: thumbRadius,
+                    boxShadow: SWITCH_THUMB_SHADOW,
                     height: thumbHeight,
                     width: thumbWidth,
                     x: motionX,
@@ -227,7 +280,7 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
           id={labelId}
           className={cn(
             // text-box trim recenters the letterforms against the track; the
-            // 20px track is taller than the label, so layout doesn't change.
+            // track controls the row height, so the trimmed label does not move it.
             "text-[13px] [text-box:trim-both_cap_alphabetic] transition-[color] duration-80",
             checked ? "text-foreground" : "text-muted-foreground",
           )}
@@ -249,4 +302,4 @@ function resolveThumbTransition(
 Switch.displayName = "Switch";
 
 export { Switch };
-export type { SwitchProps };
+export type { SwitchProps, SwitchSize };

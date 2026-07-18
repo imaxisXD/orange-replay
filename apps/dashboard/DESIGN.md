@@ -34,16 +34,16 @@ typography:
     lineHeight: normal
     letterSpacing: "0.06em"
   data:
-    fontFamily: "Departure Mono, ui-monospace, SF Mono, Menlo, monospace"
+    fontFamily: "Uncut Plan8, ui-monospace, SF Mono, Menlo, monospace"
     fontSize: "12px"
     fontWeight: 400
     lineHeight: normal
     letterSpacing: normal
   metric:
     fontFamily: "Departure Mono, ui-monospace, SF Mono, Menlo, monospace"
-    fontSize: "21px"
+    fontSize: "24px"
     fontWeight: 400
-    lineHeight: normal
+    lineHeight: 1.1
     letterSpacing: normal
 rounded:
   sm: "4px"
@@ -151,19 +151,22 @@ The palette is a restrained violet-black neutral system with three clear signal 
 **Display Font:** Uncut Sans Variable with system sans fallbacks\
 **Body Font:** Uncut Sans Variable with system sans fallbacks\
 **Label/Code Font:** Uncut Plan8 with SF Mono and Menlo fallbacks\
-**Numeric Font:** Departure Mono with SF Mono and Menlo fallbacks
+**Numeric Font:** Uncut Plan8 with SF Mono and Menlo fallbacks\
+**Overview Metric Font:** Departure Mono with SF Mono and Menlo fallbacks
 
-**Character:** Uncut Sans keeps navigation and controls clear while giving the product a more distinct voice. Uncut Plan8 keeps code, URLs, and identifiers distinct. Departure Mono gives measurable values a precise pixel-grid character without turning the whole product into a terminal.
+**Character:** Uncut Sans keeps navigation and controls clear while giving the product a more distinct voice. Uncut Plan8 keeps code, URLs, identifiers, and ordinary measurable values consistent. Departure Mono is reserved for the Overview card metrics, where its pixel-grid character gives the page one focused data accent without turning the whole product into a terminal.
 
 ### Hierarchy
 
 - **Page title** (600, 18px, normal line height): one compact heading per screen with slightly tightened spacing.
-- **Metric** (400, 21px, normal line height): high-value counts and durations; use Amber only when the nonzero value is a warning.
+- **Overview metric** (400, 24px, 1.1 line height): the eight focal card values; use Amber only when the nonzero value is a warning.
 - **Body** (400, 13px, normal line height): default interface copy, table data, and control labels. Long prose is capped at 65–75 characters.
 - **Data** (400, 12px, normal line height): durations, identifiers, timestamps, byte counts, and other tabular values.
 - **Label** (500, 11px, 0.06em tracking): short table headers and micro-labels only; uppercase is allowed only when it improves scanning.
 
-**The Measured Number Rule.** Every data numeral uses Departure Mono and tabular figures. A digits-only fallback also covers numbers inside otherwise sans text without changing the surrounding words. Numeric table columns are right-aligned. Do not synthesize heavier weights; the regular cut keeps its pixel geometry intact.
+**The Measured Number Rule.** Every ordinary data numeral uses Uncut Plan8 and tabular figures. A digits-only fallback also covers numbers inside otherwise sans text without changing the surrounding words. Numeric table columns are right-aligned.
+
+**The Overview Metric Rule.** Only the Overview card values use Departure Mono. Digits, decimal marks, separators, duration punctuation, and percentage symbols share its regular 400 cut. Never synthesize a heavier weight; the regular cut keeps the cards thin and elongated.
 
 **The Quiet Hierarchy Rule.** Product hierarchy comes from weight, alignment, and spacing. Do not introduce display type or oversized headings into the dashboard.
 
