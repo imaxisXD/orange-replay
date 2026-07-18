@@ -14,7 +14,7 @@ import type {
   WideEventOutcome,
 } from "@orange-replay/shared";
 import type { AppendArgs } from "./contract.ts";
-import { sessionIsClosed, type SessionLifecycle } from "./session-lifecycle.ts";
+import { lifecycleState, sessionIsClosed, type SessionLifecycle } from "./session-lifecycle.ts";
 
 export interface SessionLiveHubDependencies {
   ctx: DurableObjectState;
@@ -84,8 +84,7 @@ export class SessionLiveHub {
     let viewerCount = this.viewerCount();
     const pathIds = livePathIds(url.pathname);
     const lifecycle = this.dependencies.getLifecycle();
-    const knownState =
-      lifecycle.status === "open" || lifecycle.status === "finalizing" ? lifecycle.state : null;
+    const knownState = lifecycleState(lifecycle);
     let projectId = knownState?.projectId ?? pathIds?.projectId;
     let sessionId = knownState?.sessionId ?? pathIds?.sessionId;
 

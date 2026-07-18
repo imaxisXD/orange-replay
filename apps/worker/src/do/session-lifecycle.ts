@@ -7,8 +7,10 @@ import type { SessionState } from "./session-state.ts";
  * A session is closed the moment finalization begins (finalizingAt is
  * persisted, so late appends and live joins fail closed while manifest and
  * queue work are in flight) and stays closed once only the tombstone remains.
- * Append gates, the alarm, the live hub, and the ingest ack all consume this
- * lifecycle instead of decoding finalizingAt or the tombstone themselves.
+ * Every closed-decision — the append gates, alarm dispatch, live joins, and
+ * the ack's closed flag — consumes this lifecycle instead of decoding
+ * finalizingAt or the tombstone; only boot, debug output, and test seeding
+ * read the raw pair.
  */
 export type SessionLifecycle =
   | { status: "empty" }
@@ -26,6 +28,11 @@ export function sessionLifecycle(
     return { status: "finalizing", state, finalizingAt: state.finalizingAt };
   }
   return { status: "open", state };
+}
+
+/** The session state a lifecycle carries, when its status has one. */
+export function lifecycleState(lifecycle: SessionLifecycle): SessionState | null {
+  return lifecycle.status === "open" || lifecycle.status === "finalizing" ? lifecycle.state : null;
 }
 
 export function sessionIsClosed(

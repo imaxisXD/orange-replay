@@ -17,7 +17,12 @@ import { encodeStoredBatchMetadata, parseStoredBatchMetadata } from "./session-b
 import { createSessionFinalizeMetrics, SessionFinalizer } from "./session-finalizer.ts";
 import { buildFinalizeTimelineData } from "./session-finalize-data.ts";
 import { SessionLiveHub } from "./session-live-hub.ts";
-import { beginFinalizing, sessionIsClosed, sessionLifecycle } from "./session-lifecycle.ts";
+import {
+  beginFinalizing,
+  lifecycleState,
+  sessionIsClosed,
+  sessionLifecycle,
+} from "./session-lifecycle.ts";
 import { clampIndexForStorage, shouldDropForSessionCap } from "./session-budgets.ts";
 import { createFreshState, encodedTextBytes, updateStateWithBatch } from "./session-state.ts";
 import {
@@ -221,7 +226,7 @@ export class SessionRecorder extends DurableObject<Env> {
         return result;
       }
 
-      let state = lifecycle.status === "open" ? lifecycle.state : null;
+      let state = lifecycleState(lifecycle);
       if (state === null) {
         if (args.seq !== 0) {
           result = closedResult();
@@ -333,8 +338,7 @@ export class SessionRecorder extends DurableObject<Env> {
         delete state.checkpointRequested;
       }
 
-      this.sessionState = state;
-      this.store.persistState(state);
+      this.persistSessionState(state);
       bufferedBytes = state.bufferedBytes;
 
       viewerCount = this.liveHub.broadcastBatch({ ...args, index: clampedIndex });
@@ -574,8 +578,7 @@ export class SessionRecorder extends DurableObject<Env> {
     }
 
     state.checkpointRequested = true;
-    this.sessionState = state;
-    this.store.persistState(state);
+    this.persistSessionState(state);
   }
 
   private lifecycle() {

@@ -45,18 +45,44 @@ function tombstone(): FinalizedTombstone {
 describe("session lifecycle", () => {
   it("answers open, finalizing, finalized, and empty from one predicate", () => {
     const cases = [
-      { state: null, tombstone: null, status: "empty", closed: false },
-      { state: openState(), tombstone: null, status: "open", closed: false },
       {
+        name: "no state, no tombstone",
+        state: null,
+        tombstone: null,
+        status: "empty",
+        closed: false,
+      },
+      {
+        name: "recording state",
+        state: openState(),
+        tombstone: null,
+        status: "open",
+        closed: false,
+      },
+      {
+        name: "state with finalizingAt",
         state: openState({ finalizingAt: 1_300 }),
         tombstone: null,
         status: "finalizing",
         closed: true,
       },
-      { state: null, tombstone: tombstone(), status: "finalized", closed: true },
-      // The tombstone wins even if a stale in-memory state lingers.
-      { state: openState(), tombstone: tombstone(), status: "finalized", closed: true },
       {
+        name: "tombstone only",
+        state: null,
+        tombstone: tombstone(),
+        status: "finalized",
+        closed: true,
+      },
+      // The tombstone wins even if a stale in-memory state lingers.
+      {
+        name: "tombstone beats lingering open state",
+        state: openState(),
+        tombstone: tombstone(),
+        status: "finalized",
+        closed: true,
+      },
+      {
+        name: "tombstone beats lingering finalizing state",
         state: openState({ finalizingAt: 1_300 }),
         tombstone: tombstone(),
         status: "finalized",
@@ -66,11 +92,8 @@ describe("session lifecycle", () => {
 
     for (const testCase of cases) {
       const lifecycle = sessionLifecycle(testCase.state, testCase.tombstone);
-      expect(
-        lifecycle.status,
-        `${String(testCase.state !== null)}/${String(testCase.tombstone !== null)}`,
-      ).toBe(testCase.status);
-      expect(sessionIsClosed(lifecycle)).toBe(testCase.closed);
+      expect(lifecycle.status, testCase.name).toBe(testCase.status);
+      expect(sessionIsClosed(lifecycle), testCase.name).toBe(testCase.closed);
     }
   });
 
