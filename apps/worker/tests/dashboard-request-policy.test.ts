@@ -4,6 +4,8 @@ import {
   matchDashboardRequest,
   projectRouteAccess,
   type DashboardProjectRouteName,
+  type DashboardRouteName,
+  type ProjectRoutePlan,
 } from "../src/api/dashboard-request-policy.ts";
 import type { Env } from "../src/env.ts";
 import { handleApi } from "../src/api/handler.ts";
@@ -127,177 +129,213 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("dashboard request policy", () => {
-  it("owns every supported path, method, access rule, rate limit, origin, and response wrapper", () => {
-    const cases = [
-      route("GET", "/api/v1/health", "health", "health", "public"),
-      route("DELETE", "/api/auth/session", "better_auth", "better_auth", "better_auth", {
-        responsePolicy: "security_headers",
-      }),
-      route("GET", "/api/v1/auth/config", "auth_config", "auth_config", "public"),
-      route("GET", "/api/v1/demo", "demo_discovery", "demo_discovery", "public"),
-      route(
-        "GET",
-        "/api/v1/public-pages/public_1",
-        "public_page_data",
-        "public_page_data",
-        "public",
-        { handlerRateLimit: "public_page", publicId: "public_1" },
-      ),
-      route(
-        "GET",
-        "/api/v1/public-pages/public_1/replays/replay_1/manifest",
-        "public_manifest",
-        "public_manifest",
-        "public",
-        {
-          handlerRateLimit: "public_page",
-          publicId: "public_1",
-          publicReplayId: "replay_1",
-        },
-      ),
-      route(
+describe("dashboard request plans", () => {
+  it("plans every non-project route with its authentication family and ids", () => {
+    expect(matchDashboardRequest("GET", "/api/v1/health")).toEqual({
+      kind: "public",
+      routeName: "health",
+      action: "health",
+    });
+    expect(matchDashboardRequest("DELETE", "/api/auth/session")).toEqual({
+      kind: "better_auth",
+      routeName: "better_auth",
+    });
+    expect(matchDashboardRequest("GET", "/api/v1/auth/config")).toEqual({
+      kind: "public",
+      routeName: "auth_config",
+      action: "auth_config",
+    });
+    expect(matchDashboardRequest("GET", "/api/v1/demo")).toEqual({
+      kind: "public",
+      routeName: "demo_discovery",
+      action: "demo_discovery",
+    });
+    expect(matchDashboardRequest("GET", "/api/v1/public-pages/public_1")).toEqual({
+      kind: "public_page",
+      routeName: "public_page_data",
+      action: "page_data",
+      params: { ok: true, ids: { publicId: "public_1" } },
+    });
+    expect(
+      matchDashboardRequest("GET", "/api/v1/public-pages/public_1/replays/replay_1/manifest"),
+    ).toEqual({
+      kind: "public_page",
+      routeName: "public_manifest",
+      action: "manifest",
+      params: { ok: true, ids: { publicId: "public_1", publicReplayId: "replay_1" } },
+    });
+    expect(
+      matchDashboardRequest(
         "GET",
         "/api/v1/public-pages/public_1/replays/replay_1/segments/seg-000001.ors",
-        "public_segment",
-        "public_segment",
-        "public",
-        {
-          handlerRateLimit: "public_page",
-          publicId: "public_1",
-          publicReplayId: "replay_1",
-          segmentName: "seg-000001.ors",
-        },
       ),
-      route("GET", "/api/v1/projects/project_1/sessions/session_1/live", "live", "live", "ticket", {
-        projectId: "project_1",
-        sessionId: "session_1",
-      }),
-      route("GET", "/api/v1/account", "account", "account", "dashboard", {
-        access: "session",
-      }),
-      route(
+    ).toEqual({
+      kind: "public_page",
+      routeName: "public_segment",
+      action: "segment",
+      params: {
+        ok: true,
+        ids: { publicId: "public_1", publicReplayId: "replay_1", segmentName: "seg-000001.ors" },
+      },
+    });
+    expect(
+      matchDashboardRequest("GET", "/api/v1/projects/project_1/sessions/session_1/live"),
+    ).toEqual({
+      kind: "ticket_live",
+      routeName: "live",
+      params: { ok: true, ids: { projectId: "project_1", sessionId: "session_1" } },
+    });
+    expect(matchDashboardRequest("GET", "/api/v1/account")).toEqual({
+      kind: "authed",
+      routeName: "account",
+      projectIdForAuth: null,
+      route: { access: "session", action: "account", mutationOrigin: false },
+    });
+    expect(matchDashboardRequest("POST", "/api/v1/account/bootstrap")).toEqual({
+      kind: "authed",
+      routeName: "account_bootstrap",
+      projectIdForAuth: null,
+      route: { access: "session", action: "account_bootstrap", mutationOrigin: true },
+    });
+    expect(matchDashboardRequest("GET", "/api/v1/admin/stats")).toEqual({
+      kind: "authed",
+      routeName: "admin_stats",
+      projectIdForAuth: null,
+      route: { access: "global_admin", action: "admin_stats", mutationOrigin: false },
+    });
+    expect(matchDashboardRequest("GET", "/api/v1/admin/users")).toEqual({
+      kind: "authed",
+      routeName: "admin_users",
+      projectIdForAuth: null,
+      route: { access: "global_admin", action: "admin_users", mutationOrigin: false },
+    });
+  });
+
+  it("plans every project route with its role key, limits, origin, response, and ids", () => {
+    const cases: readonly [string, string, DashboardRouteName, ProjectRoutePlan][] = [
+      [
+        "GET",
+        "/sessions",
+        "sessions_list",
+        plannedProject("sessions_list", "sessions_list", { analyticsReadLimit: true }),
+      ],
+      ["GET", "/session-heads", "session_heads", plannedProject("session_heads", "session_heads")],
+      [
+        "GET",
+        "/stats",
+        "project_stats",
+        plannedProject("project_stats", "project_stats", { analyticsReadLimit: true }),
+      ],
+      ["GET", "/live", "project_live", plannedProject("project_live", "project_live")],
+      [
+        "GET",
+        "/config",
+        "project_config",
+        plannedProject("project_config_read", "project_config_read"),
+      ],
+      [
+        "PUT",
+        "/config",
+        "project_config",
+        plannedProject("project_config_write", "project_config_write", { mutationOrigin: true }),
+      ],
+      [
+        "GET",
+        "/install-status",
+        "install_status",
+        plannedProject("install_status", "install_status"),
+      ],
+      [
+        "GET",
+        "/public-page",
+        "public_page_settings",
+        plannedProject("public_page_read", "public_page_read"),
+      ],
+      [
+        "PUT",
+        "/public-page",
+        "public_page_settings",
+        plannedProject("public_page_write", "public_page_write", { mutationOrigin: true }),
+      ],
+      [
+        "GET",
+        "/keys",
+        "project_keys",
+        plannedProject("project_keys", "project_keys_read", { sessionAuthRequired: true }),
+      ],
+      [
         "POST",
-        "/api/v1/account/bootstrap",
-        "account_bootstrap",
-        "account_bootstrap",
-        "dashboard",
-        { access: "session", requiresTrustedMutationOrigin: true },
-      ),
-      route("GET", "/api/v1/admin/stats", "admin_stats", "admin_stats", "dashboard", {
-        access: "global_admin",
-      }),
-      route("GET", "/api/v1/admin/users", "admin_users", "admin_users", "dashboard", {
-        access: "global_admin",
-      }),
-      projectRoute("GET", "/sessions", "sessions_list", "sessions_list", "sessions_list", {
-        handlerRateLimit: "analytics_read",
-      }),
-      projectRoute("GET", "/session-heads", "session_heads", "session_heads", "session_heads"),
-      projectRoute("GET", "/stats", "project_stats", "project_stats", "project_stats", {
-        handlerRateLimit: "analytics_read",
-      }),
-      projectRoute("GET", "/live", "project_live", "project_live", "project_live"),
-      projectRoute(
+        "/keys",
+        "project_keys",
+        plannedProject("project_keys", "project_keys_create", {
+          sessionAuthRequired: true,
+          mutationOrigin: true,
+        }),
+      ],
+      [
+        "DELETE",
+        "/keys/key_1",
+        "project_key",
+        plannedProject(
+          "project_keys",
+          "project_key_revoke",
+          { sessionAuthRequired: true, mutationOrigin: true },
+          { projectId: "project_1", keyId: "key_1" },
+        ),
+      ],
+      [
         "GET",
-        "/config",
-        "project_config_read",
-        "project_config",
-        "project_config_read",
-      ),
-      projectRoute(
-        "PUT",
-        "/config",
-        "project_config_write",
-        "project_config",
-        "project_config_write",
-        { requiresTrustedMutationOrigin: true },
-      ),
-      projectRoute("GET", "/install-status", "install_status", "install_status", "install_status"),
-      projectRoute(
-        "GET",
-        "/public-page",
-        "public_page_read",
-        "public_page_settings",
-        "public_page_read",
-      ),
-      projectRoute(
-        "PUT",
-        "/public-page",
-        "public_page_write",
-        "public_page_settings",
-        "public_page_write",
-        { requiresTrustedMutationOrigin: true },
-      ),
-      projectRoute("GET", "/keys", "project_keys_read", "project_keys", "project_keys", {
-        requiresSessionAuth: true,
-      }),
-      projectRoute("POST", "/keys", "project_keys_create", "project_keys", "project_keys", {
-        requiresSessionAuth: true,
-        requiresTrustedMutationOrigin: true,
-      }),
-      projectRoute("DELETE", "/keys/key_1", "project_key_revoke", "project_key", "project_keys", {
-        keyId: "key_1",
-        requiresSessionAuth: true,
-        requiresTrustedMutationOrigin: true,
-      }),
-      projectRoute("GET", "/sessions/session_1/manifest", "manifest", "manifest", "manifest", {
-        sessionId: "session_1",
-      }),
-      projectRoute(
+        "/sessions/session_1/manifest",
+        "manifest",
+        plannedProject(
+          "manifest",
+          "manifest",
+          {},
+          { projectId: "project_1", sessionId: "session_1" },
+        ),
+      ],
+      [
         "GET",
         "/sessions/session_1/state",
         "session_state",
-        "session_state",
-        "session_state",
-        { sessionId: "session_1" },
-      ),
-      projectRoute(
+        plannedProject(
+          "session_state",
+          "session_state",
+          {},
+          { projectId: "project_1", sessionId: "session_1" },
+        ),
+      ],
+      [
         "POST",
         "/sessions/session_1/live-ticket",
         "live_ticket",
-        "live_ticket",
-        "live_ticket",
-        { sessionId: "session_1", requiresTrustedMutationOrigin: true },
-      ),
-      projectRoute(
+        plannedProject(
+          "live_ticket",
+          "live_ticket",
+          { mutationOrigin: true },
+          { projectId: "project_1", sessionId: "session_1" },
+        ),
+      ],
+      [
         "GET",
         "/sessions/session_1/segments/seg-000001.ors",
         "segment",
-        "segment",
-        "segment",
-        { sessionId: "session_1", segmentName: "seg-000001.ors" },
-      ),
-    ] as const;
+        plannedProject(
+          "segment",
+          "segment",
+          {},
+          { projectId: "project_1", sessionId: "session_1", segmentName: "seg-000001.ors" },
+        ),
+      ],
+    ];
 
-    for (const testCase of cases) {
-      const policy = matchDashboardRequest(testCase.method, testCase.pathname);
-      expect(policy, `${testCase.method} ${testCase.pathname}`).toEqual({
-        action: testCase.action,
-        routeName: testCase.routeName,
-        methodAllowed: true,
-        authentication: testCase.authentication,
-        access: testCase.authentication === "dashboard" ? "authenticated" : "none",
-        projectIdForAuth: /^\/api\/v1\/projects\/([^/]+)/.exec(testCase.pathname)?.[1] ?? null,
-        projectRoute: null,
-        projectId: null,
-        projectIdValid: true,
-        sessionId: null,
-        sessionIdValid: true,
-        keyId: null,
-        keyIdValid: true,
-        publicId: null,
-        publicIdValid: true,
-        publicReplayId: null,
-        publicReplayIdValid: true,
-        segmentName: null,
-        segmentNameValid: true,
-        requiresSessionAuth: false,
-        requiresTrustedMutationOrigin: false,
-        demoRateLimit: testCase.authentication === "dashboard",
-        handlerRateLimit: "none",
-        responsePolicy: "none",
-        ...testCase.expected,
+    for (const [method, suffix, routeName, route] of cases) {
+      const pathname = `/api/v1/projects/project_1${suffix}`;
+      expect(matchDashboardRequest(method, pathname), `${method} ${pathname}`).toEqual({
+        kind: "authed",
+        routeName,
+        projectIdForAuth: "project_1",
+        route,
       });
     }
   });
@@ -315,36 +353,36 @@ describe("dashboard request policy", () => {
     ] as const;
 
     for (const [method, pathname, routeName] of ordinaryMismatches) {
-      expect(matchDashboardRequest(method, pathname)).toMatchObject({
-        action: "not_found",
+      expect(matchDashboardRequest(method, pathname), `${method} ${pathname}`).toEqual({
+        kind: "authed",
         routeName,
-        methodAllowed: false,
-        authentication: "dashboard",
-        access: "authenticated",
-        projectRoute: null,
+        projectIdForAuth: /^\/api\/v1\/projects\/([^/]+)/.exec(pathname)?.[1] ?? null,
+        route: { access: "authenticated", action: "not_found", mutationOrigin: false },
       });
     }
 
-    expect(matchDashboardRequest("PATCH", "/api/v1/projects/project_1/config")).toMatchObject({
-      action: "project_config_method_not_allowed",
+    expect(matchDashboardRequest("PATCH", "/api/v1/projects/project_1/config")).toEqual({
+      kind: "authed",
       routeName: "project_config",
-      methodAllowed: false,
-      access: "project",
-      projectRoute: "project_config_read",
-      responsePolicy: "none",
+      projectIdForAuth: "project_1",
+      route: plannedProject("project_config_read", "project_config_method_not_allowed", {
+        authenticatedResponse: false,
+      }),
     });
   });
 
   it("keeps broad demo project extraction separate from exact route and id validation", () => {
-    expect(matchDashboardRequest("GET", "/api/v1/projects/demo_project/unknown")).toMatchObject({
-      action: "not_found",
+    expect(matchDashboardRequest("GET", "/api/v1/projects/demo_project/unknown")).toEqual({
+      kind: "authed",
       routeName: "not_found",
       projectIdForAuth: "demo_project",
+      route: { access: "authenticated", action: "not_found", mutationOrigin: false },
     });
-    expect(matchDashboardRequest("GET", "/api/v1/projects/project_1/sessions/")).toMatchObject({
-      action: "not_found",
+    expect(matchDashboardRequest("GET", "/api/v1/projects/project_1/sessions/")).toEqual({
+      kind: "authed",
       routeName: "not_found",
       projectIdForAuth: "project_1",
+      route: { access: "authenticated", action: "not_found", mutationOrigin: false },
     });
     expect(
       matchDashboardRequest(
@@ -352,14 +390,30 @@ describe("dashboard request policy", () => {
         "/api/v1/projects/project_1/sessions/session_1/segments/..%2Fmanifest.json",
       ),
     ).toMatchObject({
-      action: "segment",
-      projectIdValid: true,
-      sessionIdValid: true,
-      segmentNameValid: false,
+      route: {
+        action: "segment",
+        params: {
+          ok: false,
+          error: "invalid_segment_name",
+          ids: { projectId: "project_1", sessionId: "session_1" },
+        },
+      },
+    });
+    expect(
+      matchDashboardRequest("GET", "/api/v1/projects/bad%2Fid/sessions/session_1/manifest"),
+    ).toMatchObject({
+      projectIdForAuth: "bad%2Fid",
+      route: { action: "manifest", params: { ok: false, error: "invalid_path_id" } },
     });
     expect(matchDashboardRequest("GET", "/api/v1/public-pages/bad%2Fid")).toMatchObject({
-      action: "public_page_data",
-      publicIdValid: false,
+      action: "page_data",
+      params: { ok: false, error: "invalid_path_id", logged: {} },
+    });
+    expect(
+      matchDashboardRequest("GET", "/api/v1/public-pages/public_1/replays/bad%2Fid/manifest"),
+    ).toMatchObject({
+      action: "manifest",
+      params: { ok: false, error: "invalid_path_id", logged: { publicId: "public_1" } },
     });
   });
 
@@ -581,47 +635,30 @@ describe("dashboard request policy handler order", () => {
   });
 });
 
-interface ExpectedPolicy {
-  access?: string;
-  handlerRateLimit?: string;
-  keyId?: string;
-  projectId?: string;
-  projectRoute?: string;
-  publicId?: string;
-  publicReplayId?: string;
-  requiresSessionAuth?: boolean;
-  requiresTrustedMutationOrigin?: boolean;
-  responsePolicy?: string;
-  segmentName?: string;
-  sessionId?: string;
-}
-
-function route(
-  method: string,
-  pathname: string,
-  action: string,
-  routeName: string,
-  authentication: string,
-  expected: ExpectedPolicy = {},
-) {
-  return { method, pathname, action, routeName, authentication, expected };
-}
-
-function projectRoute(
-  method: string,
-  suffix: string,
-  action: string,
-  routeName: string,
-  projectRouteName: DashboardProjectRouteName,
-  expected: ExpectedPolicy = {},
-) {
-  return route(method, `/api/v1/projects/project_1${suffix}`, action, routeName, "dashboard", {
-    access: "project",
+function plannedProject(
+  route: DashboardProjectRouteName,
+  action: ProjectRoutePlan["action"],
+  overrides: Partial<
+    Pick<
+      ProjectRoutePlan,
+      "sessionAuthRequired" | "mutationOrigin" | "analyticsReadLimit" | "authenticatedResponse"
+    >
+  > = {},
+  ids: { projectId: string; sessionId?: string; segmentName?: string; keyId?: string } = {
     projectId: "project_1",
-    projectRoute: projectRouteName,
-    responsePolicy: "authenticated_project",
-    ...expected,
-  });
+  },
+): ProjectRoutePlan {
+  return {
+    access: "project",
+    route,
+    sessionAuthRequired: false,
+    mutationOrigin: false,
+    analyticsReadLimit: false,
+    authenticatedResponse: true,
+    ...overrides,
+    action,
+    params: { ok: true, ids },
+  } as ProjectRoutePlan;
 }
 
 function sessionAuth(projectId = "project_1"): ApiAuthContext {

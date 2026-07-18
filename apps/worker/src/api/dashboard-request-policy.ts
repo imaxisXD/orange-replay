@@ -1,5 +1,9 @@
 import { isValidPathId, isValidSegmentName } from "./helpers.ts";
 
+/**
+ * Route names used for wide-event logging. A method-mismatched request keeps
+ * its route name while dispatching as an authenticated not-found.
+ */
 export type DashboardRouteName =
   | "better_auth"
   | "auth_config"
@@ -44,94 +48,10 @@ export type DashboardProjectRouteName =
   | "live_ticket"
   | "segment";
 
-export type DashboardRequestAction =
-  | "health"
-  | "better_auth"
-  | "auth_config"
-  | "demo_discovery"
-  | "public_page_data"
-  | "public_manifest"
-  | "public_segment"
-  | "live"
-  | "account"
-  | "account_bootstrap"
-  | "admin_stats"
-  | "admin_users"
-  | "sessions_list"
-  | "session_heads"
-  | "project_stats"
-  | "project_live"
-  | "project_config_read"
-  | "project_config_write"
-  | "project_config_method_not_allowed"
-  | "install_status"
-  | "public_page_read"
-  | "public_page_write"
-  | "project_keys_read"
-  | "project_keys_create"
-  | "project_key_revoke"
-  | "manifest"
-  | "session_state"
-  | "live_ticket"
-  | "segment"
-  | "not_found";
-
-export type DashboardAuthentication = "public" | "better_auth" | "ticket" | "dashboard";
-export type DashboardAccess = "none" | "authenticated" | "session" | "global_admin" | "project";
-export type DashboardRateLimit = "none" | "public_page" | "analytics_read";
-export type DashboardResponsePolicy = "none" | "security_headers" | "authenticated_project";
-
 export interface DashboardProjectAccess {
   demoReadable: boolean;
   minimumRole: "member" | "manager";
 }
-
-export interface DashboardRequestPolicy {
-  action: DashboardRequestAction;
-  routeName: DashboardRouteName;
-  methodAllowed: boolean;
-  authentication: DashboardAuthentication;
-  access: DashboardAccess;
-  projectIdForAuth: string | null;
-  projectRoute: DashboardProjectRouteName | null;
-  projectId: string | null;
-  projectIdValid: boolean;
-  sessionId: string | null;
-  sessionIdValid: boolean;
-  keyId: string | null;
-  keyIdValid: boolean;
-  publicId: string | null;
-  publicIdValid: boolean;
-  publicReplayId: string | null;
-  publicReplayIdValid: boolean;
-  segmentName: string | null;
-  segmentNameValid: boolean;
-  requiresSessionAuth: boolean;
-  requiresTrustedMutationOrigin: boolean;
-  demoRateLimit: boolean;
-  handlerRateLimit: DashboardRateLimit;
-  responsePolicy: DashboardResponsePolicy;
-}
-
-const PUBLIC_PAGE_PATTERN = /^\/api\/v1\/public-pages\/([^/]+)$/;
-const PUBLIC_MANIFEST_PATTERN = /^\/api\/v1\/public-pages\/([^/]+)\/replays\/([^/]+)\/manifest$/;
-const PUBLIC_SEGMENT_PATTERN =
-  /^\/api\/v1\/public-pages\/([^/]+)\/replays\/([^/]+)\/segments\/([^/]+)$/;
-const LIVE_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/live$/;
-const SESSIONS_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/sessions$/;
-const SESSION_HEADS_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/session-heads$/;
-const STATS_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/stats$/;
-const PROJECT_LIVE_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/live$/;
-const CONFIG_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/config$/;
-const INSTALL_STATUS_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/install-status$/;
-const PUBLIC_PAGE_SETTINGS_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/public-page$/;
-const PROJECT_KEYS_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/keys$/;
-const PROJECT_KEY_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/keys\/([^/]+)$/;
-const MANIFEST_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/manifest$/;
-const SESSION_STATE_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/state$/;
-const LIVE_TICKET_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/live-ticket$/;
-const SEGMENT_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/segments\/(.+)$/;
-const PROJECT_ID_PREFIX_PATTERN = /^\/api\/v1\/projects\/([^/]+)/;
 
 const PROJECT_ACCESS: Readonly<Record<DashboardProjectRouteName, DashboardProjectAccess>> = {
   sessions_list: { demoReadable: true, minimumRole: "member" },
@@ -154,481 +74,562 @@ export function projectRouteAccess(route: DashboardProjectRouteName): DashboardP
   return PROJECT_ACCESS[route];
 }
 
-export function matchDashboardRequest(method: string, pathname: string): DashboardRequestPolicy {
+export interface ProjectIds {
+  projectId: string;
+}
+export interface SessionIds extends ProjectIds {
+  sessionId: string;
+}
+export interface SegmentIds extends SessionIds {
+  segmentName: string;
+}
+export interface KeyIds extends ProjectIds {
+  keyId: string;
+}
+
+/**
+ * Path ids for a project route, validated at match time. An invalid segment
+ * name still carries its valid path ids because project access is checked
+ * before the segment name is rejected.
+ */
+export type ProjectParams<Ids extends ProjectIds> =
+  | { ok: true; ids: Ids }
+  | { ok: false; error: "invalid_path_id" }
+  | { ok: false; error: "invalid_segment_name"; ids: SessionIds };
+
+export interface PublicPageIds {
+  publicId: string;
+}
+export interface PublicReplayIds extends PublicPageIds {
+  publicReplayId: string;
+}
+export interface PublicSegmentIds extends PublicReplayIds {
+  segmentName: string;
+}
+
+/**
+ * Public-page ids fail on the first invalid path segment; `logged` carries the
+ * ids that validated before the failure so the wide event keeps them.
+ */
+export type PublicPageParams<Ids extends PublicPageIds> =
+  | { ok: true; ids: Ids }
+  | {
+      ok: false;
+      error: "invalid_path_id" | "invalid_segment_name";
+      logged: Partial<PublicReplayIds>;
+    };
+
+export type PublicPagePlan =
+  | {
+      kind: "public_page";
+      routeName: "public_page_data";
+      action: "page_data";
+      params: PublicPageParams<PublicPageIds>;
+    }
+  | {
+      kind: "public_page";
+      routeName: "public_manifest";
+      action: "manifest";
+      params: PublicPageParams<PublicReplayIds>;
+    }
+  | {
+      kind: "public_page";
+      routeName: "public_segment";
+      action: "segment";
+      params: PublicPageParams<PublicSegmentIds>;
+    };
+
+interface ProjectRouteFlags {
+  access: "project";
+  /** Key into the demo/role access matrix. */
+  route: DashboardProjectRouteName;
+  sessionAuthRequired: boolean;
+  mutationOrigin: boolean;
+  analyticsReadLimit: boolean;
+  /** False only for the config method-not-allowed exception. */
+  authenticatedResponse: boolean;
+}
+
+export type ProjectRoutePlan = ProjectRouteFlags &
+  (
+    | {
+        action:
+          | "sessions_list"
+          | "session_heads"
+          | "project_stats"
+          | "project_live"
+          | "project_config_read"
+          | "project_config_write"
+          | "project_config_method_not_allowed"
+          | "install_status"
+          | "public_page_read"
+          | "public_page_write"
+          | "project_keys_read"
+          | "project_keys_create";
+        params: ProjectParams<ProjectIds>;
+      }
+    | { action: "manifest" | "session_state" | "live_ticket"; params: ProjectParams<SessionIds> }
+    | { action: "project_key_revoke"; params: ProjectParams<KeyIds> }
+    | { action: "segment"; params: ProjectParams<SegmentIds> }
+  );
+
+export type AuthedRoute =
+  | { access: "authenticated"; action: "not_found"; mutationOrigin: false }
+  | { access: "session"; action: "account"; mutationOrigin: false }
+  | { access: "session"; action: "account_bootstrap"; mutationOrigin: true }
+  | { access: "global_admin"; action: "admin_stats" | "admin_users"; mutationOrigin: false }
+  | ProjectRoutePlan;
+
+export interface AuthedPlan {
+  kind: "authed";
+  routeName: DashboardRouteName;
+  /**
+   * Raw first path segment under /api/v1/projects/, extracted even for
+   * unknown routes so the demo-project auth shortcut sees every request.
+   */
+  projectIdForAuth: string | null;
+  route: AuthedRoute;
+}
+
+export type DashboardRequestPlan =
+  | { kind: "better_auth"; routeName: "better_auth" }
+  | {
+      kind: "public";
+      routeName: DashboardRouteName;
+      action: "health" | "auth_config" | "demo_discovery";
+    }
+  | PublicPagePlan
+  | { kind: "ticket_live"; routeName: "live"; params: ProjectParams<SessionIds> }
+  | AuthedPlan;
+
+const PUBLIC_PAGE_PATTERN = /^\/api\/v1\/public-pages\/([^/]+)$/;
+const PUBLIC_MANIFEST_PATTERN = /^\/api\/v1\/public-pages\/([^/]+)\/replays\/([^/]+)\/manifest$/;
+const PUBLIC_SEGMENT_PATTERN =
+  /^\/api\/v1\/public-pages\/([^/]+)\/replays\/([^/]+)\/segments\/([^/]+)$/;
+const LIVE_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/live$/;
+const SESSIONS_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/sessions$/;
+const SESSION_HEADS_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/session-heads$/;
+const STATS_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/stats$/;
+const PROJECT_LIVE_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/live$/;
+const CONFIG_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/config$/;
+const INSTALL_STATUS_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/install-status$/;
+const PUBLIC_PAGE_SETTINGS_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/public-page$/;
+const PROJECT_KEYS_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/keys$/;
+const PROJECT_KEY_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/keys\/([^/]+)$/;
+const MANIFEST_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/manifest$/;
+const SESSION_STATE_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/state$/;
+const LIVE_TICKET_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/live-ticket$/;
+const SEGMENT_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/segments\/(.+)$/;
+const PROJECT_ID_PREFIX_PATTERN = /^\/api\/v1\/projects\/([^/]+)/;
+
+const PROJECT_DEFAULTS = {
+  access: "project",
+  sessionAuthRequired: false,
+  mutationOrigin: false,
+  analyticsReadLimit: false,
+  authenticatedResponse: true,
+} as const;
+
+export function matchDashboardRequest(method: string, pathname: string): DashboardRequestPlan {
   if (pathname === "/api/v1/health") {
     return method === "GET"
-      ? createPolicy(pathname, {
-          action: "health",
-          routeName: "health",
-          methodAllowed: true,
-          authentication: "public",
-        })
-      : unsupportedPolicy(pathname, "health");
+      ? { kind: "public", routeName: "health", action: "health" }
+      : unsupported(pathname, "health");
   }
 
   if (pathname === "/api/auth" || pathname.startsWith("/api/auth/")) {
-    return createPolicy(pathname, {
-      action: "better_auth",
-      routeName: "better_auth",
-      methodAllowed: true,
-      authentication: "better_auth",
-      responsePolicy: "security_headers",
-    });
+    return { kind: "better_auth", routeName: "better_auth" };
   }
 
   if (pathname === "/api/v1/auth/config") {
     return method === "GET"
-      ? createPolicy(pathname, {
-          action: "auth_config",
-          routeName: "auth_config",
-          methodAllowed: true,
-          authentication: "public",
-        })
-      : unsupportedPolicy(pathname, "auth_config");
+      ? { kind: "public", routeName: "auth_config", action: "auth_config" }
+      : unsupported(pathname, "auth_config");
   }
 
   if (pathname === "/api/v1/demo") {
     return method === "GET"
-      ? createPolicy(pathname, {
-          action: "demo_discovery",
-          routeName: "demo_discovery",
-          methodAllowed: true,
-          authentication: "public",
-        })
-      : unsupportedPolicy(pathname, "demo_discovery");
+      ? { kind: "public", routeName: "demo_discovery", action: "demo_discovery" }
+      : unsupported(pathname, "demo_discovery");
   }
 
   let match = PUBLIC_PAGE_PATTERN.exec(pathname);
   if (match !== null) {
-    const publicId = match[1] ?? null;
     return method === "GET"
-      ? createPolicy(pathname, {
-          action: "public_page_data",
+      ? {
+          kind: "public_page",
           routeName: "public_page_data",
-          methodAllowed: true,
-          authentication: "public",
-          publicId,
-          handlerRateLimit: "public_page",
-        })
-      : unsupportedPolicy(pathname, "public_page_data", { publicId });
+          action: "page_data",
+          params: publicPageParams(match[1] ?? null),
+        }
+      : unsupported(pathname, "public_page_data");
   }
 
   match = PUBLIC_MANIFEST_PATTERN.exec(pathname);
   if (match !== null) {
-    const publicId = match[1] ?? null;
-    const publicReplayId = match[2] ?? null;
     return method === "GET"
-      ? createPolicy(pathname, {
-          action: "public_manifest",
+      ? {
+          kind: "public_page",
           routeName: "public_manifest",
-          methodAllowed: true,
-          authentication: "public",
-          publicId,
-          publicReplayId,
-          handlerRateLimit: "public_page",
-        })
-      : unsupportedPolicy(pathname, "public_manifest", { publicId, publicReplayId });
+          action: "manifest",
+          params: publicReplayParams(match[1] ?? null, match[2] ?? null),
+        }
+      : unsupported(pathname, "public_manifest");
   }
 
   match = PUBLIC_SEGMENT_PATTERN.exec(pathname);
   if (match !== null) {
-    const publicId = match[1] ?? null;
-    const publicReplayId = match[2] ?? null;
-    const segmentName = match[3] ?? null;
     return method === "GET"
-      ? createPolicy(pathname, {
-          action: "public_segment",
+      ? {
+          kind: "public_page",
           routeName: "public_segment",
-          methodAllowed: true,
-          authentication: "public",
-          publicId,
-          publicReplayId,
-          segmentName,
-          handlerRateLimit: "public_page",
-        })
-      : unsupportedPolicy(pathname, "public_segment", {
-          publicId,
-          publicReplayId,
-          segmentName,
-        });
+          action: "segment",
+          params: publicSegmentParams(match[1] ?? null, match[2] ?? null, match[3] ?? null),
+        }
+      : unsupported(pathname, "public_segment");
   }
 
   match = LIVE_PATTERN.exec(pathname);
   if (match !== null) {
-    const projectId = match[1] ?? null;
-    const sessionId = match[2] ?? null;
     return method === "GET"
-      ? createPolicy(pathname, {
-          action: "live",
+      ? {
+          kind: "ticket_live",
           routeName: "live",
-          methodAllowed: true,
-          authentication: "ticket",
-          projectId,
-          sessionId,
-        })
-      : unsupportedPolicy(pathname, "live", { projectId, sessionId });
+          params: sessionParams(match[1] ?? null, match[2] ?? null),
+        }
+      : unsupported(pathname, "live");
   }
 
   if (pathname === "/api/v1/account") {
     return method === "GET"
-      ? createPolicy(pathname, {
-          action: "account",
-          routeName: "account",
-          methodAllowed: true,
-          access: "session",
-        })
-      : unsupportedPolicy(pathname, "account");
+      ? authed(pathname, "account", { access: "session", action: "account", mutationOrigin: false })
+      : unsupported(pathname, "account");
   }
 
   if (pathname === "/api/v1/account/bootstrap") {
     return method === "POST"
-      ? createPolicy(pathname, {
-          action: "account_bootstrap",
-          routeName: "account_bootstrap",
-          methodAllowed: true,
+      ? authed(pathname, "account_bootstrap", {
           access: "session",
-          requiresTrustedMutationOrigin: true,
+          action: "account_bootstrap",
+          mutationOrigin: true,
         })
-      : unsupportedPolicy(pathname, "account_bootstrap");
+      : unsupported(pathname, "account_bootstrap");
   }
 
   if (pathname === "/api/v1/admin/stats") {
     return method === "GET"
-      ? createPolicy(pathname, {
-          action: "admin_stats",
-          routeName: "admin_stats",
-          methodAllowed: true,
+      ? authed(pathname, "admin_stats", {
           access: "global_admin",
+          action: "admin_stats",
+          mutationOrigin: false,
         })
-      : unsupportedPolicy(pathname, "admin_stats");
+      : unsupported(pathname, "admin_stats");
   }
 
   if (pathname === "/api/v1/admin/users") {
     return method === "GET"
-      ? createPolicy(pathname, {
-          action: "admin_users",
-          routeName: "admin_users",
-          methodAllowed: true,
+      ? authed(pathname, "admin_users", {
           access: "global_admin",
+          action: "admin_users",
+          mutationOrigin: false,
         })
-      : unsupportedPolicy(pathname, "admin_users");
+      : unsupported(pathname, "admin_users");
   }
 
   match = SESSIONS_PATTERN.exec(pathname);
   if (match !== null) {
-    const projectId = match[1] ?? null;
     return method === "GET"
-      ? projectPolicy(pathname, {
+      ? authed(pathname, "sessions_list", {
+          ...PROJECT_DEFAULTS,
+          route: "sessions_list",
+          analyticsReadLimit: true,
           action: "sessions_list",
-          routeName: "sessions_list",
-          projectRoute: "sessions_list",
-          projectId,
-          handlerRateLimit: "analytics_read",
+          params: projectParams(match[1] ?? null),
         })
-      : unsupportedPolicy(pathname, "sessions_list", { projectId });
+      : unsupported(pathname, "sessions_list");
   }
 
   match = SESSION_HEADS_PATTERN.exec(pathname);
   if (match !== null) {
-    const projectId = match[1] ?? null;
     return method === "GET"
-      ? projectPolicy(pathname, {
+      ? authed(pathname, "session_heads", {
+          ...PROJECT_DEFAULTS,
+          route: "session_heads",
           action: "session_heads",
-          routeName: "session_heads",
-          projectRoute: "session_heads",
-          projectId,
+          params: projectParams(match[1] ?? null),
         })
-      : unsupportedPolicy(pathname, "session_heads", { projectId });
+      : unsupported(pathname, "session_heads");
   }
 
   match = STATS_PATTERN.exec(pathname);
   if (match !== null) {
-    const projectId = match[1] ?? null;
     return method === "GET"
-      ? projectPolicy(pathname, {
+      ? authed(pathname, "project_stats", {
+          ...PROJECT_DEFAULTS,
+          route: "project_stats",
+          analyticsReadLimit: true,
           action: "project_stats",
-          routeName: "project_stats",
-          projectRoute: "project_stats",
-          projectId,
-          handlerRateLimit: "analytics_read",
+          params: projectParams(match[1] ?? null),
         })
-      : unsupportedPolicy(pathname, "project_stats", { projectId });
+      : unsupported(pathname, "project_stats");
   }
 
   match = PROJECT_LIVE_PATTERN.exec(pathname);
   if (match !== null) {
-    const projectId = match[1] ?? null;
     return method === "GET"
-      ? projectPolicy(pathname, {
+      ? authed(pathname, "project_live", {
+          ...PROJECT_DEFAULTS,
+          route: "project_live",
           action: "project_live",
-          routeName: "project_live",
-          projectRoute: "project_live",
-          projectId,
+          params: projectParams(match[1] ?? null),
         })
-      : unsupportedPolicy(pathname, "project_live", { projectId });
+      : unsupported(pathname, "project_live");
   }
 
   match = CONFIG_PATTERN.exec(pathname);
   if (match !== null) {
-    const projectId = match[1] ?? null;
+    const params = projectParams(match[1] ?? null);
     if (method === "GET") {
-      return projectPolicy(pathname, {
+      return authed(pathname, "project_config", {
+        ...PROJECT_DEFAULTS,
+        route: "project_config_read",
         action: "project_config_read",
-        routeName: "project_config",
-        projectRoute: "project_config_read",
-        projectId,
+        params,
       });
     }
     if (method === "PUT") {
-      return projectPolicy(pathname, {
+      return authed(pathname, "project_config", {
+        ...PROJECT_DEFAULTS,
+        route: "project_config_write",
+        mutationOrigin: true,
         action: "project_config_write",
-        routeName: "project_config",
-        projectRoute: "project_config_write",
-        projectId,
-        requiresTrustedMutationOrigin: true,
+        params,
       });
     }
-    return projectPolicy(pathname, {
+    // Config keeps project semantics for unsupported methods: access is
+    // checked as a read before the not-found style denial.
+    return authed(pathname, "project_config", {
+      ...PROJECT_DEFAULTS,
+      route: "project_config_read",
+      authenticatedResponse: false,
       action: "project_config_method_not_allowed",
-      routeName: "project_config",
-      methodAllowed: false,
-      projectRoute: "project_config_read",
-      projectId,
-      responsePolicy: "none",
+      params,
     });
   }
 
   match = INSTALL_STATUS_PATTERN.exec(pathname);
   if (match !== null) {
-    const projectId = match[1] ?? null;
     return method === "GET"
-      ? projectPolicy(pathname, {
+      ? authed(pathname, "install_status", {
+          ...PROJECT_DEFAULTS,
+          route: "install_status",
           action: "install_status",
-          routeName: "install_status",
-          projectRoute: "install_status",
-          projectId,
+          params: projectParams(match[1] ?? null),
         })
-      : unsupportedPolicy(pathname, "install_status", { projectId });
+      : unsupported(pathname, "install_status");
   }
 
   match = PUBLIC_PAGE_SETTINGS_PATTERN.exec(pathname);
   if (match !== null) {
-    const projectId = match[1] ?? null;
     if (method === "GET") {
-      return projectPolicy(pathname, {
+      return authed(pathname, "public_page_settings", {
+        ...PROJECT_DEFAULTS,
+        route: "public_page_read",
         action: "public_page_read",
-        routeName: "public_page_settings",
-        projectRoute: "public_page_read",
-        projectId,
+        params: projectParams(match[1] ?? null),
       });
     }
     if (method === "PUT") {
-      return projectPolicy(pathname, {
+      return authed(pathname, "public_page_settings", {
+        ...PROJECT_DEFAULTS,
+        route: "public_page_write",
+        mutationOrigin: true,
         action: "public_page_write",
-        routeName: "public_page_settings",
-        projectRoute: "public_page_write",
-        projectId,
-        requiresTrustedMutationOrigin: true,
+        params: projectParams(match[1] ?? null),
       });
     }
-    return unsupportedPolicy(pathname, "public_page_settings", { projectId });
+    return unsupported(pathname, "public_page_settings");
   }
 
   match = PROJECT_KEYS_PATTERN.exec(pathname);
   if (match !== null) {
-    const projectId = match[1] ?? null;
     if (method === "GET") {
-      return projectPolicy(pathname, {
+      return authed(pathname, "project_keys", {
+        ...PROJECT_DEFAULTS,
+        route: "project_keys",
+        sessionAuthRequired: true,
         action: "project_keys_read",
-        routeName: "project_keys",
-        projectRoute: "project_keys",
-        projectId,
-        requiresSessionAuth: true,
+        params: projectParams(match[1] ?? null),
       });
     }
     if (method === "POST") {
-      return projectPolicy(pathname, {
+      return authed(pathname, "project_keys", {
+        ...PROJECT_DEFAULTS,
+        route: "project_keys",
+        sessionAuthRequired: true,
+        mutationOrigin: true,
         action: "project_keys_create",
-        routeName: "project_keys",
-        projectRoute: "project_keys",
-        projectId,
-        requiresSessionAuth: true,
-        requiresTrustedMutationOrigin: true,
+        params: projectParams(match[1] ?? null),
       });
     }
-    return unsupportedPolicy(pathname, "project_keys", { projectId });
+    return unsupported(pathname, "project_keys");
   }
 
   match = PROJECT_KEY_PATTERN.exec(pathname);
   if (match !== null) {
-    const projectId = match[1] ?? null;
-    const keyId = match[2] ?? null;
     return method === "DELETE"
-      ? projectPolicy(pathname, {
+      ? authed(pathname, "project_key", {
+          ...PROJECT_DEFAULTS,
+          route: "project_keys",
+          sessionAuthRequired: true,
+          mutationOrigin: true,
           action: "project_key_revoke",
-          routeName: "project_key",
-          projectRoute: "project_keys",
-          projectId,
-          keyId,
-          requiresSessionAuth: true,
-          requiresTrustedMutationOrigin: true,
+          params: keyParams(match[1] ?? null, match[2] ?? null),
         })
-      : unsupportedPolicy(pathname, "project_key", { projectId, keyId });
+      : unsupported(pathname, "project_key");
   }
 
   match = MANIFEST_PATTERN.exec(pathname);
   if (match !== null) {
-    const projectId = match[1] ?? null;
-    const sessionId = match[2] ?? null;
     return method === "GET"
-      ? projectPolicy(pathname, {
+      ? authed(pathname, "manifest", {
+          ...PROJECT_DEFAULTS,
+          route: "manifest",
           action: "manifest",
-          routeName: "manifest",
-          projectRoute: "manifest",
-          projectId,
-          sessionId,
+          params: sessionParams(match[1] ?? null, match[2] ?? null),
         })
-      : unsupportedPolicy(pathname, "manifest", { projectId, sessionId });
+      : unsupported(pathname, "manifest");
   }
 
   match = SESSION_STATE_PATTERN.exec(pathname);
   if (match !== null) {
-    const projectId = match[1] ?? null;
-    const sessionId = match[2] ?? null;
     return method === "GET"
-      ? projectPolicy(pathname, {
+      ? authed(pathname, "session_state", {
+          ...PROJECT_DEFAULTS,
+          route: "session_state",
           action: "session_state",
-          routeName: "session_state",
-          projectRoute: "session_state",
-          projectId,
-          sessionId,
+          params: sessionParams(match[1] ?? null, match[2] ?? null),
         })
-      : unsupportedPolicy(pathname, "session_state", { projectId, sessionId });
+      : unsupported(pathname, "session_state");
   }
 
   match = LIVE_TICKET_PATTERN.exec(pathname);
   if (match !== null) {
-    const projectId = match[1] ?? null;
-    const sessionId = match[2] ?? null;
     return method === "POST"
-      ? projectPolicy(pathname, {
+      ? authed(pathname, "live_ticket", {
+          ...PROJECT_DEFAULTS,
+          route: "live_ticket",
+          mutationOrigin: true,
           action: "live_ticket",
-          routeName: "live_ticket",
-          projectRoute: "live_ticket",
-          projectId,
-          sessionId,
-          requiresTrustedMutationOrigin: true,
+          params: sessionParams(match[1] ?? null, match[2] ?? null),
         })
-      : unsupportedPolicy(pathname, "live_ticket", { projectId, sessionId });
+      : unsupported(pathname, "live_ticket");
   }
 
   match = SEGMENT_PATTERN.exec(pathname);
   if (match !== null) {
-    const projectId = match[1] ?? null;
-    const sessionId = match[2] ?? null;
-    const segmentName = match[3] ?? null;
     return method === "GET"
-      ? projectPolicy(pathname, {
+      ? authed(pathname, "segment", {
+          ...PROJECT_DEFAULTS,
+          route: "segment",
           action: "segment",
-          routeName: "segment",
-          projectRoute: "segment",
-          projectId,
-          sessionId,
-          segmentName,
+          params: segmentParams(match[1] ?? null, match[2] ?? null, match[3] ?? null),
         })
-      : unsupportedPolicy(pathname, "segment", { projectId, sessionId, segmentName });
+      : unsupported(pathname, "segment");
   }
 
-  return createPolicy(pathname, {
-    action: "not_found",
-    routeName: "not_found",
-    methodAllowed: false,
-  });
+  return unsupported(pathname, "not_found");
 }
 
-type PolicyInput = Pick<DashboardRequestPolicy, "action" | "routeName" | "methodAllowed"> &
-  Partial<
-    Omit<
-      DashboardRequestPolicy,
-      | "action"
-      | "routeName"
-      | "methodAllowed"
-      | "projectIdForAuth"
-      | "projectIdValid"
-      | "sessionIdValid"
-      | "keyIdValid"
-      | "publicIdValid"
-      | "publicReplayIdValid"
-      | "segmentNameValid"
-      | "demoRateLimit"
-    >
-  >;
-
-type ProjectPolicyInput = Omit<PolicyInput, "methodAllowed" | "authentication" | "access"> & {
-  methodAllowed?: boolean;
-};
-
-type UnsupportedIds = Pick<
-  Partial<DashboardRequestPolicy>,
-  "projectId" | "sessionId" | "keyId" | "publicId" | "publicReplayId" | "segmentName"
->;
-
-function projectPolicy(pathname: string, input: ProjectPolicyInput): DashboardRequestPolicy {
-  return createPolicy(pathname, {
-    ...input,
-    methodAllowed: input.methodAllowed ?? true,
-    authentication: "dashboard",
-    access: "project",
-    responsePolicy: input.responsePolicy ?? "authenticated_project",
-  });
-}
-
-function unsupportedPolicy(
-  pathname: string,
-  routeName: DashboardRouteName,
-  ids: UnsupportedIds = {},
-): DashboardRequestPolicy {
-  return createPolicy(pathname, {
-    action: "not_found",
-    routeName,
-    methodAllowed: false,
-    ...ids,
-  });
-}
-
-function createPolicy(pathname: string, input: PolicyInput): DashboardRequestPolicy {
-  const authentication = input.authentication ?? "dashboard";
-  const projectId = input.projectId ?? null;
-  const sessionId = input.sessionId ?? null;
-  const keyId = input.keyId ?? null;
-  const publicId = input.publicId ?? null;
-  const publicReplayId = input.publicReplayId ?? null;
-  const segmentName = input.segmentName ?? null;
-
+function authed(pathname: string, routeName: DashboardRouteName, route: AuthedRoute): AuthedPlan {
   return {
-    action: input.action,
-    routeName: input.routeName,
-    methodAllowed: input.methodAllowed,
-    authentication,
-    access: input.access ?? (authentication === "dashboard" ? "authenticated" : "none"),
+    kind: "authed",
+    routeName,
     projectIdForAuth: PROJECT_ID_PREFIX_PATTERN.exec(pathname)?.[1] ?? null,
-    projectRoute: input.projectRoute ?? null,
-    projectId,
-    projectIdValid: projectId === null || isValidPathId(projectId),
-    sessionId,
-    sessionIdValid: sessionId === null || isValidPathId(sessionId),
-    keyId,
-    keyIdValid: keyId === null || isValidPathId(keyId),
-    publicId,
-    publicIdValid: publicId === null || isValidPathId(publicId),
-    publicReplayId,
-    publicReplayIdValid: publicReplayId === null || isValidPathId(publicReplayId),
-    segmentName,
-    segmentNameValid: segmentName === null || isValidSegmentName(segmentName),
-    requiresSessionAuth: input.requiresSessionAuth ?? false,
-    requiresTrustedMutationOrigin: input.requiresTrustedMutationOrigin ?? false,
-    demoRateLimit: authentication === "dashboard",
-    handlerRateLimit: input.handlerRateLimit ?? "none",
-    responsePolicy: input.responsePolicy ?? "none",
+    route,
   };
+}
+
+function unsupported(pathname: string, routeName: DashboardRouteName): AuthedPlan {
+  return authed(pathname, routeName, {
+    access: "authenticated",
+    action: "not_found",
+    mutationOrigin: false,
+  });
+}
+
+const INVALID_PATH = { ok: false, error: "invalid_path_id" } as const;
+
+function projectParams(projectId: string | null): ProjectParams<ProjectIds> {
+  return projectId !== null && isValidPathId(projectId)
+    ? { ok: true, ids: { projectId } }
+    : INVALID_PATH;
+}
+
+function sessionParams(
+  projectId: string | null,
+  sessionId: string | null,
+): ProjectParams<SessionIds> {
+  if (
+    projectId === null ||
+    sessionId === null ||
+    !isValidPathId(projectId) ||
+    !isValidPathId(sessionId)
+  ) {
+    return INVALID_PATH;
+  }
+  return { ok: true, ids: { projectId, sessionId } };
+}
+
+function keyParams(projectId: string | null, keyId: string | null): ProjectParams<KeyIds> {
+  if (projectId === null || keyId === null || !isValidPathId(projectId) || !isValidPathId(keyId)) {
+    return INVALID_PATH;
+  }
+  return { ok: true, ids: { projectId, keyId } };
+}
+
+function segmentParams(
+  projectId: string | null,
+  sessionId: string | null,
+  segmentName: string | null,
+): ProjectParams<SegmentIds> {
+  const base = sessionParams(projectId, sessionId);
+  if (!base.ok) return INVALID_PATH;
+  if (segmentName === null || !isValidSegmentName(segmentName)) {
+    return { ok: false, error: "invalid_segment_name", ids: base.ids };
+  }
+  return { ok: true, ids: { ...base.ids, segmentName } };
+}
+
+function publicPageParams(publicId: string | null): PublicPageParams<PublicPageIds> {
+  if (publicId === null || !isValidPathId(publicId)) {
+    return { ok: false, error: "invalid_path_id", logged: {} };
+  }
+  return { ok: true, ids: { publicId } };
+}
+
+function publicReplayParams(
+  publicId: string | null,
+  publicReplayId: string | null,
+): PublicPageParams<PublicReplayIds> {
+  if (publicId === null || !isValidPathId(publicId)) {
+    return { ok: false, error: "invalid_path_id", logged: {} };
+  }
+  if (publicReplayId === null || !isValidPathId(publicReplayId)) {
+    return { ok: false, error: "invalid_path_id", logged: { publicId } };
+  }
+  return { ok: true, ids: { publicId, publicReplayId } };
+}
+
+function publicSegmentParams(
+  publicId: string | null,
+  publicReplayId: string | null,
+  segmentName: string | null,
+): PublicPageParams<PublicSegmentIds> {
+  const base = publicReplayParams(publicId, publicReplayId);
+  if (!base.ok) return base;
+  if (segmentName === null || !isValidSegmentName(segmentName)) {
+    return { ok: false, error: "invalid_segment_name", logged: base.ids };
+  }
+  return { ok: true, ids: { ...base.ids, segmentName } };
 }

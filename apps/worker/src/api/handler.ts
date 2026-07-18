@@ -13,7 +13,18 @@ import {
   projectAuthError,
   type ApiAuthContext,
 } from "./auth.ts";
-import { matchDashboardRequest, type DashboardRequestPolicy } from "./dashboard-request-policy.ts";
+import {
+  matchDashboardRequest,
+  type AuthedPlan,
+  type KeyIds,
+  type ProjectIds,
+  type ProjectParams,
+  type ProjectRoutePlan,
+  type PublicPageIds,
+  type PublicPageParams,
+  type PublicPagePlan,
+  type SessionIds,
+} from "./dashboard-request-policy.ts";
 import { outcomeForStatus } from "./helpers.ts";
 import { jsonError, jsonResponse, withSecurityHeaders } from "./http.ts";
 import { mintLiveTicket, proxyLiveSession } from "./live-ticket.ts";
@@ -37,6 +48,8 @@ import {
   publicPageRateLimitAllows,
 } from "../public-page/data.ts";
 
+type WideEvent = ReturnType<typeof startWideEvent>;
+
 export async function handleApi(
   request: Request,
   env: Env,
@@ -45,22 +58,14 @@ export async function handleApi(
   setWorkerLoggerVersion(env);
   const url = new URL(request.url);
   const requestId = request.headers.get(HDR_REQUEST_ID) ?? uuidv7();
-  const requestPolicy = matchDashboardRequest(request.method, url.pathname);
+  const plan = matchDashboardRequest(request.method, url.pathname);
   const wideEvent = startWideEvent("worker", "api.request", requestId);
   let statusCode = 500;
 
-  wideEvent.set({ route: requestPolicy.routeName });
+  wideEvent.set({ route: plan.routeName });
 
   try {
-    const response = await routeRequest(
-      request,
-      url,
-      env,
-      ctx,
-      wideEvent,
-      requestId,
-      requestPolicy,
-    );
+    const response = await routeRequest(request, url, env, ctx, wideEvent, requestId, plan);
     statusCode = response.status;
     return response;
   } catch (err) {
@@ -79,246 +84,211 @@ async function routeRequest(
   url: URL,
   env: Env,
   ctx: ExecutionContext,
-  wideEvent: ReturnType<typeof startWideEvent>,
+  wideEvent: WideEvent,
   requestId: string,
-  requestPolicy: DashboardRequestPolicy,
+  plan: ReturnType<typeof matchDashboardRequest>,
 ): Promise<Response> {
-  if (requestPolicy.authentication === "better_auth") {
-    return applyResponsePolicy(await handleBetterAuthRequest(request, env, ctx), requestPolicy);
-  }
-
-  if (requestPolicy.authentication === "ticket") {
-    const projectId = requiredRouteValue(requestPolicy.projectId, "project id");
-    const sessionId = requiredRouteValue(requestPolicy.sessionId, "session id");
-    if (!requestPolicy.projectIdValid || !requestPolicy.sessionIdValid) {
-      return jsonError("invalid_path_id", 400);
-    }
-    wideEvent.set({ project_id: projectId, session_id: sessionId, auth: "ticket" });
-    return proxyLiveSession(request, url, env, projectId, sessionId, requestId);
-  }
-
-  if (requestPolicy.authentication === "public") {
-    if (requestPolicy.action === "health") {
-      return jsonResponse({ ok: true });
-    }
-    if (requestPolicy.action === "auth_config") {
-      return jsonResponse({ mode: getAuthMode(env) }, { headers: { "cache-control": "no-store" } });
-    }
-    if (requestPolicy.action === "demo_discovery") {
+  switch (plan.kind) {
+    case "better_auth":
+      return withSecurityHeaders(await handleBetterAuthRequest(request, env, ctx));
+    case "public": {
+      if (plan.action === "health") return jsonResponse({ ok: true });
+      if (plan.action === "auth_config") {
+        return jsonResponse(
+          { mode: getAuthMode(env) },
+          { headers: { "cache-control": "no-store" } },
+        );
+      }
       return getDemoDiscovery(request, env, wideEvent);
     }
-    return handlePublicPageRequest(request, url, env, ctx, wideEvent, requestId, requestPolicy);
+    case "public_page":
+      return handlePublicPageRequest(request, url, env, ctx, wideEvent, requestId, plan);
+    case "ticket_live": {
+      if (!plan.params.ok) return jsonError("invalid_path_id", 400);
+      const { projectId, sessionId } = plan.params.ids;
+      wideEvent.set({ project_id: projectId, session_id: sessionId, auth: "ticket" });
+      return proxyLiveSession(request, url, env, projectId, sessionId, requestId);
+    }
+    case "authed":
+      return handleAuthedRequest(request, url, env, ctx, wideEvent, requestId, plan);
   }
+}
 
-  const auth = await checkAuth(request, env, requestPolicy.projectIdForAuth, ctx);
+async function handleAuthedRequest(
+  request: Request,
+  url: URL,
+  env: Env,
+  ctx: ExecutionContext,
+  wideEvent: WideEvent,
+  requestId: string,
+  plan: AuthedPlan,
+): Promise<Response> {
+  const auth = await checkAuth(request, env, plan.projectIdForAuth, ctx);
   if (!auth.ok) return jsonError(auth.error, auth.status);
   wideEvent.set({ auth_mode: auth.mode });
-  if (
-    requestPolicy.demoRateLimit &&
-    auth.mode === "demo" &&
-    !(await demoRateLimitAllows(env, request))
-  ) {
+  if (auth.mode === "demo" && !(await demoRateLimitAllows(env, request))) {
     wideEvent.set({ rate_limit: "demo" });
     return jsonError("rate_limited", 429);
   }
 
-  const accessError = dashboardAccessError(requestPolicy, auth);
-  if (accessError !== null) return accessError;
+  const route = plan.route;
 
-  if (requestPolicy.handlerRateLimit === "analytics_read") {
-    const projectId = requiredRouteValue(requestPolicy.projectId, "project id");
-    const rateLimitError = await analyticsReadRateLimitError(env, auth, projectId, wideEvent);
-    if (rateLimitError !== null) return rateLimitError;
+  if (route.access === "authenticated") {
+    return finalDashboardRouteError(auth);
   }
 
-  switch (requestPolicy.action) {
-    case "account": {
-      if (!isSessionAuth(auth)) return jsonError("unauthorized", 401);
-      wideEvent.set({ user_id: auth.hostedSession.user.id });
-      return getAccount(env, auth);
-    }
-    case "account_bootstrap": {
-      if (!isSessionAuth(auth)) return jsonError("unauthorized", 401);
-      const originError = policyMutationOriginError(requestPolicy, request, env, auth);
+  if (route.access === "session") {
+    if (!isSessionAuth(auth)) return jsonError("unauthorized", 401);
+    wideEvent.set({ user_id: auth.hostedSession.user.id });
+    if (route.mutationOrigin) {
+      const originError = mutationOriginError(request, env, auth);
       if (originError !== null) return originError;
-      wideEvent.set({ user_id: auth.hostedSession.user.id });
-      return bootstrapAccount(env, auth);
     }
-    case "admin_stats": {
-      if (!isSessionAuth(auth)) return jsonError("forbidden", 403);
-      wideEvent.set({ user_id: auth.hostedSession.user.id });
-      return getAdminStats(env);
-    }
-    case "admin_users": {
-      if (!isSessionAuth(auth)) return jsonError("forbidden", 403);
-      wideEvent.set({ user_id: auth.hostedSession.user.id });
-      return getAdminUsers(url, env);
-    }
+    return route.action === "account" ? getAccount(env, auth) : bootstrapAccount(env, auth);
+  }
+
+  if (route.access === "global_admin") {
+    const adminError = globalAdminAuthError(auth);
+    if (adminError !== null) return adminError;
+    if (!isSessionAuth(auth)) return jsonError("forbidden", 403);
+    wideEvent.set({ user_id: auth.hostedSession.user.id });
+    return route.action === "admin_stats" ? getAdminStats(env) : getAdminUsers(url, env);
+  }
+
+  return handleProjectRoute(request, url, env, ctx, wideEvent, requestId, auth, route);
+}
+
+async function handleProjectRoute(
+  request: Request,
+  url: URL,
+  env: Env,
+  ctx: ExecutionContext,
+  wideEvent: WideEvent,
+  requestId: string,
+  auth: ApiAuthContext,
+  route: ProjectRoutePlan,
+): Promise<Response> {
+  const params = route.params;
+  if (!params.ok) {
+    if (params.error === "invalid_path_id") return jsonError("invalid_path_id", 400);
+    // Project access is checked before an invalid segment name is rejected.
+    const authError = projectAuthError(auth, params.ids.projectId, route.route);
+    if (authError !== null) return authError;
+    return jsonError("invalid_segment_name", 400);
+  }
+
+  const authError = projectAuthError(auth, params.ids.projectId, route.route);
+  if (authError !== null) return authError;
+
+  if (route.sessionAuthRequired && !isSessionAuth(auth)) {
+    return jsonError("unauthorized", 401);
+  }
+
+  if (route.analyticsReadLimit) {
+    const limited = await analyticsReadRateLimitError(env, auth, params.ids.projectId, wideEvent);
+    if (limited !== null) return limited;
+  }
+
+  wideEvent.set(projectLogFields(params.ids));
+
+  if (route.mutationOrigin) {
+    const originError = mutationOriginError(request, env, auth);
+    if (originError !== null) return originError;
+  }
+
+  const response = await executeProjectRoute(
+    request,
+    url,
+    env,
+    ctx,
+    wideEvent,
+    requestId,
+    auth,
+    route,
+  );
+  return route.authenticatedResponse ? authenticatedProjectResponse(response, auth) : response;
+}
+
+async function executeProjectRoute(
+  request: Request,
+  url: URL,
+  env: Env,
+  ctx: ExecutionContext,
+  wideEvent: WideEvent,
+  requestId: string,
+  auth: ApiAuthContext,
+  route: ProjectRoutePlan,
+): Promise<Response> {
+  switch (route.action) {
     case "sessions_list": {
-      const projectId = requiredRouteValue(requestPolicy.projectId, "project id");
-      wideEvent.set({ project_id: projectId });
-      return applyResponsePolicy(
-        await listSessions(url, env, projectId, auth.mode, requestId, wideEvent, ctx),
-        requestPolicy,
-        auth,
-      );
+      const { projectId } = grantedIds(route.params);
+      return listSessions(url, env, projectId, auth.mode, requestId, wideEvent, ctx);
     }
     case "session_heads": {
-      const projectId = requiredRouteValue(requestPolicy.projectId, "project id");
-      wideEvent.set({ project_id: projectId });
-      return applyResponsePolicy(
-        await listSessionHeads(url, env, projectId, requestId),
-        requestPolicy,
-        auth,
-      );
+      const { projectId } = grantedIds(route.params);
+      return listSessionHeads(url, env, projectId, requestId);
     }
     case "project_stats": {
-      const projectId = requiredRouteValue(requestPolicy.projectId, "project id");
-      wideEvent.set({ project_id: projectId });
-      return applyResponsePolicy(
-        await getProjectStats(url, env, ctx, projectId, requestId, wideEvent),
-        requestPolicy,
-        auth,
-      );
+      const { projectId } = grantedIds(route.params);
+      return getProjectStats(url, env, ctx, projectId, requestId, wideEvent);
     }
     case "project_live": {
-      const projectId = requiredRouteValue(requestPolicy.projectId, "project id");
-      wideEvent.set({ project_id: projectId });
-      return applyResponsePolicy(
-        await listLiveSessions(env, projectId, requestId),
-        requestPolicy,
-        auth,
-      );
+      const { projectId } = grantedIds(route.params);
+      return listLiveSessions(env, projectId, requestId);
     }
     case "project_config_read": {
-      const projectId = requiredRouteValue(requestPolicy.projectId, "project id");
-      wideEvent.set({ project_id: projectId });
-      return applyResponsePolicy(await getProjectConfig(env, projectId), requestPolicy, auth);
+      const { projectId } = grantedIds(route.params);
+      return getProjectConfig(env, projectId);
     }
     case "project_config_write": {
-      const projectId = requiredRouteValue(requestPolicy.projectId, "project id");
-      wideEvent.set({ project_id: projectId });
-      const originError = policyMutationOriginError(requestPolicy, request, env, auth);
-      if (originError !== null) return originError;
-      return applyResponsePolicy(
-        await putProjectConfig(request, env, projectId, wideEvent),
-        requestPolicy,
-        auth,
-      );
+      const { projectId } = grantedIds(route.params);
+      return putProjectConfig(request, env, projectId, wideEvent);
     }
-    case "project_config_method_not_allowed": {
-      const projectId = requiredRouteValue(requestPolicy.projectId, "project id");
-      wideEvent.set({ project_id: projectId });
+    case "project_config_method_not_allowed":
       return finalDashboardRouteError(auth);
-    }
     case "install_status": {
-      const projectId = requiredRouteValue(requestPolicy.projectId, "project id");
-      wideEvent.set({ project_id: projectId });
-      return applyResponsePolicy(
-        await getInstallStatus(env, projectId, requestId),
-        requestPolicy,
-        auth,
-      );
+      const { projectId } = grantedIds(route.params);
+      return getInstallStatus(env, projectId, requestId);
     }
     case "public_page_read": {
-      const projectId = requiredRouteValue(requestPolicy.projectId, "project id");
-      wideEvent.set({ project_id: projectId });
-      return applyResponsePolicy(
-        await getPublicPageSettings(url, env, projectId),
-        requestPolicy,
-        auth,
-      );
+      const { projectId } = grantedIds(route.params);
+      return getPublicPageSettings(url, env, projectId);
     }
     case "public_page_write": {
-      const projectId = requiredRouteValue(requestPolicy.projectId, "project id");
-      wideEvent.set({ project_id: projectId });
-      const originError = policyMutationOriginError(requestPolicy, request, env, auth);
-      if (originError !== null) return originError;
-      return applyResponsePolicy(
-        await putPublicPageSettings(request, url, env, projectId, wideEvent),
-        requestPolicy,
-        auth,
-      );
+      const { projectId } = grantedIds(route.params);
+      return putPublicPageSettings(request, url, env, projectId, wideEvent);
     }
     case "project_keys_read": {
-      const projectId = requiredRouteValue(requestPolicy.projectId, "project id");
-      wideEvent.set({ project_id: projectId });
-      return applyResponsePolicy(
-        await getProjectKeys(env, projectId, wideEvent),
-        requestPolicy,
-        auth,
-      );
+      const { projectId } = grantedIds(route.params);
+      return getProjectKeys(env, projectId, wideEvent);
     }
     case "project_keys_create": {
-      const projectId = requiredRouteValue(requestPolicy.projectId, "project id");
+      const { projectId } = grantedIds(route.params);
       if (!isSessionAuth(auth)) return jsonError("unauthorized", 401);
-      wideEvent.set({ project_id: projectId });
-      const originError = policyMutationOriginError(requestPolicy, request, env, auth);
-      if (originError !== null) return originError;
-      return applyResponsePolicy(
-        await createProjectKey(request, env, projectId, auth),
-        requestPolicy,
-        auth,
-      );
+      return createProjectKey(request, env, projectId, auth);
     }
     case "project_key_revoke": {
-      const projectId = requiredRouteValue(requestPolicy.projectId, "project id");
-      const keyId = requiredRouteValue(requestPolicy.keyId, "key id");
+      const { projectId, keyId } = grantedIds(route.params);
       if (!isSessionAuth(auth)) return jsonError("unauthorized", 401);
-      const originError = policyMutationOriginError(requestPolicy, request, env, auth);
-      if (originError !== null) return originError;
-      wideEvent.set({ project_id: projectId, key_id: keyId });
-      return applyResponsePolicy(
-        await revokeProjectKey(env, projectId, keyId, auth),
-        requestPolicy,
-        auth,
-      );
+      return revokeProjectKey(env, projectId, keyId, auth);
     }
     case "manifest": {
-      const projectId = requiredRouteValue(requestPolicy.projectId, "project id");
-      const sessionId = requiredRouteValue(requestPolicy.sessionId, "session id");
-      wideEvent.set({ project_id: projectId, session_id: sessionId });
-      return applyResponsePolicy(await getManifest(env, projectId, sessionId), requestPolicy, auth);
+      const { projectId, sessionId } = grantedIds(route.params);
+      return getManifest(env, projectId, sessionId);
     }
     case "session_state": {
-      const projectId = requiredRouteValue(requestPolicy.projectId, "project id");
-      const sessionId = requiredRouteValue(requestPolicy.sessionId, "session id");
-      wideEvent.set({ project_id: projectId, session_id: sessionId });
-      return applyResponsePolicy(
-        await getSessionState(env, projectId, sessionId, requestId),
-        requestPolicy,
-        auth,
-      );
+      const { projectId, sessionId } = grantedIds(route.params);
+      return getSessionState(env, projectId, sessionId, requestId);
     }
     case "live_ticket": {
-      const projectId = requiredRouteValue(requestPolicy.projectId, "project id");
-      const sessionId = requiredRouteValue(requestPolicy.sessionId, "session id");
-      const originError = policyMutationOriginError(requestPolicy, request, env, auth);
-      if (originError !== null) return originError;
-      wideEvent.set({ project_id: projectId, session_id: sessionId });
-      return applyResponsePolicy(
-        await mintLiveTicket(env, projectId, sessionId, liveViewerIdentity(request, auth)),
-        requestPolicy,
-        auth,
-      );
+      const { projectId, sessionId } = grantedIds(route.params);
+      return mintLiveTicket(env, projectId, sessionId, liveViewerIdentity(request, auth));
     }
     case "segment": {
-      const projectId = requiredRouteValue(requestPolicy.projectId, "project id");
-      const sessionId = requiredRouteValue(requestPolicy.sessionId, "session id");
-      const segmentName = requiredRouteValue(requestPolicy.segmentName, "segment name");
-      wideEvent.set({ project_id: projectId, session_id: sessionId, cache_hit: false });
-      return applyResponsePolicy(
-        await getSegment(env, projectId, sessionId, segmentName),
-        requestPolicy,
-        auth,
-      );
+      const { projectId, sessionId, segmentName } = grantedIds(route.params);
+      wideEvent.set({ cache_hit: false });
+      return getSegment(env, projectId, sessionId, segmentName);
     }
-    case "not_found":
-      return finalDashboardRouteError(auth);
-    default:
-      throw new Error(
-        `Dashboard request policy returned unexpected action ${requestPolicy.action}.`,
-      );
   }
 }
 
@@ -327,135 +297,65 @@ async function handlePublicPageRequest(
   url: URL,
   env: Env,
   ctx: ExecutionContext,
-  wideEvent: ReturnType<typeof startWideEvent>,
+  wideEvent: WideEvent,
   requestId: string,
-  requestPolicy: DashboardRequestPolicy,
+  plan: PublicPagePlan,
 ): Promise<Response> {
-  if (
-    requestPolicy.handlerRateLimit === "public_page" &&
-    !(await publicPageRateLimitAllows(env, request))
-  ) {
+  if (!(await publicPageRateLimitAllows(env, request))) {
     wideEvent.set({ rate_limit: "public_page" });
     return jsonError("rate_limited", 429, { "cache-control": "no-store" });
   }
 
-  const publicId = requiredRouteValue(requestPolicy.publicId, "public id");
-  if (!requestPolicy.publicIdValid) return jsonError("invalid_path_id", 400);
-  wideEvent.set({ public_id: publicId, auth_mode: "public" });
-
-  if (requestPolicy.action === "public_page_data") {
-    return getPublicPageDataResponse(url, env, ctx, publicId, requestId, wideEvent);
-  }
-
-  const publicReplayId = requiredRouteValue(requestPolicy.publicReplayId, "public replay id");
-  if (!requestPolicy.publicReplayIdValid) return jsonError("invalid_path_id", 400);
-  wideEvent.set({ public_replay_id: publicReplayId });
-
-  if (requestPolicy.action === "public_manifest") {
-    return getPublicManifest(env, publicId, publicReplayId);
-  }
-
-  if (requestPolicy.action === "public_segment") {
-    const segmentName = requiredRouteValue(requestPolicy.segmentName, "segment name");
-    if (!requestPolicy.segmentNameValid) return jsonError("invalid_segment_name", 400);
-    return getPublicSegment(env, publicId, publicReplayId, segmentName);
-  }
-
-  throw new Error(
-    `Dashboard request policy returned unexpected public action ${requestPolicy.action}.`,
-  );
-}
-
-function dashboardAccessError(
-  requestPolicy: DashboardRequestPolicy,
-  auth: ApiAuthContext,
-): Response | null {
-  if (requestPolicy.access === "none" || requestPolicy.access === "authenticated") return null;
-
-  if (requestPolicy.access === "session") {
-    return isSessionAuth(auth) ? null : jsonError("unauthorized", 401);
-  }
-
-  if (requestPolicy.access === "global_admin") {
-    const authError = globalAdminAuthError(auth);
-    if (authError !== null) return authError;
-    return isSessionAuth(auth) ? null : jsonError("forbidden", 403);
-  }
-
-  const projectId = requestPolicy.projectId;
-  const projectRoute = requestPolicy.projectRoute;
-  const needsSessionId =
-    requestPolicy.action === "manifest" ||
-    requestPolicy.action === "session_state" ||
-    requestPolicy.action === "live_ticket" ||
-    requestPolicy.action === "segment";
-  const needsKeyId = requestPolicy.action === "project_key_revoke";
-  if (
-    projectId === null ||
-    projectRoute === null ||
-    !requestPolicy.projectIdValid ||
-    !requestPolicy.sessionIdValid ||
-    !requestPolicy.keyIdValid ||
-    (needsSessionId && requestPolicy.sessionId === null) ||
-    (needsKeyId && requestPolicy.keyId === null)
-  ) {
-    return jsonError("invalid_path_id", 400);
-  }
-
-  const authError = projectAuthError(auth, projectId, projectRoute);
-  if (authError !== null) return authError;
-
-  if (
-    requestPolicy.action === "segment" &&
-    (requestPolicy.segmentName === null || !requestPolicy.segmentNameValid)
-  ) {
-    return jsonError("invalid_segment_name", 400);
-  }
-
-  if (requestPolicy.requiresSessionAuth && !isSessionAuth(auth)) {
-    return jsonError("unauthorized", 401);
-  }
-
-  return null;
-}
-
-function policyMutationOriginError(
-  requestPolicy: DashboardRequestPolicy,
-  request: Request,
-  env: Env,
-  auth: ApiAuthContext,
-): Response | null {
-  return requestPolicy.requiresTrustedMutationOrigin
-    ? mutationOriginError(request, env, auth)
-    : null;
-}
-
-function applyResponsePolicy(
-  response: Response,
-  requestPolicy: DashboardRequestPolicy,
-  auth?: ApiAuthContext,
-): Response {
-  if (requestPolicy.responsePolicy === "security_headers") {
-    return withSecurityHeaders(response);
-  }
-  if (requestPolicy.responsePolicy === "authenticated_project") {
-    if (auth === undefined) {
-      throw new Error("Dashboard request policy needs project authentication for its response.");
+  const params = plan.params;
+  if (!params.ok) {
+    if (params.logged.publicId !== undefined) {
+      wideEvent.set({ public_id: params.logged.publicId, auth_mode: "public" });
     }
-    return authenticatedProjectResponse(response, auth);
+    if (params.logged.publicReplayId !== undefined) {
+      wideEvent.set({ public_replay_id: params.logged.publicReplayId });
+    }
+    return jsonError(params.error, 400);
   }
-  return response;
+
+  wideEvent.set({ public_id: params.ids.publicId, auth_mode: "public" });
+
+  switch (plan.action) {
+    case "page_data": {
+      const { publicId } = grantedPublicIds(plan.params);
+      return getPublicPageDataResponse(url, env, ctx, publicId, requestId, wideEvent);
+    }
+    case "manifest": {
+      const { publicId, publicReplayId } = grantedPublicIds(plan.params);
+      wideEvent.set({ public_replay_id: publicReplayId });
+      return getPublicManifest(env, publicId, publicReplayId);
+    }
+    case "segment": {
+      const { publicId, publicReplayId, segmentName } = grantedPublicIds(plan.params);
+      wideEvent.set({ public_replay_id: publicReplayId });
+      return getPublicSegment(env, publicId, publicReplayId, segmentName);
+    }
+  }
+}
+
+function grantedIds<Ids extends ProjectIds>(params: ProjectParams<Ids>): Ids {
+  if (!params.ok) throw new Error("Project route executed without validated ids.");
+  return params.ids;
+}
+
+function grantedPublicIds<Ids extends PublicPageIds>(params: PublicPageParams<Ids>): Ids {
+  if (!params.ok) throw new Error("Public page route executed without validated ids.");
+  return params.ids;
+}
+
+function projectLogFields(ids: ProjectIds & Partial<SessionIds & KeyIds>): Record<string, string> {
+  const fields: Record<string, string> = { project_id: ids.projectId };
+  if (ids.sessionId !== undefined) fields.session_id = ids.sessionId;
+  if (ids.keyId !== undefined) fields.key_id = ids.keyId;
+  return fields;
 }
 
 function finalDashboardRouteError(auth: ApiAuthContext): Response {
   return auth.mode === "demo" ? jsonError("unauthorized", 401) : jsonError("not_found", 404);
-}
-
-function requiredRouteValue(value: string | null, name: string): string {
-  if (value === null || value.length === 0) {
-    throw new Error(`Dashboard request policy is missing ${name}.`);
-  }
-  return value;
 }
 
 function liveViewerIdentity(request: Request, auth: ApiAuthContext): string {
@@ -467,7 +367,7 @@ async function analyticsReadRateLimitError(
   env: Env,
   auth: ApiAuthContext,
   projectId: string,
-  wideEvent: ReturnType<typeof startWideEvent>,
+  wideEvent: WideEvent,
 ): Promise<Response | null> {
   const result = await checkAnalyticsReadRateLimit(
     env,
