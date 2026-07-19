@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 import type { SessionHead, SessionListItem } from "../src/lib/api";
+import type { ListSessionsResponse } from "../src/lib/api";
 import {
   canMergeSessionHeads,
   mergeSessionRows,
+  nextSessionPageParam,
   nextTrackedSessionHeadIds,
   sessionHeadsFilter,
 } from "../src/lib/session-list";
@@ -81,6 +83,26 @@ describe("session list continuity", () => {
     expect(nextTrackedSessionHeadIds(["second"], [first], [])).toEqual(["first"]);
   });
 
+  it("carries the first response warehouse version to later pages", () => {
+    const first = makePage("cursor-1", 15);
+    const second = makePage("cursor-2", 16);
+
+    // Later pages take the version from page one, not the newest page, so a
+    // URL-unpinned list never mixes warehouse snapshots mid-scroll.
+    expect(nextSessionPageParam(first, [first])).toEqual({
+      before: "cursor-1",
+      warehouseVersion: 15,
+    });
+    expect(nextSessionPageParam(second, [first, second])).toEqual({
+      before: "cursor-2",
+      warehouseVersion: 15,
+    });
+    expect(nextSessionPageParam(makePage(null, 15), [first])).toBeUndefined();
+    expect(nextSessionPageParam(makePage("cursor-3"), [makePage("cursor-3")])).toEqual({
+      before: "cursor-3",
+    });
+  });
+
   it("keeps an older tracked head through two 200-row bridge polls", () => {
     const oldTracked = makeHead("old-tracked", "exact", { started_at: 1 });
     const newerHeads = Array.from({ length: 100 }, (_, index) =>
@@ -99,6 +121,14 @@ describe("session list continuity", () => {
     expect(afterSecondPoll).toContain(oldTracked.session_id);
   });
 });
+
+function makePage(nextBefore: string | null, warehouseVersion?: number): ListSessionsResponse {
+  return {
+    sessions: [],
+    nextBefore,
+    ...(warehouseVersion === undefined ? {} : { warehouseVersion }),
+  } as ListSessionsResponse;
+}
 
 function makeHead(
   sessionId: string,

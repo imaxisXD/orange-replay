@@ -55,6 +55,22 @@ export function dateRangeSnapshotFilter(filter: SessionFilter): SessionFilter {
   };
 }
 
+/**
+ * The date range is dashboard-level state: top-nav tab switches carry an
+ * explicitly chosen from/to window while dropping page-local keys (lenses,
+ * selection, sort). The silent 24h default carries nothing, so untouched
+ * URLs stay clean and each page applies its own default.
+ */
+export function carriedDateRangeSearch(search: Record<string, unknown>): SessionFilter {
+  const filter = validateSessionSearch(search);
+  return {
+    ...(filter.from === undefined ? {} : { from: filter.from }),
+    ...(filter.to === undefined ? {} : { to: filter.to }),
+  };
+}
+
+const TWENTY_EIGHT_DAYS_MS = 28 * 24 * 60 * 60 * 1000;
+
 export function dateRangeFilter(
   filter: SessionFilter,
   range: DateRangeValue,
@@ -62,7 +78,22 @@ export function dateRangeFilter(
 ): SessionFilter {
   const option = dateRangeOptions.find((item) => item.value === range) ?? dateRangeOptions[0];
   const to = Math.floor(now / 60_000) * 60_000;
-  return { ...filter, from: to - option.durationMs, to };
+  // Choosing a preset is a SessionFilter mutation: it drops the doorway URL
+  // warehouse pin so the new window sees live and newly finalized recordings.
+  // This protects both the Overview and Sessions range selectors.
+  const { warehouse_version: _pin, ...rest } = filter;
+  return { ...rest, from: to - option.durationMs, to };
+}
+
+/**
+ * True when the effective window is shorter than 28 days, so a "Show last 28
+ * days" action would genuinely widen it. A 28-day or longer/wider window (or a
+ * custom window that is not shorter than 28 days) gets no widen action it
+ * cannot fulfil.
+ */
+export function windowShorterThan28Days(filter: SessionFilter): boolean {
+  if (filter.from === undefined || filter.to === undefined) return true;
+  return filter.to - filter.from < TWENTY_EIGHT_DAYS_MS;
 }
 
 export function selectedDateRange(filter: SessionFilter): DateRangeValue | "custom" {

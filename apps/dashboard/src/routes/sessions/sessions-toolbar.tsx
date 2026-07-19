@@ -14,7 +14,13 @@ import { Switch } from "@/components/ui/switch";
 import { Tooltip } from "@/components/ui/tooltip";
 import type { StatsBreakdownRow } from "@/lib/api/stats";
 import { RotateCcw, Search } from "@/lib/icon-map";
-import { dateRangeShorthand, sessionCountNoun } from "@/lib/session-count";
+import { sessionCountNoun } from "@/lib/session-count";
+import {
+  dateRangeFilter,
+  dateRangeOptions,
+  selectedDateRange,
+  type DateRangeValue,
+} from "@/lib/session-filters";
 
 const minDurationOptions = [
   { label: "Any duration", value: "any", ms: undefined },
@@ -59,8 +65,32 @@ export function SessionsToolbar({
         },
       ];
 
+  const range = selectedDateRange(filter);
+
   return (
     <div className="grid grid-cols-2 items-center gap-2.5 sm:flex sm:flex-wrap">
+      <Select
+        onValueChange={(value) =>
+          onFilterChange(dateRangeFilter(filter, value as DateRangeValue, Date.now()))
+        }
+        value={range === "custom" ? undefined : range}
+      >
+        <SelectTrigger
+          aria-label="Date range"
+          className="h-9 w-full min-w-0 rounded-[7px] border border-border bg-secondary px-3 text-[13px] sm:h-8.5 sm:min-w-32 sm:text-[12px]"
+          placeholder={range === "custom" ? "Custom range" : "Last 24h"}
+        />
+        <SelectContent className="rounded-lg border border-border bg-popover">
+          <SelectGroup>
+            {dateRangeOptions.map((option, index) => (
+              <SelectItem index={index} key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+
       <CountryPicker
         countries={countries}
         onCommit={(country) =>
@@ -138,7 +168,6 @@ export function SessionsToolbar({
               {sessionCountNoun(sessionCount, hasMore)}
             </>
           )}
-          {!isRefreshing && rangeSuffix(filter)}
         </span>
         <Tooltip content={isRefreshing ? "Refreshing sessions" : "Refresh"}>
           <Button
@@ -249,9 +278,4 @@ function CountryFilter({
       />
     </InputGroup>
   );
-}
-
-function rangeSuffix(filter: { from?: number; to?: number }): string {
-  const range = dateRangeShorthand(filter);
-  return range === null ? "" : ` · ${range}`;
 }
