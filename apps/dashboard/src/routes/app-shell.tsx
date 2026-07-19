@@ -75,9 +75,14 @@ export function AppShell({
       ) ?? [{ id: projectId, label: `Project ${projectId}` }]);
   const activeProject = findAccountProject(account, projectId);
   const pathname = useRouterState({ select: (state) => state.location.pathname });
-  // The two-pane sessions triage needs a real player viewport; every other
-  // screen keeps the design language's 1200px column.
-  const wideMain = /\/sessions\/?$/.test(pathname);
+  const selectedSession = useRouterState({
+    select: (state) => (state.location.search as { selected?: string }).selected,
+  });
+  // Every screen keeps the design language's centered 1200px column. The sessions
+  // triage expands to the wide column only while a session is selected because the
+  // replay player needs the room. The expansion is animated so it reads as the
+  // player making room rather than a layout glitch.
+  const wideMain = /\/sessions\/?$/.test(pathname) && selectedSession !== undefined;
 
   async function handleLogout(): Promise<void> {
     setIsSigningOut(true);
@@ -105,7 +110,7 @@ export function AppShell({
       <ScrollArea className="min-h-0 flex-1" viewportClassName="scroll-fade">
         <main
           className={cn(
-            "mx-auto w-full max-w-full px-4 py-5 sm:px-7 sm:py-6",
+            "mx-auto w-full max-w-full px-4 py-5 transition-[max-width] duration-300 ease-out motion-reduce:transition-none sm:px-7 sm:py-6",
             wideMain ? "max-w-475" : "max-w-300",
           )}
         >
