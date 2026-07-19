@@ -142,7 +142,7 @@ export function MaskingCard({
               transition={reduceMotion ? { duration: 0 } : spring.fast}
             >
               <div className="rounded-lg border border-dashed border-dash px-4 py-8 text-center text-[13px] text-muted-foreground">
-                No custom rules — inputs are masked by default.
+                No custom rules. Inputs are masked by default.
               </div>
             </m.div>
           ) : (

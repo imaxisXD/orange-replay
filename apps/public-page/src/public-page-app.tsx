@@ -84,7 +84,9 @@ export function PublicPageApp({ publicId, replayPlayer: ReplayPlayer }: PublicPa
                 </div>
                 <div className="recording-numbers" aria-label="Recording summary">
                   <span>{recording.clicks} clicks</span>
-                  <span>{recording.pages ?? "—"} pages</span>
+                  <span>
+                    {recording.pages === null ? "Pages unavailable" : `${recording.pages} pages`}
+                  </span>
                   <span>{recording.rages} rage clicks</span>
                 </div>
                 <button
@@ -208,11 +210,11 @@ function formatNumber(value: number): string {
 }
 
 function formatOptionalDecimal(value: number | null): string {
-  return value === null ? "—" : value.toFixed(1);
+  return value === null ? "N/A" : value.toFixed(1);
 }
 
 function formatPercent(value: number | null): string {
-  return value === null ? "—" : `${Math.round(value * 100)}%`;
+  return value === null ? "N/A" : `${Math.round(value * 100)}%`;
 }
 
 function formatDuration(milliseconds: number): string {

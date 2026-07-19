@@ -352,7 +352,7 @@ function DemoBannerNotch({
         >
           <p className="relative min-w-0 flex-1 text-[12px] leading-[1.3] font-medium tracking-[-0.005em] text-foreground">
             Our own landing page, recorded with our own product.{" "}
-            <span className="text-teal">Look closely — you might spot yourself.</span>
+            <span className="text-teal">Look closely. You might spot yourself.</span>
           </p>
           <Link
             aria-hidden={!visible}
