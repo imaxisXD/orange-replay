@@ -3,10 +3,14 @@ import { useNavigate, useSearch } from "@tanstack/react-router";
 import { AnalyticsStaleAlert } from "@/components/analytics-stale-alert";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { filterChips, removeFilterKey } from "@/lib/filter-chips";
+import { filterChips, pageLocalLensCount, removeFilterKey } from "@/lib/filter-chips";
 import { AlertCircle, ArrowLeft } from "@/lib/icon-map";
 import { canMergeSessionHeads, type SessionDisplayItem } from "@/lib/session-list";
-import { withDefaultDateRange } from "@/lib/session-filters";
+import {
+  dateRangeFilter,
+  windowShorterThan28Days,
+  withDefaultDateRange,
+} from "@/lib/session-filters";
 import {
   sessionFilterOf,
   type SessionSort,
@@ -38,6 +42,24 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
   const watched = watchedSessionIds(projectId);
 
   const chips = filterChips(searchFilter);
+  const lensCount = pageLocalLensCount(searchFilter);
+
+  // Clearing filters removes page-local lenses and the doorway warehouse pin,
+  // but keeps only the raw explicitly-chosen from/to window (nothing when the
+  // URL is on the rolling default). It must not carry the warehouse snapshot,
+  // so it builds its target from raw from/to rather than a snapshot filter.
+  function clearFilters(): void {
+    replaceFilter({
+      ...(searchFilter.from === undefined ? {} : { from: searchFilter.from }),
+      ...(searchFilter.to === undefined ? {} : { to: searchFilter.to }),
+    });
+  }
+
+  // "Show last 28 days" applies the 28d preset through the same mutation path
+  // as the selector, so it widens the window and drops the doorway pin.
+  function showLast28Days(): void {
+    replaceFilter(dateRangeFilter(filter, "28d", Date.now()));
+  }
 
   function navigateView(nextView: SessionsViewSearch, options: { push?: boolean } = {}): void {
     const replace = options.push !== true;
@@ -59,6 +81,10 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
 
   function replaceFilter(nextFilter: SessionsViewSearch): void {
     const nextSearchFilter = { ...nextFilter };
+    // Every SessionFilter mutation (toolbar lens edit, range preset, chip
+    // removal, clear-all) drops the doorway URL warehouse pin — it reproduces
+    // an exact Overview metric set only until the user changes that set.
+    nextSearchFilter.warehouse_version = undefined;
     if (
       searchFilter.from === undefined &&
       searchFilter.to === undefined &&
@@ -172,7 +198,7 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
 
       <SessionFilterChips
         chips={chips}
-        onClear={() => replaceFilter({})}
+        onClear={clearFilters}
         onRemove={(key) => replaceFilter(removeFilterKey(filter, key))}
       />
 
@@ -212,13 +238,15 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
 
       <div className="flex min-w-0 items-start gap-5">
         <SessionListPane
+          canWidenTo28Days={windowShorterThan28Days(filter)}
           className={selectedSessionId === undefined ? "flex" : "hidden lg:flex"}
-          chipsCount={chips.length}
           error={data.error}
           hasMore={data.hasMore}
+          lensCount={lensCount}
           loadState={data.loadState}
-          onClearFilters={() => replaceFilter({})}
+          onClearFilters={clearFilters}
           onLoadMore={data.loadMore}
+          onShowLast28Days={showLast28Days}
           onRailKeyDown={handleRailKeyDown}
           onSelect={selectSession}
           onShowAll={() => replaceView({ ...view, unwatched: undefined })}

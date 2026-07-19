@@ -27,6 +27,7 @@ import { ShieldUser } from "@/lib/icon-map";
 import { dashboardNavItems, type DashboardNavItem } from "@/lib/dashboard-navigation";
 import { useDashboardWorkspace } from "@/lib/dashboard-workspace";
 import { m, type HTMLMotionProps } from "@/lib/motion";
+import { carriedDateRangeSearch } from "@/lib/session-filters";
 import { surfaceClasses } from "@/lib/surface-classes";
 import { SurfaceProvider } from "@/lib/surface-context";
 import { cn } from "@/lib/utils";
@@ -365,9 +366,16 @@ function TopNavTab({
     </>
   );
 
+  // The date range is dashboard state: tab switches carry an explicit
+  // from/to window and drop every page-local search key.
   if (demoTo !== undefined) {
     return (
-      <Link aria-current={isActive ? "page" : undefined} className={className} to={demoTo}>
+      <Link
+        aria-current={isActive ? "page" : undefined}
+        className={className}
+        search={carriedDateRangeSearch}
+        to={demoTo}
+      >
         {content}
       </Link>
     );
@@ -378,6 +386,7 @@ function TopNavTab({
       aria-current={isActive ? "page" : undefined}
       className={className}
       params={{ projectId }}
+      search={carriedDateRangeSearch}
       to={item.projectTo}
     >
       {content}

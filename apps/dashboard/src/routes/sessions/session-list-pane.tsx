@@ -35,16 +35,18 @@ const sortOptions: { label: string; value: SessionSort }[] = [
 export type SessionListLoadState = "loading" | "loading_more" | "idle";
 
 export function SessionListPane({
+  canWidenTo28Days,
   className,
-  chipsCount,
   error,
   hasMore,
+  lensCount,
   loadState,
   onClearFilters,
   onLoadMore,
   onRailKeyDown,
   onSelect,
   onShowAll,
+  onShowLast28Days,
   onSortChange,
   onToggleUnwatched,
   railRef,
@@ -55,16 +57,18 @@ export function SessionListPane({
   visibleSessions,
   watched,
 }: {
+  canWidenTo28Days: boolean;
   className?: string;
-  chipsCount: number;
   error: string;
   hasMore: boolean;
+  lensCount: number;
   loadState: SessionListLoadState;
   onClearFilters: () => void;
   onLoadMore: () => Promise<void>;
   onRailKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void;
   onSelect: (session: SessionDisplayItem) => void;
   onShowAll: () => void;
+  onShowLast28Days: () => void;
   onSortChange: (sort: SessionSort) => void;
   onToggleUnwatched: () => void;
   railRef: RefObject<HTMLDivElement | null>;
@@ -139,10 +143,13 @@ export function SessionListPane({
 
         {loadState !== "loading" && sessions.length === 0 && error.length === 0 && (
           <div className="p-4">
-            {chipsCount > 0 ? (
-              <FilteredEmptyState count={chipsCount} onClear={onClearFilters} />
+            {lensCount > 0 ? (
+              <FilteredEmptyState count={lensCount} onClear={onClearFilters} />
             ) : (
-              <SessionsEmptyState />
+              <DateRangeEmptyState
+                canWiden={canWidenTo28Days}
+                onShowLast28Days={onShowLast28Days}
+              />
             )}
           </div>
         )}
@@ -218,19 +225,33 @@ function AllWatchedState({ onShowAll, total }: { onShowAll: () => void; total: n
   );
 }
 
-function SessionsEmptyState() {
+function DateRangeEmptyState({
+  canWiden,
+  onShowLast28Days,
+}: {
+  canWiden: boolean;
+  onShowLast28Days: () => void;
+}) {
   return (
     <Empty className="border border-dashed border-dash">
       <EmptyHeader>
         <EmptyMedia variant="icon">
           <Inbox aria-hidden />
         </EmptyMedia>
-        <EmptyTitle>No sessions yet</EmptyTitle>
+        <EmptyTitle>No sessions in this date range</EmptyTitle>
         <EmptyDescription>
-          Install the snippet and sessions appear here on their own.
+          {canWiden
+            ? "Nothing recorded in this window. Widen the range above to look further back."
+            : "Nothing recorded in this window. Pick another range above."}
         </EmptyDescription>
       </EmptyHeader>
-      <EmptyContent />
+      {canWiden && (
+        <EmptyContent>
+          <Button onClick={onShowLast28Days} variant="secondary">
+            Show last 28 days
+          </Button>
+        </EmptyContent>
+      )}
     </Empty>
   );
 }
