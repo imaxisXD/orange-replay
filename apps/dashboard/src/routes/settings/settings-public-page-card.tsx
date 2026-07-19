@@ -157,7 +157,7 @@ export function PublicPageCard({ projectId }: { projectId: string }) {
   }
 
   return (
-    <section className="lit rounded-lg p-5 md:col-span-2">
+    <section className="lit rounded-lg p-5">
       <CardHeader
         right={
           <Badge color={settings?.enabled ? "green" : "gray"} size="sm" variant="dot">
