@@ -1,9 +1,19 @@
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import type { SessionManifest } from "@orange-replay/shared/types";
+import selectSessionReaderSrc from "@/assets/empty-states/select-session-reader.webp";
+import sessionsBeetleReelSrc from "@/assets/empty-states/layers/sessions-beetle-reel.webp";
+import sessionsFilmMothSrc from "@/assets/empty-states/layers/sessions-film-moth.webp";
+import sessionsFrameFishSrc from "@/assets/empty-states/layers/sessions-frame-fish.webp";
+import sessionsReelSnailSrc from "@/assets/empty-states/layers/sessions-reel-snail.webp";
+import sessionsWingedWatchSrc from "@/assets/empty-states/layers/sessions-winged-watch.webp";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { StatusPill } from "@/components/status-pill";
+import {
+  ParallaxEmptyStateField,
+  type ParallaxEmptyStateLayer,
+} from "@/components/parallax-empty-state-field";
 import {
   Empty,
   EmptyContent,
@@ -17,16 +27,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { ApiError, type SessionActivity, type SessionDetailsState } from "@/lib/api";
 import { formatDuration } from "@/lib/format";
 import { IconSwap } from "@/components/ui/icon-swap";
-import {
-  AlertCircle,
-  ArrowLeft,
-  Check,
-  ChevronRight,
-  Clock,
-  Copy,
-  EyeOff,
-  Inbox,
-} from "@/lib/icon-map";
+import { AlertCircle, Check, ChevronRight, Clock, Copy, EyeOff, Inbox } from "@/lib/icon-map";
 import { ReplayWorkspace } from "../session-detail/replay-playback";
 import { useSessionView } from "../session-detail/use-session-view";
 import { entryPath } from "@/lib/entry-path";
@@ -67,22 +68,123 @@ export function SessionStage({
 export function EmptySessionStage({ reason }: { reason: "no_sessions" | "no_selection" }) {
   const noSessions = reason === "no_sessions";
 
+  if (noSessions) {
+    return (
+      <Empty className="min-h-90 w-full border border-dashed border-dash">
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <Inbox aria-hidden />
+          </EmptyMedia>
+          <EmptyTitle>Nothing to watch yet</EmptyTitle>
+          <EmptyDescription>
+            When the list has sessions, pick one and it plays here.
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+    );
+  }
+
   return (
-    <Empty className="min-h-90 border border-dashed border-dash">
-      <EmptyHeader>
-        <EmptyMedia variant="icon">
-          {noSessions ? <Inbox aria-hidden /> : <ArrowLeft aria-hidden />}
-        </EmptyMedia>
-        <EmptyTitle>{noSessions ? "Nothing to watch yet" : "Select a session to watch"}</EmptyTitle>
-        <EmptyDescription>
-          {noSessions
-            ? "When the list has sessions, pick one and it plays here."
-            : "Pick one from the list — it plays here instantly. Amber dots mark sessions you have not watched yet."}
-        </EmptyDescription>
-      </EmptyHeader>
+    <Empty className="min-h-[38rem] w-full overflow-hidden border border-dashed border-dash p-0 md:p-0">
+      <ParallaxEmptyStateField
+        className="min-h-[38rem] w-full flex-1 px-6 py-10"
+        layers={SESSION_EMPTY_STATE_LAYERS}
+      >
+        <EmptyHeader className="max-w-md gap-2">
+          <EmptyMedia className="mb-4 size-56 sm:size-64">
+            <img
+              alt=""
+              aria-hidden="true"
+              className="h-full w-full object-contain"
+              draggable={false}
+              src={selectSessionReaderSrc}
+            />
+          </EmptyMedia>
+          <EmptyTitle>The rooster has the reel</EmptyTitle>
+          <EmptyDescription>
+            Pick a session and it plays here. Here’s a secret: amber dots remember what you haven’t
+            watched.
+          </EmptyDescription>
+        </EmptyHeader>
+      </ParallaxEmptyStateField>
     </Empty>
   );
 }
+
+const SESSION_EMPTY_STATE_LAYERS: readonly ParallaxEmptyStateLayer[] = [
+  {
+    src: sessionsBeetleReelSrc,
+    left: "8%",
+    top: "61%",
+    width: "clamp(4rem, 7vw, 7rem)",
+    movement: 13,
+    opacity: 0.42,
+    rotation: -8,
+  },
+  {
+    src: sessionsWingedWatchSrc,
+    left: "90%",
+    top: "47%",
+    width: "clamp(3.8rem, 6vw, 6rem)",
+    movement: -11,
+    opacity: 0.4,
+    rotation: 6,
+  },
+  {
+    src: sessionsFilmMothSrc,
+    left: "14%",
+    top: "27%",
+    width: "clamp(3.2rem, 5vw, 5rem)",
+    movement: -16,
+    opacity: 0.34,
+    rotation: -7,
+  },
+  {
+    src: sessionsReelSnailSrc,
+    left: "79%",
+    top: "72%",
+    width: "clamp(4rem, 6vw, 6rem)",
+    movement: 10,
+    opacity: 0.36,
+    rotation: 4,
+  },
+  {
+    src: sessionsFrameFishSrc,
+    left: "91%",
+    top: "23%",
+    width: "clamp(3.5rem, 5.4vw, 5.4rem)",
+    movement: 17,
+    opacity: 0.32,
+    rotation: 3,
+  },
+  {
+    src: sessionsFilmMothSrc,
+    left: "3%",
+    top: "87%",
+    width: "clamp(2rem, 3vw, 3rem)",
+    movement: 21,
+    opacity: 0.2,
+    rotation: 18,
+  },
+  {
+    src: sessionsWingedWatchSrc,
+    left: "69%",
+    top: "16%",
+    width: "clamp(2rem, 2.8vw, 2.8rem)",
+    movement: -19,
+    opacity: 0.19,
+    rotation: -10,
+  },
+  {
+    src: sessionsBeetleReelSrc,
+    left: "28%",
+    top: "84%",
+    width: "clamp(2.2rem, 3.2vw, 3.2rem)",
+    movement: -17,
+    opacity: 0.22,
+    rotation: 8,
+  },
+];
 
 interface SessionStageNavigation {
   back: () => void;
@@ -189,7 +291,7 @@ function SelectedSession({
             </EmptyMedia>
             <EmptyTitle>No replay captured for this session</EmptyTitle>
             <EmptyDescription>
-              Metadata only — the recording produced no playable segments, so there is nothing to
+              Metadata only. The recording produced no playable segments, so there is nothing to
               watch here.
             </EmptyDescription>
           </EmptyHeader>

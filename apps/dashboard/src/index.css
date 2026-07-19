@@ -810,6 +810,160 @@
   transform: scale(0.4);
 }
 
+/* Empty-state collage field. Broad color pools sit inside the lower half while
+   the small surrounding objects follow the pointer on separate depth layers. */
+.parallax-empty-state {
+  --field-pool-teal: oklch(0.785 0.133 181.912 / 0.14);
+  --field-pool-pink: oklch(0.785 0.118 352 / 0.115);
+  --field-pool-amber: oklch(0.784 0.159 72.991 / 0.095);
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  overflow: hidden;
+  contain: layout paint;
+  isolation: isolate;
+}
+
+.parallax-empty-state__backdrop,
+.parallax-empty-state__layers {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.parallax-empty-state__backdrop {
+  z-index: 0;
+  background:
+    radial-gradient(ellipse 34% 56% at 18% 68%, var(--field-pool-teal) 0%, transparent 74%),
+    radial-gradient(ellipse 36% 58% at 78% 64%, var(--field-pool-pink) 0%, transparent 74%),
+    radial-gradient(ellipse 58% 38% at 50% 100%, var(--field-pool-amber) 0%, transparent 72%);
+  filter: blur(20px);
+  opacity: 0.96;
+}
+
+.parallax-empty-state__layers {
+  z-index: 1;
+  overflow: hidden;
+}
+
+.parallax-empty-state__layer {
+  position: absolute;
+  display: block;
+  height: auto;
+  max-width: none;
+  opacity: var(--layer-opacity);
+  filter: saturate(0.82) contrast(0.94) drop-shadow(0 4px 4px oklch(0 0 0 / 0.2));
+  transform: translate3d(calc(-50% + var(--parallax-x)), calc(-50% + var(--parallax-y)), 0)
+    rotate(var(--layer-rotation));
+  transform-origin: center;
+  user-select: none;
+}
+
+.parallax-empty-state[data-moving="true"] .parallax-empty-state__layer {
+  will-change: transform;
+}
+
+.parallax-empty-state__content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  width: 100%;
+  min-height: inherit;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+/* The collage stays raster-sharp while CSS owns the small signal layer. */
+.signal-watch__art {
+  position: absolute;
+  inset-block: 20px 12px;
+  left: 50%;
+  aspect-ratio: 389 / 560;
+  contain: layout paint;
+  isolation: isolate;
+  transform: translateX(-50%);
+}
+
+.signal-watch__art > img {
+  display: block;
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.signal-watch__overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.signal-watch__ring,
+.signal-watch__beacon {
+  position: absolute;
+  top: 11.5%;
+  left: 58%;
+}
+
+.signal-watch__ring {
+  aspect-ratio: 1;
+  border: 1px dotted oklch(0.94 0.035 86 / 0.8);
+  border-radius: 50%;
+  animation: signal-watch-ring-pulse 3.2s ease-in-out infinite;
+}
+
+.signal-watch__ring--inner {
+  width: 12%;
+}
+
+.signal-watch__ring--middle {
+  width: 22%;
+  animation-delay: -0.7s;
+}
+
+.signal-watch__ring--outer {
+  width: 34%;
+  animation-delay: -1.4s;
+}
+
+.signal-watch__beacon {
+  width: 2.8%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: oklch(0.95 0.065 87);
+  box-shadow: 0 0 6px oklch(0.95 0.065 87 / 0.68);
+  animation: signal-watch-beacon-pulse 3.2s ease-in-out infinite;
+}
+
+@keyframes signal-watch-ring-pulse {
+  0%,
+  100% {
+    opacity: 0.48;
+    transform: translate(-50%, -50%) scale(0.94);
+  }
+  50% {
+    opacity: 0.94;
+    transform: translate(-50%, -50%) scale(1.08);
+  }
+}
+
+@keyframes signal-watch-beacon-pulse {
+  0%,
+  100% {
+    opacity: 0.72;
+    transform: translate(-50%, -50%) scale(0.88);
+  }
+  50% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.12);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   /* Decorative loops stop. The shared loading indicator handles its own
      reduced-motion state. */
@@ -827,5 +981,30 @@
 
   .overview-lit::after {
     transition: none;
+  }
+
+  .signal-watch__ring,
+  .signal-watch__beacon {
+    animation: none;
+    opacity: 0.7;
+    transform: translate(-50%, -50%);
+  }
+
+  .parallax-empty-state__layer {
+    transform: translate3d(-50%, -50%, 0) rotate(var(--layer-rotation));
+  }
+
+  .parallax-empty-state[data-moving="true"] .parallax-empty-state__layer {
+    will-change: auto;
+  }
+}
+
+@media (max-width: 639px) {
+  .parallax-empty-state__layer {
+    filter: saturate(0.78) contrast(0.94) opacity(0.78) drop-shadow(0 3px 3px oklch(0 0 0 / 0.18));
+  }
+
+  .parallax-empty-state__layer:nth-child(n + 6) {
+    display: none;
   }
 }

@@ -236,7 +236,7 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
         </Alert>
       )}
 
-      <div className="flex min-w-0 items-start gap-5">
+      <div className="flex min-w-0 items-stretch gap-5">
         <SessionListPane
           canWidenTo28Days={windowShorterThan28Days(filter)}
           className={selectedSessionId === undefined ? "flex" : "hidden lg:flex"}
@@ -270,7 +270,9 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
 
         <div
           className={
-            selectedSessionId === undefined ? "hidden min-w-0 flex-1 lg:block" : "min-w-0 flex-1"
+            selectedSessionId === undefined
+              ? "hidden min-w-0 flex-1 flex-col lg:flex"
+              : "flex min-w-0 flex-1 flex-col"
           }
         >
           {selectedSessionId !== undefined && (
