@@ -238,7 +238,9 @@ function LiveEmptyState({ isDemo, projectId }: { isDemo: boolean; projectId: str
           </EmptyDescription>
         </EmptyHeader>
         <EmptyContent>
-          <Button asChild size="sm" variant="secondary">
+          {/* Installing is the only thing that fills this page, so it carries the
+              primary plate. Browsing recordings is a sideways move: secondary. */}
+          <Button asChild size="sm" variant={awaitingFirstEvent ? "primary" : "secondary"}>
             {awaitingFirstEvent ? (
               <Link params={{ projectId }} to="/projects/$projectId/install">
                 Install the snippet

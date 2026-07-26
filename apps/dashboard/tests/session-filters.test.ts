@@ -3,6 +3,7 @@ import {
   canonicalSessionFilter,
   carriedDateRangeSearch,
   dateRangeFilter,
+  dateRangeOptions,
   dateRangeSnapshotFilter,
   selectedDateRange,
   validateSessionSearch,
@@ -13,6 +14,15 @@ import {
 const twentyEightDaysMs = 28 * 24 * 60 * 60 * 1000;
 
 describe("dashboard session filters", () => {
+  it("uses readable date range labels", () => {
+    expect(dateRangeOptions.map(({ label }) => label)).toEqual([
+      "Last 24 hours",
+      "Last 3 days",
+      "Last 7 days",
+      "Last 28 days",
+    ]);
+  });
+
   it("reads the complete shared filter from URL search", () => {
     expect(
       validateSessionSearch({

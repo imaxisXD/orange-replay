@@ -12,7 +12,7 @@ import {
   type AnyRoute,
 } from "@tanstack/react-router";
 import { createRoot } from "react-dom/client";
-import { afterEach, describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { AccountResponse } from "../src/lib/api";
 import { accountQueryKey } from "../src/lib/api";
 import { DashboardWorkspaceProvider } from "../src/lib/dashboard-workspace";
@@ -27,6 +27,9 @@ Object.defineProperty(Element.prototype, "getAnimations", {
   value: () => [],
 });
 
+const originalOffsetWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
+const originalMatchMedia = Object.getOwnPropertyDescriptor(window, "matchMedia");
+
 // A doorway-shaped location: an explicit window plus a lens, a doorway pin, a
 // selection, and a sort — every non-window key a tab click must drop.
 const SEEDED_SEARCH =
@@ -34,18 +37,76 @@ const SEEDED_SEARCH =
 
 describe("rendered top-nav date-range carry", () => {
   afterEach(() => {
+    restoreProperty(HTMLElement.prototype, "offsetWidth", originalOffsetWidth);
+    restoreProperty(window, "matchMedia", originalMatchMedia);
     document.body.replaceChildren();
     window.history.replaceState({}, "", "/");
   });
 
   it("shows demo tabs and carries only the window on every tab", async () => {
-    const { tabs, teardown } = await renderShell(`/demo/sessions${SEEDED_SEARCH}`);
+    const { main, tabs, teardown } = await renderShell(`/demo/sessions${SEEDED_SEARCH}`);
     expect(tabs.map((tab) => tab.text)).toEqual(["Overview", "Sessions", "Live"]);
     for (const tab of tabs) assertCarriesWindowOnly(tab.href);
+    expect(main?.classList).toContain("dashboard-main");
+    expect(main?.className).not.toContain("transition-[max-width]");
     // Active-tab reset: clicking the current Sessions tab also drops the lenses.
     const active = tabs.find((tab) => tab.text === "Sessions");
     expect(active?.href).toContain("/demo/sessions?");
     assertCarriesWindowOnly(active?.href ?? "");
+    await teardown();
+  });
+
+  it("animates the workspace transform when a selected session returns to Overview", async () => {
+    Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
+      configurable: true,
+      get(this: HTMLElement): number {
+        if (this.classList.contains("max-w-475")) return 1900;
+        if (this.classList.contains("max-w-300")) return 1200;
+        return 0;
+      },
+    });
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: (query: string): MediaQueryList =>
+        ({
+          addEventListener: vi.fn(),
+          addListener: vi.fn(),
+          dispatchEvent: vi.fn(() => true),
+          matches: true,
+          media: query,
+          onchange: null,
+          removeEventListener: vi.fn(),
+          removeListener: vi.fn(),
+        }) as MediaQueryList,
+    });
+
+    const { container, main, teardown } = await renderShell(`/demo/sessions${SEEDED_SEARCH}`);
+    expect(main?.classList).toContain("max-w-475");
+
+    const overviewTab = [...container.querySelectorAll<HTMLAnchorElement>("a")].find(
+      (anchor) => anchor.textContent?.trim() === "Overview",
+    );
+    expect(overviewTab).toBeDefined();
+    await act(async () => overviewTab?.click());
+    await vi.waitFor(() => {
+      expect(main?.classList).toContain("max-w-300");
+      expect(main?.classList).toContain("dashboard-main-width-moving");
+    });
+    expect(main?.style.getPropertyValue("--workspace-width-start-scale")).toBe(String(1900 / 1200));
+
+    const childAnimationEnd = new Event("animationend", { bubbles: true });
+    Object.defineProperty(childAnimationEnd, "animationName", { value: "replay-child-enter" });
+    main?.append(document.createElement("span"));
+    main?.lastElementChild?.dispatchEvent(childAnimationEnd);
+    expect(main?.classList).toContain("dashboard-main-width-moving");
+
+    const workspaceAnimationEnd = new Event("animationend");
+    Object.defineProperty(workspaceAnimationEnd, "animationName", {
+      value: "dashboard-main-width",
+    });
+    main?.dispatchEvent(workspaceAnimationEnd);
+    expect(main?.classList).not.toContain("dashboard-main-width-moving");
+
     await teardown();
   });
 
@@ -153,14 +214,29 @@ async function renderShell(initialPath: string, accountData?: AccountResponse) {
     text: (anchor.textContent ?? "").trim(),
     href: anchor.getAttribute("href") ?? "",
   }));
+  const main = container.querySelector("main");
 
   return {
+    container,
+    main,
     tabs,
     teardown: async () => {
       await act(async () => root.unmount());
       queryClient.clear();
     },
   };
+}
+
+function restoreProperty(
+  target: object,
+  name: PropertyKey,
+  descriptor: PropertyDescriptor | undefined,
+): void {
+  if (descriptor === undefined) {
+    Reflect.deleteProperty(target, name);
+    return;
+  }
+  Object.defineProperty(target, name, descriptor);
 }
 
 function ProjectLayout() {

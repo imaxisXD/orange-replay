@@ -564,6 +564,42 @@
   opacity: 1;
 }
 
+/* Settings save dock — the bar rides a glass scrim so the fields it edits stay
+   visible but read as clearly behind it. The blur lives only on this scrim: it
+   is a static layer that animates opacity alone, so the blurred backdrop is
+   rasterized once while the bar itself rises on a pure transform. Putting the
+   backdrop-filter on the bar would re-blur every frame of that rise. */
+.save-dock-scrim {
+  position: absolute;
+  /* Full-bleed across the workspace, rising 96px above the bar so the blur has
+     room to fade out instead of ending on a visible edge. */
+  inset: -96px 0 0;
+  pointer-events: none;
+  /* Strong enough that text passing under the bar becomes a wash rather than a
+     legible ghost — a soft blur reads as smeared content, not as glass. */
+  backdrop-filter: blur(20px) saturate(115%);
+  -webkit-backdrop-filter: blur(20px) saturate(115%);
+  /* Black, not the canvas colour: the strip must read as shade over the content
+     behind it at any surface level, never as a lighter panel. */
+  background: linear-gradient(
+    to top,
+    oklch(0 0 0 / 0.62),
+    oklch(0 0 0 / 0.26) 58%,
+    oklch(0 0 0 / 0) 100%
+  );
+  -webkit-mask-image: linear-gradient(to top, black calc(100% - 96px), transparent 100%);
+  mask-image: linear-gradient(to top, black calc(100% - 96px), transparent 100%);
+}
+
+/* The bar reads as glass by being translucent over the scrim and the LED field
+   rather than carrying a blur of its own — the embers behind it stay visible
+   through the surface. Same grain and dashed bloom as every other card. */
+.lit.save-dock-bar {
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E"),
+    color-mix(in oklab, var(--card) 66%, transparent);
+}
+
 /* Overview is scanned and filtered repeatedly, so its card hover feedback is
    deliberately quicker than the default decorative card treatment. */
 .overview-lit::after {
@@ -808,6 +844,34 @@
 .watched-dot[data-watched="true"] {
   opacity: 0;
   transform: scale(0.4);
+}
+
+/* The Sessions workspace changes its final width once, then AppShell animates
+   only this transform. Keeping the origin centered makes both edges expand and
+   contract together without animating a layout property on every frame. */
+.dashboard-main {
+  transform-origin: center top;
+}
+
+.dashboard-main-width-moving {
+  animation: dashboard-main-width 180ms cubic-bezier(0.65, 0, 0.35, 1) both;
+  will-change: transform;
+}
+
+@keyframes dashboard-main-width {
+  from {
+    transform: scaleX(var(--workspace-width-start-scale, 1));
+  }
+
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-main-width-moving {
+    animation: none;
+  }
 }
 
 /* Empty-state collage field. Broad color pools sit inside the lower half while

@@ -63,6 +63,14 @@ export function formatSessionDuration(value: number): string {
   return formatDuration(value);
 }
 
+export function formatCompactSessionId(value: string): string {
+  const leadingLength = 8;
+  const trailingLength = 4;
+
+  if (value.length <= leadingLength + trailingLength + 1) return value;
+  return `${value.slice(0, leadingLength)}…${value.slice(-trailingLength)}`;
+}
+
 export function formatDurationWords(value: number): string {
   const totalSeconds = Math.max(0, Math.round(value / 1_000));
   const hours = Math.floor(totalSeconds / 3_600);

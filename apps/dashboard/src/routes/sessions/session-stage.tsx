@@ -25,9 +25,9 @@ import {
 import { LoadingArea } from "@/components/ui/loading-indicator";
 import { Tooltip } from "@/components/ui/tooltip";
 import { ApiError, type SessionActivity, type SessionDetailsState } from "@/lib/api";
-import { formatDuration } from "@/lib/format";
+import { formatCompactSessionId, formatDuration } from "@/lib/format";
 import { IconSwap } from "@/components/ui/icon-swap";
-import { AlertCircle, Check, ChevronRight, Clock, Copy, EyeOff, Inbox } from "@/lib/icon-map";
+import { AlertCircle, Check, ChevronRight, Clock, Copy, EyeOff } from "@/lib/icon-map";
 import { ReplayWorkspace } from "../session-detail/replay-playback";
 import { useSessionView } from "../session-detail/use-session-view";
 import { entryPath } from "@/lib/entry-path";
@@ -65,25 +65,7 @@ export function SessionStage({
   );
 }
 
-export function EmptySessionStage({ reason }: { reason: "no_sessions" | "no_selection" }) {
-  const noSessions = reason === "no_sessions";
-
-  if (noSessions) {
-    return (
-      <Empty className="min-h-90 w-full border border-dashed border-dash">
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <Inbox aria-hidden />
-          </EmptyMedia>
-          <EmptyTitle>Nothing to watch yet</EmptyTitle>
-          <EmptyDescription>
-            When the list has sessions, pick one and it plays here.
-          </EmptyDescription>
-        </EmptyHeader>
-      </Empty>
-    );
-  }
-
+export function EmptySessionStage() {
   return (
     <Empty className="min-h-[38rem] w-full overflow-hidden border border-dashed border-dash p-0 md:p-0">
       <ParallaxEmptyStateField
@@ -429,20 +411,29 @@ export function SessionIdCopyControl({ sessionId }: { sessionId: string }) {
   return (
     <Button
       aria-label={copied ? "Session ID copied" : "Copy session ID"}
-      className="hidden h-6 shrink-0 gap-1.5 px-2 font-mono text-[11px] text-muted-foreground lg:inline-flex"
+      className="hidden h-6 w-48 shrink-0 gap-0 px-2 font-mono text-[11px] text-muted-foreground lg:inline-flex"
       onClick={() => void copySessionId()}
       size="sm"
       variant="secondary"
     >
-      <span className="font-sans text-[11px] text-dim">Session ID</span>
-      <span>{sessionId.slice(0, 8)}…</span>
-      <IconSwap className="size-3 shrink-0" swapKey={copied ? "check" : "copy"}>
-        {copied ? (
-          <Check aria-hidden className="size-3 text-success" />
-        ) : (
-          <Copy aria-hidden className="size-3 opacity-70" />
-        )}
-      </IconSwap>
+      <span
+        className="grid w-44 grid-cols-[3.25rem_minmax(0,1fr)_0.75rem] items-center gap-2"
+        data-slot="session-id-layout"
+      >
+        <span className="whitespace-nowrap text-start font-sans text-[11px] text-dim">
+          Session ID
+        </span>
+        <span className="min-w-0 whitespace-nowrap text-center" title={sessionId}>
+          {formatCompactSessionId(sessionId)}
+        </span>
+        <IconSwap className="size-3 shrink-0" swapKey={copied ? "check" : "copy"}>
+          {copied ? (
+            <Check aria-hidden className="size-3 text-success" />
+          ) : (
+            <Copy aria-hidden className="size-3 opacity-70" />
+          )}
+        </IconSwap>
+      </span>
     </Button>
   );
 }

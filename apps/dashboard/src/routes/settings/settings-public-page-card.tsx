@@ -199,25 +199,18 @@ export function PublicPageCard({ projectId }: { projectId: string }) {
           </Alert>
 
           <div className="mt-4 divide-y divide-border rounded-lg border border-border bg-secondary/45">
-            <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-[13px] font-medium text-foreground">Publish this page</p>
-                <p className="mt-1 text-[12px] text-muted-foreground">
-                  Turning this off blocks the page and its recordings on the next request. Search
-                  results may take time to disappear.
-                </p>
-              </div>
-              <Switch
-                checked={settings.enabled}
-                className="px-0 py-0 [&>span:last-child]:sr-only"
-                disabled={saveMutation.isPending}
-                label="Publish public page"
-                onToggle={() => {
-                  if (settings.enabled) saveEnabled(false);
-                  else openPublishConfirmation();
-                }}
-              />
-            </div>
+            <Switch
+              checked={settings.enabled}
+              className="p-4"
+              description="Turning this off blocks the page and its recordings on the next request. Search results may take time to disappear."
+              disabled={saveMutation.isPending}
+              label="Publish this page"
+              labelFirst
+              onToggle={() => {
+                if (settings.enabled) saveEnabled(false);
+                else openPublishConfirmation();
+              }}
+            />
 
             <div className="p-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">

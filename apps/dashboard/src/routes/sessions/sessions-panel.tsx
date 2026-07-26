@@ -21,8 +21,12 @@ import { entryPath } from "@/lib/entry-path";
 import { SessionFilterChips } from "./session-filter-chips";
 import { SessionListPane } from "./session-list-pane";
 import { EmptySessionStage, SessionStage } from "./session-stage";
+import { SessionsDateRangeEmptyState } from "./sessions-date-range-empty-state";
 import { SessionsToolbar } from "./sessions-toolbar";
 import { useSessionsPanelData } from "./use-sessions-panel-data";
+
+const SESSION_WORKSPACE_HEIGHT = 690;
+type RecentlyWatchedSession = { sessionId: string; label: string };
 
 export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectId: string }) {
   const view = useSearch({ strict: false }) as SessionsViewSearch;
@@ -35,10 +39,7 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
   const navigate = useNavigate();
   const [, setWatchedVersion] = useState(0);
   const [announcement, setAnnouncement] = useState("");
-  const [recentlyWatched, setRecentlyWatched] = useState<{
-    sessionId: string;
-    label: string;
-  } | null>(null);
+  const [recentlyWatched, setRecentlyWatched] = useState<RecentlyWatchedSession | null>(null);
   const watched = watchedSessionIds(projectId);
 
   const chips = filterChips(searchFilter);
@@ -133,6 +134,12 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
   const selectedIndex = visibleSessions.findIndex((session) => session.session_id === selected);
   const selectedSessionId =
     selected !== undefined && (!isDemo || selectedIndex !== -1) ? selected : undefined;
+  const isLoadingWorkspace = data.loadState === "loading";
+  const isConfirmedDateRangeEmpty =
+    data.loadState !== "loading" &&
+    data.error.length === 0 &&
+    sessions.length === 0 &&
+    lensCount === 0;
   const railRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -188,12 +195,7 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
         countryQueryFailed={data.countryQueryFailed}
         countryQueryPending={data.countryQueryPending}
         filter={filter}
-        hasMore={data.hasMore}
-        isLoading={data.loadState === "loading"}
-        isRefreshing={data.isRefreshing}
         onFilterChange={replaceFilter}
-        onRefresh={data.refresh}
-        sessionCount={sessions.length}
       />
 
       <SessionFilterChips
@@ -204,120 +206,152 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
 
       {data.analyticsAreStale && <AnalyticsStaleAlert />}
 
-      {recentlyWatched !== null && (
-        <div
-          className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2 text-[12.5px] text-muted-foreground"
-          role="status"
-        >
-          <span className="truncate">
-            Marked <span className="font-medium text-foreground">{recentlyWatched.label}</span> as
-            watched after playback started.
-          </span>
-          <Button
-            className="h-auto shrink-0 px-0 py-0 text-[12.5px]"
-            onClick={() => markUnwatched(recentlyWatched.sessionId)}
-            variant="ghost"
-          >
-            Undo
-          </Button>
-        </div>
-      )}
+      <RecentlyWatchedNotice onUndo={markUnwatched} session={recentlyWatched} />
 
-      {data.error.length > 0 && (
-        <Alert variant="destructive">
-          <AlertCircle aria-hidden />
-          <AlertTitle>Could not load sessions</AlertTitle>
-          <AlertDescription>
-            <p>{data.error}</p>
-            <Button onClick={data.retry} size="sm" variant="secondary">
-              Try again
-            </Button>
-          </AlertDescription>
-        </Alert>
-      )}
+      <SessionsLoadError error={data.error} onRetry={data.retry} />
 
-      <div className="flex min-w-0 items-stretch gap-5">
-        <SessionListPane
-          canWidenTo28Days={windowShorterThan28Days(filter)}
-          className={selectedSessionId === undefined ? "flex" : "hidden lg:flex"}
-          error={data.error}
-          hasMore={data.hasMore}
-          lensCount={lensCount}
-          loadState={data.loadState}
-          onClearFilters={clearFilters}
-          onLoadMore={data.loadMore}
-          onShowLast28Days={showLast28Days}
-          onRailKeyDown={handleRailKeyDown}
-          onSelect={selectSession}
-          onShowAll={() => replaceView({ ...view, unwatched: undefined })}
-          onSortChange={(value) =>
-            replaceView({
-              ...view,
-              sort: value === "newest" ? undefined : value,
-            })
-          }
-          onToggleUnwatched={() =>
-            replaceView({ ...view, unwatched: unwatchedOnly ? undefined : true })
-          }
-          railRef={railRef}
-          selected={selectedSessionId}
-          sessions={sessions}
-          sort={sort}
-          unwatchedOnly={unwatchedOnly}
-          visibleSessions={visibleSessions}
-          watched={watched}
-        />
-
-        <div
-          className={
-            selectedSessionId === undefined
-              ? "hidden min-w-0 flex-1 flex-col lg:flex"
-              : "flex min-w-0 flex-1 flex-col"
-          }
-        >
-          {selectedSessionId !== undefined && (
-            <Button
-              className="mb-3 lg:hidden"
-              leadingIcon={ArrowLeft}
-              onClick={() => replaceView({ ...view, selected: undefined })}
-              size="sm"
-              variant="secondary"
-            >
-              Back to sessions
-            </Button>
-          )}
-          {selectedSessionId === undefined ? (
-            <EmptySessionStage
-              reason={
-                data.loadState !== "loading" && sessions.length === 0
-                  ? "no_sessions"
-                  : "no_selection"
+      <div
+        className="flex min-w-0 items-stretch gap-5"
+        data-session-layout-state={
+          isLoadingWorkspace ? "loading" : isConfirmedDateRangeEmpty ? "empty" : "results"
+        }
+        data-session-workspace
+        aria-busy={isLoadingWorkspace}
+        style={{ height: SESSION_WORKSPACE_HEIGHT }}
+      >
+        {isConfirmedDateRangeEmpty ? (
+          <SessionsDateRangeEmptyState
+            canWiden={windowShorterThan28Days(filter)}
+            onShowLast28Days={showLast28Days}
+          />
+        ) : (
+          <>
+            <SessionListPane
+              className={selectedSessionId === undefined ? "flex" : "hidden lg:flex"}
+              error={data.error}
+              hasMore={data.hasMore}
+              lensCount={lensCount}
+              loadState={data.loadState}
+              onClearFilters={clearFilters}
+              onLoadMore={data.loadMore}
+              onRailKeyDown={handleRailKeyDown}
+              onSelect={selectSession}
+              onShowAll={() => replaceView({ ...view, unwatched: undefined })}
+              onSortChange={(value) =>
+                replaceView({
+                  ...view,
+                  sort: value === "newest" ? undefined : value,
+                })
               }
+              onToggleUnwatched={() =>
+                replaceView({ ...view, unwatched: unwatchedOnly ? undefined : true })
+              }
+              railRef={railRef}
+              selected={selectedSessionId}
+              sessions={sessions}
+              sort={sort}
+              unwatchedOnly={unwatchedOnly}
+              visibleSessions={visibleSessions}
+              watched={watched}
             />
-          ) : (
-            <SessionStage
-              mode={isDemo ? "demo" : "project"}
-              navigation={{
-                back: () => replaceView({ ...view, selected: undefined }),
-                ...(selectedIndex !== -1 && selectedIndex < visibleSessions.length - 1
-                  ? { next: () => stepSelection(1) }
-                  : {}),
-                ...(selectedIndex > 0 ? { previous: () => stepSelection(-1) } : {}),
-              }}
-              onPlaybackStarted={() => markPlaybackStarted(selectedSessionId)}
-              {...(watched.has(selectedSessionId)
-                ? { onMarkUnwatched: () => markUnwatched(selectedSessionId) }
-                : {})}
-              projectId={projectId}
-              sessionId={selectedSessionId}
-            />
-          )}
-        </div>
+
+            <div
+              className={
+                selectedSessionId === undefined
+                  ? "hidden min-w-0 flex-1 flex-col lg:flex"
+                  : "flex min-w-0 flex-1 flex-col"
+              }
+            >
+              {selectedSessionId !== undefined && (
+                <Button
+                  className="mb-3 lg:hidden"
+                  leadingIcon={ArrowLeft}
+                  onClick={() => replaceView({ ...view, selected: undefined })}
+                  size="sm"
+                  variant="secondary"
+                >
+                  Back to sessions
+                </Button>
+              )}
+              {selectedSessionId === undefined ? (
+                isLoadingWorkspace ? (
+                  <section
+                    aria-hidden
+                    className="lit flex min-h-[38rem] flex-1 overflow-hidden rounded-lg"
+                  />
+                ) : (
+                  <EmptySessionStage />
+                )
+              ) : (
+                <SessionStage
+                  mode={isDemo ? "demo" : "project"}
+                  navigation={{
+                    back: () => replaceView({ ...view, selected: undefined }),
+                    ...(selectedIndex !== -1 && selectedIndex < visibleSessions.length - 1
+                      ? { next: () => stepSelection(1) }
+                      : {}),
+                    ...(selectedIndex > 0 ? { previous: () => stepSelection(-1) } : {}),
+                  }}
+                  onPlaybackStarted={() => markPlaybackStarted(selectedSessionId)}
+                  {...(watched.has(selectedSessionId)
+                    ? { onMarkUnwatched: () => markUnwatched(selectedSessionId) }
+                    : {})}
+                  projectId={projectId}
+                  sessionId={selectedSessionId}
+                />
+              )}
+            </div>
+          </>
+        )}
       </div>
 
       <div aria-live="polite" className="sr-only" role="status">
         {announcement}
       </div>
     </div>
+  );
+}
+
+function RecentlyWatchedNotice({
+  onUndo,
+  session,
+}: {
+  onUndo: (sessionId: string) => void;
+  session: RecentlyWatchedSession | null;
+}) {
+  if (session === null) return null;
+  return (
+    <div
+      className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2 text-[12.5px] text-muted-foreground"
+      role="status"
+    >
+      <span className="truncate">
+        Marked <span className="font-medium text-foreground">{session.label}</span> as watched after
+        playback started.
+      </span>
+      <Button
+        className="h-auto shrink-0 px-0 py-0 text-[12.5px]"
+        onClick={() => onUndo(session.sessionId)}
+        variant="ghost"
+      >
+        Undo
+      </Button>
+    </div>
+  );
+}
+
+function SessionsLoadError({ error, onRetry }: { error: string; onRetry: () => void }) {
+  if (error.length === 0) return null;
+  return (
+    <Alert variant="destructive">
+      <AlertCircle aria-hidden />
+      <AlertTitle>Could not load sessions</AlertTitle>
+      <AlertDescription>
+        <p>{error}</p>
+        <Button onClick={onRetry} size="sm" variant="secondary">
+          Try again
+        </Button>
+      </AlertDescription>
+    </Alert>
   );
 }

@@ -20,7 +20,7 @@ import { useShape } from "@/lib/shape-context";
 const buttonVariants = cva(
   [
     "group relative isolate inline-flex items-center justify-center outline-none cursor-pointer",
-    "rounded-lg transition-colors duration-100",
+    "rounded-lg transition-[color,transform] duration-80 active:scale-[0.96]",
     "focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring)]",
   ],
   {
@@ -149,7 +149,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         <span
           aria-hidden
           className={cn(
-            "absolute inset-0 rounded-[inherit] transition-[background-color,transform] duration-80 group-active:scale-[0.96]",
+            "absolute inset-0 rounded-[inherit] transition-[background-color] duration-80",
             bgClass,
             // The border lives on the plate, not the root: the root's width is
             // content-driven, so a border there would jog the box by 2px the
@@ -157,10 +157,9 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
             darkLoadingPlate && "border border-border",
           )}
         />
-        {/* The label rides the press with the plate: same 0.96, same 80ms, same
-            center origin, so the box and its contents shrink as one piece
-            instead of the text floating at full size inside a smaller plate. */}
-        <span className="relative inline-flex items-center justify-center gap-[inherit] transition-transform duration-80 group-active:scale-[0.96]">
+        {/* The root owns the press transform so its border, plate, label, and
+            icons always shrink together from the same center. */}
+        <span className="relative inline-flex items-center justify-center gap-[inherit]">
           {loading ? (
             <>
               <span className="flex items-center justify-center gap-[inherit] opacity-0">

@@ -267,6 +267,7 @@ const SelectTrigger = forwardRef<HTMLButtonElement, SelectTriggerProps>(
           <span className="flex items-center gap-2 min-w-0 flex-1">
             {Icon && (
               <Icon
+                aria-hidden
                 size={16}
                 strokeWidth={1.5}
                 className="shrink-0 text-muted-foreground transition-[color,stroke-width] duration-80 group-hover:text-foreground group-hover:stroke-[2]"

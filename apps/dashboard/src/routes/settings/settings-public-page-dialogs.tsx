@@ -134,31 +134,33 @@ export function PublicRecordingPickerDialog({
           <ScrollArea className="mt-3 h-82 rounded-lg border border-border">
             <div className="divide-y divide-border">
               {choices.map((choice) => (
-                <div className="flex items-center gap-3 px-4 py-3" key={choice.sessionId}>
-                  <div className="min-w-0 flex-1">
-                    <p
-                      className="truncate text-[13px] font-medium text-foreground"
-                      title={choice.entryPath}
-                    >
-                      {choice.entryPath}
-                    </p>
-                    <p
-                      className="mt-1 truncate text-[11.5px] text-muted-foreground"
-                      title={`${formatAbsoluteTime(choice.startedAt)} · ${formatDuration(choice.durationMs)}${choice.device ? ` · ${choice.device}` : ""}${choice.browser ? ` · ${choice.browser}` : ""}${choice.country ? ` · ${choice.country}` : ""}`}
-                    >
-                      {formatAbsoluteTime(choice.startedAt)} · {formatDuration(choice.durationMs)}
-                      {choice.device ? ` · ${choice.device}` : ""}
-                      {choice.browser ? ` · ${choice.browser}` : ""}
-                      {choice.country ? ` · ${choice.country}` : ""}
-                    </p>
-                  </div>
-                  <Switch
-                    checked={selectedSessionIdSet.has(choice.sessionId)}
-                    className="px-0 py-0 [&>span:last-child]:sr-only"
-                    label={`Share recording from ${formatAbsoluteTime(choice.startedAt)}`}
-                    onToggle={() => onToggleRecording(choice.sessionId)}
-                  />
-                </div>
+                <Switch
+                  checked={selectedSessionIdSet.has(choice.sessionId)}
+                  className="gap-3 px-4 py-3"
+                  key={choice.sessionId}
+                  label={`Share recording from ${formatAbsoluteTime(choice.startedAt)}`}
+                  labelContent={
+                    <>
+                      <span
+                        className="truncate text-[13px] font-medium text-foreground"
+                        title={choice.entryPath}
+                      >
+                        {choice.entryPath}
+                      </span>
+                      <span
+                        className="mt-1 truncate text-[12px] leading-normal text-muted-foreground"
+                        title={`${formatAbsoluteTime(choice.startedAt)} · ${formatDuration(choice.durationMs)}${choice.device ? ` · ${choice.device}` : ""}${choice.browser ? ` · ${choice.browser}` : ""}${choice.country ? ` · ${choice.country}` : ""}`}
+                      >
+                        {formatAbsoluteTime(choice.startedAt)} · {formatDuration(choice.durationMs)}
+                        {choice.device ? ` · ${choice.device}` : ""}
+                        {choice.browser ? ` · ${choice.browser}` : ""}
+                        {choice.country ? ` · ${choice.country}` : ""}
+                      </span>
+                    </>
+                  }
+                  labelFirst
+                  onToggle={() => onToggleRecording(choice.sessionId)}
+                />
               ))}
             </div>
           </ScrollArea>

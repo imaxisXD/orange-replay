@@ -79,9 +79,9 @@ function chipLabel(key: string, value: unknown): string {
     case "error_detail":
       return `Error: ${text}`;
     case "has_errors":
-      return value === true ? "Has errors" : "No errors";
+      return value === true ? "Errors only" : "No errors";
     case "has_rage":
-      return value === true ? "Has rage" : "No rage";
+      return value === true ? "Rage clicks only" : "No rage clicks";
     case "has_quick_back":
       return value === true ? "Has quick backs" : "No quick backs";
     case "has_insights":

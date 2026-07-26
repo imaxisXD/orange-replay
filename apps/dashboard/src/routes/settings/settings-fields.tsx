@@ -33,10 +33,10 @@ export function SettingRow({
   label: string;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 border-b border-dashed border-dash py-2.25 last:border-b-0">
+    <div className="flex items-center justify-between gap-4 border-b border-dashed border-dash py-4 last:border-b-0">
       <div className="min-w-0">
         <div className="text-[13px] font-medium">{label}</div>
-        <div className="mt-0.25 text-[11.5px] text-muted-foreground">{description}</div>
+        <div className="mt-1 text-[12px] leading-normal text-muted-foreground">{description}</div>
       </div>
       <div className="flex-none">{children}</div>
     </div>

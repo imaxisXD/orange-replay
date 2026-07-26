@@ -1,7 +1,5 @@
 import { useState } from "react";
 import type { SessionFilter } from "@orange-replay/shared";
-import { AnimatedNumber } from "@/components/animated-number";
-import { Button } from "@/components/ui/button";
 import { InputField, InputGroup } from "@/components/ui/input-group";
 import {
   Select,
@@ -11,10 +9,8 @@ import {
   SelectTrigger,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Tooltip } from "@/components/ui/tooltip";
 import type { StatsBreakdownRow } from "@/lib/api/stats";
-import { RotateCcw, Search } from "@/lib/icon-map";
-import { sessionCountNoun } from "@/lib/session-count";
+import { AlertCircle, Angry, Calendar, Clock, Filter, Global } from "@/lib/icon-map";
 import {
   dateRangeFilter,
   dateRangeOptions,
@@ -34,23 +30,13 @@ export function SessionsToolbar({
   countryQueryFailed,
   countryQueryPending,
   filter,
-  hasMore,
-  isLoading,
-  isRefreshing,
   onFilterChange,
-  onRefresh,
-  sessionCount,
 }: {
   countries: readonly StatsBreakdownRow[];
   countryQueryFailed: boolean;
   countryQueryPending: boolean;
   filter: SessionFilter;
-  hasMore: boolean;
-  isLoading: boolean;
-  isRefreshing: boolean;
   onFilterChange: (filter: SessionFilter) => void;
-  onRefresh: () => void;
-  sessionCount: number;
 }) {
   const minDurationValue =
     filter.min_duration_ms === undefined ? "any" : String(filter.min_duration_ms);
@@ -68,7 +54,18 @@ export function SessionsToolbar({
   const range = selectedDateRange(filter);
 
   return (
-    <div className="grid grid-cols-2 items-center gap-2.5 sm:flex sm:flex-wrap">
+    <section
+      aria-labelledby="sessions-filter-heading"
+      className="grid grid-cols-2 items-center gap-2.5 sm:flex sm:flex-wrap"
+    >
+      <h2
+        className="col-span-2 flex h-9 items-center gap-1.5 text-[13px] font-medium text-muted-foreground sm:h-8.5 sm:shrink-0 sm:text-[12px]"
+        id="sessions-filter-heading"
+      >
+        <Filter aria-hidden className="size-4 shrink-0" strokeWidth={1.5} />
+        Filters
+      </h2>
+
       <Select
         onValueChange={(value) =>
           onFilterChange(dateRangeFilter(filter, value as DateRangeValue, Date.now()))
@@ -77,8 +74,9 @@ export function SessionsToolbar({
       >
         <SelectTrigger
           aria-label="Date range"
-          className="h-9 w-full min-w-0 rounded-[7px] border border-border bg-secondary px-3 text-[13px] sm:h-8.5 sm:min-w-32 sm:text-[12px]"
-          placeholder={range === "custom" ? "Custom range" : "Last 24h"}
+          className="h-9 w-full min-w-0 rounded-[7px] border border-border bg-secondary px-3 text-[13px] sm:h-8.5 sm:w-40 sm:min-w-40 sm:shrink-0 sm:text-[12px]"
+          icon={Calendar}
+          placeholder={range === "custom" ? "Custom range" : "Last 24 hours"}
         />
         <SelectContent className="rounded-lg border border-border bg-popover">
           <SelectGroup>
@@ -112,7 +110,8 @@ export function SessionsToolbar({
       >
         <SelectTrigger
           aria-label="Minimum duration"
-          className="h-9 w-full min-w-0 rounded-[7px] border border-border bg-secondary px-3 text-[13px] sm:h-8.5 sm:min-w-40 sm:text-[12px]"
+          className="h-9 w-full min-w-0 rounded-[7px] border border-border bg-secondary px-3 text-[13px] sm:h-8.5 sm:w-44 sm:min-w-44 sm:shrink-0 sm:text-[12px]"
+          icon={Clock}
           placeholder="Any duration"
         />
         <SelectContent className="rounded-lg border border-border bg-popover">
@@ -128,8 +127,11 @@ export function SessionsToolbar({
 
       <Switch
         checked={filter.has_errors === true}
-        className="min-h-11 rounded-none border-0 bg-transparent px-0 py-0 sm:min-h-0"
-        label="Has errors"
+        className="min-h-11 rounded-none border-0 bg-transparent px-0 py-0 sm:ml-auto sm:min-h-0"
+        icon={AlertCircle}
+        iconClassName={filter.has_errors === true ? "text-danger" : "text-danger/70"}
+        label="Errors only"
+        labelFirst
         size="small"
         onToggle={() =>
           onFilterChange({
@@ -142,7 +144,10 @@ export function SessionsToolbar({
       <Switch
         checked={filter.has_rage === true}
         className="min-h-11 rounded-none border-0 bg-transparent px-0 py-0 sm:min-h-0"
-        label="Has rage"
+        icon={Angry}
+        iconClassName={filter.has_rage === true ? "text-amber" : "text-amber/70"}
+        label="Rage clicks only"
+        labelFirst
         size="small"
         onToggle={() =>
           onFilterChange({
@@ -151,39 +156,7 @@ export function SessionsToolbar({
           })
         }
       />
-
-      <div className="hidden flex-1 sm:block" />
-
-      <div className="col-span-2 flex items-center justify-end gap-2 sm:contents">
-        <span className="font-mono text-[12px] text-muted-foreground sm:text-[11.5px]">
-          {isRefreshing ? (
-            "Refreshing…"
-          ) : (
-            <>
-              <AnimatedNumber
-                startFromZero
-                suffix={hasMore ? "+" : undefined}
-                value={sessionCount}
-              />{" "}
-              {sessionCountNoun(sessionCount, hasMore)}
-            </>
-          )}
-        </span>
-        <Tooltip content={isRefreshing ? "Refreshing sessions" : "Refresh"}>
-          <Button
-            aria-label={isRefreshing ? "Refreshing sessions" : "Refresh sessions"}
-            className="text-muted-foreground hover:text-foreground"
-            disabled={isLoading}
-            loading={isRefreshing}
-            onClick={onRefresh}
-            size="icon-sm"
-            variant="ghost"
-          >
-            <RotateCcw aria-hidden className="size-4" />
-          </Button>
-        </Tooltip>
-      </div>
-    </div>
+    </section>
   );
 }
 
@@ -216,7 +189,8 @@ function CountryPicker({
     >
       <SelectTrigger
         aria-label="Country"
-        className="h-9 w-full min-w-0 rounded-[7px] border border-border bg-secondary px-3 text-[13px] sm:h-8.5 sm:min-w-36 sm:text-[12px]"
+        className="h-9 w-full min-w-0 rounded-[7px] border border-border bg-secondary px-3 text-[13px] sm:h-8.5 sm:w-44 sm:min-w-44 sm:shrink-0 sm:text-[12px]"
+        icon={Global}
         placeholder="All countries"
       />
       <SelectContent className="rounded-lg border border-border bg-popover">
@@ -260,7 +234,7 @@ function CountryFilter({
     <InputGroup className="w-full gap-0 sm:w-40">
       <InputField
         hideLabel
-        icon={Search}
+        icon={Global}
         index={0}
         label="Country code"
         maxLength={2}

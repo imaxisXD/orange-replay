@@ -86,15 +86,19 @@ export function CaptureCard({
             value={String(retentionDays)}
           />
         </SettingRow>
+        {/* The switch owns the whole row rather than sitting inside a SettingRow:
+            its title and description are the toggle's own label, so clicking or
+            hovering the text works the control like the filter toggles do. */}
         {captureRows.map((row) => (
-          <SettingRow description={row.description} key={row.key} label={row.label}>
-            <Switch
-              checked={capture[row.key]}
-              className="px-0 py-0 [&>span:last-child]:sr-only"
-              label={row.label}
-              onToggle={() => onToggle(row.key)}
-            />
-          </SettingRow>
+          <Switch
+            checked={capture[row.key]}
+            className="border-b border-dashed border-dash px-0 py-4 last:border-b-0"
+            description={row.description}
+            key={row.key}
+            label={row.label}
+            labelFirst
+            onToggle={() => onToggle(row.key)}
+          />
         ))}
       </div>
     </section>

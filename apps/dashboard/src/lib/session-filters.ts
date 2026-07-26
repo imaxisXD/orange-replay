@@ -7,10 +7,10 @@ import {
 } from "@orange-replay/shared";
 
 export const dateRangeOptions = [
-  { label: "Last 24h", value: "24h", durationMs: 24 * 60 * 60 * 1000 },
-  { label: "3d", value: "3d", durationMs: 3 * 24 * 60 * 60 * 1000 },
-  { label: "7d", value: "7d", durationMs: 7 * 24 * 60 * 60 * 1000 },
-  { label: "28d", value: "28d", durationMs: 28 * 24 * 60 * 60 * 1000 },
+  { label: "Last 24 hours", value: "24h", durationMs: 24 * 60 * 60 * 1000 },
+  { label: "Last 3 days", value: "3d", durationMs: 3 * 24 * 60 * 60 * 1000 },
+  { label: "Last 7 days", value: "7d", durationMs: 7 * 24 * 60 * 60 * 1000 },
+  { label: "Last 28 days", value: "28d", durationMs: 28 * 24 * 60 * 60 * 1000 },
 ] as const;
 
 export type DateRangeValue = (typeof dateRangeOptions)[number]["value"];

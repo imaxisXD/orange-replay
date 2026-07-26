@@ -16,7 +16,7 @@ describe("filter chips", () => {
     const labels = filterChips(filter).map((chip) => chip.label);
     expect(labels).toContain("Country US");
     expect(labels).toContain("City San Francisco");
-    expect(labels).toContain("Has errors");
+    expect(labels).toContain("Errors only");
     expect(labels).toContain("≥ 0:30");
     expect(labels).toHaveLength(4);
   });
@@ -24,6 +24,17 @@ describe("filter chips", () => {
   it("never renders the date window as a chip — the range selector owns it", () => {
     const filter: SessionFilter = { from: now - day, to: now, country: "DE" };
     expect(filterChips(filter).map((chip) => chip.label)).toEqual(["Country DE"]);
+  });
+
+  it("describes behavior filters in plain language", () => {
+    expect(filterChips({ has_errors: true, has_rage: true }).map((chip) => chip.label)).toEqual([
+      "Errors only",
+      "Rage clicks only",
+    ]);
+    expect(filterChips({ has_errors: false, has_rage: false }).map((chip) => chip.label)).toEqual([
+      "No errors",
+      "No rage clicks",
+    ]);
   });
 
   it("falls back to key=value for unknown keys", () => {

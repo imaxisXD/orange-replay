@@ -11,15 +11,28 @@ import { LivePage } from "../src/routes/live";
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 // The empty state links out with router Links, and these tests render the page
-// without a router. The stub keeps the destination assertable as an href.
+// without a router. The stub keeps the destination assertable as an href and
+// forwards the className Button hands down through asChild, so the variant the
+// CTA ships with stays assertable too.
 vi.mock("@tanstack/react-router", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@tanstack/react-router")>()),
-  Link: ({ children, to }: { children: ReactNode; to: string }) => <a href={to}>{children}</a>,
+  Link: ({ children, className, to }: { children: ReactNode; className?: string; to: string }) => (
+    <a className={className} href={to}>
+      {children}
+    </a>
+  ),
   useNavigate: () => vi.fn(),
 }));
 
+// Unmount here rather than only at the end of each test: a failed assertion
+// would otherwise leave a live tree refetching against the next test's mock.
+const mountedRoots: Root[] = [];
+
 describe("live empty state", () => {
-  afterEach(() => {
+  afterEach(async () => {
+    for (const root of mountedRoots.splice(0)) {
+      await act(async () => root.unmount());
+    }
     vi.unstubAllGlobals();
     clearDashboardAccess();
     document.body.replaceChildren();
@@ -37,6 +50,8 @@ describe("live empty state", () => {
     expect(container.textContent).toContain("Add the snippet to your site");
     expect(ctaLink(container).textContent).toBe("Install the snippet");
     expect(ctaLink(container).getAttribute("href")).toBe("/projects/$projectId/install");
+    // Primary plate: installing is the only action that fills this page.
+    expect(ctaLink(container).className).toContain("text-background");
 
     await teardown();
   });
@@ -48,6 +63,8 @@ describe("live empty state", () => {
     expect(container.textContent).toContain("refreshes every 5 seconds");
     expect(ctaLink(container).textContent).toBe("Browse recorded sessions");
     expect(ctaLink(container).getAttribute("href")).toBe("/projects/$projectId/sessions");
+    // Secondary plate: browsing recordings is a sideways move, not the fix.
+    expect(ctaLink(container).className).toContain("border-border");
 
     await teardown();
   });
@@ -106,6 +123,7 @@ async function renderLive(
   const container = document.createElement("div");
   document.body.append(container);
   const root = createRoot(container);
+  mountedRoots.push(root);
 
   await act(async () => {
     root.render(
@@ -127,6 +145,8 @@ async function renderLive(
     fetchMock,
     root,
     teardown: async () => {
+      const index = mountedRoots.indexOf(root);
+      if (index !== -1) mountedRoots.splice(index, 1);
       await act(async () => root.unmount());
       queryClient.clear();
     },

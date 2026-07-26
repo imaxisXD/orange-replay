@@ -14,7 +14,7 @@ import { ApiError, type SessionActivity, type SessionDetailsState } from "@/lib/
 import { formatCountryCode } from "@/lib/country";
 import { useDashboardWorkspace } from "@/lib/dashboard-workspace";
 import { entryPath } from "@/lib/entry-path";
-import { formatAbsoluteTime, formatShortRelativeTime } from "@/lib/format";
+import { formatAbsoluteTime, formatCompactSessionId, formatShortRelativeTime } from "@/lib/format";
 import {
   AlertCircle,
   Angry,
@@ -167,8 +167,11 @@ function SessionHeader({
       </div>
 
       <div className="flex shrink-0 items-center gap-1 rounded-full border border-border bg-secondary py-0.5 pr-0.5 pl-2.5">
-        <span className="font-mono text-[11px] text-muted-foreground" title={sessionId}>
-          {sessionId.slice(0, 13)}…
+        <span
+          className="inline-block w-[6.25rem] whitespace-nowrap text-center font-mono text-[11px] text-muted-foreground"
+          title={sessionId}
+        >
+          {formatCompactSessionId(sessionId)}
         </span>
         <CopySessionId sessionId={sessionId} />
       </div>

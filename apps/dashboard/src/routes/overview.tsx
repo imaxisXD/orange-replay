@@ -20,6 +20,7 @@ import {
   withDefaultDateRange,
   type DateRangeValue,
 } from "@/lib/session-filters";
+import { Calendar } from "@/lib/icon-map";
 import { OverviewContent, OverviewSummary } from "./overview/overview-content";
 import { OverviewLoading, StatsError } from "./overview/overview-states";
 
@@ -67,8 +68,9 @@ export function OverviewPage() {
         <Select onValueChange={changeDateRange} value={range === "custom" ? undefined : range}>
           <SelectTrigger
             aria-label="Date range"
-            className="h-8.5 min-w-35 rounded-lg border border-border bg-card px-3 text-[12px]"
-            placeholder={range === "custom" ? "Custom range" : "Last 24h"}
+            className="h-8.5 w-40 min-w-40 shrink-0 rounded-lg border border-border bg-card px-3 text-[12px]"
+            icon={Calendar}
+            placeholder={range === "custom" ? "Custom range" : "Last 24 hours"}
           />
           <SelectContent className="rounded-lg border border-border bg-popover">
             <SelectGroup>

@@ -55,18 +55,30 @@ describe("button in-flight and unavailable states", () => {
     await teardown();
   });
 
-  it("presses the label with the plate, on the same scale and duration", async () => {
+  it("presses the border, plate, and label together", async () => {
     const { button, plate, teardown } = await renderButton(<Button>Save</Button>);
     const content = [...button.children].find((child) => child !== plate);
 
-    expect(plate.className).toContain("group-active:scale-[0.96]");
-    expect(content?.className).toContain("group-active:scale-[0.96]");
-    expect(plate.className).toContain("duration-80");
-    expect(content?.className).toContain("duration-80");
-    expect(content?.className).toContain("transition-transform");
+    expect(button.className).toContain("active:scale-[0.96]");
+    expect(button.className).toContain("duration-80");
+    expect(button.className).toContain("transition-[color,transform]");
+    expect(plate.className).not.toContain("group-active:scale-[0.96]");
+    expect(content?.className).not.toContain("group-active:scale-[0.96]");
 
     await teardown();
   });
+
+  it.each(["secondary", "tertiary"] as const)(
+    "keeps the %s border on the same element that scales",
+    async (variant) => {
+      const { button, teardown } = await renderButton(<Button variant={variant}>Save</Button>);
+
+      expect(button.className).toContain("border");
+      expect(button.className).toContain("active:scale-[0.96]");
+
+      await teardown();
+    },
+  );
 
   it("leaves the other variants' plates alone while loading", async () => {
     const { button, plate, teardown } = await renderButton(

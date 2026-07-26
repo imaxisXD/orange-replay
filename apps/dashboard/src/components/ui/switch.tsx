@@ -1,8 +1,17 @@
 "use client";
 
-import { forwardRef, useRef, useState, useEffect, useId, type HTMLAttributes } from "react";
+import {
+  forwardRef,
+  useRef,
+  useState,
+  useEffect,
+  useId,
+  type HTMLAttributes,
+  type ReactNode,
+} from "react";
 import { animate, m, useMotionValue, useReducedMotion, type Transition } from "@/lib/motion";
 import { Switch as SwitchPrimitive } from "@base-ui/react/switch";
+import type { IconComponent } from "@/lib/icon-map";
 import { cn } from "@/lib/utils";
 import { spring } from "@/lib/springs";
 
@@ -10,6 +19,15 @@ type SwitchSize = "small" | "medium" | "large";
 
 interface SwitchProps extends HTMLAttributes<HTMLDivElement> {
   label: string;
+  labelFirst?: boolean;
+  /** Turns the switch into a settings row: the label gains a second line, and
+   *  the whole row — title and description included — is the toggle surface. */
+  description?: string;
+  /** Row form with a caller-built label block, for text that needs its own
+   *  truncation or tooltips. `label` stays the accessible name. */
+  labelContent?: ReactNode;
+  icon?: IconComponent;
+  iconClassName?: string;
   checked: boolean;
   onToggle: () => void;
   disabled?: boolean;
@@ -51,6 +69,11 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
   (
     {
       label,
+      labelFirst = false,
+      description,
+      labelContent,
+      icon: Icon,
+      iconClassName,
       checked,
       onToggle,
       disabled = false,
@@ -62,6 +85,7 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
     ref,
   ) => {
     const labelId = useId();
+    const descriptionId = useId();
     const reduceMotion = useReducedMotion();
     const [hovered, setHovered] = useState(false);
     const [pressed, setPressed] = useState(false);
@@ -184,12 +208,70 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
       pointerStart.current = null;
     }
 
+    const hasDescription = description !== undefined;
+    // Row form: the label block owns the row's slack and the whole thing is the
+    // toggle surface, so clicking or hovering the text works the control.
+    const isRow = hasDescription || labelContent !== undefined;
+
+    const labelText = (
+      <span
+        id={labelId}
+        className={cn(
+          "flex min-w-0 items-center gap-1.5 text-[13px] transition-[color] duration-80",
+          // A row states its on/off status in the track, so its title stays
+          // legible either way instead of dimming when off.
+          isRow
+            ? "font-medium text-foreground"
+            : checked
+              ? "text-foreground"
+              : "text-muted-foreground",
+        )}
+      >
+        {Icon && (
+          <Icon
+            aria-hidden
+            className={cn(
+              "size-4 shrink-0 transition-[color,stroke-width] duration-80",
+              iconClassName,
+            )}
+            strokeWidth={checked ? 2 : 1.5}
+          />
+        )}
+        {/* Text-box trim recenters the letterforms against the track. A row
+            pairs its title with a description instead, where the trim would
+            close up the gap between the two lines. */}
+        <span className={isRow ? undefined : "[text-box:trim-both_cap_alphabetic]"}>{label}</span>
+      </span>
+    );
+
+    const labelBlock =
+      labelContent === undefined ? (
+        hasDescription ? (
+          <span className="flex min-w-0 flex-col">
+            {labelText}
+            <span
+              className="mt-1 text-[12px] leading-normal text-muted-foreground"
+              id={descriptionId}
+            >
+              {description}
+            </span>
+          </span>
+        ) : (
+          labelText
+        )
+      ) : (
+        <span className="flex min-w-0 flex-1 flex-col">{labelContent}</span>
+      );
+
     return (
       <div
         ref={ref}
         role="presentation"
         className={cn(
           "relative z-10 flex items-center gap-2.5 px-3 py-2 cursor-pointer select-none touch-none",
+          // A row owns its whole width, so the text takes the slack and the
+          // track stays pinned to the far edge.
+          isRow && "w-full justify-between gap-4",
           disabled && "opacity-50 pointer-events-none",
           className,
         )}
@@ -201,16 +283,29 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
-        onClick={() => {
+        onClick={(event) => {
           if (disabled || didDrag.current) return;
+          // This handler exists so the surrounding row toggles too. The control
+          // itself already reports its own changes: Base UI renders a hidden
+          // checkbox as a *sibling* of the switch and clicks it on keyboard
+          // activation, and that click bubbles here — counting it would toggle
+          // twice and cancel out for any caller that flips relative state.
+          const target = event.target as HTMLElement;
+          if (target.tagName === "INPUT" || target.closest('[role="switch"]') !== null) return;
           onToggle();
         }}
         {...props}
       >
+        {labelFirst && labelBlock}
+
         {/* Switch */}
         <SwitchPrimitive.Root
           checked={checked}
-          aria-labelledby={labelId}
+          aria-describedby={hasDescription ? descriptionId : undefined}
+          // A caller-built label block may hold more than a name (timestamps,
+          // metadata), so name the control explicitly instead of pointing at it.
+          aria-label={labelContent === undefined ? undefined : label}
+          aria-labelledby={labelContent === undefined ? labelId : undefined}
           onCheckedChange={() => {
             if (didDrag.current) return;
             onToggle();
@@ -275,18 +370,7 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
           />
         </SwitchPrimitive.Root>
 
-        {/* Label */}
-        <span
-          id={labelId}
-          className={cn(
-            // text-box trim recenters the letterforms against the track; the
-            // track controls the row height, so the trimmed label does not move it.
-            "text-[13px] [text-box:trim-both_cap_alphabetic] transition-[color] duration-80",
-            checked ? "text-foreground" : "text-muted-foreground",
-          )}
-        >
-          {label}
-        </span>
+        {!labelFirst && labelBlock}
       </div>
     );
   },
