@@ -813,9 +813,9 @@
 /* Empty-state collage field. Broad color pools sit inside the lower half while
    the small surrounding objects follow the pointer on separate depth layers. */
 .parallax-empty-state {
-  --field-pool-teal: oklch(0.785 0.133 181.912 / 0.14);
-  --field-pool-pink: oklch(0.785 0.118 352 / 0.115);
-  --field-pool-amber: oklch(0.784 0.159 72.991 / 0.095);
+  --field-pool-teal: oklch(0.785 0.133 181.912 / 0.05);
+  --field-pool-pink: oklch(0.785 0.118 352 / 0.04);
+  --field-pool-amber: oklch(0.784 0.159 72.991 / 0.032);
   position: relative;
   display: flex;
   align-items: stretch;
@@ -838,8 +838,8 @@
     radial-gradient(ellipse 34% 56% at 18% 68%, var(--field-pool-teal) 0%, transparent 74%),
     radial-gradient(ellipse 36% 58% at 78% 64%, var(--field-pool-pink) 0%, transparent 74%),
     radial-gradient(ellipse 58% 38% at 50% 100%, var(--field-pool-amber) 0%, transparent 72%);
-  filter: blur(20px);
-  opacity: 0.96;
+  filter: blur(26px);
+  opacity: 0.8;
 }
 
 .parallax-empty-state__layers {
@@ -853,11 +853,17 @@
   height: auto;
   max-width: none;
   opacity: var(--layer-opacity);
-  filter: saturate(0.82) contrast(0.94) drop-shadow(0 4px 4px oklch(0 0 0 / 0.2));
+  filter: saturate(0.82) contrast(0.94) blur(var(--layer-blur, 1.4px))
+    drop-shadow(0 4px 4px oklch(0 0 0 / 0.2));
   transform: translate3d(calc(-50% + var(--parallax-x)), calc(-50% + var(--parallax-y)), 0)
     rotate(var(--layer-rotation));
   transform-origin: center;
   user-select: none;
+}
+
+/* The faint far layers sit deeper in the field, so they blur harder. */
+.parallax-empty-state__layer:nth-child(n + 6) {
+  --layer-blur: 2.6px;
 }
 
 .parallax-empty-state[data-moving="true"] .parallax-empty-state__layer {
@@ -882,7 +888,9 @@
   inset-block: 20px 12px;
   left: 50%;
   aspect-ratio: 389 / 560;
-  contain: layout paint;
+  /* Layout containment only: `paint` would clip the signal rings, which pulse
+     past the collage box on purpose. */
+  contain: layout;
   isolation: isolate;
   transform: translateX(-50%);
 }
@@ -1001,7 +1009,8 @@
 
 @media (max-width: 639px) {
   .parallax-empty-state__layer {
-    filter: saturate(0.78) contrast(0.94) opacity(0.78) drop-shadow(0 3px 3px oklch(0 0 0 / 0.18));
+    filter: saturate(0.78) contrast(0.94) opacity(0.78) blur(var(--layer-blur, 1.2px))
+      drop-shadow(0 3px 3px oklch(0 0 0 / 0.18));
   }
 
   .parallax-empty-state__layer:nth-child(n + 6) {

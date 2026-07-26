@@ -1,6 +1,6 @@
 import { type KeyboardEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import liveSignalWatchSrc from "@/assets/empty-states/signal-watch-winged-receiver.webp";
 import liveBrowserBeetleSrc from "@/assets/empty-states/layers/live-browser-beetle.webp";
 import liveCursorBeeSrc from "@/assets/empty-states/layers/live-cursor-bee.webp";
@@ -15,8 +15,23 @@ import {
   ParallaxEmptyStateField,
   type ParallaxEmptyStateLayer,
 } from "@/components/parallax-empty-state-field";
+import {
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { LoadingArea } from "@/components/ui/loading-indicator";
-import { ApiError, fetchLiveSessions, type LiveSessionItem } from "@/lib/api";
+import {
+  accountQueryKey,
+  ApiError,
+  fetchAccount,
+  fetchInstallStatus,
+  fetchLiveSessions,
+  type LiveSessionItem,
+} from "@/lib/api";
+import { canManageProject, findAccountProject, readDashboardAccess } from "@/lib/dashboard-access";
 import { useDashboardWorkspace } from "@/lib/dashboard-workspace";
 import { AlertCircle, RotateCcw } from "@/lib/icon-map";
 import {
@@ -25,6 +40,7 @@ import {
   shouldPollLiveSessions,
   type LiveSessionRow,
 } from "@/lib/live-sessions";
+import { carriedDateRangeSearch } from "@/lib/session-filters";
 import { cn } from "@/lib/utils";
 
 export function LivePage() {
@@ -53,14 +69,16 @@ export function LivePage() {
       </header>
 
       <section className="lit rounded-lg px-4.5 py-4">
-        <div className="mb-3.5 flex items-baseline justify-between">
-          <h2>
-            <LiveBadge />
-          </h2>
-          <span className="text-[11.5px] text-muted-foreground">
-            {truncated ? "showing newest 100 · " : ""}updates every 5s
-          </span>
-        </div>
+        {rows.length > 0 && (
+          <div className="mb-3.5 flex items-baseline justify-between">
+            <h2>
+              <LiveBadge />
+            </h2>
+            <span className="text-[11.5px] text-muted-foreground">
+              {truncated ? "showing newest 100 · " : ""}updates every 5s
+            </span>
+          </div>
+        )}
 
         {error.length > 0 && (
           <Alert className="mb-4" variant="destructive">
@@ -90,7 +108,7 @@ export function LivePage() {
             ))}
           </div>
         ) : (
-          error.length === 0 && <LiveEmptyState />
+          error.length === 0 && <LiveEmptyState isDemo={isDemo} projectId={projectId} />
         )}
       </section>
     </div>
@@ -168,27 +186,78 @@ function LiveLoadingRows() {
   );
 }
 
-function LiveEmptyState() {
+function LiveEmptyState({ isDemo, projectId }: { isDemo: boolean; projectId: string }) {
+  const access = readDashboardAccess(isDemo ? "demo" : "private");
+  const accountQuery = useQuery({
+    queryKey: accountQueryKey,
+    queryFn: fetchAccount,
+    enabled: access.needsAccount,
+    staleTime: 30_000,
+  });
+  // Only owners and admins can reach the install page, and only they may read
+  // install status. Everyone else gets the recorded-sessions exit.
+  const canInstall = !isDemo && canManageProject(findAccountProject(accountQuery.data, projectId));
+  const installStatusQuery = useQuery({
+    queryKey: ["install-status", projectId],
+    queryFn: () => fetchInstallStatus(projectId),
+    enabled: canInstall,
+    staleTime: 30_000,
+  });
+  // "Install the snippet" is only honest once the API confirms no event has ever
+  // arrived. While the check is pending or failed, keep the neutral copy.
+  const awaitingFirstEvent = canInstall && installStatusQuery.data?.firstEventAt === null;
+
   return (
-    <div className="min-h-26 overflow-hidden rounded-lg border border-dashed border-dash text-center">
+    <div className="min-h-26 overflow-hidden">
       <ParallaxEmptyStateField
         className="min-h-[34rem] w-full px-4 py-8 sm:min-h-[38rem]"
         layers={LIVE_EMPTY_STATE_LAYERS}
       >
-        <div aria-hidden="true" className="relative h-72 w-72 shrink-0 select-none sm:h-80 sm:w-96">
-          <div className="signal-watch__art">
-            <img alt="" draggable={false} src={liveSignalWatchSrc} />
-            <div className="signal-watch__overlay">
-              <span className="signal-watch__ring signal-watch__ring--inner" />
-              <span className="signal-watch__ring signal-watch__ring--middle" />
-              <span className="signal-watch__ring signal-watch__ring--outer" />
-              <span className="signal-watch__beacon" />
+        <EmptyHeader className="max-w-md gap-2">
+          <EmptyMedia
+            aria-hidden="true"
+            className="relative mb-4 h-72 w-72 select-none sm:h-80 sm:w-96"
+          >
+            <div className="signal-watch__art">
+              <img alt="" draggable={false} src={liveSignalWatchSrc} />
+              <div className="signal-watch__overlay">
+                <span className="signal-watch__ring signal-watch__ring--inner" />
+                <span className="signal-watch__ring signal-watch__ring--middle" />
+                <span className="signal-watch__ring signal-watch__ring--outer" />
+                <span className="signal-watch__beacon" />
+              </div>
             </div>
-          </div>
-        </div>
-        <p className="max-w-sm text-[13px] text-muted-foreground">
-          No one is browsing right now. Visitors appear here within seconds of landing.
-        </p>
+          </EmptyMedia>
+          <EmptyTitle>
+            {awaitingFirstEvent ? "No events from your site yet" : "No one is browsing right now"}
+          </EmptyTitle>
+          <EmptyDescription>
+            {awaitingFirstEvent
+              ? "Add the snippet to your site and visitors show up here within seconds of landing."
+              : "Visitors show up here within seconds of landing. This list refreshes every 5 seconds, so you can leave it open."}
+          </EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent>
+          <Button asChild size="sm" variant="secondary">
+            {awaitingFirstEvent ? (
+              <Link params={{ projectId }} to="/projects/$projectId/install">
+                Install the snippet
+              </Link>
+            ) : isDemo ? (
+              <Link search={carriedDateRangeSearch} to="/demo/sessions">
+                Browse recorded sessions
+              </Link>
+            ) : (
+              <Link
+                params={{ projectId }}
+                search={carriedDateRangeSearch}
+                to="/projects/$projectId/sessions"
+              >
+                Browse recorded sessions
+              </Link>
+            )}
+          </Button>
+        </EmptyContent>
       </ParallaxEmptyStateField>
     </div>
   );

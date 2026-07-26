@@ -21,7 +21,6 @@ const buttonVariants = cva(
   [
     "group relative isolate inline-flex items-center justify-center outline-none cursor-pointer",
     "rounded-lg transition-colors duration-100",
-    "disabled:opacity-50 disabled:pointer-events-none",
     "focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring)]",
   ],
   {
@@ -128,9 +127,22 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
           ? label
           : "Action";
     const shape = useShape();
-    const bgClass = active
-      ? activeBgVariants[variant ?? "primary"]
-      : bgVariants[variant ?? "primary"];
+    const resolvedVariant = variant ?? "primary";
+    // Unavailable and in-flight are different states. Unavailable fades out and
+    // stops taking the pointer; in-flight keeps full strength (the indicator has
+    // to be readable) and keeps the pointer so the cursor can say "not now" —
+    // pointer-events-none would hand the cursor to whatever sits underneath.
+    const unavailable = disabled === true;
+    const inFlight = loading && !unavailable;
+    // The primary plate is near-white, and the shared indicator ramp is light,
+    // so a loading primary showed an invisible spinner. In flight it borrows the
+    // card plate and a border, which the same indicator reads against.
+    const darkLoadingPlate = inFlight && resolvedVariant === "primary";
+    const bgClass = darkLoadingPlate
+      ? "bg-card"
+      : active
+        ? activeBgVariants[resolvedVariant]
+        : bgVariants[resolvedVariant];
 
     const internals = (
       <>
@@ -139,9 +151,16 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
           className={cn(
             "absolute inset-0 rounded-[inherit] transition-[background-color,transform] duration-80 group-active:scale-[0.96]",
             bgClass,
+            // The border lives on the plate, not the root: the root's width is
+            // content-driven, so a border there would jog the box by 2px the
+            // moment the request starts.
+            darkLoadingPlate && "border border-border",
           )}
         />
-        <span className="relative inline-flex items-center justify-center gap-[inherit]">
+        {/* The label rides the press with the plate: same 0.96, same 80ms, same
+            center origin, so the box and its contents shrink as one piece
+            instead of the text floating at full size inside a smaller plate. */}
+        <span className="relative inline-flex items-center justify-center gap-[inherit] transition-transform duration-80 group-active:scale-[0.96]">
           {loading ? (
             <>
               <span className="flex items-center justify-center gap-[inherit] opacity-0">
@@ -192,6 +211,8 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         iconRight: !isIconOnly && !!TrailingIcon,
       }),
       shape.button,
+      unavailable && "opacity-50 pointer-events-none",
+      inFlight && "cursor-not-allowed",
       className,
     );
 
