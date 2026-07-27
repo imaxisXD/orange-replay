@@ -1,8 +1,24 @@
 "use client";
 
-import { forwardRef, useRef, useState, useEffect, useId, type HTMLAttributes } from "react";
-import { animate, m, useMotionValue, useReducedMotion, type Transition } from "@/lib/motion";
+import {
+  forwardRef,
+  useRef,
+  useState,
+  useEffect,
+  useId,
+  type HTMLAttributes,
+  type ReactNode,
+} from "react";
+import {
+  animate,
+  m,
+  useMotionValue,
+  useReducedMotion,
+  useTransform,
+  type Transition,
+} from "@/lib/motion";
 import { Switch as SwitchPrimitive } from "@base-ui/react/switch";
+import type { IconComponent } from "@/lib/icon-map";
 import { cn } from "@/lib/utils";
 import { spring } from "@/lib/springs";
 
@@ -10,6 +26,15 @@ type SwitchSize = "small" | "medium" | "large";
 
 interface SwitchProps extends HTMLAttributes<HTMLDivElement> {
   label: string;
+  labelFirst?: boolean;
+  /** Turns the switch into a settings row: the label gains a second line, and
+   *  the whole row — title and description included — is the toggle surface. */
+  description?: string;
+  /** Row form with a caller-built label block, for text that needs its own
+   *  truncation or tooltips. `label` stays the accessible name. */
+  labelContent?: ReactNode;
+  icon?: IconComponent;
+  iconClassName?: string;
   checked: boolean;
   onToggle: () => void;
   disabled?: boolean;
@@ -29,28 +54,51 @@ const SWITCH_THUMB_SIZE: Record<SwitchSize, number> = {
   large: 19.2,
 };
 
-const SWITCH_PRESS_MORPH_SCALE: Record<SwitchSize, number> = {
-  small: 0.5,
-  medium: 1,
-  large: 1,
-};
-
-const SWITCH_THUMB_BACKGROUND =
-  "linear-gradient(to top, oklch(1 0 0) 0%, oklch(0.97 0.003 286) 36%, oklch(0.84 0.008 286) 100%)";
-const SWITCH_THUMB_SHADOW =
-  "inset 0 1px 2px rgb(10 10 12 / 0.28), inset 0 -1px 1px rgb(255 255 255 / 0.95), 0 1px 2px rgb(0 0 0 / 0.22)";
-
 const BASE_TRACK_WIDTH = 34;
 const BASE_TRACK_HEIGHT = 20;
-const BASE_PILL_EXTEND = 2;
-const BASE_PRESS_EXTEND = 4;
-const BASE_PRESS_SHRINK = 4;
 const BASE_DRAG_DEAD_ZONE = 2;
+
+/** Held, the thumb scales down around its own center — no squash, no stretch.
+ *  Trading height for width is a capsule's idiom: a capsule reads as elastic,
+ *  so pinching it looks like give. A square has corners that stay put, so the
+ *  same morph reads as the shape breaking rather than the surface yielding.
+ *  Uniform scale keeps every proportion, including the corner radius, and it
+ *  lands identically at every size. */
+const PRESS_SCALE = 0.9;
+
+/** Corners are absolute, not derived from the track height, so a switch reads
+ *  as the same soft-cornered rectangle at every size. */
+const TRACK_RADIUS = 2;
+const THUMB_RADIUS = 1;
+
+/** Pulled off the thumb on each side. The track padding is derived from the
+ *  thumb, so this widens the gap on all four edges at once and leaves the
+ *  travel distance — and therefore the drag feel — unchanged. */
+const THUMB_INSET = 1;
+
+/** The track is never empty. Off it carries a dim light gray, on it carries
+ *  the accent, so amber means on and nothing else. */
+const OFF_FILL_COLOR = "var(--switch-off-fill)";
+const OFF_FILL_OPACITY = 0.22;
+
+/** The track's color transition. 80ms landed as a snap — the border arrived
+ *  before the eye could read it as brightening. 160ms is `spring.moderate`'s
+ *  duration, so the edge and the surface settle on the same beat the thumb
+ *  does, and the whole control moves as one thing. The curve is the project's
+ *  existing `--ease-out-strong`: most of the change up front, then a long
+ *  settle, which is what makes a brighten feel deliberate rather than linear. */
+const TRACK_COLOR_TRANSITION =
+  "background-color 160ms var(--ease-out-strong), border-color 160ms var(--ease-out-strong)";
 
 const Switch = forwardRef<HTMLDivElement, SwitchProps>(
   (
     {
       label,
+      labelFirst = false,
+      description,
+      labelContent,
+      icon: Icon,
+      iconClassName,
       checked,
       onToggle,
       disabled = false,
@@ -62,21 +110,23 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
     ref,
   ) => {
     const labelId = useId();
+    const descriptionId = useId();
     const reduceMotion = useReducedMotion();
     const [hovered, setHovered] = useState(false);
     const [pressed, setPressed] = useState(false);
     const sizeScale = SWITCH_SIZE_SCALE[size];
-    const pressMorphScale = SWITCH_PRESS_MORPH_SCALE[size];
     const trackWidth = BASE_TRACK_WIDTH * sizeScale;
     const trackHeight = BASE_TRACK_HEIGHT * sizeScale;
-    const thumbSize = SWITCH_THUMB_SIZE[size];
+    const thumbSize = SWITCH_THUMB_SIZE[size] - THUMB_INSET * 2;
     const innerPadding = (trackHeight - thumbSize) / 2;
-    const trackRadius = thumbSize / 2 + innerPadding;
     const thumbTravel = trackWidth - thumbSize - innerPadding * 2;
-    const pillExtend = BASE_PILL_EXTEND * sizeScale;
-    const pressExtend = BASE_PRESS_EXTEND * sizeScale * pressMorphScale;
-    const pressShrink = BASE_PRESS_SHRINK * sizeScale * pressMorphScale;
     const dragDeadZone = BASE_DRAG_DEAD_ZONE * sizeScale;
+
+    // Drag bounds: the thumb's two resting positions and the point between
+    // them where a released drag commits.
+    const dragMin = innerPadding;
+    const dragMax = innerPadding + thumbTravel;
+    const commitMidpoint = (dragMin + dragMax) / 2;
 
     // Drag refs (not state to avoid re-renders during drag)
     const dragging = useRef(false);
@@ -89,19 +139,28 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
     // Motion value for thumb x-axis
     const motionX = useMotionValue(checked ? innerPadding + thumbTravel : innerPadding);
 
-    // Compute thumb shape
-    const thumbWidth = pressed
-      ? thumbSize + pressExtend
-      : hovered
-        ? thumbSize + pillExtend
-        : thumbSize;
-    const thumbHeight = pressed ? thumbSize - pressShrink : thumbSize;
-    const thumbRadius = thumbHeight / 2;
-    const thumbY = pressed ? innerPadding + pressShrink / 2 : innerPadding;
-    const extraWidth = thumbWidth - thumbSize;
-    const thumbX = checked ? innerPadding + thumbTravel - extraWidth : innerPadding;
+    // Both fills ride the thumb rather than the checked flag, and they trade
+    // places at `commitMidpoint` — the same threshold a released drag commits
+    // on — so the accent arrives exactly when the gesture has decided.
+    const offFillOpacity = useTransform(
+      motionX,
+      [innerPadding, commitMidpoint],
+      [OFF_FILL_OPACITY, 0],
+      { clamp: true },
+    );
+    const accentOpacity = useTransform(
+      motionX,
+      [commitMidpoint, innerPadding + thumbTravel],
+      [0, 1],
+      { clamp: true },
+    );
 
-    // Sync motionX when thumbX changes (hover/press/checked) and not dragging
+    // The thumb keeps its square and its corners at every moment; a press only
+    // scales it down around its own center. Stretching one axis against the
+    // other is a capsule's idiom — on a square it just reads as distortion.
+    const thumbX = checked ? dragMax : dragMin;
+
+    // Sync motionX when thumbX changes (checked) and not dragging
     useEffect(() => {
       if (dragging.current) return;
       animate(motionX, thumbX, resolveThumbTransition(reduceMotion, thumbTransition));
@@ -131,9 +190,6 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
         dragging.current = true;
       }
 
-      const dragMin = innerPadding;
-      const pressedThumbWidth = thumbSize + pressExtend;
-      const dragMax = trackWidth - innerPadding - pressedThumbWidth;
       const rawX = pointerStart.current.originX + delta;
       motionX.set(Math.max(dragMin, Math.min(dragMax, rawX)));
     }
@@ -146,13 +202,7 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
         didDrag.current = true;
         dragging.current = false;
 
-        const currentX = motionX.get();
-        const dragMin = innerPadding;
-        const pressedThumbWidth = thumbSize + pressExtend;
-        const dragMax = trackWidth - innerPadding - pressedThumbWidth;
-        const midpoint = (dragMin + dragMax) / 2;
-
-        const shouldBeOn = currentX > midpoint;
+        const shouldBeOn = motionX.get() > commitMidpoint;
 
         if (shouldBeOn !== checked) {
           onToggle();
@@ -184,12 +234,70 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
       pointerStart.current = null;
     }
 
+    const hasDescription = description !== undefined;
+    // Row form: the label block owns the row's slack and the whole thing is the
+    // toggle surface, so clicking or hovering the text works the control.
+    const isRow = hasDescription || labelContent !== undefined;
+
+    const labelText = (
+      <span
+        id={labelId}
+        className={cn(
+          "flex min-w-0 items-center gap-1.5 text-[13px] transition-[color] duration-80",
+          // A row states its on/off status in the track, so its title stays
+          // legible either way instead of dimming when off.
+          isRow
+            ? "font-medium text-foreground"
+            : checked
+              ? "text-foreground"
+              : "text-muted-foreground",
+        )}
+      >
+        {Icon && (
+          <Icon
+            aria-hidden
+            className={cn(
+              "size-4 shrink-0 transition-[color,stroke-width] duration-80",
+              iconClassName,
+            )}
+            strokeWidth={checked ? 2 : 1.5}
+          />
+        )}
+        {/* Text-box trim recenters the letterforms against the track. A row
+            pairs its title with a description instead, where the trim would
+            close up the gap between the two lines. */}
+        <span className={isRow ? undefined : "[text-box:trim-both_cap_alphabetic]"}>{label}</span>
+      </span>
+    );
+
+    const labelBlock =
+      labelContent === undefined ? (
+        hasDescription ? (
+          <span className="flex min-w-0 flex-col">
+            {labelText}
+            <span
+              className="mt-1 text-[12px] leading-normal text-muted-foreground"
+              id={descriptionId}
+            >
+              {description}
+            </span>
+          </span>
+        ) : (
+          labelText
+        )
+      ) : (
+        <span className="flex min-w-0 flex-1 flex-col">{labelContent}</span>
+      );
+
     return (
       <div
         ref={ref}
         role="presentation"
         className={cn(
           "relative z-10 flex items-center gap-2.5 px-3 py-2 cursor-pointer select-none touch-none",
+          // A row owns its whole width, so the text takes the slack and the
+          // track stays pinned to the far edge.
+          isRow && "w-full justify-between gap-4",
           disabled && "opacity-50 pointer-events-none",
           className,
         )}
@@ -201,16 +309,29 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
-        onClick={() => {
+        onClick={(event) => {
           if (disabled || didDrag.current) return;
+          // This handler exists so the surrounding row toggles too. The control
+          // itself already reports its own changes: Base UI renders a hidden
+          // checkbox as a *sibling* of the switch and clicks it on keyboard
+          // activation, and that click bubbles here — counting it would toggle
+          // twice and cancel out for any caller that flips relative state.
+          const target = event.target as HTMLElement;
+          if (target.tagName === "INPUT" || target.closest('[role="switch"]') !== null) return;
           onToggle();
         }}
         {...props}
       >
+        {labelFirst && labelBlock}
+
         {/* Switch */}
         <SwitchPrimitive.Root
           checked={checked}
-          aria-labelledby={labelId}
+          aria-describedby={hasDescription ? descriptionId : undefined}
+          // A caller-built label block may hold more than a name (timestamps,
+          // metadata), so name the control explicitly instead of pointing at it.
+          aria-label={labelContent === undefined ? undefined : label}
+          aria-labelledby={labelContent === undefined ? labelId : undefined}
           onCheckedChange={() => {
             if (didDrag.current) return;
             onToggle();
@@ -219,25 +340,58 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
           tabIndex={0}
           className={cn(
             "relative shrink-0 cursor-pointer border outline-none",
-            "transition-colors duration-80",
             "focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-background",
           )}
           data-size={size}
           style={{
             width: trackWidth,
             height: trackHeight,
-            borderRadius: trackRadius,
-            backgroundColor: checked
+            borderRadius: TRACK_RADIUS,
+            transition: reduceMotion ? "none" : TRACK_COLOR_TRANSITION,
+            // The neutral base sits under both fills, so hover keeps its usual
+            // lift when off and the off fill has something to dim into.
+            backgroundColor: hovered ? "var(--hover)" : "var(--secondary)",
+            // Hover lifts the border with the surface, so the whole control
+            // brightens together instead of the fill moving alone. Off it
+            // takes a wash of white; on it stays in the amber family, since a
+            // white edge against a full amber track reads as a seam.
+            borderColor: checked
               ? hovered
                 ? "color-mix(in oklch, var(--amber) 88%, var(--foreground))"
                 : "var(--amber)"
               : hovered
-                ? "var(--hover)"
-                : "var(--secondary)",
-            borderColor: checked ? "var(--amber)" : "var(--border)",
+                ? "var(--switch-hover-border)"
+                : "var(--border)",
           }}
           onClick={(e) => e.stopPropagation()}
         >
+          {/* Off fill: an off switch reads as filled but uncommitted. */}
+          <m.span
+            aria-hidden
+            className="pointer-events-none absolute"
+            style={{
+              inset: 0,
+              borderRadius: TRACK_RADIUS - 1,
+              backgroundColor: OFF_FILL_COLOR,
+              opacity: offFillOpacity,
+            }}
+          />
+
+          {/* Accent, stacked over the off fill and under the thumb, so the
+              thumb reads as sitting on the color rather than beside it. */}
+          <m.span
+            aria-hidden
+            className="pointer-events-none absolute"
+            style={{
+              inset: 0,
+              borderRadius: TRACK_RADIUS - 1,
+              backgroundColor: hovered
+                ? "color-mix(in oklch, var(--amber) 88%, var(--foreground))"
+                : "var(--amber)",
+              opacity: accentOpacity,
+            }}
+          />
+
           <SwitchPrimitive.Thumb
             render={(baseProps) => {
               const {
@@ -259,14 +413,16 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
                   className="absolute -top-px -left-px block bg-white"
                   style={{
                     ...(baseStyle as React.CSSProperties | undefined),
-                    backgroundImage: SWITCH_THUMB_BACKGROUND,
-                    borderRadius: thumbRadius,
-                    boxShadow: SWITCH_THUMB_SHADOW,
-                    height: thumbHeight,
-                    width: thumbWidth,
+                    // Flat: one white fill, no gradient and no bevel. Against a
+                    // track that is always filled, the shading was only adding
+                    // a second light source to read.
+                    borderRadius: THUMB_RADIUS,
+                    height: thumbSize,
+                    width: thumbSize,
                     x: motionX,
+                    y: innerPadding,
                   }}
-                  animate={{ y: thumbY }}
+                  animate={{ scale: pressed ? PRESS_SCALE : 1 }}
                   initial={false}
                   transition={resolveThumbTransition(reduceMotion, thumbTransition)}
                 />
@@ -275,18 +431,7 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
           />
         </SwitchPrimitive.Root>
 
-        {/* Label */}
-        <span
-          id={labelId}
-          className={cn(
-            // text-box trim recenters the letterforms against the track; the
-            // track controls the row height, so the trimmed label does not move it.
-            "text-[13px] [text-box:trim-both_cap_alphabetic] transition-[color] duration-80",
-            checked ? "text-foreground" : "text-muted-foreground",
-          )}
-        >
-          {label}
-        </span>
+        {!labelFirst && labelBlock}
       </div>
     );
   },

@@ -22,8 +22,8 @@ afterEach(async () => {
   document.body.replaceChildren();
 });
 
-describe("Replay Play/Pause morph tooltip", () => {
-  it("keeps the existing control and exposes its keyboard shortcut", async () => {
+describe("Replay Play/Pause tooltip", () => {
+  it("keeps the existing control and uses the standard tooltip", async () => {
     const onToggle = vi.fn();
 
     await act(async () => {
@@ -36,14 +36,12 @@ describe("Replay Play/Pause morph tooltip", () => {
       );
     });
 
-    const trigger = container.querySelector<HTMLButtonElement>("[data-morph-tooltip-trigger]");
-    const popup = document.body.querySelector<HTMLElement>("[data-morph-tooltip-popup]");
+    const trigger = container.querySelector<HTMLButtonElement>("button");
 
     expect(trigger?.getAttribute("aria-label")).toBe("Play replay");
     expect(trigger?.className).toContain("size-8");
-    expect(trigger?.style.width).toBe("");
-    expect(trigger?.style.height).toBe("");
-    expect(popup?.textContent).toBe("Play replay · Space");
+    expect(trigger?.className).toContain("bg-foreground");
+    expect(trigger?.hasAttribute("data-morph-tooltip-trigger")).toBe(false);
 
     await act(async () => trigger?.click());
     expect(onToggle).toHaveBeenCalledOnce();
@@ -59,6 +57,8 @@ describe("Replay Play/Pause morph tooltip", () => {
     });
 
     expect(trigger?.getAttribute("aria-label")).toBe("Pause replay");
-    expect(popup?.textContent).toBe("Pause replay · Space");
+
+    await act(async () => trigger?.focus());
+    expect(document.body.textContent).toContain("Pause replay · Space");
   });
 });

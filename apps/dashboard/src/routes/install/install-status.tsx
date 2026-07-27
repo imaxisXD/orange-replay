@@ -87,7 +87,7 @@ export function InstallStatus({ projectId }: { projectId: string }) {
                     {loading ? "Checking install status..." : "Waiting for the first event…"}
                   </div>
                   <div className="mt-1 text-[11.5px] text-muted-foreground">
-                    Open a page with the snippet installed — this updates the moment data arrives.
+                    Open a page with the snippet installed. This updates the moment data arrives.
                   </div>
                 </div>
               </div>

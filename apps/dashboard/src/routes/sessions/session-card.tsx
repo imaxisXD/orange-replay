@@ -100,7 +100,7 @@ export function SessionCard({
           </span>
         ) : evidence.kind === "metadata" ? (
           <span className="min-w-0 truncate text-[11.5px] text-muted-foreground">
-            Metadata only — nothing to replay
+            Metadata only. Nothing to replay
           </span>
         ) : (
           <span className="flex items-center gap-1.5 font-mono text-[11px] tabular-nums text-muted-foreground">

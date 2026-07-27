@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { LazyMotion, domMax } from "framer-motion";
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
@@ -22,6 +22,7 @@ import {
   readDashboardAccessError,
   signOutDashboardAccess,
 } from "@/lib/dashboard-access";
+import { DashboardDockHost } from "@/lib/dashboard-dock";
 import { getDashboardEnvironmentLabel } from "@/lib/dashboard-environment";
 import { ShieldUser } from "@/lib/icon-map";
 import { dashboardNavItems, type DashboardNavItem } from "@/lib/dashboard-navigation";
@@ -33,6 +34,9 @@ import { SurfaceProvider } from "@/lib/surface-context";
 import { cn } from "@/lib/utils";
 
 const DASHBOARD_SURFACE_LEVEL = 2;
+const WORKSPACE_WIDTH_ANIMATION = {
+  duration: 180,
+} as const;
 
 export function AppShell({
   children,
@@ -76,9 +80,15 @@ export function AppShell({
       ) ?? [{ id: projectId, label: `Project ${projectId}` }]);
   const activeProject = findAccountProject(account, projectId);
   const pathname = useRouterState({ select: (state) => state.location.pathname });
-  // The two-pane sessions triage needs a real player viewport; every other
-  // screen keeps the design language's 1200px column.
-  const wideMain = /\/sessions\/?$/.test(pathname);
+  const selectedSession = useRouterState({
+    select: (state) => (state.location.search as { selected?: string }).selected,
+  });
+  // Every screen keeps the design language's centered 1200px column. The sessions
+  // triage expands to the wide column only while a session is selected because the
+  // replay player needs the room. The expansion is animated so it reads as the
+  // player making room rather than a layout glitch.
+  const wideMain = /\/sessions\/?$/.test(pathname) && selectedSession !== undefined;
+  const mainRef = useWorkspaceWidthAnimation(wideMain);
 
   async function handleLogout(): Promise<void> {
     setIsSigningOut(true);
@@ -106,9 +116,10 @@ export function AppShell({
       <ScrollArea className="min-h-0 flex-1" viewportClassName="scroll-fade">
         <main
           className={cn(
-            "mx-auto w-full max-w-full px-4 py-5 sm:px-7 sm:py-6",
+            "dashboard-main mx-auto w-full max-w-full px-4 py-5 sm:px-7 sm:py-6",
             wideMain ? "max-w-475" : "max-w-300",
           )}
+          ref={mainRef}
         >
           {children ?? <Outlet />}
         </main>
@@ -204,30 +215,36 @@ export function AppShell({
         </ScrollArea>
       </header>
 
-      <div className="min-h-0 flex-1 px-2 pb-2 sm:px-3 sm:pb-3">
-        <SurfaceProvider value={DASHBOARD_SURFACE_LEVEL}>
-          <m.div
-            key={workspaceKey}
-            {...workspaceMotion}
-            className={cn(
-              "flex h-full min-h-0 flex-col overflow-hidden rounded-xl",
-              surfaceClasses(DASHBOARD_SURFACE_LEVEL),
-              // The demo notch overflows into the project-header row. Lift the
-              // transformed workspace layer above that transparent header so
-              // the notch CTA can receive pointer events.
-              workspaceOverlay !== undefined && "relative z-50",
-            )}
-          >
-            {workspaceOverlay === undefined ? (
-              workspaceContent
-            ) : (
-              <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl">
-                {workspaceContent}
-              </div>
-            )}
-            {workspaceOverlay}
-          </m.div>
-        </SurfaceProvider>
+      {/* The dock host sits beside the workspace card, not inside it: the card
+          clips to its rounded corners, which would hold bottom-anchored chrome
+          12px short of the window edge. Absolute insets ignore this frame's
+          padding, so the dock reaches the true bottom and full width. */}
+      <div className="relative min-h-0 flex-1 px-2 pb-2 sm:px-3 sm:pb-3">
+        <DashboardDockHost>
+          <SurfaceProvider value={DASHBOARD_SURFACE_LEVEL}>
+            <m.div
+              key={workspaceKey}
+              {...workspaceMotion}
+              className={cn(
+                "flex h-full min-h-0 flex-col overflow-hidden rounded-xl",
+                surfaceClasses(DASHBOARD_SURFACE_LEVEL),
+                // The demo notch overflows into the project-header row. Lift the
+                // transformed workspace layer above that transparent header so
+                // the notch CTA can receive pointer events.
+                workspaceOverlay !== undefined && "relative z-50",
+              )}
+            >
+              {workspaceOverlay === undefined ? (
+                workspaceContent
+              ) : (
+                <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl">
+                  {workspaceContent}
+                </div>
+              )}
+              {workspaceOverlay}
+            </m.div>
+          </SurfaceProvider>
+        </DashboardDockHost>
       </div>
     </div>
   );
@@ -392,4 +409,87 @@ function TopNavTab({
       {content}
     </Link>
   );
+}
+
+function useWorkspaceWidthAnimation(isWide: boolean) {
+  const mainRef = useRef<HTMLElement>(null);
+  const previousWidthRef = useRef<number>(undefined);
+  const interruptedWidthRef = useRef<number>(undefined);
+  const stopAnimationRef = useRef<(() => void) | undefined>(undefined);
+
+  useLayoutEffect(() => {
+    const main = mainRef.current;
+    if (main === null) return;
+
+    const nextWidth = main.offsetWidth;
+    const previousWidth = previousWidthRef.current;
+    previousWidthRef.current = nextWidth;
+    const currentAnimation = stopAnimationRef.current;
+    const visibleWidth =
+      interruptedWidthRef.current ??
+      (currentAnimation === undefined || previousWidth === undefined
+        ? previousWidth
+        : previousWidth * readHorizontalScale(getComputedStyle(main).transform));
+    interruptedWidthRef.current = undefined;
+    currentAnimation?.();
+
+    const animationAllowed = window.matchMedia(
+      "(min-width: 1024px) and (prefers-reduced-motion: no-preference)",
+    ).matches;
+    if (
+      !animationAllowed ||
+      previousWidth === undefined ||
+      previousWidth <= 0 ||
+      nextWidth <= 0 ||
+      visibleWidth === undefined
+    ) {
+      return;
+    }
+
+    const startingScale = visibleWidth / nextWidth;
+    if (Math.abs(startingScale - 1) < 0.01) return;
+
+    main.style.setProperty("--workspace-width-start-scale", String(startingScale));
+    // Reading the width between removing and adding the class restarts the CSS
+    // keyframes when users quickly move back and forth.
+    void main.offsetWidth;
+    main.classList.add("dashboard-main-width-moving");
+
+    let cleanupTimer: number | undefined;
+    const stopAnimation = () => {
+      main.removeEventListener("animationcancel", finishAnimation);
+      main.removeEventListener("animationend", finishAnimation);
+      main.classList.remove("dashboard-main-width-moving");
+      main.style.removeProperty("--workspace-width-start-scale");
+      if (cleanupTimer !== undefined) window.clearTimeout(cleanupTimer);
+      if (stopAnimationRef.current === stopAnimation) stopAnimationRef.current = undefined;
+    };
+    const finishAnimation = (event: AnimationEvent) => {
+      if (event.target !== main || event.animationName !== "dashboard-main-width") return;
+      stopAnimation();
+    };
+    main.addEventListener("animationcancel", finishAnimation);
+    main.addEventListener("animationend", finishAnimation);
+    cleanupTimer = window.setTimeout(stopAnimation, WORKSPACE_WIDTH_ANIMATION.duration + 50);
+    stopAnimationRef.current = stopAnimation;
+
+    return () => {
+      if (stopAnimationRef.current === stopAnimation) {
+        interruptedWidthRef.current =
+          nextWidth * readHorizontalScale(getComputedStyle(main).transform);
+      }
+      stopAnimation();
+    };
+  }, [isWide]);
+
+  return mainRef;
+}
+
+function readHorizontalScale(transform: string): number {
+  if (transform === "none") return 1;
+  const firstValue = transform
+    .slice(transform.indexOf("(") + 1, transform.lastIndexOf(")"))
+    .split(",")[0];
+  const scale = Number.parseFloat(firstValue ?? "");
+  return Number.isFinite(scale) && scale > 0 ? scale : 1;
 }

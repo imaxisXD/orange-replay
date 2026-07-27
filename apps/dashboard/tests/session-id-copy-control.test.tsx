@@ -34,10 +34,15 @@ describe("Session ID copy control", () => {
     });
 
     const button = container.querySelector<HTMLButtonElement>("button");
+    const layout = container.querySelector<HTMLElement>('[data-slot="session-id-layout"]');
 
     expect(button?.textContent).toContain("Session ID");
-    expect(button?.textContent).toContain("session-…");
+    expect(button?.textContent).toContain("session-…6789");
     expect(button?.getAttribute("aria-label")).toBe("Copy session ID");
+    expect(button?.className).toContain("w-48");
+    expect(layout?.className).toContain("grid-cols-[3.25rem_minmax(0,1fr)_0.75rem]");
+    expect(layout?.className).toContain("gap-2");
+    expect(layout?.children[1]?.getAttribute("title")).toBe("session-123456789");
     expect(container.querySelector("[data-morph-tooltip-trigger]")).toBeNull();
     expect(document.body.querySelector('[role="tooltip"]')).toBeNull();
 

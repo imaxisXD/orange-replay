@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import type { ListSessionsResponse, SessionListItem } from "../src/lib/api";
 import {
+  formatCompactSessionId,
   formatDuration,
   formatDurationWords,
   formatErrorCount,
@@ -48,6 +49,11 @@ describe("format helpers", () => {
     expect(formatSessionDuration(999)).toBe("<1s");
     expect(formatSessionDuration(0)).toBe("0:00");
     expect(formatSessionDuration(1_500)).toBe("0:02");
+  });
+
+  it("keeps both ends of compact session IDs", () => {
+    expect(formatCompactSessionId("019f9e7a-d338-7531-a6e0-3edc5784146c")).toBe("019f9e7a…146c");
+    expect(formatCompactSessionId("short-id")).toBe("short-id");
   });
 });
 

@@ -15,7 +15,7 @@ export function RouteError({ error, notFound = false }: { error?: unknown; notFo
         </h1>
         <p className="text-[13px] text-muted-foreground">
           {is404
-            ? "This page does not exist — the link may be old."
+            ? "This page does not exist. The link may be old."
             : "Sometimes this happens. Head back to sessions and try again."}
         </p>
         {!is404 && message.length > 0 && (

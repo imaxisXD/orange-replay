@@ -23,6 +23,47 @@ export function CardHeader({
   );
 }
 
+/**
+ * Every settings card is a `.lit` card whose heading and body sit on the card
+ * itself, with the controls in an inset panel — the Public page card's shape,
+ * applied across Settings. The panel is one step up the surface ladder from the
+ * card it sits on (`--surface-3` is `--popover`, which `bg-secondary` also
+ * resolves to), held at 45% so the card's grain still reads through it.
+ */
+export function SettingsCard({
+  body,
+  children,
+  className,
+  header,
+  right,
+  title,
+}: {
+  body: string;
+  children: ReactNode;
+  className?: string;
+  /** Extra content between the heading and the panel, such as an alert. */
+  header?: ReactNode;
+  right?: ReactNode;
+  title: string;
+}) {
+  return (
+    <section className="lit rounded-lg p-5">
+      <CardHeader body={body} right={right} title={title} />
+      {header}
+      <div
+        className={cn(
+          "mt-4 divide-y divide-border rounded-lg border border-border bg-surface-3/45",
+          className,
+        )}
+      >
+        {children}
+      </div>
+    </section>
+  );
+}
+
+/** A row inside a `SettingsCard` panel. The panel's `divide-y` draws the rule
+ *  between rows, so the row itself only owns its padding. */
 export function SettingRow({
   children,
   description,
@@ -33,48 +74,13 @@ export function SettingRow({
   label: string;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 border-b border-dashed border-dash py-2.25 last:border-b-0">
+    <div className="flex items-center justify-between gap-4 px-4 py-3.5">
       <div className="min-w-0">
         <div className="text-[13px] font-medium">{label}</div>
-        <div className="mt-0.25 text-[11.5px] text-muted-foreground">{description}</div>
+        <div className="mt-1 text-[12px] leading-normal text-muted-foreground">{description}</div>
       </div>
       <div className="flex-none">{children}</div>
     </div>
-  );
-}
-
-export function NumberWithSuffix({
-  ariaLabel,
-  max,
-  min,
-  onChange,
-  suffix,
-  value,
-}: {
-  ariaLabel: string;
-  max: number;
-  min: number;
-  onChange: (value: string) => void;
-  suffix: string;
-  value: string;
-}) {
-  return (
-    <InputGroup className="w-24 gap-0">
-      <InputField
-        hideLabel
-        className="font-mono"
-        endContent={<span className="text-[11.5px] text-dim">{suffix}</span>}
-        index={0}
-        inputMode="decimal"
-        label={ariaLabel}
-        max={max}
-        min={min}
-        onChange={onChange}
-        style={{ textAlign: "right" }}
-        type="number"
-        value={value}
-      />
-    </InputGroup>
   );
 }
 

@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { SettingsCard } from "./settings-fields";
 import { Button } from "@/components/ui/button";
 import { health } from "@/lib/api";
 import { KeyRound, RotateCcw, Server } from "@/lib/icon-map";
@@ -46,29 +47,23 @@ export function SettingsEnvironmentCards() {
 
   return (
     <div className="grid gap-4 md:grid-cols-2">
-      <section className="lit flex flex-col gap-4 overflow-hidden rounded-lg p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex flex-col gap-1">
-            <h2 className="text-[15px] font-medium leading-tight">Account session</h2>
-            <p className="text-[13px] text-muted-foreground">
-              Protected by your signed-in account.
-            </p>
-          </div>
-          <KeyRound aria-hidden className="size-5 text-muted-foreground" />
-        </div>
+      <SettingsCard
+        body="Protected by your signed-in account."
+        className="p-4"
+        right={<KeyRound aria-hidden className="size-5 text-muted-foreground" />}
+        title="Account session"
+      >
         <Badge color="green" size="sm" variant="dot">
           Signed in
         </Badge>
-      </section>
+      </SettingsCard>
 
-      <section className="lit flex flex-col gap-4 overflow-hidden rounded-lg p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex flex-col gap-1">
-            <h2 className="text-[15px] font-medium leading-tight">Worker health</h2>
-            <p className="text-[13px] text-muted-foreground">Checks the connected API worker.</p>
-          </div>
-          <Server aria-hidden className="size-5 text-muted-foreground" />
-        </div>
+      <SettingsCard
+        body="Checks the connected API worker."
+        className="p-4"
+        right={<Server aria-hidden className="size-5 text-muted-foreground" />}
+        title="Worker health"
+      >
         <div className="flex items-center justify-between gap-3">
           <HealthStatus healthState={healthState} />
           <Button
@@ -81,7 +76,7 @@ export function SettingsEnvironmentCards() {
             Check
           </Button>
         </div>
-      </section>
+      </SettingsCard>
     </div>
   );
 }

@@ -16,10 +16,9 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select";
-import { LoadingArea } from "@/components/ui/loading-indicator";
 import { Switch } from "@/components/ui/switch";
 import type { SessionDisplayItem } from "@/lib/session-list";
-import { Check, Inbox, Search } from "@/lib/icon-map";
+import { Check, Search } from "@/lib/icon-map";
 import type { SessionSort } from "@/lib/sessions-view-search";
 import { cn } from "@/lib/utils";
 import { SessionCard } from "./session-card";
@@ -35,7 +34,6 @@ const sortOptions: { label: string; value: SessionSort }[] = [
 export type SessionListLoadState = "loading" | "loading_more" | "idle";
 
 export function SessionListPane({
-  canWidenTo28Days,
   className,
   error,
   hasMore,
@@ -46,7 +44,6 @@ export function SessionListPane({
   onRailKeyDown,
   onSelect,
   onShowAll,
-  onShowLast28Days,
   onSortChange,
   onToggleUnwatched,
   railRef,
@@ -57,7 +54,6 @@ export function SessionListPane({
   visibleSessions,
   watched,
 }: {
-  canWidenTo28Days: boolean;
   className?: string;
   error: string;
   hasMore: boolean;
@@ -68,7 +64,6 @@ export function SessionListPane({
   onRailKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void;
   onSelect: (session: SessionDisplayItem) => void;
   onShowAll: () => void;
-  onShowLast28Days: () => void;
   onSortChange: (sort: SessionSort) => void;
   onToggleUnwatched: () => void;
   railRef: RefObject<HTMLDivElement | null>;
@@ -84,7 +79,7 @@ export function SessionListPane({
   return (
     <section
       className={cn(
-        "lit w-full min-w-0 shrink-0 flex-col overflow-hidden rounded-lg lg:w-80",
+        "lit min-h-[38rem] w-full min-w-0 shrink-0 flex-col overflow-hidden rounded-lg lg:w-80",
         className,
       )}
     >
@@ -118,18 +113,18 @@ export function SessionListPane({
         />
       </div>
 
-      <ScrollArea
-        aria-label="Sessions"
-        className="h-[calc(100dvh-390px)] min-h-80 lg:h-[calc(100vh-370px)] lg:min-h-40"
-        onKeyDown={onRailKeyDown}
-        ref={railRef}
-        role="listbox"
-        viewportClassName="scroll-fade"
-      >
-        {loadState === "loading" ? (
-          <LoadingCards />
-        ) : (
-          visibleSessions.map((session, index) => (
+      {loadState === "loading" ? (
+        <div aria-hidden className="min-h-0 flex-1" />
+      ) : (
+        <ScrollArea
+          aria-label="Sessions"
+          className="min-h-0 flex-1"
+          onKeyDown={onRailKeyDown}
+          ref={railRef}
+          role="listbox"
+          viewportClassName="scroll-fade"
+        >
+          {visibleSessions.map((session, index) => (
             <SessionCard
               isSelected={session.session_id === selected}
               isTabStop={session.session_id === selected || (!selectedIsVisible && index === 0)}
@@ -138,26 +133,19 @@ export function SessionListPane({
               onSelect={() => onSelect(session)}
               session={session}
             />
-          ))
-        )}
+          ))}
 
-        {loadState !== "loading" && sessions.length === 0 && error.length === 0 && (
-          <div className="p-4">
-            {lensCount > 0 ? (
+          {sessions.length === 0 && error.length === 0 && lensCount > 0 && (
+            <div className="p-4">
               <FilteredEmptyState count={lensCount} onClear={onClearFilters} />
-            ) : (
-              <DateRangeEmptyState
-                canWiden={canWidenTo28Days}
-                onShowLast28Days={onShowLast28Days}
-              />
-            )}
-          </div>
-        )}
+            </div>
+          )}
 
-        {loadState !== "loading" && sessions.length > 0 && visibleSessions.length === 0 && (
-          <AllWatchedState onShowAll={onShowAll} total={sessions.length} />
-        )}
-      </ScrollArea>
+          {sessions.length > 0 && visibleSessions.length === 0 && (
+            <AllWatchedState onShowAll={onShowAll} total={sessions.length} />
+          )}
+        </ScrollArea>
+      )}
 
       {hasMore && (
         <div className="flex justify-center border-t border-dashed border-dash px-4 py-2.5">
@@ -175,10 +163,6 @@ export function SessionListPane({
       )}
     </section>
   );
-}
-
-function LoadingCards() {
-  return <LoadingArea className="min-h-80" label="Loading sessions" />;
 }
 
 function FilteredEmptyState({ count, onClear }: { count: number; onClear: () => void }) {
@@ -222,36 +206,5 @@ function AllWatchedState({ onShowAll, total }: { onShowAll: () => void; total: n
         </EmptyContent>
       </Empty>
     </div>
-  );
-}
-
-function DateRangeEmptyState({
-  canWiden,
-  onShowLast28Days,
-}: {
-  canWiden: boolean;
-  onShowLast28Days: () => void;
-}) {
-  return (
-    <Empty className="border border-dashed border-dash">
-      <EmptyHeader>
-        <EmptyMedia variant="icon">
-          <Inbox aria-hidden />
-        </EmptyMedia>
-        <EmptyTitle>No sessions in this date range</EmptyTitle>
-        <EmptyDescription>
-          {canWiden
-            ? "Nothing recorded in this window. Widen the range above to look further back."
-            : "Nothing recorded in this window. Pick another range above."}
-        </EmptyDescription>
-      </EmptyHeader>
-      {canWiden && (
-        <EmptyContent>
-          <Button onClick={onShowLast28Days} variant="secondary">
-            Show last 28 days
-          </Button>
-        </EmptyContent>
-      )}
-    </Empty>
   );
 }

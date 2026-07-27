@@ -55,6 +55,57 @@ describe("sessions date range and pin lifecycle", () => {
     document.body.replaceChildren();
   });
 
+  it("shows readable toolbar labels with matching icons", async () => {
+    const { container, teardown } = await renderPanel({
+      isDemo: false,
+      sessions: [finalizedSession("session-a")],
+    });
+
+    const filterHeading = container.querySelector<HTMLElement>("#sessions-filter-heading");
+    expect(filterHeading?.textContent).toContain("Filters");
+    expect(filterHeading?.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+    expect(filterHeading?.classList).toContain("col-span-2");
+
+    const trigger = container.querySelector<HTMLElement>('[aria-label="Date range"]');
+    expect(trigger?.textContent).toContain("Last 24 hours");
+    expect(trigger?.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+    expect(trigger?.classList).toContain("sm:w-40");
+    expect(trigger?.classList).toContain("sm:shrink-0");
+
+    const countryTrigger = container.querySelector<HTMLElement>('[aria-label="Country"]');
+    expect(countryTrigger?.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+    expect(countryTrigger?.classList).toContain("sm:w-44");
+
+    const durationTrigger = container.querySelector<HTMLElement>('[aria-label="Minimum duration"]');
+    expect(durationTrigger?.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+    expect(durationTrigger?.classList).toContain("sm:w-44");
+
+    const errorLabel = findSwitchLabel(container, "Errors only");
+    const errorIcon = errorLabel?.querySelector<SVGElement>('svg[aria-hidden="true"]');
+    expect(errorIcon).not.toBeNull();
+    expect(errorIcon?.classList).toContain("text-danger/70");
+    expect(errorLabel?.nextElementSibling?.getAttribute("role")).toBe("switch");
+    expect(errorLabel?.parentElement?.classList).toContain("sm:ml-auto");
+
+    const rageLabel = findSwitchLabel(container, "Rage clicks only");
+    const rageIcon = rageLabel?.querySelector<SVGElement>('svg[aria-hidden="true"]');
+    expect(rageIcon).not.toBeNull();
+    expect(rageIcon?.classList).toContain("text-amber/70");
+    expect(rageLabel?.nextElementSibling?.getAttribute("role")).toBe("switch");
+
+    expect(container.textContent).not.toContain("1 session");
+    expect(container.querySelector('[aria-label="Refresh sessions"]')).toBeNull();
+
+    await act(async () => trigger?.click());
+    expect(
+      [...document.querySelectorAll('[role="option"][data-value]')].map((option) =>
+        option.textContent?.trim(),
+      ),
+    ).toEqual(["Last 24 hours", "Last 3 days", "Last 7 days", "Last 28 days"]);
+
+    await teardown();
+  });
+
   it("preserves the doorway pin on selection but drops it on a lens mutation", async () => {
     const now = Date.now();
     routeSearch = { from: now - day, to: now, warehouse_version: 5, has_errors: true };
@@ -80,7 +131,7 @@ describe("sessions date range and pin lifecycle", () => {
     // A toolbar lens change is a SessionFilter mutation: the pin drops, the
     // window and existing lenses stay.
     await act(async () => {
-      clickSwitch(container, "Has rage");
+      clickSwitch(container, "Rage clicks only");
     });
     const mutateCall = lastCallWith((search) => search.has_rage === true);
     expect(mutateCall.warehouse_version).toBeUndefined();
@@ -130,6 +181,14 @@ describe("sessions date range and pin lifecycle", () => {
       });
     });
     expect(container.textContent).not.toContain("No sessions yet");
+    expect(container.querySelectorAll('img[src*="date-range-owl"]')).toHaveLength(1);
+    expect(container.textContent).not.toContain("The rooster has the reel");
+    expect(container.textContent).not.toContain("Nothing to watch yet");
+    expect(
+      container
+        .querySelector("[data-session-workspace]")
+        ?.getAttribute("data-session-layout-state"),
+    ).toBe("empty");
 
     // The default rolling window drives the outgoing request even with no URL.
     const listUrl = requestedUrls().find((url) => url.includes("/sessions?"));
@@ -143,6 +202,43 @@ describe("sessions date range and pin lifecycle", () => {
     const widenCall = lastCall();
     expect(widenCall.warehouse_version).toBeUndefined();
     expect((widenCall.to ?? 0) - (widenCall.from ?? 0)).toBe(twentyEightDays);
+
+    await teardown();
+  });
+
+  it("keeps a quiet workspace footprint while the first session request loads", async () => {
+    const sessionResponse = deferred<object>();
+    const { container, teardown } = await renderPanel({
+      isDemo: false,
+      sessions: [],
+      heads: [],
+      sessionsResponder: () => sessionResponse.promise,
+    });
+
+    const loadingWorkspace = container.querySelector<HTMLElement>("[data-session-workspace]");
+    expect(loadingWorkspace?.dataset.sessionLayoutState).toBe("loading");
+    expect(loadingWorkspace?.style.height).toBe("690px");
+    expect(loadingWorkspace?.getAttribute("aria-busy")).toBe("true");
+    expect(container.querySelectorAll('[data-slot="loading-indicator"]')).toHaveLength(0);
+    expect(container.querySelector('img[src*="date-range-owl"]')).toBeNull();
+    expect(container.textContent).not.toContain("The rooster has the reel");
+
+    await act(async () => {
+      sessionResponse.resolve({
+        sessions: [finalizedSession("session-after-loading")],
+        nextBefore: null,
+      });
+      await sessionResponse.promise;
+    });
+    await waitForCard(container, "session-after-loading");
+
+    const resultsWorkspace = container.querySelector<HTMLElement>("[data-session-workspace]");
+    expect(resultsWorkspace).toBe(loadingWorkspace);
+    expect(resultsWorkspace?.dataset.sessionLayoutState).toBe("results");
+    expect(resultsWorkspace?.style.height).toBe("690px");
+    expect(resultsWorkspace?.getAttribute("aria-busy")).toBe("false");
+    expect(container.querySelectorAll('[data-slot="loading-indicator"]')).toHaveLength(0);
+    expect(container.textContent).toContain("The rooster has the reel");
 
     await teardown();
   });
@@ -194,7 +290,7 @@ describe("sessions date range and pin lifecycle", () => {
 
     // A following SessionFilter mutation drops the pin but keeps window + lens.
     await act(async () => {
-      clickSwitch(container, "Has rage");
+      clickSwitch(container, "Rage clicks only");
     });
     const mutateCall = lastCallWith((search) => search.has_rage === true);
     expect(mutateCall.warehouse_version).toBeUndefined();
@@ -312,7 +408,7 @@ interface RenderOptions {
   heads?: unknown[];
   // Overrides the /sessions list response per request (used for pagination and
   // boundary tests that vary the response by cursor or window).
-  sessionsResponder?: (url: URL) => object;
+  sessionsResponder?: (url: URL) => object | Promise<object>;
 }
 
 async function renderPanel(
@@ -325,7 +421,9 @@ async function renderPanel(
     }
     if (/\/sessions\?/.test(url) || url.endsWith("/sessions")) {
       if (options.sessionsResponder !== undefined) {
-        return jsonResponse(options.sessionsResponder(new URL(url, "https://dashboard.test")));
+        return jsonResponse(
+          await options.sessionsResponder(new URL(url, "https://dashboard.test")),
+        );
       }
       return jsonResponse({ sessions: options.sessions, nextBefore: null });
     }
@@ -370,9 +468,10 @@ function lastCall(): SessionsViewSearch {
 
 function lastCallWith(match: (search: SessionsViewSearch) => boolean): SessionsViewSearch {
   for (let index = navigate.mock.calls.length - 1; index >= 0; index -= 1) {
-    const search = (navigate.mock.calls[index]?.[0] as { search?: SessionsViewSearch } | undefined)
-      ?.search;
-    if (search !== undefined && match(search)) return search;
+    const call = navigate.mock.calls[index]?.[0] as { search?: SessionsViewSearch } | undefined;
+    if (call?.search !== undefined && match(call.search)) {
+      return call.search;
+    }
   }
   throw new Error("No navigate call matched the predicate");
 }
@@ -423,14 +522,18 @@ async function selectOption(
 }
 
 function clickSwitch(container: HTMLElement, label: string): void {
-  const labelSpan = [...container.querySelectorAll("span")].find(
-    (span) => span.textContent === label && span.id.length > 0,
-  );
+  const labelSpan = findSwitchLabel(container, label);
   const control = labelSpan
     ? container.querySelector<HTMLElement>(`[aria-labelledby="${labelSpan.id}"]`)
     : null;
   if (control === null || control === undefined) throw new Error(`Switch not found: ${label}`);
   control.click();
+}
+
+function findSwitchLabel(container: HTMLElement, label: string): HTMLSpanElement | undefined {
+  return [...container.querySelectorAll<HTMLSpanElement>("span[id]")].find(
+    (span) => span.textContent === label,
+  );
 }
 
 function finalizedSession(sessionId: string, startedAt?: number) {
@@ -488,4 +591,12 @@ function requestedUrls(): string[] {
     mock: { calls: [string | URL | Request][] };
   };
   return fetchMock.mock.calls.map(([input]) => requestUrl(input));
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolvePromise: (value: T) => void = () => undefined;
+  const promise = new Promise<T>((resolve) => {
+    resolvePromise = resolve;
+  });
+  return { promise, resolve: resolvePromise };
 }

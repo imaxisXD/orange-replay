@@ -41,7 +41,7 @@ export const TimelineSidebar = memo(function TimelineSidebar({
                 key={row.id}
                 onClick={() => onSeek(row.offsetMs)}
                 style={{ contentVisibility: "auto", containIntrinsicSize: "auto 44px" }}
-                title={row.detail === undefined ? row.label : `${row.label} — ${row.detail}`}
+                title={row.detail === undefined ? row.label : `${row.label}: ${row.detail}`}
                 type="button"
               >
                 {/* Shape + color double-encode the event kind — never color alone. */}

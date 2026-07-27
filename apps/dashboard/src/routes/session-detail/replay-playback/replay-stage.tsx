@@ -35,7 +35,7 @@ export function ReplayStage({
       {isFollowing && waitingForKeyframe && playerError === null && (
         <ReplayOverlay
           label={
-            liveConnected ? "Connected live — waiting for the next keyframe…" : "Connecting live…"
+            liveConnected ? "Connected live. Waiting for the next keyframe…" : "Connecting live…"
           }
         />
       )}

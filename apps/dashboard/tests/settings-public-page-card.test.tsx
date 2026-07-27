@@ -61,7 +61,7 @@ describe("public page settings", () => {
   it("asks for confirmation before publishing", async () => {
     const queryClient = await renderCard();
 
-    await act(async () => findSwitch("Publish public page").click());
+    await act(async () => findSwitch("Publish this page").click());
     expect(document.body.textContent).toContain("Publish this project page?");
     expect(apiMocks.savePublicPageSettings).not.toHaveBeenCalled();
 
@@ -121,7 +121,7 @@ describe("public page settings", () => {
     );
     await renderCard();
 
-    await act(async () => findSwitch("Publish public page").click());
+    await act(async () => findSwitch("Publish this page").click());
     await act(async () => findButton("Publish page").click());
 
     await waitForUi(() => {
@@ -223,11 +223,17 @@ function findButton(label: string): HTMLButtonElement {
   return button;
 }
 
+// Settings switches own their whole row: simple ones are named by the visible
+// title they point at, rows with caller-built label blocks (a recording's path
+// plus its metadata) carry an explicit aria-label instead.
 function findSwitch(label: string): HTMLButtonElement {
   const item = [...document.body.querySelectorAll<HTMLButtonElement>('[role="switch"]')].find(
     (control) => {
       const labelId = control.getAttribute("aria-labelledby");
-      const text = labelId === null ? "" : document.getElementById(labelId)?.textContent;
+      const text =
+        labelId === null
+          ? (control.getAttribute("aria-label") ?? "")
+          : document.getElementById(labelId)?.textContent;
       return text?.includes(label) === true;
     },
   );

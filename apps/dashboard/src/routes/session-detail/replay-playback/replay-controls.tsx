@@ -1,8 +1,8 @@
 import type { ActivityBucket } from "@orange-replay/player";
 import { Button } from "@/components/ui/button";
-import { MorphTooltip } from "@/components/ui/morph-tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
+import { Tooltip } from "@/components/ui/tooltip";
 import { formatDuration } from "@/lib/format";
 import { AlertCircle, Angry } from "@/lib/icon-map";
 import type { ReplayPlayerState } from "../use-replay-player";
@@ -159,32 +159,16 @@ export function ReplayPlayPauseControl({
   const action = playing ? "Pause" : "Play";
 
   return (
-    <MorphTooltip.Provider delay={0}>
-      <MorphTooltip.Root size="sm">
-        <MorphTooltip.Trigger
-          aria-label={`${action} replay`}
-          render={
-            <button
-              className="flex size-8 shrink-0 items-center justify-center rounded-[9px] bg-transparent text-foreground outline-none transition-[background-color,color,opacity] duration-150 ease-out hover:opacity-90 focus-visible:ring-1 focus-visible:ring-amber data-[surface-visible]:bg-foreground data-[surface-visible]:text-background"
-              onClick={onToggle}
-              type="button"
-            />
-          }
-        >
-          <PlayPauseShape playing={playing} />
-        </MorphTooltip.Trigger>
-        <MorphTooltip.Portal>
-          <MorphTooltip.Positioner side="top">
-            <MorphTooltip.Popup>
-              <MorphTooltip.Arrow />
-              <MorphTooltip.Viewport>
-                <MorphTooltip.Label>{action} replay · Space</MorphTooltip.Label>
-              </MorphTooltip.Viewport>
-            </MorphTooltip.Popup>
-          </MorphTooltip.Positioner>
-        </MorphTooltip.Portal>
-      </MorphTooltip.Root>
-    </MorphTooltip.Provider>
+    <Tooltip content={`${action} replay · Space`} delayDuration={400} side="top">
+      <button
+        aria-label={`${action} replay`}
+        className="flex size-8 shrink-0 items-center justify-center rounded-[9px] bg-foreground text-background outline-none transition-[background-color,color,opacity] duration-150 ease-out hover:opacity-90 focus-visible:ring-1 focus-visible:ring-amber"
+        onClick={onToggle}
+        type="button"
+      >
+        <PlayPauseShape playing={playing} />
+      </button>
+    </Tooltip>
   );
 }
 
