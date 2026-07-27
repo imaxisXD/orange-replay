@@ -12,6 +12,8 @@ import ChevronUpIcon from "@hugeicons/core-free-icons/ChevronUpIcon";
 import CodeIcon from "@hugeicons/core-free-icons/CodeIcon";
 import Copy01Icon from "@hugeicons/core-free-icons/Copy01Icon";
 import Delete02Icon from "@hugeicons/core-free-icons/Delete02Icon";
+import Alert01Icon from "@hugeicons/core-free-icons/Alert01Icon";
+import MinusSignIcon from "@hugeicons/core-free-icons/MinusSignIcon";
 import EyeIcon from "@hugeicons/core-free-icons/EyeIcon";
 import EyeOffIcon from "@hugeicons/core-free-icons/EyeOffIcon";
 import InboxIcon from "@hugeicons/core-free-icons/InboxIcon";
@@ -129,7 +131,11 @@ export const Info = createHugeIcon(InformationCircleIcon);
 export const HelpCircle = createHugeIcon(HelpCircleIcon);
 export const KeyRound = createHugeIcon(Key02Icon);
 export const Plus = createHugeIcon(Add01Icon);
+export const Minus = createHugeIcon(MinusSignIcon);
 export const RotateCcw = createHugeIcon(RefreshIcon);
+/** Unwritten edits exist. AlertCircle stays the error glyph; this triangle is
+ *  the softer "needs your attention" mark. */
+export const AlertTriangle = createHugeIcon(Alert01Icon);
 export const Search = createHugeIcon(Search01Icon);
 export const Server = createHugeIcon(ServerStack01Icon);
 export const Trash2 = createHugeIcon(Delete02Icon);

@@ -198,7 +198,7 @@ export function PublicPageCard({ projectId }: { projectId: string }) {
             </AlertDescription>
           </Alert>
 
-          <div className="mt-4 divide-y divide-border rounded-lg border border-border bg-secondary/45">
+          <div className="mt-4 divide-y divide-border rounded-lg border border-border bg-surface-3/45">
             <Switch
               checked={settings.enabled}
               className="p-4"

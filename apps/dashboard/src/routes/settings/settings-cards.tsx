@@ -10,12 +10,12 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select";
+import { NumberStepper } from "@/components/number-stepper";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip } from "@/components/ui/tooltip";
 import {
   addAllowedOrigin,
   percentInputToSampleRate,
-  retentionInputToDays,
   sampleRateToPercentInput,
   type MaskRuleActionValue,
   type DraftMaskRule,
@@ -24,7 +24,7 @@ import {
 import { AlertCircle, Plus, Trash2, X } from "@/lib/icon-map";
 import { AnimatePresence, m, useReducedMotion } from "@/lib/motion";
 import { spring } from "@/lib/springs";
-import { CardHeader, NumberWithSuffix, SettingRow, TextInput } from "./settings-fields";
+import { SettingRow, SettingsCard, TextInput } from "./settings-fields";
 
 const captureRows: {
   key: keyof CaptureToggles;
@@ -55,35 +55,32 @@ export function CaptureCard({
   updateDraft: (updater: (currentDraft: ProjectSettingsDraft) => ProjectSettingsDraft) => void;
 }) {
   return (
-    <section className="lit rounded-lg p-5">
-      <CardHeader title="Capture" body="Control how much session detail the recorder keeps." />
-      <div className="mt-4">
+    <SettingsCard body="Control how much session detail the recorder keeps." title="Capture">
+      <>
         <SettingRow description="Percent of sessions to record." label="Sampling rate">
-          <NumberWithSuffix
+          <NumberStepper
             ariaLabel="Sampling rate percent"
             max={100}
             min={0}
-            onChange={(value) => {
-              const sampleRate = percentInputToSampleRate(value);
-              if (sampleRate === null) return;
-              updateDraft((currentDraft) => ({ ...currentDraft, sampleRate }));
+            onChange={(percent) => {
+              const nextSampleRate = percentInputToSampleRate(String(percent));
+              if (nextSampleRate === null) return;
+              updateDraft((currentDraft) => ({ ...currentDraft, sampleRate: nextSampleRate }));
             }}
             suffix="%"
-            value={sampleRateToPercentInput(sampleRate)}
+            value={Number(sampleRateToPercentInput(sampleRate))}
           />
         </SettingRow>
         <SettingRow description="Days before recordings expire." label="Retention">
-          <NumberWithSuffix
+          <NumberStepper
             ariaLabel="Retention days"
             max={365}
             min={1}
-            onChange={(value) => {
-              const retentionDays = retentionInputToDays(value);
-              if (retentionDays === null) return;
-              updateDraft((currentDraft) => ({ ...currentDraft, retentionDays }));
-            }}
+            onChange={(retentionDays) =>
+              updateDraft((currentDraft) => ({ ...currentDraft, retentionDays }))
+            }
             suffix="days"
-            value={String(retentionDays)}
+            value={retentionDays}
           />
         </SettingRow>
         {/* The switch owns the whole row rather than sitting inside a SettingRow:
@@ -92,7 +89,7 @@ export function CaptureCard({
         {captureRows.map((row) => (
           <Switch
             checked={capture[row.key]}
-            className="border-b border-dashed border-dash px-0 py-4 last:border-b-0"
+            className="px-4 py-3.5"
             description={row.description}
             key={row.key}
             label={row.label}
@@ -100,8 +97,8 @@ export function CaptureCard({
             onToggle={() => onToggle(row.key)}
           />
         ))}
-      </div>
-    </section>
+      </>
+    </SettingsCard>
   );
 }
 
@@ -125,17 +122,17 @@ export function MaskingCard({
   const reduceMotion = useReducedMotion();
 
   return (
-    <section className="lit rounded-lg p-5">
-      <CardHeader
-        right={
-          <Badge color="gray" size="sm">
-            policy v{maskPolicyVersion}
-          </Badge>
-        }
-        title="Masking"
-        body="Custom rules run after the default input masking policy."
-      />
-      <div className="mt-4 flex flex-col gap-2">
+    <SettingsCard
+      body="Custom rules run after the default input masking policy."
+      className="flex flex-col gap-2 p-4"
+      right={
+        <Badge color="gray" size="sm">
+          policy v{maskPolicyVersion}
+        </Badge>
+      }
+      title="Masking"
+    >
+      <>
         <AnimatePresence initial={false} mode="popLayout">
           {rules.length === 0 ? (
             <m.div
@@ -193,8 +190,8 @@ export function MaskingCard({
             Add rule
           </Button>
         </div>
-      </div>
-    </section>
+      </>
+    </SettingsCard>
   );
 }
 
@@ -283,65 +280,71 @@ export function OriginsCard({
   }
 
   return (
-    <section className="lit rounded-lg p-5">
-      <CardHeader
-        title="Allowed origins"
-        body="Add the sites that can send SDK data to this project."
-      />
-      {origins.length === 0 && (
-        <Alert className="mt-4">
-          <AlertCircle aria-hidden />
-          <AlertTitle>Recorder is blocked</AlertTitle>
-          <AlertDescription>
-            Recorder requests are blocked until you add your website origin.
-          </AlertDescription>
-        </Alert>
-      )}
-      <div className="mt-4 flex flex-wrap gap-2">
-        {origins.map((origin) => (
-          <span
-            className="inline-flex items-center gap-2 rounded-full border border-border bg-secondary px-2.25 py-1 text-[11px] text-muted-foreground"
-            key={origin}
-          >
-            <span>{origin}</span>
-            <Button
-              aria-label={`Remove ${origin}`}
-              // size-5 keeps the glyph small; before:-inset-1.5 widens the
-              // pointer target to ~32px without overlapping the 8px-gap
-              // neighbour chip (a full 40px would collide).
-              className="-mr-1 size-5 rounded-full text-dim hover:text-foreground before:-inset-1.5 [&_svg]:size-3"
-              onClick={() => {
-                setError("");
-                onRemoveOrigin(origin);
-              }}
-              size="icon-sm"
-              variant="ghost"
-            >
-              <X aria-hidden />
-            </Button>
-          </span>
-        ))}
-      </div>
-      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-        <TextInput
-          ariaLabel="Allowed origin"
-          className="flex-1"
-          onChange={(value) => {
-            setInput(value);
-            setError("");
-          }}
-          onEnter={addOrigin}
-          placeholder="https://app.example.com"
-          value={input}
-        />
-        <Button leadingIcon={Plus} onClick={addOrigin} size="sm" variant="secondary">
-          Add origin
-        </Button>
-      </div>
-      {error.length > 0 && <div className="mt-2 text-[12px] text-danger">{error}</div>}
-      <p className="mt-3 text-[11.5px] text-muted-foreground">
-        Requests from other origins are rejected at ingest.
-      </p>
-    </section>
+    <SettingsCard
+      body="Add the sites that can send SDK data to this project."
+      className="flex flex-col gap-4 p-4"
+      header={
+        origins.length === 0 && (
+          <Alert className="mt-4">
+            <AlertCircle aria-hidden />
+            <AlertTitle>Recorder is blocked</AlertTitle>
+            <AlertDescription>
+              Recorder requests are blocked until you add your website origin.
+            </AlertDescription>
+          </Alert>
+        )
+      }
+      title="Allowed origins"
+    >
+      <>
+        {origins.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {origins.map((origin) => (
+              <span
+                className="inline-flex items-center gap-2 rounded-full border border-border bg-secondary px-2.25 py-1 text-[11px] text-muted-foreground"
+                key={origin}
+              >
+                <span>{origin}</span>
+                <Button
+                  aria-label={`Remove ${origin}`}
+                  // size-5 keeps the glyph small; before:-inset-1.5 widens the
+                  // pointer target to ~32px without overlapping the 8px-gap
+                  // neighbour chip (a full 40px would collide).
+                  className="-mr-1 size-5 rounded-full text-dim hover:text-foreground before:-inset-1.5 [&_svg]:size-3"
+                  onClick={() => {
+                    setError("");
+                    onRemoveOrigin(origin);
+                  }}
+                  size="icon-sm"
+                  variant="ghost"
+                >
+                  <X aria-hidden />
+                </Button>
+              </span>
+            ))}
+          </div>
+        )}
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <TextInput
+            ariaLabel="Allowed origin"
+            className="flex-1"
+            onChange={(value) => {
+              setInput(value);
+              setError("");
+            }}
+            onEnter={addOrigin}
+            placeholder="https://app.example.com"
+            value={input}
+          />
+          <Button leadingIcon={Plus} onClick={addOrigin} size="sm" variant="secondary">
+            Add origin
+          </Button>
+        </div>
+        {error.length > 0 && <div className="text-[12px] text-danger">{error}</div>}
+        <p className="text-[11.5px] text-muted-foreground">
+          Requests from other origins are rejected at ingest.
+        </p>
+      </>
+    </SettingsCard>
   );
 }

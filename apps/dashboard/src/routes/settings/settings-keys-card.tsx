@@ -40,7 +40,7 @@ import { formatAbsoluteTime, formatRelativeTime } from "@/lib/format";
 import { Check, Copy, KeyRound, Plus, Trash2 } from "@/lib/icon-map";
 import { useShape } from "@/lib/shape-context";
 import { cn } from "@/lib/utils";
-import { CardHeader } from "./settings-fields";
+import { SettingsCard } from "./settings-fields";
 
 export function KeysCard({ projectId }: { projectId: string }) {
   const navigate = useNavigate();
@@ -119,13 +119,12 @@ export function KeysCard({ projectId }: { projectId: string }) {
   }
 
   return (
-    <section className="lit overflow-hidden rounded-lg p-5">
-      <CardHeader
-        title="Write keys"
-        body="Keys connect the recorder to this project. A new secret is shown only once."
-      />
-
-      <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
+    <SettingsCard
+      body="Keys connect the recorder to this project. A new secret is shown only once."
+      className="overflow-hidden"
+      title="Write keys"
+    >
+      <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-end">
         <InputGroup className="w-full flex-1">
           <InputField
             autoComplete="off"
@@ -155,19 +154,16 @@ export function KeysCard({ projectId }: { projectId: string }) {
       </div>
 
       {createError.length > 0 && (
-        <p className="mt-3 text-[13px] text-danger" role="alert">
+        <p className="px-4 py-3 text-[13px] text-danger" role="alert">
           {createError}
         </p>
       )}
 
-      <div className="mt-4">
+      <div>
         {loading ? (
-          <LoadingArea
-            className="min-h-32 rounded-lg border border-dashed border-dash"
-            label="Loading write keys"
-          />
+          <LoadingArea className="min-h-32" label="Loading write keys" />
         ) : loadError.length > 0 ? (
-          <Empty className="border border-danger-border py-8">
+          <Empty className="py-8">
             <EmptyHeader>
               <EmptyTitle>Could not load write keys</EmptyTitle>
               <EmptyDescription>{loadError}</EmptyDescription>
@@ -177,7 +173,7 @@ export function KeysCard({ projectId }: { projectId: string }) {
             </Button>
           </Empty>
         ) : keys.length === 0 ? (
-          <Empty className="border border-dash py-8">
+          <Empty className="py-8">
             <EmptyHeader>
               <EmptyMedia variant="icon">
                 <KeyRound aria-hidden />
@@ -187,7 +183,7 @@ export function KeysCard({ projectId }: { projectId: string }) {
             </EmptyHeader>
           </Empty>
         ) : (
-          <div className="-mx-5 -mb-5 overflow-x-auto">
+          <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -330,7 +326,7 @@ export function KeysCard({ projectId }: { projectId: string }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </section>
+    </SettingsCard>
   );
 }
 

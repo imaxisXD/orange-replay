@@ -100,6 +100,15 @@
        opacity, on it carries --amber, so amber only ever means on. Held below
        the thumb's white so the thumb still separates from the strip. */
     --switch-off-fill: oklch(0.87 0.006 286);
+    /* The switch paints its off track as --switch-off-fill at 22% over
+       --secondary. Other controls in the same row (the number stepper) resolve
+       that same pairing here, so a stepper and a switch read as one material. */
+    --control-fill: color-mix(in oklab, var(--switch-off-fill) 22%, var(--secondary));
+    /* Muted text and glyphs ON --control-fill. That fill lands at L 0.349, far
+       lighter than a card, so --dim measures 1.89:1 there and --muted-foreground
+       only 3.37:1 — both below AA. L 0.84 measures 6.95:1 (APCA Lc 67) while
+       staying clearly secondary to --foreground's 9.67:1. */
+    --control-fill-muted: oklch(0.84 0.01 286);
     /* Hover lifts the track's edge to a light gray — opaque, so it reads at
        full strength on the dark canvas instead of compositing back to the
        surface. Well clear of --border without going to a hard white edge. */
@@ -571,6 +580,19 @@
 }
 .lit:hover::after {
   opacity: 1;
+}
+
+/* The number stepper renders its own step buttons, so the native spinners are
+   redundant and would crowd the rolling digits. */
+.number-stepper-input {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.number-stepper-input::-webkit-outer-spin-button,
+.number-stepper-input::-webkit-inner-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 /* Bottom dock (see components/dock-bar.tsx) — the bar rides a glass scrim so

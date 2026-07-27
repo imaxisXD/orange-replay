@@ -1,9 +1,8 @@
-import { AnimatePresence, m } from "@/lib/motion";
+import { m } from "@/lib/motion";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { EmberField } from "@/components/ember-field";
-import { DashboardDock } from "@/lib/dashboard-dock";
-import { AlertCircle, RotateCcw } from "@/lib/icon-map";
+import { DockBar } from "@/components/dock-bar";
+import { AlertCircle, AlertTriangle, Check, RotateCcw } from "@/lib/icon-map";
 import { spring } from "@/lib/springs";
 import { cn } from "@/lib/utils";
 import type { useProjectSettingsEditor } from "./settings-editor-state";
@@ -141,100 +140,34 @@ function DraftSection({
 
 function SettingsSaveBar({ editor }: { editor: SettingsEditorController }) {
   const { state, actions } = editor;
+  const error = state.saveError || state.maskRulesError;
 
-  // The dock lives outside the scroll area (see lib/dashboard-dock), so it
-  // reproduces the shell's content column and the settings grid to stay aligned
-  // with the card it belongs to.
+  // The settings grid is this screen's own concern, so it wraps the bar rather
+  // than living inside the shared dock: an empty first cell holds the nav
+  // column's width, keeping the bar aligned with the card above it.
   return (
-    <DashboardDock>
-      {/* Separate presences, not one wrapper: each layer animates on its own
-          terms (the scrim and field only fade, the bar rises) and
-          AnimatePresence tracks direct children only. The scrim is full-bleed
-          so the glass has no vertical seam beside the bar. */}
-      <AnimatePresence>
-        {state.isDirty && (
-          <m.div
-            animate={{ opacity: 1 }}
-            aria-hidden
-            className="save-dock-scrim"
-            exit={{ opacity: 0 }}
-            initial={{ opacity: 0 }}
-            transition={spring.moderate}
-          />
-        )}
-      </AnimatePresence>
-
-      {/* The banner notch's LED ember field as its own layer, in amber rather
-          than the notch's teal: full dock width, brightest along the bottom
-          edge, rising behind the bar and fading out at its top. Offset 3px past
-          the edge because the lattice draws its bottom row a cell-height up.
-          Opacity-only so the lattice never relayouts mid-animation. */}
-      <AnimatePresence>
-        {state.isDirty && (
-          <m.div
-            animate={{ opacity: 1 }}
-            aria-hidden
-            className="pointer-events-none absolute inset-x-0 -bottom-[3px] h-24"
-            exit={{ opacity: 0 }}
-            initial={{ opacity: 0 }}
-            transition={spring.moderate}
+    <DockBar open={state.isDirty}>
+      <div className="grid gap-5 md:grid-cols-[204px_minmax(0,1fr)]">
+        <div aria-hidden className="hidden md:block" />
+        <DockBar.Bar>
+          <DockBar.Status icon={AlertTriangle}>Unsaved changes</DockBar.Status>
+          {error === null || error.length === 0 ? null : (
+            <DockBar.Message className="text-danger">{error}</DockBar.Message>
+          )}
+          <Button onClick={actions.discardChanges} size="sm" variant="ghost">
+            Discard
+          </Button>
+          <Button
+            disabled={!state.canSave}
+            leadingIcon={Check}
+            loading={state.saveState === "saving"}
+            onClick={actions.saveChanges}
+            size="sm"
           >
-            <EmberField
-              className="inset-0 h-full w-full text-amber"
-              fadePerRow={0.055}
-              intensity={2.8}
-              pulse={1.6}
-            />
-          </m.div>
-        )}
-      </AnimatePresence>
-
-      {/* The dock spans the window, so it re-adds the shell's frame inset before
-          reproducing main's content column and the settings grid — that is what
-          keeps the bar aligned with the card it belongs to. */}
-      <div className="px-2 pb-2 sm:px-3 sm:pb-3">
-        <div className="mx-auto w-full max-w-300 px-4 pb-5 sm:px-7 sm:pb-6">
-          <div className="grid gap-5 md:grid-cols-[204px_minmax(0,1fr)]">
-            <div aria-hidden className="hidden md:block" />
-            <div className="relative">
-              <AnimatePresence>
-                {state.isDirty && (
-                  <m.div
-                    animate={{ opacity: 1, y: 0 }}
-                    className="lit save-dock-bar pointer-events-auto relative flex flex-col gap-3 rounded-lg p-3 sm:flex-row sm:items-center sm:justify-end"
-                    exit={{ opacity: 0, y: 24 }}
-                    initial={{ opacity: 0, y: 24 }}
-                    transition={spring.slow}
-                  >
-                    {/* The bar's own statement, so it carries the same weight as a
-                      card's row title rather than reading as a caption under the
-                      buttons it belongs to. */}
-                    <div className="mr-auto text-[13px] font-medium whitespace-nowrap">
-                      Unsaved changes
-                    </div>
-                    {(state.saveError.length > 0 || state.maskRulesError !== null) && (
-                      <div className="max-w-[46ch] text-[12px] leading-normal text-pretty text-danger">
-                        {state.saveError || state.maskRulesError}
-                      </div>
-                    )}
-                    <Button onClick={actions.discardChanges} size="sm" variant="secondary">
-                      Discard
-                    </Button>
-                    <Button
-                      disabled={!state.canSave}
-                      loading={state.saveState === "saving"}
-                      onClick={actions.saveChanges}
-                      size="sm"
-                    >
-                      Save changes
-                    </Button>
-                  </m.div>
-                )}
-              </AnimatePresence>
-            </div>
-          </div>
-        </div>
+            Save changes
+          </Button>
+        </DockBar.Bar>
       </div>
-    </DashboardDock>
+    </DockBar>
   );
 }
