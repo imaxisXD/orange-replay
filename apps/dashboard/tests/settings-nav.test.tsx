@@ -26,7 +26,7 @@ describe("settings navigation", () => {
     expect(container.textContent).toContain("Access & sharing");
     expect(container.textContent).toContain("System");
     expect(
-      Array.from(container.querySelectorAll("button"), (button) => button.textContent),
+      Array.from(container.querySelectorAll("[data-nav-index]"), (row) => row.textContent),
     ).toEqual([
       "Capture",
       "Masking",
@@ -45,6 +45,25 @@ describe("settings navigation", () => {
     });
     expect(findButton(container, "Write keys").getAttribute("aria-current")).toBe("true");
     expect(findButton(container, "Capture").hasAttribute("aria-current")).toBe(false);
+
+    await act(async () => root.unmount());
+  });
+
+  it("treats a group heading as a shortcut to that group's first section", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onSelect = vi.fn();
+
+    await act(async () => {
+      root.render(<SettingsNav active="capture" onSelect={onSelect} />);
+    });
+
+    await act(async () => findButton(container, "Access & sharing").click());
+    expect(onSelect).toHaveBeenCalledWith("keys");
+
+    await act(async () => findButton(container, "System").click());
+    expect(onSelect).toHaveBeenCalledWith("environment");
 
     await act(async () => root.unmount());
   });
