@@ -100,9 +100,10 @@
        opacity, on it carries --amber, so amber only ever means on. Held below
        the thumb's white so the thumb still separates from the strip. */
     --switch-off-fill: oklch(0.87 0.006 286);
-    /* Hover takes the track's edge to a near-white, opaque so it reads at full
-       strength on the dark canvas instead of compositing back down to gray. */
-    --switch-hover-border: oklch(0.85 0.005 286);
+    /* Hover lifts the track's edge to a light gray — opaque, so it reads at
+       full strength on the dark canvas instead of compositing back to the
+       surface. Well clear of --border without going to a hard white edge. */
+    --switch-hover-border: oklch(0.58 0.005 286);
 
     /* BKLit charts inherit the dashboard's dark-only evidence palette. */
     --chart-1: var(--amber);
@@ -606,7 +607,7 @@
 .lit.dock-bar {
   background:
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E"),
-    color-mix(in oklab, var(--card) 84%, transparent);
+    color-mix(in oklab, color-mix(in oklab, var(--card) 93%, black) 86%, transparent);
 }
 
 /* Overview is scanned and filtered repeatedly, so its card hover feedback is
