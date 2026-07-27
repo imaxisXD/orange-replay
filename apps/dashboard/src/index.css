@@ -96,6 +96,11 @@
     --danger-shadow: oklch(0.662 0.198 25.892 / 0.7);
     --amber-shadow: oklch(0.784 0.159 72.991 / 0.7);
 
+    /* A switch track is never empty: off it carries this light gray at low
+       opacity, on it carries --amber, so amber only ever means on. Held below
+       the thumb's white so the thumb still separates from the strip. */
+    --switch-off-fill: oklch(0.87 0.006 286);
+
     /* BKLit charts inherit the dashboard's dark-only evidence palette. */
     --chart-1: var(--amber);
     --chart-2: var(--teal);

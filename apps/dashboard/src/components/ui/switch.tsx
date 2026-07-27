@@ -9,7 +9,14 @@ import {
   type HTMLAttributes,
   type ReactNode,
 } from "react";
-import { animate, m, useMotionValue, useReducedMotion, type Transition } from "@/lib/motion";
+import {
+  animate,
+  m,
+  useMotionValue,
+  useReducedMotion,
+  useTransform,
+  type Transition,
+} from "@/lib/motion";
 import { Switch as SwitchPrimitive } from "@base-ui/react/switch";
 import type { IconComponent } from "@/lib/icon-map";
 import { cn } from "@/lib/utils";
@@ -53,17 +60,27 @@ const SWITCH_PRESS_MORPH_SCALE: Record<SwitchSize, number> = {
   large: 1,
 };
 
-const SWITCH_THUMB_BACKGROUND =
-  "linear-gradient(to top, oklch(1 0 0) 0%, oklch(0.97 0.003 286) 36%, oklch(0.84 0.008 286) 100%)";
-const SWITCH_THUMB_SHADOW =
-  "inset 0 1px 2px rgb(10 10 12 / 0.28), inset 0 -1px 1px rgb(255 255 255 / 0.95), 0 1px 2px rgb(0 0 0 / 0.22)";
-
 const BASE_TRACK_WIDTH = 34;
 const BASE_TRACK_HEIGHT = 20;
 const BASE_PILL_EXTEND = 2;
 const BASE_PRESS_EXTEND = 4;
 const BASE_PRESS_SHRINK = 4;
 const BASE_DRAG_DEAD_ZONE = 2;
+
+/** Corners are absolute, not derived from the track height, so a switch reads
+ *  as the same soft-cornered rectangle at every size. */
+const TRACK_RADIUS = 2;
+const THUMB_RADIUS = 1;
+
+/** Pulled off the thumb on each side. The track padding is derived from the
+ *  thumb, so this widens the gap on all four edges at once and leaves the
+ *  travel distance — and therefore the drag feel — unchanged. */
+const THUMB_INSET = 1;
+
+/** The track is never empty. Off it carries a dim light gray, on it carries
+ *  the accent, so amber means on and nothing else. */
+const OFF_FILL_COLOR = "var(--switch-off-fill)";
+const OFF_FILL_OPACITY = 0.22;
 
 const Switch = forwardRef<HTMLDivElement, SwitchProps>(
   (
@@ -93,14 +110,19 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
     const pressMorphScale = SWITCH_PRESS_MORPH_SCALE[size];
     const trackWidth = BASE_TRACK_WIDTH * sizeScale;
     const trackHeight = BASE_TRACK_HEIGHT * sizeScale;
-    const thumbSize = SWITCH_THUMB_SIZE[size];
+    const thumbSize = SWITCH_THUMB_SIZE[size] - THUMB_INSET * 2;
     const innerPadding = (trackHeight - thumbSize) / 2;
-    const trackRadius = thumbSize / 2 + innerPadding;
     const thumbTravel = trackWidth - thumbSize - innerPadding * 2;
     const pillExtend = BASE_PILL_EXTEND * sizeScale;
     const pressExtend = BASE_PRESS_EXTEND * sizeScale * pressMorphScale;
     const pressShrink = BASE_PRESS_SHRINK * sizeScale * pressMorphScale;
     const dragDeadZone = BASE_DRAG_DEAD_ZONE * sizeScale;
+
+    // Drag bounds. The upper bound uses the pressed thumb width because a drag
+    // is always a press, so this is where the thumb can actually reach.
+    const dragMin = innerPadding;
+    const dragMax = trackWidth - innerPadding - (thumbSize + pressExtend);
+    const commitMidpoint = (dragMin + dragMax) / 2;
 
     // Drag refs (not state to avoid re-renders during drag)
     const dragging = useRef(false);
@@ -113,6 +135,22 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
     // Motion value for thumb x-axis
     const motionX = useMotionValue(checked ? innerPadding + thumbTravel : innerPadding);
 
+    // Both fills ride the thumb rather than the checked flag, and they trade
+    // places at `commitMidpoint` — the same threshold a released drag commits
+    // on — so the accent arrives exactly when the gesture has decided.
+    const offFillOpacity = useTransform(
+      motionX,
+      [innerPadding, commitMidpoint],
+      [OFF_FILL_OPACITY, 0],
+      { clamp: true },
+    );
+    const accentOpacity = useTransform(
+      motionX,
+      [commitMidpoint, innerPadding + thumbTravel],
+      [0, 1],
+      { clamp: true },
+    );
+
     // Compute thumb shape
     const thumbWidth = pressed
       ? thumbSize + pressExtend
@@ -120,7 +158,6 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
         ? thumbSize + pillExtend
         : thumbSize;
     const thumbHeight = pressed ? thumbSize - pressShrink : thumbSize;
-    const thumbRadius = thumbHeight / 2;
     const thumbY = pressed ? innerPadding + pressShrink / 2 : innerPadding;
     const extraWidth = thumbWidth - thumbSize;
     const thumbX = checked ? innerPadding + thumbTravel - extraWidth : innerPadding;
@@ -155,9 +192,6 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
         dragging.current = true;
       }
 
-      const dragMin = innerPadding;
-      const pressedThumbWidth = thumbSize + pressExtend;
-      const dragMax = trackWidth - innerPadding - pressedThumbWidth;
       const rawX = pointerStart.current.originX + delta;
       motionX.set(Math.max(dragMin, Math.min(dragMax, rawX)));
     }
@@ -170,13 +204,7 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
         didDrag.current = true;
         dragging.current = false;
 
-        const currentX = motionX.get();
-        const dragMin = innerPadding;
-        const pressedThumbWidth = thumbSize + pressExtend;
-        const dragMax = trackWidth - innerPadding - pressedThumbWidth;
-        const midpoint = (dragMin + dragMax) / 2;
-
-        const shouldBeOn = currentX > midpoint;
+        const shouldBeOn = motionX.get() > commitMidpoint;
 
         if (shouldBeOn !== checked) {
           onToggle();
@@ -321,18 +349,41 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
           style={{
             width: trackWidth,
             height: trackHeight,
-            borderRadius: trackRadius,
-            backgroundColor: checked
-              ? hovered
-                ? "color-mix(in oklch, var(--amber) 88%, var(--foreground))"
-                : "var(--amber)"
-              : hovered
-                ? "var(--hover)"
-                : "var(--secondary)",
+            borderRadius: TRACK_RADIUS,
+            // The neutral base sits under both fills, so hover keeps its usual
+            // lift when off and the off fill has something to dim into.
+            backgroundColor: hovered ? "var(--hover)" : "var(--secondary)",
             borderColor: checked ? "var(--amber)" : "var(--border)",
           }}
           onClick={(e) => e.stopPropagation()}
         >
+          {/* Off fill: an off switch reads as filled but uncommitted. */}
+          <m.span
+            aria-hidden
+            className="pointer-events-none absolute"
+            style={{
+              inset: 0,
+              borderRadius: TRACK_RADIUS - 1,
+              backgroundColor: OFF_FILL_COLOR,
+              opacity: offFillOpacity,
+            }}
+          />
+
+          {/* Accent, stacked over the off fill and under the thumb, so the
+              thumb reads as sitting on the color rather than beside it. */}
+          <m.span
+            aria-hidden
+            className="pointer-events-none absolute"
+            style={{
+              inset: 0,
+              borderRadius: TRACK_RADIUS - 1,
+              backgroundColor: hovered
+                ? "color-mix(in oklch, var(--amber) 88%, var(--foreground))"
+                : "var(--amber)",
+              opacity: accentOpacity,
+            }}
+          />
+
           <SwitchPrimitive.Thumb
             render={(baseProps) => {
               const {
@@ -354,9 +405,10 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
                   className="absolute -top-px -left-px block bg-white"
                   style={{
                     ...(baseStyle as React.CSSProperties | undefined),
-                    backgroundImage: SWITCH_THUMB_BACKGROUND,
-                    borderRadius: thumbRadius,
-                    boxShadow: SWITCH_THUMB_SHADOW,
+                    // Flat: one white fill, no gradient and no bevel. Against a
+                    // track that is always filled, the shading was only adding
+                    // a second light source to read.
+                    borderRadius: THUMB_RADIUS,
                     height: thumbHeight,
                     width: thumbWidth,
                     x: motionX,
