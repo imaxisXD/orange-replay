@@ -81,6 +81,15 @@ const THUMB_INSET = 1;
 const OFF_FILL_COLOR = "var(--switch-off-fill)";
 const OFF_FILL_OPACITY = 0.22;
 
+/** The track's color transition. 80ms landed as a snap — the border arrived
+ *  before the eye could read it as brightening. 160ms is `spring.moderate`'s
+ *  duration, so the edge and the surface settle on the same beat the thumb
+ *  does, and the whole control moves as one thing. The curve is the project's
+ *  existing `--ease-out-strong`: most of the change up front, then a long
+ *  settle, which is what makes a brighten feel deliberate rather than linear. */
+const TRACK_COLOR_TRANSITION =
+  "background-color 160ms var(--ease-out-strong), border-color 160ms var(--ease-out-strong)";
+
 const Switch = forwardRef<HTMLDivElement, SwitchProps>(
   (
     {
@@ -331,7 +340,6 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
           tabIndex={0}
           className={cn(
             "relative shrink-0 cursor-pointer border outline-none",
-            "transition-colors duration-80",
             "focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-background",
           )}
           data-size={size}
@@ -339,10 +347,21 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
             width: trackWidth,
             height: trackHeight,
             borderRadius: TRACK_RADIUS,
+            transition: reduceMotion ? "none" : TRACK_COLOR_TRANSITION,
             // The neutral base sits under both fills, so hover keeps its usual
             // lift when off and the off fill has something to dim into.
             backgroundColor: hovered ? "var(--hover)" : "var(--secondary)",
-            borderColor: checked ? "var(--amber)" : "var(--border)",
+            // Hover lifts the border with the surface, so the whole control
+            // brightens together instead of the fill moving alone. Off it
+            // takes a wash of white; on it stays in the amber family, since a
+            // white edge against a full amber track reads as a seam.
+            borderColor: checked
+              ? hovered
+                ? "color-mix(in oklch, var(--amber) 88%, var(--foreground))"
+                : "var(--amber)"
+              : hovered
+                ? "var(--switch-hover-border)"
+                : "var(--border)",
           }}
           onClick={(e) => e.stopPropagation()}
         >
