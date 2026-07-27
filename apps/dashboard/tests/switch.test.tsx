@@ -66,8 +66,12 @@ describe("switch sizes", () => {
     root.unmount();
   });
 
-  it("uses a subtle pill shape while holding the small switch", () => {
-    const { container, root } = renderSwitch("small");
+  it.each([
+    ["small", 10],
+    ["medium", 14],
+    ["large", 17.2],
+  ] as const)("holds the %s thumb square while it is pressed", (size, thumbSize) => {
+    const { container, root } = renderSwitch(size);
     const wrapper = container.firstElementChild as HTMLElement;
     const thumb = findThumb(findTrack(container));
     wrapper.setPointerCapture = vi.fn();
@@ -83,8 +87,11 @@ describe("switch sizes", () => {
       );
     });
 
-    expect(Number.parseFloat(thumb.style.width)).toBeCloseTo(11.6);
-    expect(Number.parseFloat(thumb.style.height)).toBeCloseTo(8.4);
+    // A press scales the thumb around its center rather than trading height
+    // for width, so its box never changes and its corners stay proportional.
+    // Squashing one axis is a capsule's idiom; on a square it reads as damage.
+    expect(Number.parseFloat(thumb.style.width)).toBeCloseTo(thumbSize);
+    expect(Number.parseFloat(thumb.style.height)).toBeCloseTo(thumbSize);
 
     root.unmount();
   });

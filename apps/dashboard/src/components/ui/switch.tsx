@@ -54,18 +54,17 @@ const SWITCH_THUMB_SIZE: Record<SwitchSize, number> = {
   large: 19.2,
 };
 
-const SWITCH_PRESS_MORPH_SCALE: Record<SwitchSize, number> = {
-  small: 0.5,
-  medium: 1,
-  large: 1,
-};
-
 const BASE_TRACK_WIDTH = 34;
 const BASE_TRACK_HEIGHT = 20;
-const BASE_PILL_EXTEND = 2;
-const BASE_PRESS_EXTEND = 4;
-const BASE_PRESS_SHRINK = 4;
 const BASE_DRAG_DEAD_ZONE = 2;
+
+/** Held, the thumb scales down around its own center — no squash, no stretch.
+ *  Trading height for width is a capsule's idiom: a capsule reads as elastic,
+ *  so pinching it looks like give. A square has corners that stay put, so the
+ *  same morph reads as the shape breaking rather than the surface yielding.
+ *  Uniform scale keeps every proportion, including the corner radius, and it
+ *  lands identically at every size. */
+const PRESS_SCALE = 0.9;
 
 /** Corners are absolute, not derived from the track height, so a switch reads
  *  as the same soft-cornered rectangle at every size. */
@@ -107,21 +106,17 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
     const [hovered, setHovered] = useState(false);
     const [pressed, setPressed] = useState(false);
     const sizeScale = SWITCH_SIZE_SCALE[size];
-    const pressMorphScale = SWITCH_PRESS_MORPH_SCALE[size];
     const trackWidth = BASE_TRACK_WIDTH * sizeScale;
     const trackHeight = BASE_TRACK_HEIGHT * sizeScale;
     const thumbSize = SWITCH_THUMB_SIZE[size] - THUMB_INSET * 2;
     const innerPadding = (trackHeight - thumbSize) / 2;
     const thumbTravel = trackWidth - thumbSize - innerPadding * 2;
-    const pillExtend = BASE_PILL_EXTEND * sizeScale;
-    const pressExtend = BASE_PRESS_EXTEND * sizeScale * pressMorphScale;
-    const pressShrink = BASE_PRESS_SHRINK * sizeScale * pressMorphScale;
     const dragDeadZone = BASE_DRAG_DEAD_ZONE * sizeScale;
 
-    // Drag bounds. The upper bound uses the pressed thumb width because a drag
-    // is always a press, so this is where the thumb can actually reach.
+    // Drag bounds: the thumb's two resting positions and the point between
+    // them where a released drag commits.
     const dragMin = innerPadding;
-    const dragMax = trackWidth - innerPadding - (thumbSize + pressExtend);
+    const dragMax = innerPadding + thumbTravel;
     const commitMidpoint = (dragMin + dragMax) / 2;
 
     // Drag refs (not state to avoid re-renders during drag)
@@ -151,18 +146,12 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
       { clamp: true },
     );
 
-    // Compute thumb shape
-    const thumbWidth = pressed
-      ? thumbSize + pressExtend
-      : hovered
-        ? thumbSize + pillExtend
-        : thumbSize;
-    const thumbHeight = pressed ? thumbSize - pressShrink : thumbSize;
-    const thumbY = pressed ? innerPadding + pressShrink / 2 : innerPadding;
-    const extraWidth = thumbWidth - thumbSize;
-    const thumbX = checked ? innerPadding + thumbTravel - extraWidth : innerPadding;
+    // The thumb keeps its square and its corners at every moment; a press only
+    // scales it down around its own center. Stretching one axis against the
+    // other is a capsule's idiom — on a square it just reads as distortion.
+    const thumbX = checked ? dragMax : dragMin;
 
-    // Sync motionX when thumbX changes (hover/press/checked) and not dragging
+    // Sync motionX when thumbX changes (checked) and not dragging
     useEffect(() => {
       if (dragging.current) return;
       animate(motionX, thumbX, resolveThumbTransition(reduceMotion, thumbTransition));
@@ -409,11 +398,12 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
                     // track that is always filled, the shading was only adding
                     // a second light source to read.
                     borderRadius: THUMB_RADIUS,
-                    height: thumbHeight,
-                    width: thumbWidth,
+                    height: thumbSize,
+                    width: thumbSize,
                     x: motionX,
+                    y: innerPadding,
                   }}
-                  animate={{ y: thumbY }}
+                  animate={{ scale: pressed ? PRESS_SCALE : 1 }}
                   initial={false}
                   transition={resolveThumbTransition(reduceMotion, thumbTransition)}
                 />
