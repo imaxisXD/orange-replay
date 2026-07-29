@@ -53,7 +53,9 @@ const statements = [
     keyId,
   )}, ${sqlString(keyHash)}, ${sqlString(options.projectId)}, 'Demo recorder key', 1, ${now}, NULL, NULL, NULL, 0, 0)`,
 ];
-const d1Command = `BEGIN TRANSACTION; ${statements.join(";")}; COMMIT;`;
+// Remote D1 rejects explicit SQL transactions. Wrangler maps multiple
+// semicolon-separated statements into one transactional batch.
+const d1Command = `${statements.join(";")};`;
 
 if (options.dryRun) {
   printSummary({ saved: false });

@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vite-plus/test";
@@ -9,6 +10,14 @@ const repoRoot = path.resolve(scriptsDirectory, "..");
 const fixedRecorderKey = `or_live_${"a".repeat(32)}`;
 
 describe("new project analytics receipt", () => {
+  it("lets Wrangler batch the demo inserts without an explicit SQL transaction", () => {
+    const source = readFileSync(path.join(scriptsDirectory, "bootstrap-demo-project.mjs"), "utf8");
+
+    expect(source).not.toContain("BEGIN TRANSACTION");
+    expect(source).not.toContain("COMMIT;");
+    expect(source).toContain('const d1Command = `${statements.join(";")};`;');
+  });
+
   it("builds a zero-source receipt only when the project insert changed a row", () => {
     const sql = buildNewProjectAnalyticsReceiptSql({
       projectId: "project_can't_mix",
