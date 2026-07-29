@@ -605,7 +605,7 @@ describe("SessionManager", () => {
   it("writes a host-only secure cookie on HTTPS", () => {
     const cookieDocument = new CookieDocument();
     new SessionManager({
-      projectRef: "public-write-key",
+      projectRef: "public-recorder-key",
       now: () => START_TIME,
       storage: new MemoryStorage(),
       document: cookieDocument,
@@ -617,14 +617,14 @@ describe("SessionManager", () => {
     expect(cookieDocument.lastWrite).toContain("; Path=/;");
     expect(cookieDocument.lastWrite).toContain("; SameSite=Lax; Secure");
     expect(cookieDocument.lastWrite).not.toContain("Domain=");
-    expect(cookieDocument.lastWrite).not.toContain("public-write-key");
+    expect(cookieDocument.lastWrite).not.toContain("public-recorder-key");
   });
 
   it("does not read cookies when cookies are disabled", () => {
     const cookieDocument = new CookieDocument();
     cookieDocument.cookie = "undefined=session-from-wrong-cookie; Path=/";
     const session = new SessionManager({
-      projectRef: "public-write-key",
+      projectRef: "public-recorder-key",
       now: () => START_TIME,
       storage: new MemoryStorage(),
       document: cookieDocument,
@@ -663,7 +663,7 @@ describe("SessionManager", () => {
     );
   });
 
-  it("does not expose the write key when project config is unavailable", () => {
+  it("does not expose the recorder key when project config is unavailable", () => {
     const session = new SessionManager({
       projectRef: "or_live_never_put_this_in_a_url",
       now: () => START_TIME,

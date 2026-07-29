@@ -1,13 +1,13 @@
 # Hosted auth — Better Auth, workspaces, and project keys
 
-Read `ARCHITECTURE.md` section 6 and the security rules in `PLAN.md`. This task adds the hosted SaaS account boundary without changing the public demo or the recording SDK write-key path.
+Read `ARCHITECTURE.md` section 6 and the security rules in `PLAN.md`. This task adds the hosted SaaS account boundary without changing the public demo or the recording SDK recorder-key path.
 
 ## Product contract
 
 - Hosted sign-in is GitHub OAuth through Better Auth. There is no password, magic-link, or Google sign-in flow.
 - `/demo` and its existing read-only API allowlist stay public. A guest can view the demo without an account.
-- A signed-in user owns a workspace membership. Projects belong to that workspace, and project write keys belong to a project.
-- The dashboard session cookie is for people. The recorder keeps using a project write key; it never receives the person's session cookie.
+- A signed-in user owns a workspace membership. Projects belong to that workspace, and project recorder keys belong to a project.
+- The dashboard session cookie is for people. The recorder keeps using a project recorder key; it never receives the person's session cookie.
 - Better Auth is the only private dashboard sign-in path in hosted, self-hosted, and local installs. A missing or partial Better Auth configuration fails closed; it never falls back to a shared bearer token.
 - The combined Worker remains the canonical deployment. The operator console is served at `/_admin`; a separate static Worker is not a security boundary.
 
@@ -47,7 +47,7 @@ Existing production workspaces must never be claimed by the first person who sig
 - Membership roles are `owner`, `admin`, and `member`. Owner/admin can change project configuration and manage project keys. Members can view recordings and project information.
 - Cookie-authenticated mutations reject a request whose `Origin` is not one of the exact trusted origins.
 
-## Project write keys
+## Project recorder keys
 
 - Keep the current hash-only key validation and D1/KV ingest lookup.
 - `POST /api/v1/projects/:projectId/keys` creates a named key and returns the plaintext exactly once with `Cache-Control: no-store`.

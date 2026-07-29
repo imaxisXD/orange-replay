@@ -29,7 +29,7 @@ const dayMs = 86_400_000;
 const betterAuthSecret = "e2e-better-auth-secret-0000000000000000";
 const betterAuthOrigin = "http://localhost:8787";
 const liveTicketSecret = "e2e-live-ticket-secret-0000000000";
-const ingestKey = testWriteKey("e2e");
+const ingestKey = testRecorderKey("e2e");
 const projectId = "pe2e";
 const orgId = "oe2e";
 const sessionId = "sess-e2e-000000000001";
@@ -743,7 +743,7 @@ function isArrayBufferBody(value: unknown): value is { arrayBuffer(): Promise<Ar
   );
 }
 
-function testWriteKey(label: string): string {
+function testRecorderKey(label: string): string {
   return `or_live_${label
     .replace(/[^A-Za-z0-9_-]/g, "_")
     .padEnd(32, "0")

@@ -64,9 +64,9 @@ Use long random secrets, at least 32 characters. Before its first build or Cloud
 
 Generated production values are stored locally in `apps/worker/.env.production`. That file is ignored by git.
 
-Do not put production tokens, auth secrets, live ticket secrets, SDK write keys, or Cloudflare API tokens in `wrangler.jsonc`, package scripts, build commands, docs, or dashboard source. Normal production deploy commands validate the complete secret set first, then upload it with the reviewed Worker version only after the analytics gate passes. Cloudflare account authentication is removed from config generation, application builds, and smoke checks; only the D1, gate, Worker upload, deploy, and secret-name check steps receive it. The emergency D1 rollback reuses a prepared Worker version and its versioned secrets. The SDK write key is kept only in the ignored local env file.
+Do not put production tokens, auth secrets, live ticket secrets, SDK recorder keys, or Cloudflare API tokens in `wrangler.jsonc`, package scripts, build commands, docs, or dashboard source. Normal production deploy commands validate the complete secret set first, then upload it with the reviewed Worker version only after the analytics gate passes. Cloudflare account authentication is removed from config generation, application builds, and smoke checks; only the D1, gate, Worker upload, deploy, and secret-name check steps receive it. The emergency D1 rollback reuses a prepared Worker version and its versioned secrets. The SDK recorder key is kept only in the ignored local env file.
 
-The SDK write key is still public once it is installed on a website. Treat it like a project-scoped browser credential, not like a dashboard account credential. Exact allowed origins are a browser/CORS guard only; keep the committed ingest rate limiters, quota state, payload caps, and session caps enabled because non-browser clients can set any Origin header. Sampling is an honest-client optimization, not an abuse control.
+The SDK recorder key is still public once it is installed on a website. Treat it like a project-scoped browser credential, not like a dashboard account credential. Exact allowed origins are a browser/CORS guard only; keep the committed ingest rate limiters, quota state, payload caps, and session caps enabled because non-browser clients can set any Origin header. Sampling is an honest-client optimization, not an abuse control.
 
 ## 4. Prepare Hosted Auth Values
 
@@ -88,7 +88,7 @@ Private dashboard and project APIs use Better Auth sessions only. The post-deplo
 
 ## 5. Create And Load The Public Demo
 
-The anonymous demo uses its own project and write key. It is separate from every signed-in account.
+The anonymous demo uses its own project and recorder key. It is separate from every signed-in account.
 
 For a fresh production database, inspect the insert first, then create it with the generated production config:
 
@@ -103,7 +103,7 @@ node scripts/bootstrap-demo-project.mjs \
   --origin "$ORANGE_REPLAY_PROD_WORKER_URL"
 ```
 
-The second command writes the durable D1 rows and queues the KV cache fill for the Worker repair job. The key works through the D1 fallback while that cache is filled. It also saves `ORANGE_REPLAY_DEMO_PROJECT_ID` plus `ORANGE_REPLAY_DEMO_WRITE_KEY` in the ignored `apps/worker/.env.production` file without printing the write key. Load those two values into the current shell:
+The second command writes the durable D1 rows and queues the KV cache fill for the Worker repair job. The key works through the D1 fallback while that cache is filled. It also saves `ORANGE_REPLAY_DEMO_PROJECT_ID` plus `ORANGE_REPLAY_DEMO_RECORDER_KEY` in the ignored `apps/worker/.env.production` file without printing the recorder key. Load those two values into the current shell:
 
 ```sh
 set -a
@@ -235,7 +235,7 @@ The deploy command generates ignored selected-backend and D1-fallback Wrangler f
 | `GITHUB_CLIENT_SECRET`         | `ORANGE_REPLAY_PROD_GITHUB_CLIENT_SECRET`         |
 | `LIVE_TICKET_SECRET`           | `ORANGE_REPLAY_PROD_LIVE_TICKET_SECRET`           |
 | `DEMO_PROJECT_ID`              | `ORANGE_REPLAY_DEMO_PROJECT_ID`                   |
-| `DEMO_WRITE_KEY`               | `ORANGE_REPLAY_DEMO_WRITE_KEY`                    |
+| `DEMO_RECORDER_KEY`            | `ORANGE_REPLAY_DEMO_RECORDER_KEY`                 |
 | `R2_SQL_TOKEN`                 | `ORANGE_REPLAY_PROD_R2_SQL_TOKEN`                 |
 | `ANALYTICS_PURGE_RUNNER_TOKEN` | `ORANGE_REPLAY_PROD_ANALYTICS_PURGE_RUNNER_TOKEN` |
 
@@ -252,4 +252,4 @@ Use one SDK package for both dev and prod. Only the values change. Production ke
 - Dev key: local seed key
 - Prod key: a named project key created in Settings and saved when it is shown once
 
-The SDK write key is public once it is installed on a website. Treat it as a project-scoped browser credential, not a dashboard login secret. Exact allowed origins are a browser and CORS guard only. Keep the rate limits, quota state, payload caps, and session caps enabled because a non-browser client can set any `Origin` header.
+The SDK recorder key is public once it is installed on a website. Treat it as a project-scoped browser credential, not a dashboard login secret. Exact allowed origins are a browser and CORS guard only. Keep the rate limits, quota state, payload caps, and session caps enabled because a non-browser client can set any `Origin` header.

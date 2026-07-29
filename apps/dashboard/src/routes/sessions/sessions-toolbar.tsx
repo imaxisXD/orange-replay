@@ -56,7 +56,8 @@ export function SessionsToolbar({
   return (
     <section
       aria-labelledby="sessions-filter-heading"
-      className="grid grid-cols-2 items-center gap-2.5 sm:flex sm:flex-wrap"
+      className="grid grid-cols-2 items-center gap-3 sm:flex sm:flex-wrap"
+      data-sessions-toolbar
     >
       <h2
         className="col-span-2 flex h-9 items-center gap-1.5 text-[13px] font-medium text-muted-foreground sm:h-8.5 sm:shrink-0 sm:text-[12px]"
@@ -99,63 +100,83 @@ export function SessionsToolbar({
         value={filter.country ?? ""}
       />
 
-      <Select
-        onValueChange={(value) =>
-          onFilterChange({
-            ...filter,
-            min_duration_ms: value === "any" ? undefined : Number(value),
-          })
-        }
-        value={minDurationValue}
+      {/* Third of three dropdowns, so on the two-column grid it would sit alone
+          beside an empty cell. `SelectTrigger` renders its own wrapper div —
+          that wrapper, not the trigger, is the grid item — so the span has to
+          live on an element this file owns. At `sm` and up the section is a
+          flex row and this div is sized by its content, exactly as the bare
+          Select was. */}
+      <div className="col-span-2 sm:col-auto" data-duration-cell>
+        <Select
+          onValueChange={(value) =>
+            onFilterChange({
+              ...filter,
+              min_duration_ms: value === "any" ? undefined : Number(value),
+            })
+          }
+          value={minDurationValue}
+        >
+          <SelectTrigger
+            aria-label="Minimum duration"
+            className="h-9 w-full min-w-0 rounded-[7px] border border-border bg-secondary px-3 text-[13px] sm:h-8.5 sm:w-44 sm:min-w-44 sm:shrink-0 sm:text-[12px]"
+            icon={Clock}
+            placeholder="Any duration"
+          />
+          <SelectContent className="rounded-lg border border-border bg-popover">
+            <SelectGroup>
+              {durationOptions.map((option, index) => (
+                <SelectItem index={index} key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* The two lenses are one group. They are borderless, so only space can
+          separate them: `gap-x-6` keeps them twice as far apart as the 10px
+          each switch puts between its own label and track, and `ms-auto`
+          (logical, not `ml-auto`) parks the whole pair on the trailing edge in
+          both directions. `col-span-2` keeps the pair on its own row on
+          narrow screens instead of letting the grid pair one lens with a
+          dropdown. */}
+      <div
+        className="col-span-2 flex flex-wrap items-center gap-x-6 gap-y-2 sm:col-auto sm:ms-auto"
+        data-lens-group
       >
-        <SelectTrigger
-          aria-label="Minimum duration"
-          className="h-9 w-full min-w-0 rounded-[7px] border border-border bg-secondary px-3 text-[13px] sm:h-8.5 sm:w-44 sm:min-w-44 sm:shrink-0 sm:text-[12px]"
-          icon={Clock}
-          placeholder="Any duration"
+        <Switch
+          checked={filter.has_errors === true}
+          className="min-h-11 rounded-none border-0 bg-transparent px-0 py-0 sm:min-h-0"
+          icon={AlertCircle}
+          iconClassName={filter.has_errors === true ? "text-danger" : "text-danger/70"}
+          label="Errors only"
+          labelFirst
+          size="small"
+          onToggle={() =>
+            onFilterChange({
+              ...filter,
+              has_errors: filter.has_errors === true ? undefined : true,
+            })
+          }
         />
-        <SelectContent className="rounded-lg border border-border bg-popover">
-          <SelectGroup>
-            {durationOptions.map((option, index) => (
-              <SelectItem index={index} key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectGroup>
-        </SelectContent>
-      </Select>
 
-      <Switch
-        checked={filter.has_errors === true}
-        className="min-h-11 rounded-none border-0 bg-transparent px-0 py-0 sm:ml-auto sm:min-h-0"
-        icon={AlertCircle}
-        iconClassName={filter.has_errors === true ? "text-danger" : "text-danger/70"}
-        label="Errors only"
-        labelFirst
-        size="small"
-        onToggle={() =>
-          onFilterChange({
-            ...filter,
-            has_errors: filter.has_errors === true ? undefined : true,
-          })
-        }
-      />
-
-      <Switch
-        checked={filter.has_rage === true}
-        className="min-h-11 rounded-none border-0 bg-transparent px-0 py-0 sm:min-h-0"
-        icon={Angry}
-        iconClassName={filter.has_rage === true ? "text-amber" : "text-amber/70"}
-        label="Rage clicks only"
-        labelFirst
-        size="small"
-        onToggle={() =>
-          onFilterChange({
-            ...filter,
-            has_rage: filter.has_rage === true ? undefined : true,
-          })
-        }
-      />
+        <Switch
+          checked={filter.has_rage === true}
+          className="min-h-11 rounded-none border-0 bg-transparent px-0 py-0 sm:min-h-0"
+          icon={Angry}
+          iconClassName={filter.has_rage === true ? "text-amber" : "text-amber/70"}
+          label="Rage clicks only"
+          labelFirst
+          size="small"
+          onToggle={() =>
+            onFilterChange({
+              ...filter,
+              has_rage: filter.has_rage === true ? undefined : true,
+            })
+          }
+        />
+      </div>
     </section>
   );
 }
@@ -230,8 +251,10 @@ function CountryFilter({
     }
   }
 
+  // Same width as the CountryPicker select it stands in for, so losing the
+  // stats query does not shift every control after it.
   return (
-    <InputGroup className="w-full gap-0 sm:w-40">
+    <InputGroup className="w-full gap-0 sm:w-44">
       <InputField
         hideLabel
         icon={Global}

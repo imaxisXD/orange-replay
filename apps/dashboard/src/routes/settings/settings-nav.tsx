@@ -57,7 +57,7 @@ export const settingsNavGroups: SettingsNavGroup[] = [
     icon: ShieldUser,
     color: "var(--player-blue)",
     sections: [
-      { id: "keys", label: "Write keys", icon: KeyRound },
+      { id: "keys", label: "Recorder keys", icon: KeyRound },
       { id: "public", label: "Public page", icon: Eye },
     ],
   },

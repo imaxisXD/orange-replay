@@ -24,7 +24,7 @@ describe("InputField events", () => {
         <InputGroup>
           <InputField
             index={0}
-            label="Write key"
+            label="Recorder key"
             onBlur={onBlur}
             onChange={setValue}
             onFocus={onFocus}

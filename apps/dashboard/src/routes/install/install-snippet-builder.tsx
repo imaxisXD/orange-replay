@@ -12,14 +12,14 @@ import { fetchProjectKeys } from "@/lib/api";
 import { AlertCircle, Check, Code2, Copy, RotateCcw } from "@/lib/icon-map";
 import { AnimatePresence, m, useReducedMotion } from "@/lib/motion";
 import { spring } from "@/lib/springs";
-import { matchesActiveProjectWriteKey, readInstallErrorMessage } from "./install-helpers";
+import { matchesActiveProjectRecorderKey, readInstallErrorMessage } from "./install-helpers";
 
 type KeyMatchStatus = "idle" | "checking" | "matched" | "unmatched" | "error";
 
 interface KeyMatchState {
   activeKeyFingerprint: string;
   projectId: string;
-  writeKey: string;
+  recorderKey: string;
   status: KeyMatchStatus;
 }
 
@@ -29,7 +29,7 @@ export function InstallSnippetBuilder({ projectId }: { projectId: string }) {
 
 function ProjectInstallSnippetBuilder({ projectId }: { projectId: string }) {
   const reduceMotion = useReducedMotion();
-  const [writeKeyInput, setWriteKeyInput] = useState("");
+  const [recorderKeyInput, setRecorderKeyInput] = useState("");
   const [originInput, setOriginInput] = useState(readDefaultOrigin);
   const [copied, setCopied] = useState(false);
   const [showFullCode, setShowFullCode] = useState(false);
@@ -37,16 +37,16 @@ function ProjectInstallSnippetBuilder({ projectId }: { projectId: string }) {
   const [keyMatch, setKeyMatch] = useState<KeyMatchState>({
     activeKeyFingerprint: "",
     projectId,
-    writeKey: "",
+    recorderKey: "",
     status: "idle",
   });
   const normalizedOrigin = normalizeOrigin(originInput);
-  const cleanWriteKey = writeKeyInput.trim();
+  const cleanRecorderKey = recorderKeyInput.trim();
   const keysQuery = useQuery({
     queryKey: ["project-keys", projectId],
     queryFn: () => fetchProjectKeys(projectId),
   });
-  const hasActiveWriteKey = keysQuery.data?.keys.some((key) => key.active) ?? false;
+  const hasActiveRecorderKey = keysQuery.data?.keys.some((key) => key.active) ?? false;
   const activeKeyHashPrefixes: string[] = [];
   for (const key of keysQuery.data?.keys ?? []) {
     if (key.active) activeKeyHashPrefixes.push(key.keyHashPrefix);
@@ -58,36 +58,36 @@ function ProjectInstallSnippetBuilder({ projectId }: { projectId: string }) {
       : normalizedOrigin === null
         ? "Use a valid http or https URL."
         : "";
-  const writeKeyReady = isGeneratedWriteKey(cleanWriteKey);
+  const recorderKeyReady = isGeneratedRecorderKey(cleanRecorderKey);
   const keyMatchStatus =
     keyMatch.projectId === projectId &&
-    keyMatch.writeKey === cleanWriteKey &&
+    keyMatch.recorderKey === cleanRecorderKey &&
     keyMatch.activeKeyFingerprint === activeKeyFingerprint
       ? keyMatch.status
-      : writeKeyReady
+      : recorderKeyReady
         ? "checking"
         : "idle";
   const keyInputError =
-    cleanWriteKey.length === 0
-      ? "Paste the raw write key before copying."
-      : !writeKeyReady
-        ? "Use a generated write key that starts with or_live_."
+    cleanRecorderKey.length === 0
+      ? "Paste the raw recorder key before copying."
+      : !recorderKeyReady
+        ? "Use a generated recorder key that starts with or_live_."
         : keyMatchStatus === "unmatched"
           ? "This key is not an active key for this project."
           : keyMatchStatus === "error"
-            ? "The write key could not be verified. Try again."
+            ? "The recorder key could not be verified. Try again."
             : "";
   const canCopySnippet =
-    writeKeyReady &&
+    recorderKeyReady &&
     keyMatchStatus === "matched" &&
     normalizedOrigin !== null &&
-    hasActiveWriteKey &&
+    hasActiveRecorderKey &&
     !keysQuery.isPending;
   const snippet =
     canCopySnippet && normalizedOrigin !== null
       ? buildLoaderScriptTag({
           bundleUrl: `${normalizedOrigin}/or-recorder.js`,
-          init: { key: cleanWriteKey, ingestUrl: normalizedOrigin },
+          init: { key: cleanRecorderKey, ingestUrl: normalizedOrigin },
         })
       : "";
   const shownSnippet =
@@ -95,13 +95,13 @@ function ProjectInstallSnippetBuilder({ projectId }: { projectId: string }) {
   const keysError = keysQuery.error === null ? "" : readInstallErrorMessage(keysQuery.error);
   const snippetError = copyError || keysError;
   const copyBlockedReason = readCopyBlockedReason({
-    cleanWriteKey,
-    hasActiveWriteKey,
+    cleanRecorderKey,
+    hasActiveRecorderKey,
     keysLoading: keysQuery.isPending,
     keyMatchStatus,
     normalizedOrigin,
     originInput,
-    writeKeyReady,
+    recorderKeyReady,
   });
   const copyButtonLabel = copied ? "Copied" : (copyBlockedReason ?? "Copy snippet");
 
@@ -113,16 +113,16 @@ function ProjectInstallSnippetBuilder({ projectId }: { projectId: string }) {
 
   useEffect(() => {
     const keys = keysQuery.data?.keys;
-    if (!writeKeyReady || keys === undefined || keysQuery.isPending) return;
+    if (!recorderKeyReady || keys === undefined || keysQuery.isPending) return;
 
     let cancelled = false;
-    void matchesActiveProjectWriteKey(cleanWriteKey, keys).then(
+    void matchesActiveProjectRecorderKey(cleanRecorderKey, keys).then(
       (matches) => {
         if (!cancelled) {
           setKeyMatch({
             activeKeyFingerprint,
             projectId,
-            writeKey: cleanWriteKey,
+            recorderKey: cleanRecorderKey,
             status: matches ? "matched" : "unmatched",
           });
         }
@@ -132,7 +132,7 @@ function ProjectInstallSnippetBuilder({ projectId }: { projectId: string }) {
           setKeyMatch({
             activeKeyFingerprint,
             projectId,
-            writeKey: cleanWriteKey,
+            recorderKey: cleanRecorderKey,
             status: "error",
           });
         }
@@ -144,11 +144,11 @@ function ProjectInstallSnippetBuilder({ projectId }: { projectId: string }) {
     };
   }, [
     activeKeyFingerprint,
-    cleanWriteKey,
+    cleanRecorderKey,
     keysQuery.data,
     keysQuery.isPending,
     projectId,
-    writeKeyReady,
+    recorderKeyReady,
   ]);
 
   async function copySnippet(): Promise<void> {
@@ -181,17 +181,17 @@ function ProjectInstallSnippetBuilder({ projectId }: { projectId: string }) {
         <InputGroup className="w-full gap-0">
           <InputField
             autoComplete="off"
-            error={keyInputError.length > 0 && writeKeyInput.length > 0 ? keyInputError : ""}
+            error={keyInputError.length > 0 && recorderKeyInput.length > 0 ? keyInputError : ""}
             index={0}
-            label="Write key"
+            label="Recorder key"
             onChange={(value) => {
-              setWriteKeyInput(value);
+              setRecorderKeyInput(value);
               setCopied(false);
               setCopyError("");
             }}
             placeholder="Paste the raw key"
             type="password"
-            value={writeKeyInput}
+            value={recorderKeyInput}
           />
         </InputGroup>
         <InputGroup className="w-full gap-0">
@@ -215,7 +215,7 @@ function ProjectInstallSnippetBuilder({ projectId }: { projectId: string }) {
         <Alert className="mt-4" variant={keysError.length > 0 ? "destructive" : "default"}>
           <AlertCircle aria-hidden />
           <AlertTitle>
-            {keysError.length > 0 ? "Could not load write keys" : "Snippet not ready"}
+            {keysError.length > 0 ? "Could not load recorder keys" : "Snippet not ready"}
           </AlertTitle>
           <AlertDescription>
             <p>{snippetError}</p>
@@ -235,14 +235,14 @@ function ProjectInstallSnippetBuilder({ projectId }: { projectId: string }) {
       )}
 
       {!keysQuery.isPending &&
-        !hasActiveWriteKey &&
+        !hasActiveRecorderKey &&
         keysError.length === 0 &&
         copyError.length === 0 && (
           <Alert className="mt-4">
             <AlertCircle aria-hidden />
-            <AlertTitle>No active write key</AlertTitle>
+            <AlertTitle>No active recorder key</AlertTitle>
             <AlertDescription>
-              Create a project write key in Settings, then paste the raw key here.
+              Create a recorder key in Settings, then paste the raw key here.
             </AlertDescription>
           </Alert>
         )}
@@ -306,7 +306,7 @@ const shortSnippetPreview = `<script>
 </script>`;
 
 const blockedSnippetPreview = `<script>
-  /* Enter a write key and deployment URL to build the loader. */
+  /* Enter a recorder key and deployment URL to build the loader. */
 </script>`;
 
 function readDefaultOrigin(): string {
@@ -328,34 +328,34 @@ function normalizeOrigin(value: string): string | null {
 }
 
 function readCopyBlockedReason({
-  cleanWriteKey,
-  hasActiveWriteKey,
+  cleanRecorderKey,
+  hasActiveRecorderKey,
   keyMatchStatus,
   keysLoading,
   normalizedOrigin,
   originInput,
-  writeKeyReady,
+  recorderKeyReady,
 }: {
-  cleanWriteKey: string;
-  hasActiveWriteKey: boolean;
+  cleanRecorderKey: string;
+  hasActiveRecorderKey: boolean;
   keyMatchStatus: KeyMatchStatus;
   keysLoading: boolean;
   normalizedOrigin: string | null;
   originInput: string;
-  writeKeyReady: boolean;
+  recorderKeyReady: boolean;
 }): string | null {
   if (keysLoading) return "Checking project keys.";
-  if (!hasActiveWriteKey) return "Create an active write key first.";
-  if (cleanWriteKey.length === 0) return "Paste the raw write key first.";
-  if (!writeKeyReady) return "Use a generated write key that starts with or_live_.";
-  if (keyMatchStatus === "checking") return "Checking this write key.";
+  if (!hasActiveRecorderKey) return "Create an active recorder key first.";
+  if (cleanRecorderKey.length === 0) return "Paste the raw recorder key first.";
+  if (!recorderKeyReady) return "Use a generated recorder key that starts with or_live_.";
+  if (keyMatchStatus === "checking") return "Checking this recorder key.";
   if (keyMatchStatus === "unmatched") return "Use an active key from this project.";
-  if (keyMatchStatus === "error") return "The write key could not be verified.";
+  if (keyMatchStatus === "error") return "The recorder key could not be verified.";
   if (originInput.trim().length === 0) return "Enter your Orange Replay URL.";
   if (normalizedOrigin === null) return "Use a valid http or https URL.";
   return null;
 }
 
-function isGeneratedWriteKey(value: string): boolean {
+function isGeneratedRecorderKey(value: string): boolean {
   return /^or_live_[A-Za-z0-9_-]{32}$/.test(value);
 }

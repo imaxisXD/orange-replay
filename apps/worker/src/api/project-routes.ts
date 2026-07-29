@@ -33,7 +33,7 @@ export async function getDemoDiscovery(
   }
 
   return jsonResponse(
-    { projectId: demo.projectId, writeKey: demo.writeKey },
+    { projectId: demo.projectId, recorderKey: demo.recorderKey },
     { headers: { "cache-control": "public, max-age=60" } },
   );
 }

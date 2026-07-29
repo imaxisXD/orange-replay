@@ -25,9 +25,9 @@ class MemoryStorage implements StorageLike {
 }
 
 const config: RecorderConfig = {
-  key: "write-key",
+  key: "recorder-key",
   ingestUrl: "https://ingest.test",
-  projectRef: "write-key",
+  projectRef: "recorder-key",
   sampleRate: 1,
   maskPolicyVersion: 0,
   capture: { heatmaps: false, console: false, network: false, canvas: false },
@@ -192,7 +192,7 @@ describe("InlineSink", () => {
 
 function makeSession(ids: string[]): SessionManager {
   return new SessionManager({
-    projectRef: "write-key",
+    projectRef: "recorder-key",
     now: () => 1_000,
     storage: new MemoryStorage(),
     document,

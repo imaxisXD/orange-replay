@@ -7,16 +7,16 @@ export function readInstallErrorMessage(error: unknown): string {
   return "The request failed. Try again in a moment.";
 }
 
-export async function matchesActiveProjectWriteKey(
-  writeKey: string,
+export async function matchesActiveProjectRecorderKey(
+  recorderKey: string,
   keys: readonly ProjectKeyAudit[],
 ): Promise<boolean> {
   const subtle = globalThis.crypto?.subtle;
   if (subtle === undefined) {
-    throw new Error("This browser cannot verify the write key.");
+    throw new Error("This browser cannot verify the recorder key.");
   }
 
-  const digest = await subtle.digest("SHA-256", new TextEncoder().encode(writeKey));
+  const digest = await subtle.digest("SHA-256", new TextEncoder().encode(recorderKey));
   const hash = Array.from(new Uint8Array(digest), (byte) =>
     byte.toString(16).padStart(2, "0"),
   ).join("");

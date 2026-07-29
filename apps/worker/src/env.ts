@@ -73,10 +73,10 @@ export interface Env {
   GITHUB_CLIENT_SECRET?: string;
   /** Server-only HMAC secret for live WebSocket tickets. */
   LIVE_TICKET_SECRET?: string;
-  /** Public read-only demo project id. Demo is disabled unless this and DEMO_WRITE_KEY are set. */
+  /** Public read-only demo project id. Demo is disabled unless this and DEMO_RECORDER_KEY are set. */
   DEMO_PROJECT_ID?: string;
-  /** Public SDK write key for the demo landing page recorder. */
-  DEMO_WRITE_KEY?: string;
+  /** Public SDK recorder key for the demo landing page recorder. */
+  DEMO_RECORDER_KEY?: string;
   /** Exact public origin used to build share links, for example https://public.example.com. */
   PUBLIC_PAGE_ORIGIN?: string;
   /** "1" enables /__test/* routes. Never set in production config. */

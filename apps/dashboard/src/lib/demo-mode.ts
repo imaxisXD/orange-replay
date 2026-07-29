@@ -1,6 +1,6 @@
 export interface DemoWorkspaceResponse {
   projectId: string;
-  writeKey: string;
+  recorderKey: string;
 }
 
 export { isDemoPath } from "./dashboard-access";

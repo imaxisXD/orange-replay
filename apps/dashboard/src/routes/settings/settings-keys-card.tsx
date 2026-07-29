@@ -76,9 +76,9 @@ export function KeysCard({ projectId }: { projectId: string }) {
     },
   });
   const loading = keysQuery.isPending;
-  const loadError = readKeyError(keysQuery.error, "Could not load write keys.");
-  const createError = readKeyError(createKeyMutation.error, "Could not create the write key.");
-  const revokeError = readKeyError(revokeKeyMutation.error, "Could not revoke the write key.");
+  const loadError = readKeyError(keysQuery.error, "Could not load recorder keys.");
+  const createError = readKeyError(createKeyMutation.error, "Could not create the recorder key.");
+  const revokeError = readKeyError(revokeKeyMutation.error, "Could not revoke the recorder key.");
 
   function submitNewKey(): void {
     const cleanName = name.trim();
@@ -120,9 +120,9 @@ export function KeysCard({ projectId }: { projectId: string }) {
 
   return (
     <SettingsCard
-      body="Keys connect the recorder to this project. A new secret is shown only once."
+      body="Recorder keys connect the SDK on your website to this project. A new key is shown only once."
       className="overflow-hidden"
-      title="Write keys"
+      title="Recorder keys"
     >
       <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-end">
         <InputGroup className="w-full flex-1">
@@ -161,11 +161,11 @@ export function KeysCard({ projectId }: { projectId: string }) {
 
       <div>
         {loading ? (
-          <LoadingArea className="min-h-32" label="Loading write keys" />
+          <LoadingArea className="min-h-32" label="Loading recorder keys" />
         ) : loadError.length > 0 ? (
           <Empty className="py-8">
             <EmptyHeader>
-              <EmptyTitle>Could not load write keys</EmptyTitle>
+              <EmptyTitle>Could not load recorder keys</EmptyTitle>
               <EmptyDescription>{loadError}</EmptyDescription>
             </EmptyHeader>
             <Button onClick={() => void keysQuery.refetch()} size="sm" variant="secondary">
@@ -178,7 +178,7 @@ export function KeysCard({ projectId }: { projectId: string }) {
               <EmptyMedia variant="icon">
                 <KeyRound aria-hidden />
               </EmptyMedia>
-              <EmptyTitle>No write keys yet</EmptyTitle>
+              <EmptyTitle>No recorder keys yet</EmptyTitle>
               <EmptyDescription>Name the first key above to connect your website.</EmptyDescription>
             </EmptyHeader>
           </Empty>
@@ -252,17 +252,17 @@ export function KeysCard({ projectId }: { projectId: string }) {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Save this write key now</DialogTitle>
+            <DialogTitle>Copy this recorder key now</DialogTitle>
             <DialogDescription>
-              This secret is shown once. Orange Replay stores only its secure hash.
+              Orange Replay keeps only a hash of this key, so it cannot be shown again.
             </DialogDescription>
           </DialogHeader>
           <div className="mt-5 rounded-lg border border-dashed border-amber/35 bg-secondary p-4">
             <p className="text-[11px] uppercase tracking-[0.06em] text-dim">
-              {createdKey?.key.name ?? "New write key"}
+              {createdKey?.key.name ?? "New recorder key"}
             </p>
             <textarea
-              aria-label="New write key secret"
+              aria-label="New recorder key"
               className="mt-2 block min-h-16 w-full resize-none bg-transparent font-mono text-base leading-relaxed text-foreground outline-none focus-visible:ring-1 focus-visible:ring-amber sm:text-[12px]"
               onFocus={(event) => event.currentTarget.select()}
               readOnly

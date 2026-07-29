@@ -11,7 +11,7 @@ import {
   ingestPostHeaders,
   ingestPreflightHeaders,
   sha256Hex,
-  validateWriteKeyHeader,
+  validateRecorderKeyHeader,
 } from "./helpers.ts";
 import { lookupProjectConfig } from "./project-config-lookup.ts";
 import { ingestIpRateLimitAllows } from "./rate-limit.ts";
@@ -51,12 +51,12 @@ export async function handleRecorderConfig(
       return finish({ error: "method not allowed" }, 405, "client_error");
     }
 
-    const writeKey = validateWriteKeyHeader(request.headers);
-    if (!writeKey.ok) return finish({ error: writeKey.error }, 400, "client_error");
+    const recorderKey = validateRecorderKeyHeader(request.headers);
+    if (!recorderKey.ok) return finish({ error: recorderKey.error }, 400, "client_error");
 
-    const keyHash = await sha256Hex(writeKey.value);
+    const keyHash = await sha256Hex(recorderKey.value);
     // Unlike the ingest hot path, this public endpoint applies the lookup
-    // limiter before the KV read too — the write key is public (demo) and a
+    // limiter before the KV read too — the recorder key is public (demo) and a
     // recorder only fetches config once per page load.
     if (!(await ingestIpRateLimitAllows(env, env.INGEST_LOOKUP_RATE_LIMITER, request, "lookup"))) {
       event.set({ rate_limit: "lookup" });

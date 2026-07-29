@@ -65,7 +65,7 @@ export type SaveProjectConfigResult =
   | { status: "not_found" }
   | { status: "version_conflict" };
 
-export type CreateProjectWriteKeyResult =
+export type CreateProjectRecorderKeyResult =
   | { status: "created"; key: ProjectKeyAudit; secret: string }
   | { status: "not_found" }
   | { status: "active_key_limit_reached" }
@@ -73,7 +73,7 @@ export type CreateProjectWriteKeyResult =
   | { status: "key_was_revoked" }
   | { status: "key_cache_unavailable" };
 
-export type RevokeProjectWriteKeyResult =
+export type RevokeProjectRecorderKeyResult =
   | { status: "revoked"; key: ProjectKeyAudit }
   | { status: "key_not_found" }
   | { status: "key_cache_unavailable" };
@@ -138,7 +138,7 @@ export async function saveProjectConfig(
   return { status: "saved", config: stored };
 }
 
-export async function listProjectWriteKeys(
+export async function listProjectRecorderKeys(
   env: Env,
   projectId: string,
 ): Promise<ProjectKeyAudit[]> {
@@ -165,17 +165,17 @@ export async function listProjectWriteKeys(
   return (rows.results ?? []).map(mapProjectKey);
 }
 
-export async function createProjectWriteKey(
+export async function createProjectRecorderKey(
   env: Env,
   projectId: string,
   name: string,
   actorId: string | null,
-): Promise<CreateProjectWriteKeyResult> {
+): Promise<CreateProjectRecorderKeyResult> {
   const config = await readStoredProjectConfig(env, projectId);
   if (config === null) return { status: "not_found" };
 
   const database = shardDb(env, 0);
-  const secret = createWriteKey();
+  const secret = createRecorderKey();
   const keyHash = await sha256Hex(secret);
   const keyId = `key_${crypto.randomUUID()}`;
   const createdAt = Date.now();
@@ -251,7 +251,7 @@ export async function createProjectWriteKey(
       .prepare("SELECT active FROM keys WHERE id = ? AND project_id = ?")
       .bind(keyId, projectId)
       .first<ActiveKeyRow>();
-    if (current === null) throw new Error("The write key was removed while it was created.");
+    if (current === null) throw new Error("The recorder key was removed while it was created.");
     if (current.active !== 1) {
       await syncRevokedKeyCache(env, database, keyHash);
       return { status: "key_was_revoked" };
@@ -316,12 +316,12 @@ export async function createProjectWriteKey(
   };
 }
 
-export async function revokeProjectWriteKey(
+export async function revokeProjectRecorderKey(
   env: Env,
   projectId: string,
   keyId: string,
   actorId: string | null,
-): Promise<RevokeProjectWriteKeyResult> {
+): Promise<RevokeProjectRecorderKeyResult> {
   const database = shardDb(env, 0);
   const stored = await database
     .prepare(
@@ -765,7 +765,7 @@ function keyCacheFinalCheckTime(now: number): number {
   return now + FINAL_CACHE_CHECK_DELAY_MS;
 }
 
-function createWriteKey(): string {
+function createRecorderKey(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(24));
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);

@@ -2,9 +2,9 @@ import type { CreatedProjectKeyResponse, ProjectKeyResponse } from "@orange-repl
 import { type Env } from "../env.ts";
 import { sha256Hex } from "../ingest/hash.ts";
 import {
-  createProjectWriteKey,
-  listProjectWriteKeys,
-  revokeProjectWriteKey,
+  createProjectRecorderKey,
+  listProjectRecorderKeys,
+  revokeProjectRecorderKey,
 } from "../project-config/delivery.ts";
 import { readStoredProjectConfig } from "../project-config/storage.ts";
 import type { SessionAuthContext } from "./auth.ts";
@@ -14,7 +14,7 @@ const KEY_BODY_LIMIT_BYTES = 2 * 1024;
 const KEY_NAME_MAX_LENGTH = 64;
 
 export async function getProjectKeys(env: Env, projectId: string) {
-  return listProjectWriteKeys(env, projectId);
+  return listProjectRecorderKeys(env, projectId);
 }
 
 export async function createProjectKey(
@@ -34,7 +34,7 @@ export async function createProjectKey(
   }
 
   const actorId = auth?.hostedSession.user.id ?? null;
-  const result = await createProjectWriteKey(env, projectId, name, actorId);
+  const result = await createProjectRecorderKey(env, projectId, name, actorId);
   if (result.status === "not_found") return jsonError("not_found", 404);
   if (result.status === "active_key_limit_reached") {
     return jsonError("active_key_limit_reached", 409);
@@ -72,7 +72,7 @@ export async function revokeProjectKey(
   }
 
   const actorId = auth.hostedSession.user.id;
-  const result = await revokeProjectWriteKey(env, projectId, keyId, actorId);
+  const result = await revokeProjectRecorderKey(env, projectId, keyId, actorId);
   if (result.status === "key_not_found") return jsonError("key_not_found", 404);
   if (result.status === "key_cache_unavailable") {
     return jsonError("key_cache_unavailable", 503);

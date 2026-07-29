@@ -7,7 +7,7 @@ import { decodeIngestBody, FLAG_UNCOMPRESSED } from "@orange-replay/shared";
 const sdkBundle = fileURLToPath(
   new URL("../../../packages/sdk/dist/orange-replay.iife.js", import.meta.url),
 );
-const writeKey = `or_live_${"b".repeat(32)}`;
+const recorderKey = `or_live_${"b".repeat(32)}`;
 const decoder = new TextDecoder();
 const encoder = new TextEncoder();
 const runFile = promisify(execFile);
@@ -50,7 +50,7 @@ test("keeps legacy loader auto-start working", async ({ page }) => {
         flushMs: 50,
       };
     },
-    { key: writeKey },
+    { key: recorderKey },
   );
 
   await page.addScriptTag({ path: sdkBundle });
@@ -102,7 +102,7 @@ test("uses the first valid queued init when the direct loader config is invalid"
         },
       ];
     },
-    { key: writeKey },
+    { key: recorderKey },
   );
 
   await page.addScriptTag({ path: sdkBundle });
@@ -483,7 +483,7 @@ async function startPerformanceReplay(page: Page): Promise<void> {
         transport: "worker",
       });
     },
-    { key: writeKey },
+    { key: recorderKey },
   );
 }
 

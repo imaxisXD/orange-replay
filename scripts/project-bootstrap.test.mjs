@@ -6,7 +6,7 @@ import { buildNewProjectAnalyticsReceiptSql } from "./analytics/project-bootstra
 
 const scriptsDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptsDirectory, "..");
-const fixedWriteKey = `or_live_${"a".repeat(32)}`;
+const fixedRecorderKey = `or_live_${"a".repeat(32)}`;
 
 describe("new project analytics receipt", () => {
   it("builds a zero-source receipt only when the project insert changed a row", () => {
@@ -56,7 +56,7 @@ describe("new project analytics receipt", () => {
     ({ file, projectId, args, reportId }) => {
       const output = execFileSync(
         process.execPath,
-        [path.join(scriptsDirectory, file), "--dry-run", "--key", fixedWriteKey, ...args],
+        [path.join(scriptsDirectory, file), "--dry-run", "--key", fixedRecorderKey, ...args],
         {
           cwd: repoRoot,
           encoding: "utf8",

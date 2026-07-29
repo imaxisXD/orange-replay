@@ -16,7 +16,7 @@ This historical demo task predates Better Auth. The current account system remai
 ### Env (worker)
 
 - `DEMO_PROJECT_ID?: string` — id of the demo project.
-- `DEMO_WRITE_KEY?: string` — plaintext demo write key (write keys are public-by-design; this one is intentionally served to browsers).
+- `DEMO_RECORDER_KEY?: string` — plaintext demo recorder key (recorder keys are public-by-design; this one is intentionally served to browsers).
 
 Demo behavior is active only when **both** are set and non-empty. When absent, behavior is byte-for-byte today's (fails closed) — covered by tests.
 
@@ -24,7 +24,7 @@ Demo behavior is active only when **both** are set and non-empty. When absent, b
 
 `GET /api/v1/demo`
 
-- Demo enabled → `200 {"projectId": "...", "writeKey": "..."}`, `cache-control: public, max-age=60`.
+- Demo enabled → `200 {"projectId": "...", "recorderKey": "..."}`, `cache-control: public, max-age=60`.
 - Demo disabled → generic 404 (same body shape as other unmatched routes).
 - No auth. IP rate-limited via `DEMO_API_RATE_LIMITER`. Emits the standard route wide event.
 
@@ -46,7 +46,7 @@ Demo-readable routes:
 | `GET /projects/:pid/sessions/:sid/segments/:name` | already edge-cached                                                              |
 | `POST /projects/:pid/sessions/:sid/live-ticket`   | ticket is already session-scoped, 60s TTL                                        |
 
-NOT demo-readable (must 401 for a demo context): `GET/PUT /config`, `GET /keys` (returns write keys), `GET /install-status`, all `/__test/*` routes, and everything else. The live WS route keeps its short-lived ticket check.
+NOT demo-readable (must 401 for a demo context): `GET/PUT /config`, `GET /keys` (returns recorder keys), `GET /install-status`, all `/__test/*` routes, and everything else. The live WS route keeps its short-lived ticket check.
 
 ### Rate limiting
 
@@ -70,7 +70,7 @@ Cost invariants untouched: no timers, no payload decompression, no DO/hibernatio
 
 File budget: `apps/worker/src/api/handler.ts`, `apps/worker/src/index.ts`, `apps/worker/src/app-shell.ts` (serve the dashboard shell at `/demo` and `/demo/*`), the worker `Env` type declaration, `apps/worker/wrangler.jsonc` (dev + `env.production`: vars placeholders + `DEMO_API_RATE_LIMITER`), `apps/worker/.dev.vars.example` (local demo values), worker tests, `scripts/bootstrap-demo-project.mjs` (new), `packages/shared/src/constants.ts` (only if a shared constant is genuinely needed).
 
-Bootstrap script: creates the demo org + project (`retention_days: 2`, `sample_rate: 1.0`, `allowed_origins` = the production landing origin per `docs/deployment.md`) + one write key. Follow `scripts/bootstrap-prod-project.mjs` conventions exactly: generated secrets go to the ignored local env file, never printed; print the wrangler commands the operator runs to set `DEMO_PROJECT_ID` / `DEMO_WRITE_KEY`. Header comment: this script touches production — review and test before running.
+Bootstrap script: creates the demo org + project (`retention_days: 2`, `sample_rate: 1.0`, `allowed_origins` = the production landing origin per `docs/deployment.md`) + one recorder key. Follow `scripts/bootstrap-prod-project.mjs` conventions exactly: generated secrets go to the ignored local env file, never printed; print the wrangler commands the operator runs to set `DEMO_PROJECT_ID` / `DEMO_RECORDER_KEY`. Header comment: this script touches production — review and test before running.
 
 Tests: the security-invariant list above, `/api/v1/demo` response shape + caching + 404, limit clamp, app-shell served at `/demo`.
 
@@ -92,7 +92,7 @@ Tests: `/demo` bypasses the private account-session requirement; the API client 
 File budget: `landing/index.html` only. Keep edits surgical and avoid a wholesale reformat.
 
 - Both "Live demo" anchors (currently `href="/login"`) → `/demo`.
-- Recording snippet before `</body>`: a small inline async IIFE that fetches `/api/v1/demo` (same origin); on 200 it boots the genuine SDK loader (reproduce the real snippet shape from `packages/sdk/src/loader.ts` / the dashboard install page) with the returned `writeKey`, same-origin recorder bundle (`/or-recorder.js`) and ingest. Non-blocking; silently no-ops on 404, network error, or `file://` preview; the failure path must never throw or log.
+- Recording snippet before `</body>`: a small inline async IIFE that fetches `/api/v1/demo` (same origin); on 200 it boots the genuine SDK loader (reproduce the real snippet shape from `packages/sdk/src/loader.ts` / the dashboard install page) with the returned `recorderKey`, same-origin recorder bundle (`/or-recorder.js`) and ingest. Non-blocking; silently no-ops on 404, network error, or `file://` preview; the failure path must never throw or log.
 - Add `data-orange-block` to any input/form elements on the page.
 - Disclosure: one short line adjacent to the mid-page Live demo CTA: "This page records anonymized, masked sessions to power the live demo — your visit may show up there." Match surrounding typography; understated. (External-facing copy — gets human review before ship.)
 

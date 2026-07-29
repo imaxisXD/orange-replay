@@ -37,9 +37,9 @@ const secretDefinitions = Object.freeze([
     kind: "project_id",
   }),
   Object.freeze({
-    workerName: "DEMO_WRITE_KEY",
-    environmentName: "ORANGE_REPLAY_DEMO_WRITE_KEY",
-    kind: "write_key",
+    workerName: "DEMO_RECORDER_KEY",
+    environmentName: "ORANGE_REPLAY_DEMO_RECORDER_KEY",
+    kind: "recorder_key",
   }),
   Object.freeze({
     workerName: "R2_SQL_TOKEN",
@@ -55,7 +55,7 @@ const secretDefinitions = Object.freeze([
 ]);
 
 const pathIdPattern = /^[A-Za-z0-9_-]{1,64}$/;
-const writeKeyPattern = /^or_live_[A-Za-z0-9_-]{32}$/;
+const recorderKeyPattern = /^or_live_[A-Za-z0-9_-]{32}$/;
 
 export const cloudflareAuthEnvironmentNames = Object.freeze([
   "CLOUDFLARE_API_TOKEN",
@@ -86,9 +86,13 @@ const extraSensitiveEnvironmentNames = Object.freeze([
   "ORANGE_REPLAY_PIPELINE_CATALOG_TOKEN",
   "ORANGE_REPLAY_PROD_API_PROJECT_IDS",
   "ORANGE_REPLAY_PROD_API_TOKEN",
+  "ORANGE_REPLAY_PROD_RECORDER_KEY",
+  // Pre-rename names. Operators' ignored local env files may still carry them,
+  // and a scrub list must not stop covering a value because it was renamed.
+  "ORANGE_REPLAY_DEMO_WRITE_KEY",
+  "ORANGE_REPLAY_PROD_WRITE_KEY",
   "ORANGE_REPLAY_R2_INVENTORY_TOKEN",
   "ORANGE_REPLAY_R2_SQL_READ_TOKEN",
-  "ORANGE_REPLAY_PROD_WRITE_KEY",
   "WRANGLER_R2_SQL_AUTH_TOKEN",
 ]);
 
@@ -98,8 +102,8 @@ export function readProductionSecretValues(environment = process.env) {
     const value = environment[definition.environmentName];
     if (definition.kind === "project_id") {
       values[definition.workerName] = readValidProjectId(value, definition.environmentName);
-    } else if (definition.kind === "write_key") {
-      values[definition.workerName] = readValidWriteKey(value, definition.environmentName);
+    } else if (definition.kind === "recorder_key") {
+      values[definition.workerName] = readValidRecorderKey(value, definition.environmentName);
     } else if (definition.kind === "origin") {
       values[definition.workerName] = readValidHttpsOrigin(value, definition.environmentName);
     } else if (definition.kind === "trusted_origins") {
@@ -198,8 +202,8 @@ function readValidProjectId(value, name) {
   return value;
 }
 
-function readValidWriteKey(value, name) {
-  if (typeof value !== "string" || !writeKeyPattern.test(value)) {
+function readValidRecorderKey(value, name) {
+  if (typeof value !== "string" || !recorderKeyPattern.test(value)) {
     throw new Error(`${name} must be a generated key that starts with or_live_.`);
   }
   return value;

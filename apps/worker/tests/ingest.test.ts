@@ -18,7 +18,7 @@ import { unstable_dev } from "wrangler";
 
 const workerDir = fileURLToPath(new URL("..", import.meta.url));
 const payloadBytes = new TextEncoder().encode("payload");
-const presenceFailureKey = testWriteKey("presence_failure");
+const presenceFailureKey = testRecorderKey("presence_failure");
 
 let worker: Awaited<ReturnType<typeof unstable_dev>>;
 let workerWithPresenceFailure: Awaited<ReturnType<typeof unstable_dev>>;
@@ -33,7 +33,7 @@ beforeAll(async () => {
     experimental: { disableExperimentalWarning: true },
   });
 
-  await seedKey(testWriteKey("setup"), makeConfig(), false);
+  await seedKey(testRecorderKey("setup"), makeConfig(), false);
 }, 120_000);
 
 beforeAll(async () => {
@@ -71,7 +71,7 @@ describe("ingest route", () => {
   });
 
   it("returns dashboard recorder settings before capture starts", async () => {
-    const key = testWriteKey("recorder_config");
+    const key = testRecorderKey("recorder_config");
     const config = makeConfig({
       sampleRate: 0.25,
       maskPolicyVersion: 4,
@@ -98,7 +98,7 @@ describe("ingest route", () => {
   });
 
   it("turns remote sampling off when the project quota is exceeded", async () => {
-    const key = testWriteKey("config_quota");
+    const key = testRecorderKey("config_quota");
     await seedKey(key, makeConfig({ quotaState: "exceeded", sampleRate: 1, version: 2 }), false);
 
     const res = await worker.fetch("/v1/config", { headers: { [HDR_KEY]: key } });
@@ -110,7 +110,7 @@ describe("ingest route", () => {
   it("rejects an unknown key", async () => {
     const sessionId = nextSessionId("unknown");
     const res = await postIngest({
-      key: testWriteKey("unknown"),
+      key: testRecorderKey("unknown"),
       sessionId,
       tab: "tab_1",
       seq: 0,
@@ -122,7 +122,7 @@ describe("ingest route", () => {
   });
 
   it("accepts a key seeded through KV", async () => {
-    const key = testWriteKey("kv");
+    const key = testRecorderKey("kv");
     await seedKey(key, makeConfig(), true);
     const sessionId = nextSessionId("kv");
     const res = await postIngest({
@@ -141,8 +141,8 @@ describe("ingest route", () => {
     });
   });
 
-  it("uses D1 on a cache miss without letting an ingest request rewrite key state", async () => {
-    const key = testWriteKey("d1");
+  it("uses D1 on a cache miss without letting an ingest request rewrite recorder key state", async () => {
+    const key = testRecorderKey("d1");
     const { keyHash } = await seedKey(key, makeConfig(), false);
     const sessionId = nextSessionId("d1");
     const res = await postIngest({
@@ -168,7 +168,7 @@ describe("ingest route", () => {
   });
 
   it("enforces the origin allowlist", async () => {
-    const key = testWriteKey("origin");
+    const key = testRecorderKey("origin");
     await seedKey(key, makeConfig({ allowedOrigins: ["https://good.example"] }), true);
 
     const wrongSessionId = nextSessionId("badorigin");
@@ -197,7 +197,7 @@ describe("ingest route", () => {
   });
 
   it("drops quota-exceeded batches without surfacing an SDK error", async () => {
-    const key = testWriteKey("quota");
+    const key = testRecorderKey("quota");
     const config = makeConfig({ quotaState: "exceeded" });
     await seedKey(key, config, true);
     const sessionId = nextSessionId("quota");
@@ -223,7 +223,7 @@ describe("ingest route", () => {
   });
 
   it("re-checks sampling server-side and drops unsampled honest-client sessions", async () => {
-    const key = testWriteKey("sample");
+    const key = testRecorderKey("sample");
     // Deterministic: pick a rate strictly below/above this session's hash so
     // the same shared FNV-1a decision falls on both sides of the line.
     const sessionId = nextSessionId("sample");
@@ -244,7 +244,7 @@ describe("ingest route", () => {
       pendingBatches: 0,
     });
 
-    const inKey = testWriteKey("sample_in");
+    const inKey = testRecorderKey("sample_in");
     await seedKey(
       inKey,
       { ...makeConfig({ sampleRate: Math.min(unit + 0.0001, 1) }), projectId: config.projectId },
@@ -261,7 +261,7 @@ describe("ingest route", () => {
   });
 
   it("rate limits runaway appends for one session", async () => {
-    const key = testWriteKey("rate");
+    const key = testRecorderKey("rate");
     await seedKey(key, makeConfig(), true);
     const sessionId = nextSessionId("rate");
     let lastResponse: Response | null = null;
@@ -284,7 +284,7 @@ describe("ingest route", () => {
   });
 
   it("rejects a header and index mismatch", async () => {
-    const key = testWriteKey("mismatch");
+    const key = testRecorderKey("mismatch");
     await seedKey(key, makeConfig(), true);
     const sessionId = nextSessionId("match");
     const indexSessionId = nextSessionId("mismatch");
@@ -300,7 +300,7 @@ describe("ingest route", () => {
   });
 
   it("rejects oversized content by length", async () => {
-    const key = testWriteKey("large");
+    const key = testRecorderKey("large");
     await seedKey(key, makeConfig(), true);
     const sessionId = nextSessionId("large");
     const size = MAX_COMPRESSED_BATCH_BYTES + MAX_INDEX_JSON_BYTES + 1;
@@ -318,7 +318,7 @@ describe("ingest route", () => {
   });
 
   it("rejects an empty payload after the sidecar separator", async () => {
-    const key = testWriteKey("empty_payload");
+    const key = testRecorderKey("empty_payload");
     await seedKey(key, makeConfig(), true);
     const sessionId = nextSessionId("empty");
     const res = await postIngest({
@@ -334,7 +334,7 @@ describe("ingest route", () => {
   });
 
   it("rejects payloads over the compressed batch cap even when the sidecar is small", async () => {
-    const key = testWriteKey("payload_large");
+    const key = testRecorderKey("payload_large");
     await seedKey(key, makeConfig(), true);
     const sessionId = nextSessionId("payloadlarge");
     const res = await postIngest({
@@ -355,7 +355,7 @@ describe("ingest route", () => {
   });
 
   it("rejects a sidecar where t0 is after t1", async () => {
-    const key = testWriteKey("bad_time");
+    const key = testRecorderKey("bad_time");
     await seedKey(key, makeConfig(), true);
     const sessionId = nextSessionId("badtime");
     const index = makeIndex(sessionId, "tab_bad_time", 0);
@@ -373,7 +373,7 @@ describe("ingest route", () => {
   });
 
   it("gzips uncompressed fallback payloads before appending", async () => {
-    const key = testWriteKey("plain");
+    const key = testRecorderKey("plain");
     await seedKey(key, makeConfig(), true);
     const sessionId = nextSessionId("plain");
     const res = await postIngest({
@@ -545,7 +545,7 @@ function nextSuffix(): string {
   return String(id).padStart(8, "0");
 }
 
-function testWriteKey(label: string): string {
+function testRecorderKey(label: string): string {
   return `or_live_${label
     .replace(/[^A-Za-z0-9_-]/g, "_")
     .padEnd(32, "0")

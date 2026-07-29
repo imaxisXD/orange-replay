@@ -38,13 +38,13 @@ Better Auth is the only private dashboard sign-in path. If any required Better A
 ## Account And Key Boundary
 
 ```text
-GitHub user -> workspace membership -> project -> project write keys
+GitHub user -> workspace membership -> project -> project recorder keys
 ```
 
 - A dashboard session proves who the person is.
 - Workspace membership proves which projects they may open.
 - Owners and admins can change settings and create or revoke project keys.
-- The recording SDK keeps using a project write key. Website visitors do not need an Orange Replay account.
+- The recording SDK keeps using a project recorder key. Website visitors do not need an Orange Replay account.
 - A new key is stored only as a hash and its plaintext is shown once.
 - Revocation is durable in D1 first, then the central KV entry is removed. If cache work fails, D1 keeps a pending marker and a scheduled repair retries within five minutes; the key list also repairs pending revoked entries before it loads. Every active cache writer registers a D1 job before it can write. A final check is not cleared while any older writer is unfinished, so a stopped or out-of-order request stays visible to the repair loop. After each check, that key moves to a later check time so it cannot keep newer repairs out of the fixed-size queue. Cloudflare KV may still keep an older edge copy for a short propagation window, so this is not an instant global kill switch.
 - Key changes are limited to 30 per minute for each user and project. A project keeps at most 100 key audit rows, and revoked rows plus their KV entries are removed after 90 days.

@@ -127,7 +127,7 @@ For playback caching, use a custom domain. Workers served only on `workers.dev` 
 
 Use the install guide: [Install the SDK](./install-sdk.md).
 
-Set `ingestUrl` to your deployed Worker URL or custom domain. Set `key` to the write key for the project you created in the Worker data.
+Set `ingestUrl` to your deployed Worker URL or custom domain. Set `key` to the recorder key for the project you created in the Worker data.
 
 ## Upgrade
 

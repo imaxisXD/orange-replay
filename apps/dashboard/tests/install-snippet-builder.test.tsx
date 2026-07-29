@@ -16,10 +16,10 @@ vi.mock("@/lib/api", async (importOriginal) => ({
   fetchProjectKeys: apiMocks.fetchProjectKeys,
 }));
 
-import { matchesActiveProjectWriteKey } from "../src/routes/install/install-helpers";
+import { matchesActiveProjectRecorderKey } from "../src/routes/install/install-helpers";
 import { InstallSnippetBuilder } from "../src/routes/install/install-snippet-builder";
 
-const writeKey = `or_live_${"a".repeat(32)}`;
+const recorderKey = `or_live_${"a".repeat(32)}`;
 let container: HTMLDivElement;
 let root: Root;
 let queryClient: QueryClient;
@@ -40,28 +40,28 @@ afterEach(async () => {
   document.body.replaceChildren();
 });
 
-describe("install write key verification", () => {
+describe("install recorder key verification", () => {
   it("matches only an active key with the same SHA-256 prefix", async () => {
-    const prefix = await hashPrefix(writeKey);
+    const prefix = await hashPrefix(recorderKey);
     const activeKey = projectKey(prefix, true);
 
-    await expect(matchesActiveProjectWriteKey(writeKey, [activeKey])).resolves.toBe(true);
+    await expect(matchesActiveProjectRecorderKey(recorderKey, [activeKey])).resolves.toBe(true);
     await expect(
-      matchesActiveProjectWriteKey(writeKey, [{ ...activeKey, active: false }]),
+      matchesActiveProjectRecorderKey(recorderKey, [{ ...activeKey, active: false }]),
     ).resolves.toBe(false);
     await expect(
-      matchesActiveProjectWriteKey(`or_live_${"b".repeat(32)}`, [activeKey]),
+      matchesActiveProjectRecorderKey(`or_live_${"b".repeat(32)}`, [activeKey]),
     ).resolves.toBe(false);
   });
 
   it("enables copying for a matching project key and clears it on project switch", async () => {
-    const prefix = await hashPrefix(writeKey);
+    const prefix = await hashPrefix(recorderKey);
     apiMocks.fetchProjectKeys.mockResolvedValue({ keys: [projectKey(prefix, true)] });
     await renderBuilder("project-one");
 
     const keyInput = container.querySelector<HTMLInputElement>('input[type="password"]');
     expect(keyInput).not.toBeNull();
-    await setInputValue(keyInput!, writeKey);
+    await setInputValue(keyInput!, recorderKey);
     await vi.waitFor(() => {
       expect(findCopyButton().disabled).toBe(false);
     });
@@ -79,7 +79,7 @@ describe("install write key verification", () => {
     await renderBuilder("project-one");
 
     const keyInput = container.querySelector<HTMLInputElement>('input[type="password"]');
-    await setInputValue(keyInput!, writeKey);
+    await setInputValue(keyInput!, recorderKey);
     await vi.waitFor(() => {
       expect(container.textContent).toContain("This key is not an active key for this project.");
     });

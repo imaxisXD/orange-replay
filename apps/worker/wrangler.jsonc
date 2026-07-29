@@ -127,7 +127,7 @@
           "GITHUB_CLIENT_SECRET",
           "LIVE_TICKET_SECRET",
           "DEMO_PROJECT_ID",
-          "DEMO_WRITE_KEY",
+          "DEMO_RECORDER_KEY",
           "R2_SQL_TOKEN",
           "ANALYTICS_PURGE_RUNNER_TOKEN",
         ],

@@ -180,7 +180,7 @@ describe("api client", () => {
     expect(readFetchHeaders().get("authorization")).toBeNull();
   });
 
-  it("creates and revokes a named write key without storing its secret", async () => {
+  it("creates and revokes a named recorder key without storing its secret", async () => {
     fetchMock
       .mockResolvedValueOnce(
         jsonResponse({

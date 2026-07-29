@@ -126,7 +126,7 @@ async function handleIngestPost(request: Request, env: Env): Promise<Response> {
       return finish({ error: "unknown or inactive ingest key" }, 401, "client_error");
     }
 
-    // SDK write keys are public browser credentials. Reject disallowed browser
+    // SDK recorder keys are public browser credentials. Reject disallowed browser
     // origins before shared project/session limit accounting so copied keys from
     // blocked sites cannot drain legitimate ingest capacity.
     if (!browserOriginIsAllowed(request, config.allowedOrigins)) {

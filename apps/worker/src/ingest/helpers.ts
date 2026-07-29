@@ -5,7 +5,7 @@ export {
   ingestPreflightHeaders,
   readContentLength,
   validateIngestHeaders,
-  validateWriteKeyHeader,
+  validateRecorderKeyHeader,
 } from "./ingest-headers.ts";
 export type { HeaderValidationResult, ValidIngestHeaders } from "./ingest-headers.ts";
 export { MAX_INGEST_BODY_BYTES, readBodyCapped } from "./request-body.ts";

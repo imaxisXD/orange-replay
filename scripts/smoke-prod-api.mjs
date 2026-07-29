@@ -14,8 +14,8 @@ try {
     200,
     (body) =>
       typeof body?.projectId === "string" &&
-      typeof body?.writeKey === "string" &&
-      body.writeKey.startsWith("or_live_"),
+      typeof body?.recorderKey === "string" &&
+      body.recorderKey.startsWith("or_live_"),
   );
   await expectPage(baseUrl, "/login");
   await expectPage(baseUrl, "/demo");

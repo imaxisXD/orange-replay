@@ -7,9 +7,9 @@ import type { Sink } from "../src/sink.ts";
 import type { RecorderConfig } from "../src/types.ts";
 
 const config: RecorderConfig = {
-  key: "write-key",
+  key: "recorder-key",
   ingestUrl: "https://ingest.test",
-  projectRef: "write-key",
+  projectRef: "recorder-key",
   transport: "worker",
   sampleRate: 1,
   maskPolicyVersion: 0,
