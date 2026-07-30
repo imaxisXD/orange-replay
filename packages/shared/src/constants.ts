@@ -16,6 +16,9 @@ export const MAX_CONFIG_UPDATE_BODY_BYTES = 64 * 1024;
 // placing a hard limit on internal Durable Object request bodies.
 export const MAX_PRESENCE_BODY_BYTES = 32 * 1024;
 export const MAX_PUBLIC_PAGE_SETTINGS_BODY_BYTES = 8 * 1024;
+// A project rename carries one bounded name, so the body cap sits far below
+// every other write path.
+export const MAX_PROJECT_UPDATE_BODY_BYTES = 1024;
 export const MAX_PUBLIC_PAGE_RECORDINGS = 10;
 export const PUBLIC_PAGE_REFRESH_MS = 60_000;
 export const MAX_PRESENCE_ID_CHARS = 64;

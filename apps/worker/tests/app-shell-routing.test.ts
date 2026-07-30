@@ -39,6 +39,32 @@ describe("dashboard app shell routing", () => {
   it("does not turn the root route into the dashboard shell", async () => {
     expect(isDashboardAppRoute("/")).toBe(false);
   });
+
+  it("serves the shell for every client-routed dashboard path", () => {
+    // Activation is where new accounts land, so a missing entry here means the
+    // first URL a customer ever sees 404s the moment they refresh or share it.
+    for (const pathname of [
+      "/login",
+      "/_admin",
+      "/_admin/users",
+      "/demo",
+      "/demo/sessions",
+      "/projects",
+      "/projects/p1/overview",
+      "/onboarding",
+      "/onboarding/website",
+      "/onboarding/install",
+      "/onboarding/verify",
+    ]) {
+      expect(isDashboardAppRoute(pathname), pathname).toBe(true);
+    }
+  });
+
+  it("keeps the shell away from api, ingest and public page paths", () => {
+    for (const pathname of ["/api/v1/health", "/internal/x", "/v1/e", "/p/abc", "/onboardingx"]) {
+      expect(isDashboardAppRoute(pathname), pathname).toBe(false);
+    }
+  });
 });
 
 function envWithAssets(assetPaths: string[]): Env {

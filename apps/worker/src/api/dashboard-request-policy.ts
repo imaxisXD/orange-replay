@@ -18,6 +18,7 @@ export type DashboardRouteName =
   | "public_segment"
   | "sessions_list"
   | "session_heads"
+  | "project"
   | "project_stats"
   | "project_live"
   | "project_config"
@@ -36,6 +37,7 @@ export type DashboardProjectRouteName =
   | "sessions_list"
   | "session_heads"
   | "session_state"
+  | "project_rename"
   | "project_stats"
   | "project_live"
   | "project_config_read"
@@ -57,6 +59,7 @@ const PROJECT_ACCESS: Readonly<Record<DashboardProjectRouteName, DashboardProjec
   sessions_list: { demoReadable: true, minimumRole: "member" },
   session_heads: { demoReadable: true, minimumRole: "member" },
   session_state: { demoReadable: true, minimumRole: "member" },
+  project_rename: { demoReadable: false, minimumRole: "manager" },
   project_stats: { demoReadable: true, minimumRole: "member" },
   project_live: { demoReadable: true, minimumRole: "member" },
   project_config_read: { demoReadable: false, minimumRole: "member" },
@@ -160,6 +163,7 @@ export type ProjectRoutePlan = ProjectRouteFlags &
           | "project_live"
           | "project_config_read"
           | "project_config_write"
+          | "project_rename"
           | "install_status"
           | "public_page_read"
           | "public_page_write"
@@ -215,6 +219,7 @@ const PUBLIC_PAGE_PATTERN = /^\/api\/v1\/public-pages\/([^/]+)$/;
 const PUBLIC_MANIFEST_PATTERN = /^\/api\/v1\/public-pages\/([^/]+)\/replays\/([^/]+)\/manifest$/;
 const PUBLIC_SEGMENT_PATTERN =
   /^\/api\/v1\/public-pages\/([^/]+)\/replays\/([^/]+)\/segments\/([^/]+)$/;
+const PROJECT_PATTERN = /^\/api\/v1\/projects\/([^/]+)$/;
 const LIVE_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/live$/;
 const SESSIONS_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/sessions$/;
 const SESSION_HEADS_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/session-heads$/;
@@ -335,6 +340,19 @@ export function matchDashboardRequest(method: string, pathname: string): Dashboa
     return method === "GET"
       ? authed(pathname, "admin_users", { access: "global_admin", action: "admin_users" })
       : unsupported(pathname, "admin_users");
+  }
+
+  match = PROJECT_PATTERN.exec(pathname);
+  if (match !== null) {
+    return method === "PATCH"
+      ? authed(pathname, "project", {
+          ...PROJECT_DEFAULTS,
+          route: "project_rename",
+          mutationOrigin: true,
+          action: "project_rename",
+          params: projectParams(match[1] ?? null),
+        })
+      : unsupported(pathname, "project");
   }
 
   match = SESSIONS_PATTERN.exec(pathname);

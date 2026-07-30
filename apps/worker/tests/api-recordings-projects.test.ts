@@ -26,6 +26,7 @@ import {
   mintTicket,
   presencePing,
   readConfigCache,
+  renameProjectId,
   seedIngestKey,
   seedSession,
   segmentBytes,
@@ -371,6 +372,60 @@ describe("dashboard api", () => {
     });
     expect(stale.status).toBe(409);
     expect(await stale.json()).toEqual({ error: "config_version_conflict" });
+  });
+
+  it("renames a project without disturbing its recorder config", async () => {
+    const keyHash = await seedIngestKey(
+      testRecorderKey("api_rename"),
+      makeProjectConfig({ projectId: renameProjectId }),
+      true,
+    );
+    const before = await getProjectConfig(renameProjectId);
+    const cachedBefore = await readConfigCache(keyHash);
+
+    const blank = await worker.fetch(`/api/v1/projects/${renameProjectId}`, {
+      method: "PATCH",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({ name: "   " }),
+    });
+    expect(blank.status).toBe(400);
+    expect(await blank.json()).toEqual({ error: "invalid_project_name" });
+
+    const extraFields = await worker.fetch(`/api/v1/projects/${renameProjectId}`, {
+      method: "PATCH",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({ name: "acme.com", retentionDays: 3650 }),
+    });
+    expect(extraFields.status).toBe(400);
+    expect(await extraFields.json()).toEqual({ error: "invalid_project_name" });
+
+    const tooLong = await worker.fetch(`/api/v1/projects/${renameProjectId}`, {
+      method: "PATCH",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({ name: "a".repeat(101) }),
+    });
+    expect(tooLong.status).toBe(400);
+
+    const renamed = await worker.fetch(`/api/v1/projects/${renameProjectId}`, {
+      method: "PATCH",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({ name: "  acme.com  " }),
+    });
+    expect(renamed.status).toBe(200);
+    expect(renamed.headers.get("cache-control")).toBe("private, no-store");
+    expect(await renamed.json()).toEqual({ id: renameProjectId, name: "acme.com" });
+
+    // A name is display-only: it must not bump the config version or touch the
+    // recorder's cached config, or every rename would reissue project config.
+    expect(await getProjectConfig(renameProjectId)).toEqual(before);
+    expect(await readConfigCache(keyHash)).toEqual(cachedBefore);
+
+    const missing = await worker.fetch("/api/v1/projects/api_absent_project", {
+      method: "PATCH",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({ name: "acme.com" }),
+    });
+    expect(missing.status).toBe(403);
   });
 
   it("converges a key create racing a project config change to the latest D1 version", async () => {

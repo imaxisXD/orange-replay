@@ -28,6 +28,8 @@ const workerFirstRoutes = [
   "/demo/*",
   "/projects",
   "/projects/*",
+  "/onboarding",
+  "/onboarding/*",
   "/p/*",
   "/_admin",
   "/_admin/*",

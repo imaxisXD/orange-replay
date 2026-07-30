@@ -68,7 +68,9 @@ export function isDashboardAppRoute(pathname: string): boolean {
     pathname === "/_admin" ||
     pathname.startsWith("/_admin/") ||
     pathname === "/projects" ||
-    pathname.startsWith("/projects/")
+    pathname.startsWith("/projects/") ||
+    pathname === "/onboarding" ||
+    pathname.startsWith("/onboarding/")
   );
 }
 

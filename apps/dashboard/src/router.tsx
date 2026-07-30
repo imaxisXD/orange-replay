@@ -10,6 +10,7 @@ import {
 } from "@tanstack/react-router";
 import {
   openProjectsHome,
+  requireActivationAccess,
   requireAdminAccess,
   requireProjectAccess,
   requireProjectManager,
@@ -40,6 +41,22 @@ const LocalLabPage = lazyRouteComponent(() => import("@/routes/local-workbench")
 const LocalLabsIndexPage = lazyRouteComponent(
   () => import("@/routes/local-workbench"),
   "LocalLabsIndexPage",
+);
+const OnboardingShell = lazyRouteComponent(
+  () => import("@/routes/onboarding/onboarding-shell"),
+  "OnboardingShell",
+);
+const OnboardingWebsitePage = lazyRouteComponent(
+  () => import("@/routes/onboarding/onboarding-website-step"),
+  "OnboardingWebsitePage",
+);
+const OnboardingInstallPage = lazyRouteComponent(
+  () => import("@/routes/onboarding/onboarding-install-step"),
+  "OnboardingInstallPage",
+);
+const OnboardingVerifyPage = lazyRouteComponent(
+  () => import("@/routes/onboarding/onboarding-verify-step"),
+  "OnboardingVerifyPage",
 );
 const OverviewPage = lazyRouteComponent(() => import("@/routes/overview"), "OverviewPage");
 const ProjectsPage = lazyRouteComponent(() => import("@/routes/projects"), "ProjectsPage");
@@ -72,6 +89,43 @@ const localLabRoute = createRoute({
   path: "/local-labs/$labId",
   beforeLoad: requireDevelopmentMode,
   component: LocalLabPage,
+});
+
+// Activation is one flow of three screens: the shell holds the shared draft and
+// the dashboard preview, and each screen is its own route so every step is
+// deep-linkable and Back is ordinary browser history.
+const onboardingRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/onboarding",
+  beforeLoad: ({ location }) => requireActivationAccess(location),
+  component: OnboardingShell,
+  errorComponent: RouteErrorBoundary,
+});
+
+const onboardingIndexRoute = createRoute({
+  getParentRoute: () => onboardingRoute,
+  path: "/",
+  beforeLoad: () => {
+    throw redirect({ to: "/onboarding/website", replace: true });
+  },
+});
+
+const onboardingWebsiteRoute = createRoute({
+  getParentRoute: () => onboardingRoute,
+  path: "website",
+  component: OnboardingWebsitePage,
+});
+
+const onboardingInstallRoute = createRoute({
+  getParentRoute: () => onboardingRoute,
+  path: "install",
+  component: OnboardingInstallPage,
+});
+
+const onboardingVerifyRoute = createRoute({
+  getParentRoute: () => onboardingRoute,
+  path: "verify",
+  component: OnboardingVerifyPage,
 });
 
 const rootIndexRoute = createRoute({
@@ -214,6 +268,12 @@ const routeTree = rootRoute.addChildren([
   rootIndexRoute,
   projectsRoute,
   adminRoute,
+  onboardingRoute.addChildren([
+    onboardingIndexRoute,
+    onboardingWebsiteRoute,
+    onboardingInstallRoute,
+    onboardingVerifyRoute,
+  ]),
   demoRoute.addChildren([
     demoIndexRoute,
     demoOverviewRoute,

@@ -54,6 +54,8 @@ describe("mirror-template", () => {
           "/demo/*",
           "/projects",
           "/projects/*",
+          "/onboarding",
+          "/onboarding/*",
           "/p/*",
         ],
       });

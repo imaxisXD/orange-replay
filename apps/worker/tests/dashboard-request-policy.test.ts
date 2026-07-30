@@ -187,6 +187,12 @@ describe("dashboard request plans", () => {
       ],
       ["GET", "/session-heads", "session_heads", plannedProject("session_heads", "session_heads")],
       [
+        "PATCH",
+        "",
+        "project",
+        plannedProject("project_rename", "project_rename", { mutationOrigin: true }),
+      ],
+      [
         "GET",
         "/stats",
         "project_stats",
@@ -315,6 +321,8 @@ describe("dashboard request plans", () => {
       ["POST", "/api/v1/projects/project_1/sessions", "sessions_list"],
       ["POST", "/api/v1/projects/project_1/sessions/session_1/live", "live"],
       ["PUT", "/api/v1/projects/project_1/keys/key_1", "project_key"],
+      ["GET", "/api/v1/projects/project_1", "project"],
+      ["DELETE", "/api/v1/projects/project_1", "project"],
       ["HEAD", "/api/v1/projects/project_1/sessions/session_1/manifest", "manifest"],
     ] as const;
 
@@ -390,6 +398,7 @@ describe("dashboard request plans", () => {
       sessions_list: { demoReadable: true, minimumRole: "member" },
       session_heads: { demoReadable: true, minimumRole: "member" },
       session_state: { demoReadable: true, minimumRole: "member" },
+      project_rename: { demoReadable: false, minimumRole: "manager" },
       project_stats: { demoReadable: true, minimumRole: "member" },
       project_live: { demoReadable: true, minimumRole: "member" },
       project_config_read: { demoReadable: false, minimumRole: "member" },

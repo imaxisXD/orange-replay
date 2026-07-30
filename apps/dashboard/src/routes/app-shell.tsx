@@ -41,6 +41,8 @@ const WORKSPACE_WIDTH_ANIMATION = {
 export function AppShell({
   children,
   navigationPathname,
+  projectLabel,
+  rootClassName,
   showAccountAvatar = true,
   workspaceKey,
   workspaceMotion,
@@ -48,6 +50,13 @@ export function AppShell({
 }: {
   children?: ReactNode;
   navigationPathname?: string;
+  /** Overrides the project switcher's label. Activation types a website name
+   *  into the switcher before the rename is saved, so the preview follows the
+   *  field instead of the account response. */
+  projectLabel?: string;
+  /** Replaces root sizing so the shell can be framed inside a fixed-size
+   *  preview stage instead of the viewport. */
+  rootClassName?: string;
   showAccountAvatar?: boolean;
   workspaceKey?: number | string;
   workspaceMotion?: HTMLMotionProps<"div">;
@@ -69,7 +78,7 @@ export function AppShell({
     staleTime: 30_000,
   });
   const account = accountQuery.data;
-  const projectOptions = isDemo
+  const accountProjectOptions = isDemo
     ? [{ id: projectId, label: "Landing page" }]
     : (account?.workspaces.flatMap((workspace) =>
         workspace.projects.map((project) => ({
@@ -78,6 +87,12 @@ export function AppShell({
             account.workspaces.length > 1 ? `${workspace.name} / ${project.name}` : project.name,
         })),
       ) ?? [{ id: projectId, label: `Project ${projectId}` }]);
+  const projectOptions =
+    projectLabel === undefined
+      ? accountProjectOptions
+      : accountProjectOptions.map((project) =>
+          project.id === projectId ? { ...project, label: projectLabel } : project,
+        );
   const activeProject = findAccountProject(account, projectId);
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const selectedSession = useRouterState({
@@ -128,7 +143,7 @@ export function AppShell({
   );
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden text-foreground">
+    <div className={cn("flex h-screen flex-col overflow-hidden text-foreground", rootClassName)}>
       <header className="z-40 shrink-0">
         <ScrollArea orientation="horizontal" viewportClassName="scroll-fade-x">
           <nav className="flex min-w-max items-center gap-3.5 px-4 pt-2.5 pb-4 sm:px-7">
@@ -351,7 +366,7 @@ function TopNavTab({
   const className = cn(
     "relative -mb-px flex w-28 items-center justify-center gap-2 rounded-t-md py-2.75 text-[13px] text-muted-foreground transition-[color,background-color,gap,font-weight] duration-200 sm:py-2.25",
     isActive
-      ? "font-medium text-foreground"
+      ? "text-[14px] font-medium text-foreground"
       : "hover:gap-2.5 hover:bg-secondary/60 hover:font-medium hover:text-foreground",
   );
 

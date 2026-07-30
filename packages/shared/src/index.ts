@@ -4,6 +4,7 @@ export * from "./analytics-privacy.ts";
 export * from "./constants.ts";
 export * from "./insights.ts";
 export * from "./logger.ts";
+export * from "./project-contract.ts";
 export * from "./project-key-contract.ts";
 export * from "./rage.ts";
 export * from "./sampling.ts";

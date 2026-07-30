@@ -19,6 +19,7 @@ export const liveProjectId = "api_live_project";
 export const installProjectId = "api_install_project";
 export const configProjectId = "api_config_project";
 export const configRaceProjectId = "api_config_race_project";
+export const renameProjectId = "api_rename_project";
 export const keysProjectId = "api_keys_project";
 export const keyLimitProjectId = "api_key_limit_project";
 export const ticketProjectId = "api_ticket_project";
@@ -36,6 +37,7 @@ export const privateProjectIds = [
   installProjectId,
   configProjectId,
   configRaceProjectId,
+  renameProjectId,
   keysProjectId,
   keyLimitProjectId,
   ticketProjectId,

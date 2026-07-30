@@ -25,6 +25,7 @@ import {
   getProjectKeys,
   getProjectStats,
   listLiveSessions,
+  patchProjectName,
   putProjectConfig,
 } from "./project-routes.ts";
 import { getManifest, getSegment, listSessions } from "./session-routes.ts";
@@ -133,6 +134,10 @@ async function executeProjectRoute(
     case "project_config_write": {
       const { projectId } = grantedIds(route.params);
       return putProjectConfig(request, env, projectId, wideEvent);
+    }
+    case "project_rename": {
+      const { projectId } = grantedIds(route.params);
+      return patchProjectName(request, env, projectId, wideEvent);
     }
     case "install_status": {
       const { projectId } = grantedIds(route.params);

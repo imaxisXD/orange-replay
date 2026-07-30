@@ -1,0 +1,134 @@
+/* Activation surfaces that Tailwind cannot express: the preview frame's own
+ * canvas, and the three staged keyframe sequences (skeleton pulse, waiting
+ * signal, invalid-URL shake). Interactive state changes stay as transitions in
+ * the components; keyframes are only used for motion that runs on its own. */
+
+/* The preview frame clips the dashboard, so it has to paint the app canvas
+   itself — the body's dotted grid cannot show through an opaque child. The
+   inset hairlines are structure, not fake elevation: they are the only thing
+   separating the frame's canvas from the pane's identical canvas behind it. */
+.onboarding-canvas {
+  background-color: var(--background);
+  background-image: url("../../assets/dashboard-grid.svg?opacity=5");
+  background-size: 48px 48px;
+  box-shadow:
+    inset 1px 0 0 color-mix(in oklab, var(--border) 70%, transparent),
+    inset 0 1px 0 color-mix(in oklab, var(--border) 70%, transparent),
+    0 22px 64px oklch(0 0 0 / 0.35);
+  transition: box-shadow 620ms ease-out;
+}
+
+/* Act 2: the recorder is connected. The frame lifts (transform, owned by the
+   component) and its shadow deepens to match the new height. The inset
+   hairlines are restated because a box-shadow replaces the whole property. */
+.onboarding-canvas[data-live="true"] {
+  box-shadow:
+    inset 1px 0 0 color-mix(in oklab, var(--border) 70%, transparent),
+    inset 0 1px 0 color-mix(in oklab, var(--border) 70%, transparent),
+    0 34px 84px oklch(0 0 0 / 0.5);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-canvas {
+    transition: none;
+  }
+}
+
+/* While the website field is being typed, the camera is zoomed on the project
+   switcher. Lifting the switcher onto its own surface is what makes the zoom
+   read as "this control is about to say your website's name" instead of a
+   plain magnification. The trigger's aria-label is the shell's stable hook. */
+.onboarding-canvas [aria-label="Project"] {
+  transition:
+    background-color 180ms ease,
+    box-shadow 180ms ease,
+    color 180ms ease;
+}
+
+.onboarding-canvas[data-camera="project"] [aria-label="Project"] {
+  background: color-mix(in oklab, var(--surface-4) 88%, transparent);
+  color: var(--foreground);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--border) 82%, transparent),
+    0 10px 28px oklch(0 0 0 / 0.22);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-canvas [aria-label="Project"] {
+    transition: none;
+  }
+}
+
+/* Loading placeholders inside the preview. The preview shows the real shell
+   with no data behind it, so every value reads as pending rather than as a
+   number the project has not earned yet. */
+.onboarding-skeleton {
+  display: block;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--muted-foreground) 20%, var(--card));
+  animation: onboarding-skeleton 1.9s linear infinite;
+}
+
+@keyframes onboarding-skeleton {
+  0%,
+  100% {
+    opacity: 0.48;
+  }
+
+  50% {
+    opacity: 0.78;
+  }
+}
+
+/* Waiting signal on the verification step. The pulse is the only thing moving
+   while the poll runs, so it carries the "still working" read; the label and
+   colour carry it statically. */
+.onboarding-signal {
+  animation: onboarding-signal 900ms ease-in-out infinite alternate;
+}
+
+@keyframes onboarding-signal {
+  to {
+    opacity: 0.45;
+    scale: 0.8;
+  }
+}
+
+/* Invalid website URL. Amplitude decays across the segments so the shake dies
+   out instead of ringing evenly, and each segment decelerates into its
+   reversal — this codebase's motion language is bounce-free, so no segment
+   overshoots. Kept orthogonal from the error colouring so it can replay
+   without flickering the whole field. */
+.onboarding-shake {
+  animation: onboarding-shake 320ms ease-in-out both;
+}
+
+@keyframes onboarding-shake {
+  0% {
+    translate: 0;
+  }
+
+  20% {
+    translate: -8px 0;
+  }
+
+  45% {
+    translate: 6px 0;
+  }
+
+  70% {
+    translate: -3px 0;
+  }
+
+  100% {
+    translate: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-skeleton,
+  .onboarding-signal,
+  .onboarding-shake {
+    animation: none;
+  }
+}

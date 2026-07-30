@@ -156,6 +156,8 @@
           "/demo/*",
           "/projects",
           "/projects/*",
+          "/onboarding",
+          "/onboarding/*",
           "/p/*",
         ],
       },
