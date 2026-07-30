@@ -81,25 +81,25 @@
   }
 }
 
-/* Loading placeholders inside the preview. The preview shows the real shell
-   with no data behind it, so every value reads as pending rather than as a
-   number the project has not earned yet. */
+/* Loading placeholders inside the preview. The preview shows the real shell with
+   nothing behind it, so the whole page body is placeholders: showing no copy
+   claims nothing, where earlier versions rendered real Overview labels and had
+   to be policed against drifting from the product.
+
+   Deliberately static. A perpetual pulse competed with the camera move for
+   attention, and the "still waiting" read is carried in words by the verify
+   step's status card, which is where it belongs.
+
+   `--surface-8` is the lightest surface step in the theme, so the blocks read as
+   a loader against the `--card` they sit on without inventing a colour.
+
+   3px, not a pill. A pill needs radius >= half the height, so the thin bars are
+   10px rather than 8 — at 8px tall a 3px radius is only 1px off a pill and the
+   flat sides never show. */
 .onboarding-skeleton {
   display: block;
-  border-radius: 999px;
-  background: color-mix(in oklab, var(--muted-foreground) 20%, var(--card));
-  animation: onboarding-skeleton 1.9s linear infinite;
-}
-
-@keyframes onboarding-skeleton {
-  0%,
-  100% {
-    opacity: 0.48;
-  }
-
-  50% {
-    opacity: 0.78;
-  }
+  border-radius: 3px;
+  background: var(--surface-8);
 }
 
 /* Waiting signal on the verification step. The pulse is the only thing moving
@@ -148,7 +148,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .onboarding-skeleton,
+  /* The skeletons are not listed here: they no longer animate at all. */
   .onboarding-signal,
   .onboarding-shake {
     animation: none;

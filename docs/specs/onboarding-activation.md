@@ -162,9 +162,26 @@ optional `AppShell` props exist only for it: `projectLabel`, so the switcher
 follows the field before the rename is saved, and `rootClassName`, so the shell
 can be framed by the stage instead of the viewport.
 
-Only the page body is stand-in content: the Overview page's real metric labels
-with pending values, so the preview promises exactly what the dashboard
-delivers once the first session lands.
+Only the page body is stand-in content, and it carries **no copy at all**. The
+tab row keeps its real labels because those name where the visitor is about to
+go, and the header keeps the switcher because that is the camera's subject;
+everything below is placeholders.
+
+That is the third answer to the same question. Rendering invented labels promised
+things the product does not ship. Rendering the Overview page's real labels
+worked but meant policing them against the product forever. Rendering none
+claims nothing, so the honesty problem goes away by construction, and
+`onboarding-preview-copy.test.ts` now asserts the body reproduces no product
+copy rather than that it matches it.
+
+The placeholders are deliberately static: a perpetual pulse competed with the
+camera move, and "still waiting" is carried in words by the verify step's status
+card, which is where it belongs. They use `--surface-8`, the theme's lightest
+surface step, so they read as a loader against the card without inventing a
+colour, at a 3px radius. The thin bars are 10px rather than 8 because a pill
+needs a radius of half the height, so at 8px a 3px radius never shows a flat
+side. Their widths are proportional to the real labels they replace, which is
+what keeps the metric band from reading as four identical grey rectangles.
 
 While the website field is being named, the camera pushes in on the project
 switcher and the switcher lifts onto its own surface. The camera is gated to
@@ -190,6 +207,18 @@ top-left corner at `10%` of the layer — and that is where its
 `transform-origin` has to sit, because the stage scales from that same corner.
 If the two planes do not share a vanishing point the background drifts
 diagonally instead of receding. Change one number and the other must follow.
+
+The far plane also **racks out of focus**, 0 → 1px, because closer focus means a
+shallower depth of field. That is how a camera directs attention inside a frame.
+
+A rejected alternative is worth recording: giving the top nav row a coefficient
+_above_ 1 so the subject would separate from the body. It is wrong twice over.
+The header sits flat on the canvas and the workspace card is a raised panel a few
+pixels above it, so the two are effectively coplanar and any differential between
+them is invented depth. Worse, its visible signature is a nav bar growing faster
+than the page — which is the exact artifact this camera pass began by fixing. Had
+the elevation been followed honestly, the raised card is the _nearer_ surface, so
+the nav should grow more slowly and the subject would recede.
 
 ### Timing: a push and a pull-out are not the same move
 

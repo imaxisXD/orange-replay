@@ -58,7 +58,10 @@ export function OnboardingPreview() {
           move read as the camera entering the room rather than the room
           magnifying. */}
       <m.div
-        animate={{ scale: canvasParallaxScale(camera.scale) }}
+        animate={{
+          filter: `blur(${isNaming ? CAMERA.canvasBlur.focus : CAMERA.canvasBlur.rest}px)`,
+          scale: canvasParallaxScale(camera.scale),
+        }}
         className="onboarding-canvas-grid"
         initial={false}
         transition={cameraTransition}
@@ -85,51 +88,50 @@ export function OnboardingPreview() {
   );
 }
 
-/** The Overview page's real shape with every value still pending. */
+/**
+ * The Overview page's shape with no copy in it.
+ *
+ * The tab row keeps its real labels because those name where the visitor is
+ * about to go, and the header keeps the switcher because that is the camera's
+ * subject. Everything below is placeholders. Rendering the real metric labels
+ * meant policing them against the product forever, and inventing friendlier ones
+ * promised things it does not ship; showing none claims nothing.
+ *
+ * The widths still echo the real labels they stand in for, so the page keeps the
+ * rhythm of the dashboard rather than looking like uniform grey bars.
+ */
 function PendingOverview() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-[18px] font-semibold leading-[1.1] tracking-[-0.015em]">Overview</h1>
-          <p className="mt-1 text-[12px] leading-normal text-muted-foreground">
-            See completed sessions and how people used your product.
-          </p>
+        <div className="flex flex-col gap-2">
+          <Bar className="w-24" height={14} />
+          <Bar className="w-62" height={10} />
         </div>
         <div className="flex h-8.5 w-40 shrink-0 items-center rounded-lg border border-border bg-card px-3">
-          <Bar className="w-20" height={8} />
+          <Bar className="w-20" height={10} />
         </div>
       </div>
 
       <section className="lit overview-lit grid overflow-hidden rounded-lg sm:grid-cols-2 lg:grid-cols-4">
         {KEY_METRICS.map((metric) => (
-          <PendingMetric detail={metric.detail} key={metric.label} label={metric.label} />
+          <PendingMetric detail={metric.detail} key={metric.key} label={metric.label} />
         ))}
       </section>
 
       <section className="lit overview-lit overflow-hidden rounded-lg">
-        <div className="border-b border-dashed border-dash px-4 py-3.5">
-          <h2 className="text-[13px] font-semibold leading-tight text-foreground">
-            Session behavior
-          </h2>
-          <p className="mt-0.5 text-[11.5px] text-muted-foreground">{BEHAVIOR_COVERAGE}</p>
-        </div>
+        <PendingCardHeading detail={186} title={112} />
         <div className="grid sm:grid-cols-2 lg:grid-cols-4">
           {BEHAVIOR_METRICS.map((metric) => (
-            <PendingMetric detail={metric.detail} key={metric.label} label={metric.label} />
+            <PendingMetric detail={metric.detail} key={metric.key} label={metric.label} />
           ))}
         </div>
       </section>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         {BREAKDOWNS.map((breakdown) => (
-          <section className="lit overview-lit overflow-hidden rounded-lg" key={breakdown.title}>
-            <div className="border-b border-dashed border-dash px-4 py-3.5">
-              <h2 className="text-[13px] font-semibold leading-tight text-foreground">
-                {breakdown.title}
-              </h2>
-              <p className="mt-0.5 text-[11.5px] text-muted-foreground">{breakdown.description}</p>
-            </div>
+          <section className="lit overview-lit overflow-hidden rounded-lg" key={breakdown.key}>
+            <PendingCardHeading detail={breakdown.detail} title={breakdown.title} />
             <div className="px-4">
               {[0, 1, 2].map((row) => (
                 <div
@@ -137,8 +139,8 @@ function PendingOverview() {
                   key={row}
                 >
                   <Bar className="size-5.5 shrink-0 rounded-md" />
-                  <Bar className="w-30" height={8} />
-                  <Bar className="ms-auto w-9.5" height={8} />
+                  <Bar className="w-30" height={10} />
+                  <Bar className="ms-auto w-9.5" height={10} />
                 </div>
               ))}
             </div>
@@ -149,50 +151,66 @@ function PendingOverview() {
   );
 }
 
-function PendingMetric({ detail, label }: { detail: string; label: string }) {
+function PendingCardHeading({ detail, title }: { detail: number; title: number }) {
   return (
-    <div className="border-b border-dashed border-dash px-4.5 py-4 sm:border-r lg:border-b-0 lg:last:border-r-0">
-      <span className="block text-[11.5px] text-muted-foreground">{label}</span>
-      <Bar className="mt-1.5 w-16 rounded-[5px]" height={22} />
-      <span className="mt-1.5 block text-[11.5px] text-muted-foreground">{detail}</span>
+    <div className="flex flex-col gap-2 border-b border-dashed border-dash px-4 py-3.5">
+      <Bar height={11} width={title} />
+      <Bar height={10} width={detail} />
     </div>
   );
 }
 
-function Bar({ className, height }: { className?: string; height?: number }) {
+function PendingMetric({ detail, label }: { detail: number; label: number }) {
+  return (
+    <div className="border-b border-dashed border-dash px-4.5 py-4 sm:border-r lg:border-b-0 lg:last:border-r-0">
+      <Bar height={10} width={label} />
+      <Bar className="mt-2.5 w-16" height={22} />
+      <Bar className="mt-2.5" height={10} width={detail} />
+    </div>
+  );
+}
+
+function Bar({
+  className,
+  height,
+  width,
+}: {
+  className?: string;
+  height?: number;
+  width?: number;
+}) {
   return (
     <span
       className={`onboarding-skeleton ${className ?? ""}`}
-      style={height === undefined ? undefined : { height }}
+      style={{
+        ...(height === undefined ? {} : { height }),
+        ...(width === undefined ? {} : { maxWidth: "100%", width }),
+      }}
     />
   );
 }
 
-/* The Overview page's own labels, copied verbatim from `overview-content.tsx`
- * and `overview-breakdowns.tsx`, including the wording those files use while a
- * metric has no data yet. The preview's whole claim is that it is the dashboard
- * the visitor is about to get, so inventing friendlier copy here would promise
- * something the product does not ship. `onboarding-preview-copy.test.ts` fails
- * if any string below stops matching the real page. */
+/* Placeholder geometry, in px, standing in for the Overview page's own labels.
+ * `key` names which metric each row replaces so the layout stays traceable, and
+ * is never rendered. The widths are proportional to the real strings, which is
+ * what keeps the band from reading as four identical grey bars. */
 const KEY_METRICS = [
-  { label: "Sessions", detail: "Completed in this time range" },
-  { label: "Average session length", detail: "Waiting for session data" },
-  { label: "Pages per session", detail: "Waiting for page data" },
-  { label: "Live now", detail: "Active in the last minute" },
+  { key: "sessions", label: 52, detail: 132 },
+  { key: "average-session-length", label: 128, detail: 118 },
+  { key: "pages-per-session", label: 104, detail: 104 },
+  { key: "live-now", label: 48, detail: 122 },
 ] as const;
 
 const BEHAVIOR_METRICS = [
-  { label: "Rage clicks", detail: "Sessions with repeated clicks in one spot" },
-  { label: "Quick returns", detail: "Returned to the previous page within 10 seconds" },
-  { label: "Interaction time", detail: "Estimated time spent clicking, typing, or scrolling" },
-  { label: "Scroll depth", detail: "Average furthest point reached" },
+  { key: "rage-clicks", label: 64, detail: 168 },
+  { key: "quick-returns", label: 78, detail: 176 },
+  { key: "interaction-time", label: 92, detail: 172 },
+  { key: "scroll-depth", label: 70, detail: 148 },
 ] as const;
 
-const BEHAVIOR_COVERAGE = "Waiting for behavior data";
-
 const BREAKDOWNS = [
-  { title: "Locations", description: "Where people used your product" },
-  { title: "Devices", description: "What people used your product on" },
-  { title: "Entry pages", description: "Where people landed first" },
-  { title: "Browser errors", description: "What broke while people were there" },
+  { key: "locations", title: 62, detail: 168 },
+  { key: "devices", title: 50, detail: 174 },
+  { key: "entry-pages", title: 74, detail: 142 },
+  { key: "browser-errors", title: 88, detail: 190 },
 ] as const;

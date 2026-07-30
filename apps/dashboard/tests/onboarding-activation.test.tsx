@@ -41,6 +41,7 @@ import {
   ACT,
   CAMERA,
   PREVIEW_FRAME,
+  REVEAL,
   VERIFY,
   cameraStop,
   canvasParallaxScale,
@@ -598,6 +599,18 @@ describe("activation camera depth and timing", () => {
       CAMERA.parallax.canvas,
       6,
     );
+  });
+
+  it("racks focus onto the near plane as the camera closes in", () => {
+    // Closer focus means a shallower depth of field, so the far plane softens.
+    // This replaced the rejected idea of scaling the nav row faster than the
+    // page body, whose visible signature was the nav bar growing out of
+    // proportion — the artifact this whole camera pass started from.
+    expect(CAMERA.canvasBlur.rest).toBe(0);
+    expect(CAMERA.canvasBlur.focus).toBeGreaterThan(0);
+    // Quieter than the step reveal (3px) and IconSwap (4px): it is a depth cue
+    // on a 5%-opacity background, not an effect.
+    expect(CAMERA.canvasBlur.focus).toBeLessThan(REVEAL.blur);
   });
 
   it("gives the pull-out more time than the push", () => {
