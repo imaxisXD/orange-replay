@@ -208,11 +208,22 @@ top-left corner at `10%` of the layer — and that is where its
 If the two planes do not share a vanishing point the background drifts
 diagonally instead of receding. Change one number and the other must follow.
 
-The far plane also **racks out of focus**, 0 → 1px, because closer focus means a
-shallower depth of field. That is how a camera directs attention inside a frame.
+### Two depth devices this frame cannot afford
 
-A rejected alternative is worth recording: giving the top nav row a coefficient
-_above_ 1 so the subject would separate from the body. It is wrong twice over.
+Both were tried or proposed and both are recorded here so they are not
+re-proposed. They fail for the same reason: depth of field and differential
+scale are both consequences of distance, and this frame has almost none to spend.
+
+**Rack focus.** A 1px blur on the far plane shipped briefly and was reverted for
+being invisible. The dotted canvas is 1px dots at 5% opacity showing across
+roughly 5% of the frame, the rest hidden behind an opaque workspace card. A 1px
+Gaussian spreads a single-pixel dot over about a 3×3 area and cuts its peak
+intensity around ninefold, so blurring it does not soften anything — it erases
+something that was never visible. Defocusing the card instead, while keeping the
+header sharp, would invent depth between two surfaces a few pixels apart.
+
+**A nav row plane.** Giving the top nav row a coefficient _above_ 1 so the
+subject would separate from the body. It is wrong twice over.
 The header sits flat on the canvas and the workspace card is a raised panel a few
 pixels above it, so the two are effectively coplanar and any differential between
 them is invented depth. Worse, its visible signature is a nav bar growing faster

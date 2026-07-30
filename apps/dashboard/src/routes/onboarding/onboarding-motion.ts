@@ -58,8 +58,6 @@
  *      0ms   the dotted canvas travels at 0.35 of that rate, so
  *            the planes separate and the camera reads as moving
  *            into the room rather than the room magnifying
- *      0ms   the canvas also racks out of focus, 0 → 1px blur:
- *            closer focus means a shallower depth of field
  *      0ms   the switcher lifts onto its own surface
  *    520ms   push has landed
  *   blur     release takes 760ms, not 520: a pull-out is a reveal
@@ -204,16 +202,14 @@ export const CAMERA = {
     /** The dotted grid behind everything. The dashboard itself is the nominal 1. */
     canvas: 0.35,
   },
-  /**
-   * Rack focus. Closer focus means a shallower depth of field, so the far plane
-   * softens as the camera comes in. This is how a camera directs attention
-   * inside a frame; differential scale between coplanar surfaces is not, and
-   * would have read as the nav bar growing faster than the page.
-   *
-   * 1px, at the quiet end of this flow's blur vocabulary (steps reveal at 3px,
-   * IconSwap at 4px), on a background already sitting at 5% opacity.
-   */
-  canvasBlur: { rest: 0, focus: 1 },
+  /* No rack focus here, and it is not an omission. Depth of field needs
+   * distance, and this frame has none to spend: the only plane genuinely far
+   * enough to defocus is the dotted canvas, which is 1px dots at 5% opacity
+   * showing across about 5% of the frame, so blurring it erases something that
+   * was never visible. The header and the workspace card are separated by a few
+   * pixels of shadow, so defocusing one and not the other would invent depth —
+   * the same reason the nav row does not get its own parallax coefficient.
+   * A 1px blur shipped here briefly and was reverted for being invisible. */
   /**
    * A push-in is decisive and a pull-out is a reveal, so they are not the same
    * move played backwards. Film convention gives the pull-out more time; equal

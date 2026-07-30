@@ -58,10 +58,7 @@ export function OnboardingPreview() {
           move read as the camera entering the room rather than the room
           magnifying. */}
       <m.div
-        animate={{
-          filter: `blur(${isNaming ? CAMERA.canvasBlur.focus : CAMERA.canvasBlur.rest}px)`,
-          scale: canvasParallaxScale(camera.scale),
-        }}
+        animate={{ scale: canvasParallaxScale(camera.scale) }}
         className="onboarding-canvas-grid"
         initial={false}
         transition={cameraTransition}
