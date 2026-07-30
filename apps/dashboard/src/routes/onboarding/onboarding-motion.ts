@@ -50,11 +50,13 @@
  *    360ms   progress rail reaches its new position
  *
  * ACT 0 → IDENTITY — typing on step 1
- *      0ms   first character pushes the camera in on the whole
- *            dashboard (scale 0.78 → 1.01) about the frame's
- *            top-left corner. Nothing translates, so the brand,
- *            nav, heading and metric band all hold position and
- *            simply get closer: a zoom, not a slide
+ *      0ms   first character pushes the camera in toward the
+ *            project switcher (scale 0.78 → 1.18, biased 24px
+ *            left). Bounded by the brand mark, which must stay
+ *            inside the frame
+ *      0ms   the switcher takes the system's amber focus ring and
+ *            bloom — the same ring the website field the visitor
+ *            is typing into is wearing right then
  *      0ms   the dotted canvas travels at 0.35 of that rate, so
  *            the planes separate and the camera reads as moving
  *            into the room rather than the room magnifying
@@ -165,28 +167,41 @@ export const CAMERA = {
    * `onboarding-camera` test fails if the header's layout moves it.
    */
   target: { x: 264, y: 25 },
+  /**
+   * The brand mark's left edge in stage coordinates. The hard constraint on how
+   * far the camera can bias toward the switcher: the mark must stay inside the
+   * frame, because cropping the logo is what sank an earlier framing.
+   */
+  brandX: 30,
   overview: {
     scale: 0.78, // the whole dashboard at rest, flush to the frame's top-left
+    x: 0,
+    y: 0,
   },
   projectFocus: {
     /**
-     * Derived from the reference framing, measured two ways off its own
-     * geometry so the retina factor cancels: the KPI band's height and its
-     * four-column pitch both put it at 2.02x the unscaled stage in a 2x
-     * capture, i.e. 1.01 CSS. 1.42 was far too deep — the dashboard stopped
-     * being legible as a dashboard and became a wall of chrome.
+     * 1.01 came from measuring a reference framing and was the right correction
+     * to 1.42, which was so deep the dashboard stopped reading as a dashboard.
+     * 1.18 pushes further toward the switcher while still showing the metric
+     * band and the behaviour card: about 60% of the dashboard's width against
+     * 76% at 1.01 and only 46% at 1.42.
      */
-    scale: 1.01,
+    scale: 1.18,
+    /**
+     * A small leftward bias so the push reads as going *toward* the switcher
+     * rather than merely enlarging everything from the corner. It cannot go much
+     * further: the subject sits 264px into the stage and the brand only 30px, so
+     * biasing enough to hold the switcher's column would put the brand outside
+     * the frame. At this offset the mark still clears the edge by ~11px.
+     */
+    x: -24,
+    /**
+     * Zero, and it stays zero. `y: 120` once shoved the header into mid-frame
+     * behind a band of empty canvas, which read as the nav bar re-laying itself
+     * out rather than as a camera move.
+     */
+    y: 0,
   },
-  /**
-   * Both stops sit flush at the frame's top-left, so the corner is the fixed
-   * point and the zoom is a plain scale about it. Two earlier attempts added a
-   * translate and both were wrong: `y: 120` shoved the header into mid-frame
-   * behind a band of empty canvas, and cancelling the subject's drift with
-   * `x: -169` cropped the brand. At this scale no translate is needed — the
-   * subject drifts under 60px, which reads as a zoom rather than a slide.
-   */
-  offset: { x: 0, y: 0 },
   /**
    * How much of the stage's scale change each depth plane takes, as a fraction
    * of the nominal delta. This is what separates a dolly from a zoom: a zoom
@@ -253,10 +268,10 @@ export const PREVIEW_FRAME = {
 } as const;
 
 /**
- * Where the stage sits. The frame's top-left corner is the fixed point at both
- * stops, so the zoom is a plain scale about that corner: the brand, the nav, the
- * page heading and the metric band all stay put and simply get closer. Nothing
- * is cropped and nothing slides.
+ * Where the stage sits. The push scales about the frame's corner and biases
+ * slightly toward the switcher, so it reads as going somewhere rather than just
+ * getting bigger. The bias is bounded by `brandX`: the logo must stay inside the
+ * frame.
  *
  * Naming is a transient override rather than a rung on the act ladder: the shell
  * only reports it on step 1, and gating it on `ACT.identity` as well would take
@@ -266,12 +281,8 @@ export const PREVIEW_FRAME = {
  * is what makes the left pane read as the thing to attend to.
  */
 export function cameraStop(isNaming: boolean): { scale: number; x: number; y: number } {
-  const { x, y } = CAMERA.offset;
-  return {
-    scale: isNaming ? CAMERA.projectFocus.scale : CAMERA.overview.scale,
-    x,
-    y,
-  };
+  const stop = isNaming ? CAMERA.projectFocus : CAMERA.overview;
+  return { scale: stop.scale, x: stop.x, y: stop.y };
 }
 
 /* Verification signal and success check on step 3. */

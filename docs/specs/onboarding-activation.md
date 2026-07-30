@@ -243,29 +243,51 @@ led left to right. Two moves running at once in two places give it nothing to
 follow. The CSS shadow transition carries the same 180ms delay so the shadow
 travels with the lift instead of ahead of it.
 
-### The camera: a shallow zoom about the frame's corner
+### The camera: a push toward the switcher, bounded by the brand
 
-Both stops sit flush at the frame's top-left, so that corner is the fixed point
-and the zoom is a plain scale about it: `0.78 → 1.01`, no translate. The brand,
-the nav, the page heading and the metric band all hold position and simply get
-closer. Nothing is cropped and nothing slides.
+Rest sits flush at the frame's top-left. The push goes to `1.18` with a 24px
+leftward bias, so it reads as travelling _toward_ the switcher rather than
+enlarging everything from the corner.
 
-Two earlier attempts added a translate, and both were wrong in different ways.
-`y: 120` pushed the header into mid-frame behind a band of empty canvas, so the
-nav read as re-laying itself out rather than as a camera moving. Cancelling the
-subject's drift with `x: -169` held the switcher's column exactly, but at
-`1.42` it cropped the brand and the dashboard stopped reading as a dashboard —
-it became a wall of chrome.
+The bias is capped by geometry, and the cap is the interesting part. The subject
+sits 264px into the stage; the brand mark only 30px. Biasing far enough to hold
+the switcher's screen column exactly would put the brand outside the frame — and
+that is precisely the framing that was rejected earlier. `CAMERA.brandX` records
+the constraint, and a test asserts `brandX * scale + x > 0` at both stops, so the
+bound is encoded rather than remembered. At the shipped values the mark clears
+the frame edge by about 11px, measured at 9px in the browser.
 
-The scale comes from measuring a reference framing two ways off its own
-geometry, so the retina factor cancels: the KPI band's height and its
-four-column pitch both put it at `2.02x` the unscaled stage in a 2x capture,
-i.e. `1.01` CSS.
+Scale history, because it took three tries. `1.42` filled the frame with chrome
+and stopped reading as a dashboard (about 46% of its width visible). `1.01` came
+from measuring a reference framing two ways off its own geometry so the retina
+factor cancelled — the KPI band's height and its four-column pitch both gave
+`2.02x` the unscaled stage in a 2x capture — and was the right correction, but
+too timid once a highlight made a deeper push legible. `1.18` shows about 60% of
+the width, keeping the metric band and behaviour card in frame.
 
-The camera tests assert the invariants rather than the literal numbers: the
-corner is fixed at both stops, neither stop has a negative offset (which would
-crop the brand or the header), the focus scale stays under `1.1`, and the
-subject's drift stays well under the 169px swing that read as a slide.
+`y` is zero at both stops and stays there: `y: 120` once pushed the header into
+mid-frame behind a band of empty canvas, which read as the nav re-laying itself
+out rather than as a camera move.
+
+The tests assert invariants, not literals: rest is flush, the push is deeper and
+biased left, the brand stays in frame, `y` never lifts the dashboard's top edge,
+the scale stays under `1.3`, and the subject's drift stays under 110px — a bound
+against the original 169px swing rather than an ideal, since some drift is
+unavoidable once the bias is capped.
+
+### The highlight is the system's own focus ring
+
+While the website is being named, the switcher takes a 1px amber ring and an
+amber bloom. Neither is invented: `--ring` and `--focus-ring` both resolve to
+amber, `InputField` shows `ring-amber` on focus and `NumberStepper` on
+focus-within, so amber at 1px already means "this control has attention"
+throughout the product. The bloom is `.demo-scan-dot`'s
+`0 0 8px var(--amber-shadow)`, opened to 14px because this control is far larger
+than a 5px dot and has to read across the pane.
+
+The point is the pairing. The website field the visitor is typing into is wearing
+that exact ring at that exact moment, and so is the switcher that is about to say
+what they typed — which is what connects the two halves of the screen.
 
 ### Deliberate deviation from the lab
 

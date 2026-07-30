@@ -541,41 +541,46 @@ describe("activation story acts", () => {
 });
 
 describe("activation preview camera", () => {
-  it("zooms about the frame's top-left corner, translating nothing", () => {
+  it("rests flush at the frame's corner and pushes in toward the switcher", () => {
     const rest = cameraStop(false);
     const focus = cameraStop(true);
 
-    // The corner is the fixed point at both stops. Two earlier attempts added a
-    // translate: `y: 120` shoved the header into mid-frame behind empty canvas,
-    // and `x: -169` cancelled the subject's drift but cropped the brand.
     expect(rest).toEqual({ scale: CAMERA.overview.scale, x: 0, y: 0 });
-    expect(focus).toEqual({ scale: CAMERA.projectFocus.scale, x: 0, y: 0 });
     expect(focus.scale).toBeGreaterThan(rest.scale);
+    // Biased left, so the push reads as going toward the subject rather than
+    // enlarging everything from the corner.
+    expect(focus.x).toBeLessThan(0);
   });
 
-  it("keeps the zoom shallow enough that the dashboard stays a dashboard", () => {
-    // Measured off the reference framing two ways (KPI band height, and its
-    // four-column pitch): 1.01 CSS. At 1.42 the chrome filled the frame and the
-    // page stopped reading as a dashboard.
-    expect(cameraStop(true).scale).toBeCloseTo(1.01, 2);
-    expect(cameraStop(true).scale).toBeLessThan(1.1);
-  });
-
-  it("never crops the dashboard's leading edge at either stop", () => {
-    // The brand mark sits ~30px into the stage. A negative x or y would put the
-    // brand or the header outside the frame.
+  it("never lets the brand mark leave the frame", () => {
+    // The hard bound on the bias. An earlier framing cancelled the subject's
+    // drift exactly and cropped the logo, which read as a broken screenshot.
     for (const stop of [cameraStop(false), cameraStop(true)]) {
-      expect(stop.x).toBeGreaterThanOrEqual(0);
-      expect(stop.y).toBeGreaterThanOrEqual(0);
+      const brandLeftEdge = CAMERA.brandX * stop.scale + stop.x;
+      expect(brandLeftEdge).toBeGreaterThan(0);
     }
   });
 
+  it("never lifts the dashboard's top edge above the frame", () => {
+    // `y: 120` once pushed the header into mid-frame behind empty canvas.
+    for (const stop of [cameraStop(false), cameraStop(true)]) {
+      expect(stop.y).toBe(0);
+    }
+  });
+
+  it("keeps the zoom shallow enough that the dashboard stays a dashboard", () => {
+    // 1.42 filled the frame with chrome and stopped reading as a dashboard;
+    // the metric band and behaviour card have to survive the push.
+    expect(cameraStop(true).scale).toBeLessThan(1.3);
+  });
+
   it("holds the subject's drift well under the swing that read as a slide", () => {
-    // The original framing moved the switcher 169px right. Anything near that
-    // reads as the nav re-laying itself out rather than as a camera move.
+    // The original framing moved the switcher 169px right, which read as the nav
+    // re-laying itself out. This is a bound against that, not an ideal: some
+    // drift is unavoidable once the bias is capped by the brand.
     const column = (stop: { scale: number; x: number }) => stop.scale * CAMERA.target.x + stop.x;
     const drift = Math.abs(column(cameraStop(true)) - column(cameraStop(false)));
-    expect(drift).toBeLessThan(70);
+    expect(drift).toBeLessThan(110);
   });
 });
 

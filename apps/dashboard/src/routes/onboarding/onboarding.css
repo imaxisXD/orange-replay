@@ -67,11 +67,23 @@
     color 180ms ease;
 }
 
+/* The highlight is the design system's own attention signal, not a new one. A
+   1px amber ring is exactly what `InputField` shows on focus and what
+   `NumberStepper` shows on focus-within, and `--ring` / `--focus-ring` both
+   resolve to amber — so amber at 1px means "this control has attention"
+   everywhere in the product.
+
+   Using it here links the two halves of the screen: the website field the
+   visitor is typing into wears this ring, and so does the switcher that is about
+   to say what they typed. The bloom is `.demo-scan-dot`'s
+   `0 0 8px var(--amber-shadow)`, opened up because this control is far larger
+   than a 5px dot and has to read across the pane. */
 .onboarding-canvas[data-camera="project"] [aria-label="Project"] {
   background: color-mix(in oklab, var(--surface-4) 88%, transparent);
   color: var(--foreground);
   box-shadow:
-    inset 0 0 0 1px color-mix(in oklab, var(--border) 82%, transparent),
+    inset 0 0 0 1px var(--amber),
+    0 0 14px var(--amber-shadow),
     0 10px 28px oklch(0 0 0 / 0.22);
 }
 
