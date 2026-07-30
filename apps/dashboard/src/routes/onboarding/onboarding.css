@@ -9,13 +9,35 @@
    separating the frame's canvas from the pane's identical canvas behind it. */
 .onboarding-canvas {
   background-color: var(--background);
-  background-image: url("../../assets/dashboard-grid.svg?opacity=5");
-  background-size: 48px 48px;
   box-shadow:
     inset 1px 0 0 color-mix(in oklab, var(--border) 70%, transparent),
     inset 0 1px 0 color-mix(in oklab, var(--border) 70%, transparent),
     0 22px 64px oklch(0 0 0 / 0.35);
-  transition: box-shadow 620ms ease-out;
+  /* Delay matches PREVIEW_FRAME.liveDelay so the deepening shadow travels with
+     the lift rather than ahead of it. */
+  transition: box-shadow 620ms ease-out 180ms;
+}
+
+/* The dotted canvas as its own depth plane, so the camera can move it at a
+   fraction of the dashboard's rate. It lives on a transformed layer rather than
+   the frame's background-size because transforms are GPU-composited; the frame
+   itself never scales, which is why the grid used to ignore the camera
+   completely and the dashboard appeared to slide over glass.
+
+   Inset past the frame on all sides so scaling up cannot expose an edge.
+
+   The origin has to land on the frame's top-left corner, which is where the
+   stage scales from: both planes must share one vanishing point or the
+   background drifts diagonally instead of receding. A -12.5% inset makes the
+   layer 125% of the frame, so the frame's corner sits at 12.5/125 = 10% of the
+   layer. Change one number and the other has to follow. */
+.onboarding-canvas-grid {
+  position: absolute;
+  inset: -12.5%;
+  background-image: url("../../assets/dashboard-grid.svg?opacity=5");
+  background-size: 48px 48px;
+  transform-origin: 10% 10%;
+  pointer-events: none;
 }
 
 /* Act 2: the recorder is connected. The frame lifts (transform, owned by the

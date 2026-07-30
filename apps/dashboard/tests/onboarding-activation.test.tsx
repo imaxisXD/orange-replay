@@ -41,7 +41,9 @@ import {
   ACT,
   CAMERA,
   PREVIEW_FRAME,
+  VERIFY,
   cameraStop,
+  canvasParallaxScale,
   onboardingAct,
 } from "../src/routes/onboarding/onboarding-motion";
 import { OnboardingVerifyPage } from "../src/routes/onboarding/onboarding-verify-step";
@@ -574,5 +576,40 @@ describe("activation preview camera", () => {
     const column = (stop: { scale: number; x: number }) => stop.scale * CAMERA.target.x + stop.x;
     const drift = Math.abs(column(cameraStop(true)) - column(cameraStop(false)));
     expect(drift).toBeLessThan(70);
+  });
+});
+
+describe("activation camera depth and timing", () => {
+  it("leaves the far plane alone at rest and moves it a fraction of the push", () => {
+    const rest = cameraStop(false).scale;
+    const focus = cameraStop(true).scale;
+
+    // At rest the grid must be untouched, or the resting framing changes.
+    expect(canvasParallaxScale(rest)).toBeCloseTo(1, 6);
+
+    // A zoom magnifies every plane together; a camera that moves does not. The
+    // grid used to sit at 1 through the whole push, which reads as the
+    // dashboard sliding over glass.
+    const stageMagnification = focus / rest;
+    const gridMagnification = canvasParallaxScale(focus);
+    expect(gridMagnification).toBeGreaterThan(1);
+    expect(gridMagnification).toBeLessThan(stageMagnification);
+    expect((gridMagnification - 1) / (stageMagnification - 1)).toBeCloseTo(
+      CAMERA.parallax.canvas,
+      6,
+    );
+  });
+
+  it("gives the pull-out more time than the push", () => {
+    // A push-in is decisive, a pull-out is a reveal. Equal timings made blurring
+    // the field read as the camera snapping back.
+    expect(CAMERA.releaseSpring.duration).toBeGreaterThan(CAMERA.spring.duration);
+  });
+
+  it("holds the frame lift back so two moves never run at once", () => {
+    // The check on the left draws over VERIFY.checkSpring; the lift on the right
+    // must start after it, not with it.
+    expect(PREVIEW_FRAME.liveDelay).toBeGreaterThan(0);
+    expect(PREVIEW_FRAME.liveDelay).toBeLessThan(VERIFY.checkSpring.duration);
   });
 });

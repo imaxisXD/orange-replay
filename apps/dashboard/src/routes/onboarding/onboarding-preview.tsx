@@ -1,7 +1,7 @@
 import { m, useReducedMotion } from "@/lib/motion";
 import { DashboardWorkspaceProvider } from "@/lib/dashboard-workspace";
 import { AppShell } from "@/routes/app-shell";
-import { ACT, CAMERA, PREVIEW_FRAME, cameraStop } from "./onboarding-motion";
+import { ACT, CAMERA, PREVIEW_FRAME, cameraStop, canvasParallaxScale } from "./onboarding-motion";
 import { useOnboarding } from "./onboarding-context";
 
 /** The stage the camera moves over. Fixed so the framing is not viewport-bound. */
@@ -25,8 +25,16 @@ const STAGE = { width: 1_100, height: 1_080 } as const;
 export function OnboardingPreview() {
   const reduceMotion = useReducedMotion() === true;
   const { act, isNamingProject, previewProjectLabel, projectId } = useOnboarding();
-  const camera = cameraStop(isNamingProject && !reduceMotion);
+  const isNaming = isNamingProject && !reduceMotion;
+  const camera = cameraStop(isNaming);
   const isLive = act === ACT.live;
+  // A push-in is decisive; a pull-out is a reveal. Playing the same spring
+  // backwards made blurring the field read as the camera snapping back.
+  const cameraTransition = reduceMotion
+    ? { duration: 0 }
+    : isNaming
+      ? CAMERA.spring
+      : CAMERA.releaseSpring;
 
   return (
     <m.div
@@ -39,14 +47,29 @@ export function OnboardingPreview() {
       // Keeps the preview's real links, switcher and buttons out of the tab
       // order: it is a picture of the dashboard, not a second copy of it.
       inert
-      transition={reduceMotion ? { duration: 0 } : PREVIEW_FRAME.spring}
+      transition={
+        reduceMotion
+          ? { duration: 0 }
+          : { ...PREVIEW_FRAME.spring, delay: isLive ? PREVIEW_FRAME.liveDelay : 0 }
+      }
     >
+      {/* The far plane. Same spring as the dashboard so both planes arrive
+          together, but only a fraction of the travel, which is what makes the
+          move read as the camera entering the room rather than the room
+          magnifying. */}
+      <m.div
+        animate={{ scale: canvasParallaxScale(camera.scale) }}
+        className="onboarding-canvas-grid"
+        initial={false}
+        transition={cameraTransition}
+      />
+
       <m.div
         animate={{ scale: camera.scale, x: camera.x, y: camera.y }}
-        className="origin-top-left"
+        className="relative origin-top-left"
         initial={false}
         style={{ height: STAGE.height, width: STAGE.width }}
-        transition={reduceMotion ? { duration: 0 } : CAMERA.spring}
+        transition={cameraTransition}
       >
         <DashboardWorkspaceProvider isDemo={false} projectId={projectId}>
           <AppShell

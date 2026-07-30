@@ -55,7 +55,13 @@
  *            top-left corner. Nothing translates, so the brand,
  *            nav, heading and metric band all hold position and
  *            simply get closer: a zoom, not a slide
+ *      0ms   the dotted canvas travels at 0.35 of that rate, so
+ *            the planes separate and the camera reads as moving
+ *            into the room rather than the room magnifying
  *      0ms   the switcher lifts onto its own surface
+ *    520ms   push has landed
+ *   blur     release takes 760ms, not 520: a pull-out is a reveal
+ *            and gets more time than the push that preceded it
  *   blur     camera releases back to the whole dashboard
  *  invalid   field shakes 8px → 6px → 3px and settles
  *
@@ -66,9 +72,11 @@
  *
  * ACT 2 → LIVE — the first event arrives
  *      0ms   signal turns green and the check strokes itself in
- *      0ms   the preview frame lifts 10px and its shadow deepens
+ *    180ms   the preview frame lifts 10px and its shadow deepens,
+ *            held back so the eye is led left to right instead of
+ *            being asked to watch two places at once
  *    500ms   check finishes drawing
- *    620ms   frame settles at its lifted rest
+ *    800ms   frame settles at its lifted rest
  * ───────────────────────────────────────────────────────── */
 
 /**
@@ -179,9 +187,43 @@ export const CAMERA = {
    * subject drifts under 60px, which reads as a zoom rather than a slide.
    */
   offset: { x: 0, y: 0 },
-  /** Wider and softer than a control spring: this is a camera move. */
-  spring: { type: "spring" as const, duration: 0.62, bounce: 0.12 },
+  /**
+   * How much of the stage's scale change each depth plane takes, as a fraction
+   * of the nominal delta. This is what separates a dolly from a zoom: a zoom
+   * changes focal length and every plane magnifies together, while a camera that
+   * physically moves makes near planes travel further than far ones.
+   *
+   * The dotted canvas is painted by the frame, which does not scale, so it used
+   * to sit at 0 while the dashboard grew 29% over it — a background that ignores
+   * the camera entirely, which reads as content sliding on glass rather than as
+   * a room the camera is moving through.
+   */
+  parallax: {
+    /** The dotted grid behind everything. The dashboard itself is the nominal 1. */
+    canvas: 0.35,
+  },
+  /**
+   * A push-in is decisive and a pull-out is a reveal, so they are not the same
+   * move played backwards. Film convention gives the pull-out more time; equal
+   * timings made blurring the field feel like the camera snapped back.
+   */
+  spring: { type: "spring" as const, duration: 0.52, bounce: 0.12 },
+  releaseSpring: { type: "spring" as const, duration: 0.76, bounce: 0 },
 } as const;
+
+/**
+ * The grid plane's own scale for a given camera scale. Expressed as
+ * magnification relative to the resting stop, so the grid is untouched at rest
+ * (1) and takes only its share of the push (about 1.10 at focus).
+ *
+ * This drives a transform on a dedicated grid layer rather than the frame's
+ * `background-size`: background-size is not GPU-composited, so animating it
+ * would repaint a full-frame image on every frame of the spring.
+ */
+export function canvasParallaxScale(cameraScale: number): number {
+  const magnification = cameraScale / CAMERA.overview.scale;
+  return 1 + (magnification - 1) * CAMERA.parallax.canvas;
+}
 
 /* The preview frame itself. Act 2's only move: a lift, because the frame is the
  * one thing on the right that can change without asserting something untrue.
@@ -193,6 +235,12 @@ export const CAMERA = {
 export const PREVIEW_FRAME = {
   restY: 0, // px, the frame sits where its inset puts it
   liveY: -10, // px, lifted once the recorder is connected
+  /**
+   * s. The lift waits for the check to start drawing on the left, because two
+   * moves running at once in two places give the eye nothing to follow. This
+   * leads it left to right: the fact lands, then the dashboard responds to it.
+   */
+  liveDelay: 0.18,
   spring: { type: "spring" as const, duration: 0.62, bounce: 0 },
 } as const;
 

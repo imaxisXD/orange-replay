@@ -170,6 +170,39 @@ While the website field is being named, the camera pushes in on the project
 switcher and the switcher lifts onto its own surface. The camera is gated to
 step 1, because submitting with the keyboard never blurs the field.
 
+### Depth: the camera moves, it does not magnify
+
+A zoom changes focal length and every plane magnifies together; a camera that
+physically moves makes near planes travel further than far ones, and that
+parallax is most of what separates a dolly from a zoom.
+
+The frame paints the dotted canvas and the frame never scales, so the grid used
+to sit completely still while the dashboard grew 29% over it. A background that
+ignores the camera reads as content sliding on glass. The grid is now its own
+layer (`.onboarding-canvas-grid`) taking `CAMERA.parallax.canvas` (0.35) of the
+dashboard's magnification, on a transform rather than `background-size`, because
+`background-size` is not GPU-composited and would repaint a full-frame image on
+every frame of the spring.
+
+Two numbers are coupled there: the layer is inset `-12.5%` so it cannot expose
+an edge when it grows, which makes it 125% of the frame, which puts the frame's
+top-left corner at `10%` of the layer — and that is where its
+`transform-origin` has to sit, because the stage scales from that same corner.
+If the two planes do not share a vanishing point the background drifts
+diagonally instead of receding. Change one number and the other must follow.
+
+### Timing: a push and a pull-out are not the same move
+
+`CAMERA.spring` (520ms) pushes in and `CAMERA.releaseSpring` (760ms) releases.
+Film convention gives a reveal more time than the push that preceded it, and
+with equal timings blurring the field read as the camera snapping back.
+
+Act 2 staggers rather than firing together: the check strokes in on the left,
+and `PREVIEW_FRAME.liveDelay` (180ms) holds the frame's lift back so the eye is
+led left to right. Two moves running at once in two places give it nothing to
+follow. The CSS shadow transition carries the same 180ms delay so the shadow
+travels with the lift instead of ahead of it.
+
 ### The camera: a shallow zoom about the frame's corner
 
 Both stops sit flush at the frame's top-left, so that corner is the fixed point
