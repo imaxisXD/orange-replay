@@ -40,7 +40,7 @@ afterEach(async () => {
   document.body.replaceChildren();
 });
 
-describe("write key settings", () => {
+describe("recorder key settings", () => {
   it("creates a key and shows the secret once in a selectable read-only field", async () => {
     apiMocks.fetchProjectKeys.mockResolvedValue({ keys: [] });
     apiMocks.createProjectKey.mockResolvedValue({
@@ -64,7 +64,7 @@ describe("write key settings", () => {
     );
 
     const secretField = document.body.querySelector<HTMLTextAreaElement>(
-      'textarea[aria-label="New write key secret"]',
+      'textarea[aria-label="New recorder key"]',
     );
     expect(secretField).not.toBeNull();
     expect(secretField?.readOnly).toBe(true);

@@ -33,7 +33,7 @@ export function AnimatedNumber({
   suffix?: string;
   value: number | null | undefined;
 }) {
-  if (value === null) return <span aria-label="No data">N/A</span>;
+  if (value === null) return <span>No data</span>;
 
   return (
     <AnimatedNumberFlow
@@ -147,7 +147,7 @@ export function AnimatedDuration({
   startFromZero?: boolean;
   value: number | null | undefined;
 }) {
-  if (value === null) return <span aria-label="No data">N/A</span>;
+  if (value === null) return <span>No data</span>;
 
   const totalSeconds = Math.max(0, Math.round((value ?? 0) / 1_000));
   const hours = Math.floor(totalSeconds / 3_600);

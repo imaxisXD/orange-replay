@@ -341,7 +341,12 @@ const LIVE_EMPTY_STATE_LAYERS: readonly ParallaxEmptyStateLayer[] = [
 ];
 
 function readErrorMessage(error: unknown): string {
-  if (error instanceof ApiError) return error.code ?? error.message;
-  if (error instanceof Error) return error.message;
-  return "The request failed. Try again in a moment.";
+  if (!(error instanceof ApiError)) return "Could not load live sessions. Try again.";
+  if (error.code === "network_error") return error.message;
+  if (error.status === 429) return "Too many requests. Wait a moment and try again.";
+  if (error.code === "invalid_response") {
+    return "Live sessions returned unexpected data. Refresh the page and try again.";
+  }
+  if (error.status >= 500) return "Live sessions are temporarily unavailable. Try again.";
+  return "Could not load live sessions. Try again.";
 }

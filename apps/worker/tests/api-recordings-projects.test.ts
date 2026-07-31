@@ -31,7 +31,7 @@ import {
   segmentBytes,
   segmentName,
   setupApiTestWorkers,
-  testWriteKey,
+  testRecorderKey,
   worker,
 } from "./api-test-helpers.ts";
 
@@ -216,7 +216,7 @@ describe("dashboard api", () => {
 
   it("validates and stores project config in D1 before refreshing KV", async () => {
     const keyHash = await seedIngestKey(
-      testWriteKey("api_config"),
+      testRecorderKey("api_config"),
       makeProjectConfig({ projectId: configProjectId }),
       true,
     );
@@ -375,7 +375,7 @@ describe("dashboard api", () => {
 
   it("converges a key create racing a project config change to the latest D1 version", async () => {
     await seedIngestKey(
-      testWriteKey("api_config_race"),
+      testRecorderKey("api_config_race"),
       makeProjectConfig({ projectId: configRaceProjectId, sampleRate: 1 }),
       true,
     );
@@ -419,9 +419,9 @@ describe("dashboard api", () => {
     });
   });
 
-  it("lists write key audit rows without plaintext keys", async () => {
+  it("lists recorder key audit rows without plaintext keys", async () => {
     const keyHash = await seedIngestKey(
-      testWriteKey("api_keys"),
+      testRecorderKey("api_keys"),
       makeProjectConfig({ projectId: keysProjectId }),
       false,
     );
@@ -447,9 +447,9 @@ describe("dashboard api", () => {
     });
   });
 
-  it("shows a new write key once and durably revokes it before removing its cache", async () => {
+  it("shows a new recorder key once and durably revokes it before removing its cache", async () => {
     await seedIngestKey(
-      testWriteKey("api_key_project"),
+      testRecorderKey("api_key_project"),
       makeProjectConfig({ projectId: keysProjectId }),
       false,
     );
@@ -508,9 +508,9 @@ describe("dashboard api", () => {
   });
 
   it("repairs a pending revoked-key cache before showing the key list", async () => {
-    const writeKey = testWriteKey("api_pending_key_cache");
+    const recorderKey = testRecorderKey("api_pending_key_cache");
     const keyHash = await seedIngestKey(
-      writeKey,
+      recorderKey,
       makeProjectConfig({ projectId: keysProjectId }),
       true,
     );
@@ -544,9 +544,9 @@ describe("dashboard api", () => {
   });
 
   it("keeps a final revoked-key cache check durable until its delete succeeds", async () => {
-    const writeKey = testWriteKey("api_final_key_cache_check");
+    const recorderKey = testRecorderKey("api_final_key_cache_check");
     const keyHash = await seedIngestKey(
-      writeKey,
+      recorderKey,
       makeProjectConfig({ projectId: keysProjectId }),
       true,
     );
@@ -571,10 +571,10 @@ describe("dashboard api", () => {
   });
 
   it("repairs an active key cache from current D1 config and finishes its final check", async () => {
-    const writeKey = testWriteKey("api_active_key_cache_repair");
+    const recorderKey = testRecorderKey("api_active_key_cache_repair");
     const activeCacheProjectId = "api_active_cache_project";
     const keyHash = await seedIngestKey(
-      writeKey,
+      recorderKey,
       makeProjectConfig({ projectId: activeCacheProjectId, sampleRate: 1 }),
       true,
     );
@@ -600,9 +600,9 @@ describe("dashboard api", () => {
   });
 
   it("keeps repairing a revoked key while an older cache writer is unfinished", async () => {
-    const writeKey = testWriteKey("api_unfinished_cache_writer");
+    const recorderKey = testRecorderKey("api_unfinished_cache_writer");
     const keyHash = await seedIngestKey(
-      writeKey,
+      recorderKey,
       makeProjectConfig({ projectId: keysProjectId }),
       true,
     );
@@ -659,10 +659,10 @@ describe("dashboard api", () => {
   });
 
   it("gives other active keys a repair turn while an older cache writer is unfinished", async () => {
-    const writeKey = testWriteKey("api_unfinished_active_cache_writer");
+    const recorderKey = testRecorderKey("api_unfinished_active_cache_writer");
     const activeCacheProjectId = "api_unfinished_active_cache_project";
     const keyHash = await seedIngestKey(
-      writeKey,
+      recorderKey,
       makeProjectConfig({ projectId: activeCacheProjectId, sampleRate: 1 }),
       true,
     );
@@ -723,7 +723,7 @@ describe("dashboard api", () => {
 
   it("keeps the active key limit exact when creates arrive together", async () => {
     await seedIngestKey(
-      testWriteKey("api_key_limit_seed"),
+      testRecorderKey("api_key_limit_seed"),
       makeProjectConfig({ projectId: keyLimitProjectId }),
       false,
     );

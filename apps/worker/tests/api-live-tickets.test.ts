@@ -13,7 +13,7 @@ import {
   setupApiTestWorkers,
   signLiveTicket,
   signLiveTicketWithSecret,
-  testWriteKey,
+  testRecorderKey,
   ticketProjectId,
   ticketSessionId,
   worker,
@@ -59,7 +59,7 @@ describe("dashboard api", () => {
 
   it("connects live WebSockets with tickets and rejects old query credentials", async () => {
     await seedIngestKey(
-      testWriteKey("api_ticket"),
+      testRecorderKey("api_ticket"),
       makeProjectConfig({ projectId: ticketProjectId, orgId: "api_ticket_org" }),
       false,
     );

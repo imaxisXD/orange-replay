@@ -13,7 +13,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const prodEnv = "production";
 const workerUrlEnv = "ORANGE_REPLAY_PROD_WORKER_URL";
 const demoProjectIdEnv = "ORANGE_REPLAY_DEMO_PROJECT_ID";
-const demoWriteKeyEnv = "ORANGE_REPLAY_DEMO_WRITE_KEY";
+const demoRecorderKeyEnv = "ORANGE_REPLAY_DEMO_RECORDER_KEY";
 let options;
 try {
   options = parseArgs(process.argv.slice(2));
@@ -22,8 +22,8 @@ try {
   process.exit(1);
 }
 
-const writeKey = options.key ?? `or_live_${randomBytes(24).toString("base64url")}`;
-const keyHash = sha256Hex(writeKey);
+const recorderKey = options.key ?? `or_live_${randomBytes(24).toString("base64url")}`;
+const keyHash = sha256Hex(recorderKey);
 const keyId = `key_${randomUUID()}`;
 const now = Date.now();
 const allowedOrigins = [options.origin];
@@ -51,9 +51,11 @@ const statements = [
   }),
   `INSERT INTO keys (id, key_hash, project_id, name, active, created_at, created_by, revoked_at, revoked_by, cache_synced, cache_final_check_at) VALUES (${sqlString(
     keyId,
-  )}, ${sqlString(keyHash)}, ${sqlString(options.projectId)}, 'Demo write key', 1, ${now}, NULL, NULL, NULL, 0, 0)`,
+  )}, ${sqlString(keyHash)}, ${sqlString(options.projectId)}, 'Demo recorder key', 1, ${now}, NULL, NULL, NULL, 0, 0)`,
 ];
-const d1Command = `BEGIN TRANSACTION; ${statements.join(";")}; COMMIT;`;
+// Remote D1 rejects explicit SQL transactions. Wrangler maps multiple
+// semicolon-separated statements into one transactional batch.
+const d1Command = `${statements.join(";")};`;
 
 if (options.dryRun) {
   printSummary({ saved: false });
@@ -66,7 +68,7 @@ if (options.dryRun) {
 const pendingEnvFile = options.envFile === undefined ? undefined : `${options.envFile}.pending`;
 try {
   if (options.envFile !== undefined && pendingEnvFile !== undefined) {
-    await savePendingDemoEnv(options.envFile, pendingEnvFile, options.projectId, writeKey);
+    await savePendingDemoEnv(options.envFile, pendingEnvFile, options.projectId, recorderKey);
   }
 
   await runWrangler([
@@ -91,7 +93,7 @@ try {
   if (pendingEnvFile !== undefined) {
     console.error(`The active env file was not changed. Pending key file: ${pendingEnvFile}`);
   } else if (options.key !== undefined) {
-    console.error("The provided demo write key was not changed.");
+    console.error("The provided demo recorder key was not changed.");
   }
   console.error(`Possible cleanup ids: org=${options.orgId}, project=${options.projectId}`);
   console.error(`Possible cleanup key hash: ${keyHash}`);
@@ -175,7 +177,7 @@ function parseArgs(args) {
   if (!isSimpleId(parsed.projectId))
     throw new Error("--project-id must be letters, numbers, _, or -");
   if (!isSimpleId(parsed.orgId)) throw new Error("--org-id must be letters, numbers, _, or -");
-  if (parsed.key !== undefined && !isGeneratedWriteKey(parsed.key)) {
+  if (parsed.key !== undefined && !isGeneratedRecorderKey(parsed.key)) {
     throw new Error("--key must be a generated key like or_live_ plus 32 base64url characters");
   }
   parsed.origin = parsed.origin ?? readProductionLandingOrigin();
@@ -183,7 +185,7 @@ function parseArgs(args) {
     parsed.envFile = readEnvFilePath(parsed.envFile);
   }
   if (!parsed.dryRun && parsed.key === undefined && parsed.envFile === undefined) {
-    throw new Error("--no-env-file needs --key so the generated demo write key is not lost");
+    throw new Error("--no-env-file needs --key so the generated demo recorder key is not lost");
   }
 
   return parsed;
@@ -251,7 +253,7 @@ function isSimpleId(value) {
   return /^[A-Za-z0-9_-]{1,64}$/.test(value);
 }
 
-function isGeneratedWriteKey(value) {
+function isGeneratedRecorderKey(value) {
   return /^or_live_[A-Za-z0-9_-]{32}$/.test(value);
 }
 
@@ -318,7 +320,7 @@ async function savePendingDemoEnv(envFile, pendingEnvFile, projectId, key) {
 
   const lines = [
     `${demoProjectIdEnv}=${JSON.stringify(projectId)}`,
-    `${demoWriteKeyEnv}=${JSON.stringify(key)}`,
+    `${demoRecorderKeyEnv}=${JSON.stringify(key)}`,
   ];
   const existingLines = text
     .split(/\r?\n/)
@@ -326,7 +328,7 @@ async function savePendingDemoEnv(envFile, pendingEnvFile, projectId, key) {
       (existingLine) =>
         existingLine.length > 0 &&
         !existingLine.startsWith(`${demoProjectIdEnv}=`) &&
-        !existingLine.startsWith(`${demoWriteKeyEnv}=`),
+        !existingLine.startsWith(`${demoRecorderKeyEnv}=`),
     );
   text = `${existingLines.join("\n")}${existingLines.length > 0 ? "\n" : ""}${lines.join("\n")}\n`;
 
@@ -347,11 +349,11 @@ function printSummary({ saved }) {
   console.log(`Org id: ${options.orgId}`);
   console.log(`Landing origin: ${options.origin}`);
   console.log(`Wrangler config: ${displayPath(options.config)}`);
-  console.log(`Write key hash: ${keyHash}`);
+  console.log(`Recorder key hash: ${keyHash}`);
   if (saved) {
     console.log(`Demo env values: saved to ${options.envFile}`);
   } else {
-    console.log("Demo write key: not printed.");
+    console.log("Demo recorder key: not printed.");
   }
   printDeployInstructions({ saved });
 }
@@ -370,7 +372,7 @@ function printDeployInstructions({ saved }) {
   }
 
   console.log(`export ${demoProjectIdEnv}=${options.projectId}`);
-  console.log(`export ${demoWriteKeyEnv}='the same value passed with --key'`);
+  console.log(`export ${demoRecorderKeyEnv}='the same value passed with --key'`);
   console.log("The deploy command uploads both demo values with the hosted-auth secrets.");
 }
 
@@ -385,12 +387,12 @@ function displayPath(value) {
 function printHelp() {
   console.log(`Usage: node scripts/bootstrap-demo-project.mjs [options]
 
-Creates the public demo production org, project, and SDK write key using the production Wrangler environment.
+Creates the public demo production org, project, and SDK recorder key using the production Wrangler environment.
 The script is insert-only and fails if the org, project, or key already exists.
 
 Options:
   --dry-run                 Print the SQL without writing.
-  --key VALUE               Use a specific demo write key. Default: generate one.
+  --key VALUE               Use a specific demo recorder key. Default: generate one.
   --project-id VALUE        Demo project id. Default: demo_project.
   --project-name VALUE      Demo project name. Default: Public demo project.
   --org-id VALUE            Demo org id. Default: demo_org.

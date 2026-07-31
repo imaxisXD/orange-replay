@@ -17,6 +17,7 @@ import {
   type SessionsViewSearch,
 } from "@/lib/sessions-view-search";
 import { markSessionWatched, unmarkSessionWatched, watchedSessionIds } from "@/lib/watched";
+import { cn } from "@/lib/utils";
 import { entryPath } from "@/lib/entry-path";
 import { SessionFilterChips } from "./session-filter-chips";
 import { SessionListPane } from "./session-list-pane";
@@ -26,6 +27,21 @@ import { SessionsToolbar } from "./sessions-toolbar";
 import { useSessionsPanelData } from "./use-sessions-panel-data";
 
 const SESSION_WORKSPACE_HEIGHT = 690;
+
+/**
+ * The results layout needs a fixed 690px so the list rail and the replay stage
+ * keep a stable height while sessions stream in. The date-range empty state has
+ * no such constraint — it is one centered block inside a parallax field — so
+ * pinning it to 690px pushed the card, and on narrow screens its only action,
+ * past the fold. It instead takes the smaller of 690px and what the viewport
+ * has left, with a floor that still fits the collage and the message.
+ *
+ * The subtracted values are the measured chrome above the workspace: ~210px on
+ * `sm` and up (top nav, tabs, page title, filter row) and ~365px below that,
+ * where the filter row stacks. The floor is 28rem, the content's own height.
+ */
+const EMPTY_WORKSPACE_HEIGHT_CLASS =
+  "h-[clamp(28rem,calc(100dvh-24rem),43.125rem)] sm:h-[clamp(28rem,calc(100dvh-15rem),43.125rem)]";
 type RecentlyWatchedSession = { sessionId: string; label: string };
 
 export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectId: string }) {
@@ -211,13 +227,16 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
       <SessionsLoadError error={data.error} onRetry={data.retry} />
 
       <div
-        className="flex min-w-0 items-stretch gap-5"
+        className={cn(
+          "flex min-w-0 items-stretch gap-5",
+          isConfirmedDateRangeEmpty && EMPTY_WORKSPACE_HEIGHT_CLASS,
+        )}
         data-session-layout-state={
           isLoadingWorkspace ? "loading" : isConfirmedDateRangeEmpty ? "empty" : "results"
         }
         data-session-workspace
         aria-busy={isLoadingWorkspace}
-        style={{ height: SESSION_WORKSPACE_HEIGHT }}
+        style={isConfirmedDateRangeEmpty ? undefined : { height: SESSION_WORKSPACE_HEIGHT }}
       >
         {isConfirmedDateRangeEmpty ? (
           <SessionsDateRangeEmptyState

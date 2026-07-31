@@ -69,13 +69,13 @@ export type HeaderValidationResult =
   | { ok: false; error: string };
 
 const TAB_ID_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
-const WRITE_KEY_PATTERN = /^or_live_[A-Za-z0-9_-]{32}$/;
+const RECORDER_KEY_PATTERN = /^or_live_[A-Za-z0-9_-]{32}$/;
 const INTEGER_PATTERN = /^[0-9]+$/;
 
 export function validateIngestHeaders(headers: Headers): HeaderValidationResult {
-  const writeKey = validateWriteKeyHeader(headers);
-  if (!writeKey.ok) return writeKey;
-  const key = writeKey.value;
+  const recorderKey = validateRecorderKeyHeader(headers);
+  if (!recorderKey.ok) return recorderKey;
+  const key = recorderKey.value;
 
   const sessionId = headers.get(HDR_SESSION);
   if (sessionId === null || !isValidSessionId(sessionId)) {
@@ -108,14 +108,14 @@ export function validateIngestHeaders(headers: Headers): HeaderValidationResult 
   return { ok: true, value: { key, sessionId, tab, seq, flags } };
 }
 
-export function validateWriteKeyHeader(
+export function validateRecorderKeyHeader(
   headers: Headers,
 ): { ok: true; value: string } | { ok: false; error: string } {
   const key = headers.get(HDR_KEY);
   if (key === null || key.length === 0) {
     return { ok: false, error: `${HDR_KEY} is required` };
   }
-  if (!WRITE_KEY_PATTERN.test(key)) {
+  if (!RECORDER_KEY_PATTERN.test(key)) {
     return {
       ok: false,
       error: `${HDR_KEY} must be a generated key like or_live_ plus 32 base64url characters`,

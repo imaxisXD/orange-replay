@@ -32,7 +32,7 @@ import {
 } from "./remove-retired-prod-secrets.mjs";
 
 const longSecret = "x".repeat(40);
-const demoWriteKey = `or_live_${"d".repeat(32)}`;
+const demoRecorderKey = `or_live_${"d".repeat(32)}`;
 
 function validEnvironment() {
   return {
@@ -45,7 +45,7 @@ function validEnvironment() {
     ORANGE_REPLAY_PROD_GITHUB_CLIENT_SECRET: `${longSecret}github`,
     ORANGE_REPLAY_PROD_LIVE_TICKET_SECRET: `${longSecret}ticket`,
     ORANGE_REPLAY_DEMO_PROJECT_ID: "demo_project",
-    ORANGE_REPLAY_DEMO_WRITE_KEY: demoWriteKey,
+    ORANGE_REPLAY_DEMO_RECORDER_KEY: demoRecorderKey,
     ORANGE_REPLAY_PROD_R2_SQL_TOKEN: `${longSecret}r2`,
     ORANGE_REPLAY_PROD_ANALYTICS_PURGE_RUNNER_TOKEN: `${longSecret}purge`,
     ORANGE_REPLAY_PROD_WORKER_URL: "https://replay.example.com",
@@ -68,7 +68,7 @@ describe("production deploy secret safety", () => {
       BETTER_AUTH_TRUSTED_ORIGINS: "https://replay.example.com,https://admin.example.com",
       BETTER_AUTH_URL: "https://replay.example.com",
       DEMO_PROJECT_ID: "demo_project",
-      DEMO_WRITE_KEY: demoWriteKey,
+      DEMO_RECORDER_KEY: demoRecorderKey,
       GITHUB_CLIENT_ID: "github-client-id-12345",
       GITHUB_CLIENT_SECRET: `${longSecret}github`,
       LIVE_TICKET_SECRET: `${longSecret}ticket`,
@@ -96,9 +96,9 @@ describe("production deploy secret safety", () => {
     expect(() =>
       readProductionSecretValues({
         ...validEnvironment(),
-        ORANGE_REPLAY_DEMO_WRITE_KEY: "or_live_not-a-generated-key",
+        ORANGE_REPLAY_DEMO_RECORDER_KEY: "or_live_not-a-generated-key",
       }),
-    ).toThrow("ORANGE_REPLAY_DEMO_WRITE_KEY must be a generated key that starts with or_live_");
+    ).toThrow("ORANGE_REPLAY_DEMO_RECORDER_KEY must be a generated key that starts with or_live_");
   });
 
   it("checks the hosted smoke origin before any deploy step", async () => {
@@ -147,7 +147,7 @@ describe("production deploy secret safety", () => {
       ORANGE_REPLAY_PIPELINE_CATALOG_TOKEN: "pipeline",
       ORANGE_REPLAY_R2_INVENTORY_TOKEN: "inventory",
       ORANGE_REPLAY_R2_SQL_READ_TOKEN: "reader",
-      ORANGE_REPLAY_PROD_WRITE_KEY: "write-key",
+      ORANGE_REPLAY_PROD_RECORDER_KEY: "recorder-key",
       ORANGE_REPLAY_PROD_API_TOKEN: "retired-prod-token",
       ORANGE_REPLAY_PROD_API_PROJECT_IDS: "retired-prod-projects",
       DEV_API_TOKEN: "retired-dev-token",
@@ -159,7 +159,7 @@ describe("production deploy secret safety", () => {
       GITHUB_CLIENT_ID: "direct-github-id",
       GITHUB_CLIENT_SECRET: "direct-github-secret",
       DEMO_PROJECT_ID: "direct-demo-project",
-      DEMO_WRITE_KEY: "direct-demo-write-key",
+      DEMO_RECORDER_KEY: "direct-demo-recorder-key",
       LIVE_TICKET_SECRET: "direct-ticket",
       R2_SQL_TOKEN: "direct-r2",
       ANALYTICS_PURGE_RUNNER_TOKEN: "direct-purge",
@@ -173,7 +173,7 @@ describe("production deploy secret safety", () => {
       "ORANGE_REPLAY_PIPELINE_CATALOG_TOKEN",
       "ORANGE_REPLAY_R2_INVENTORY_TOKEN",
       "ORANGE_REPLAY_R2_SQL_READ_TOKEN",
-      "ORANGE_REPLAY_PROD_WRITE_KEY",
+      "ORANGE_REPLAY_PROD_RECORDER_KEY",
       "ORANGE_REPLAY_PROD_API_TOKEN",
       "ORANGE_REPLAY_PROD_API_PROJECT_IDS",
       "DEV_API_TOKEN",
@@ -307,7 +307,10 @@ ${secretBlock}      "vars": { "ANALYTICS_READ_BACKEND": "d1" }
     const environment = {
       ...validEnvironment(),
       ORANGE_REPLAY_CATALOG_TOKEN: "catalog",
-      ORANGE_REPLAY_PROD_WRITE_KEY: "write-key",
+      ORANGE_REPLAY_PROD_RECORDER_KEY: "recorder-key",
+      // Pre-rename names still present in an operator's ignored local env file.
+      ORANGE_REPLAY_DEMO_WRITE_KEY: "legacy-demo-key",
+      ORANGE_REPLAY_PROD_WRITE_KEY: "legacy-prod-key",
     };
     const steps = productionDeploySteps(false);
     expect(steps.map((step) => step.kind)).toEqual([
@@ -337,6 +340,8 @@ ${secretBlock}      "vars": { "ANALYTICS_READ_BACKEND": "d1" }
       );
       expect(childEnvironment.ORANGE_REPLAY_PROD_ANALYTICS_DELETION_READ_VERSION).toBe("v1");
       expect(childEnvironment.ORANGE_REPLAY_CATALOG_TOKEN).toBeUndefined();
+      expect(childEnvironment.ORANGE_REPLAY_PROD_RECORDER_KEY).toBeUndefined();
+      expect(childEnvironment.ORANGE_REPLAY_DEMO_WRITE_KEY).toBeUndefined();
       expect(childEnvironment.ORANGE_REPLAY_PROD_WRITE_KEY).toBeUndefined();
       const needsCloudflareAuth = new Set([
         "migrate",

@@ -26,7 +26,7 @@ export const ticketSessionId = "api_ticket_session";
 export const demoProjectId = "api_demo_project";
 export const demoOtherProjectId = "api_demo_other_project";
 export const demoSessionId = "api_demo_session";
-export const demoWriteKey = "or_live_demo0000000000000000000000000000";
+export const demoRecorderKey = "or_live_demo0000000000000000000000000000";
 export const privateProjectIds = [
   listProjectId,
   entryPageProjectId,
@@ -172,7 +172,7 @@ export function makeProjectConfig(overrides: Partial<ProjectConfig> = {}): Proje
   };
 }
 
-export function testWriteKey(label: string): string {
+export function testRecorderKey(label: string): string {
   return `or_live_${label
     .replace(/[^A-Za-z0-9_-]/g, "_")
     .padEnd(32, "0")

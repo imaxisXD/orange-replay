@@ -95,7 +95,7 @@ describe("recorder project config", () => {
     expect(pageQuery).not.toHaveBeenCalled();
   });
 
-  it("loads config using the public write key", async () => {
+  it("loads config using the public recorder key", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(JSON.stringify(remoteConfig), {
         headers: { "content-type": "application/json" },

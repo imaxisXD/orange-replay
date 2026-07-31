@@ -82,10 +82,9 @@ export function EmptySessionStage() {
               src={selectSessionReaderSrc}
             />
           </EmptyMedia>
-          <EmptyTitle>The rooster has the reel</EmptyTitle>
+          <EmptyTitle>Choose a session to watch</EmptyTitle>
           <EmptyDescription>
-            Pick a session and it plays here. Here’s a secret: amber dots remember what you haven’t
-            watched.
+            The session will play here. Amber dots mark sessions you have not watched.
           </EmptyDescription>
         </EmptyHeader>
       </ParallaxEmptyStateField>
@@ -441,9 +440,12 @@ export function SessionIdCopyControl({ sessionId }: { sessionId: string }) {
 function readErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
     if (error.code === "network_error") return error.message;
-    if (error.status >= 500) return "The replay service is unavailable. Try again in a moment.";
-    return error.message.replaceAll("_", " ");
+    if (error.status === 429) return "Too many requests. Wait a moment and try again.";
+    if (error.code === "invalid_response") {
+      return "The session returned unexpected data. Try again.";
+    }
+    if (error.status >= 500) return "The session is temporarily unavailable. Try again.";
+    return "Could not load this session. Try again.";
   }
-  if (error instanceof Error) return error.message;
-  return "The request failed. Try again in a moment.";
+  return "Could not load this session. Try again.";
 }

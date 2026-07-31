@@ -21,7 +21,7 @@ import { ingestAckForAppendResult } from "../src/ingest/response.ts";
 import { analyticsSidecarLines } from "../src/do/session-analytics-sidecar.ts";
 import type { Env } from "../src/env.ts";
 
-const validWriteKey = testWriteKey("unit");
+const validRecorderKey = testRecorderKey("unit");
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -30,7 +30,7 @@ afterEach(() => {
 describe("ingest header validation", () => {
   it("accepts valid headers and defaults flags to zero", () => {
     const headers = new Headers({
-      [HDR_KEY]: validWriteKey,
+      [HDR_KEY]: validRecorderKey,
       [HDR_SESSION]: "session_12345678",
       [HDR_TAB]: "tab_1",
       [HDR_SEQ]: "12",
@@ -39,7 +39,7 @@ describe("ingest header validation", () => {
     expect(validateIngestHeaders(headers)).toEqual({
       ok: true,
       value: {
-        key: validWriteKey,
+        key: validRecorderKey,
         sessionId: "session_12345678",
         tab: "tab_1",
         seq: 12,
@@ -76,7 +76,7 @@ describe("ingest header validation", () => {
     expect(
       validateIngestHeaders(
         new Headers({
-          [HDR_KEY]: validWriteKey,
+          [HDR_KEY]: validRecorderKey,
           [HDR_SESSION]: "short",
           [HDR_TAB]: "tab_1",
           [HDR_SEQ]: "0",
@@ -92,7 +92,7 @@ describe("ingest header validation", () => {
     expect(
       validateIngestHeaders(
         new Headers({
-          [HDR_KEY]: validWriteKey,
+          [HDR_KEY]: validRecorderKey,
           [HDR_SESSION]: "session_12345678",
           [HDR_TAB]: "tab_1",
           [HDR_SEQ]: String(MAX_SEQ + 1),
@@ -103,7 +103,7 @@ describe("ingest header validation", () => {
     expect(
       validateIngestHeaders(
         new Headers({
-          [HDR_KEY]: validWriteKey,
+          [HDR_KEY]: validRecorderKey,
           [HDR_SESSION]: "session_12345678",
           [HDR_TAB]: "tab_1",
           [HDR_SEQ]: "0",
@@ -115,7 +115,7 @@ describe("ingest header validation", () => {
     expect(
       validateIngestHeaders(
         new Headers({
-          [HDR_KEY]: validWriteKey,
+          [HDR_KEY]: validRecorderKey,
           [HDR_SESSION]: "session_12345678",
           [HDR_TAB]: "tab_1",
           [HDR_SEQ]: "0",
@@ -148,7 +148,7 @@ describe("ingest header validation", () => {
       new Request("https://replay.test/v1/ingest", {
         method: "POST",
         headers: {
-          [HDR_KEY]: validWriteKey,
+          [HDR_KEY]: validRecorderKey,
           [HDR_SESSION]: "session_12345678",
           [HDR_TAB]: "tab_1",
           [HDR_SEQ]: "0",
@@ -171,7 +171,7 @@ describe("ingest header validation", () => {
       new Request("https://replay.test/v1/ingest", {
         method: "POST",
         headers: {
-          [HDR_KEY]: validWriteKey,
+          [HDR_KEY]: validRecorderKey,
           [HDR_SESSION]: "session_12345678",
           [HDR_TAB]: "tab_1",
           [HDR_SEQ]: "0",
@@ -486,7 +486,7 @@ describe("ingest append acknowledgments", () => {
   });
 });
 
-function testWriteKey(label: string): string {
+function testRecorderKey(label: string): string {
   return `or_live_${label
     .replace(/[^A-Za-z0-9_-]/g, "_")
     .padEnd(32, "0")

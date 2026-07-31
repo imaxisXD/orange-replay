@@ -17,8 +17,8 @@ try {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
 }
-const writeKey = options.key ?? `or_live_${randomBytes(24).toString("base64url")}`;
-const keyHash = sha256Hex(writeKey);
+const recorderKey = options.key ?? `or_live_${randomBytes(24).toString("base64url")}`;
+const keyHash = sha256Hex(recorderKey);
 const keyId = `key_${randomUUID()}`;
 const now = Date.now();
 const allowedOrigins = options.allowAnyOrigin ? ["*"] : options.origins;
@@ -46,7 +46,7 @@ const statements = [
   }),
   `INSERT INTO keys (id, key_hash, project_id, name, active, created_at, created_by, revoked_at, revoked_by, cache_synced, cache_final_check_at) VALUES (${sqlString(
     keyId,
-  )}, ${sqlString(keyHash)}, ${sqlString(options.projectId)}, 'Initial write key', 1, ${now}, NULL, NULL, NULL, 0, 0)`,
+  )}, ${sqlString(keyHash)}, ${sqlString(options.projectId)}, 'Initial recorder key', 1, ${now}, NULL, NULL, NULL, 0, 0)`,
 ];
 const d1Command = `BEGIN TRANSACTION; ${statements.join(";")}; COMMIT;`;
 
@@ -61,7 +61,7 @@ if (options.dryRun) {
 const pendingEnvFile = options.envFile === undefined ? undefined : `${options.envFile}.pending`;
 try {
   if (options.envFile !== undefined && pendingEnvFile !== undefined) {
-    await savePendingWriteKey(options.envFile, pendingEnvFile, writeKey);
+    await savePendingRecorderKey(options.envFile, pendingEnvFile, recorderKey);
   }
 
   await runWrangler([
@@ -78,7 +78,7 @@ try {
     d1Command,
   ]);
   if (options.envFile !== undefined && pendingEnvFile !== undefined) {
-    await promotePendingWriteKey(options.envFile, pendingEnvFile);
+    await promotePendingRecorderKey(options.envFile, pendingEnvFile);
   }
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
@@ -86,7 +86,7 @@ try {
   if (pendingEnvFile !== undefined) {
     console.error(`The active env file was not changed. Pending key file: ${pendingEnvFile}`);
   } else if (options.key !== undefined) {
-    console.error("The provided write key was not changed.");
+    console.error("The provided recorder key was not changed.");
   }
   console.error(`Possible cleanup ids: org=${options.orgId}, project=${options.projectId}`);
   console.error(`Possible cleanup key hash: ${keyHash}`);
@@ -187,7 +187,7 @@ function parseArgs(args) {
   if (!isSimpleId(parsed.projectId))
     throw new Error("--project-id must be letters, numbers, _, or -");
   if (!isSimpleId(parsed.orgId)) throw new Error("--org-id must be letters, numbers, _, or -");
-  if (parsed.key !== undefined && !isGeneratedWriteKey(parsed.key)) {
+  if (parsed.key !== undefined && !isGeneratedRecorderKey(parsed.key)) {
     throw new Error("--key must be a generated key like or_live_ plus 32 base64url characters");
   }
   if (!parsed.allowAnyOrigin && parsed.origins.length === 0) {
@@ -197,7 +197,7 @@ function parseArgs(args) {
     parsed.envFile = readEnvFilePath(parsed.envFile);
   }
   if (!parsed.dryRun && parsed.key === undefined && parsed.envFile === undefined) {
-    throw new Error("--no-env-file needs --key so the generated write key is not lost");
+    throw new Error("--no-env-file needs --key so the generated recorder key is not lost");
   }
 
   return parsed;
@@ -286,7 +286,7 @@ function defaultProjectId() {
   return value;
 }
 
-function isGeneratedWriteKey(value) {
+function isGeneratedRecorderKey(value) {
   return /^or_live_[A-Za-z0-9_-]{32}$/.test(value);
 }
 
@@ -339,7 +339,7 @@ function runWrangler(args) {
   });
 }
 
-async function savePendingWriteKey(envFile, pendingEnvFile, key) {
+async function savePendingRecorderKey(envFile, pendingEnvFile, key) {
   const fullPath = path.resolve(repoRoot, envFile);
   const pendingPath = path.resolve(repoRoot, pendingEnvFile);
   await mkdir(path.dirname(pendingPath), { recursive: true });
@@ -351,12 +351,12 @@ async function savePendingWriteKey(envFile, pendingEnvFile, key) {
     if (error?.code !== "ENOENT") throw error;
   }
 
-  const line = `ORANGE_REPLAY_PROD_WRITE_KEY=${JSON.stringify(key)}`;
+  const line = `ORANGE_REPLAY_PROD_RECORDER_KEY=${JSON.stringify(key)}`;
   const existingLines = text
     .split(/\r?\n/)
     .filter(
       (existingLine) =>
-        existingLine.length > 0 && !existingLine.startsWith("ORANGE_REPLAY_PROD_WRITE_KEY="),
+        existingLine.length > 0 && !existingLine.startsWith("ORANGE_REPLAY_PROD_RECORDER_KEY="),
     );
   text = `${existingLines.join("\n")}${existingLines.length > 0 ? "\n" : ""}${line}\n`;
 
@@ -364,7 +364,7 @@ async function savePendingWriteKey(envFile, pendingEnvFile, key) {
   await chmod(pendingPath, 0o600);
 }
 
-async function promotePendingWriteKey(envFile, pendingEnvFile) {
+async function promotePendingRecorderKey(envFile, pendingEnvFile) {
   const fullPath = path.resolve(repoRoot, envFile);
   const pendingPath = path.resolve(repoRoot, pendingEnvFile);
   await rename(pendingPath, fullPath);
@@ -375,23 +375,23 @@ function printSummary({ saved }) {
   console.log("\nProduction project ready.");
   console.log(`Project id: ${options.projectId}`);
   console.log(`Org id: ${options.orgId}`);
-  console.log(`Write key hash: ${keyHash}`);
+  console.log(`Recorder key hash: ${keyHash}`);
   if (saved) {
-    console.log(`Write key: saved to ${options.envFile}`);
+    console.log(`Recorder key: saved to ${options.envFile}`);
   } else {
-    console.log("Write key: not printed.");
+    console.log("Recorder key: not printed.");
   }
 }
 
 function printHelp() {
   console.log(`Usage: node scripts/bootstrap-prod-project.mjs [options]
 
-Creates the first production org, project, and SDK write key using the production Wrangler environment.
+Creates the first production org, project, and SDK recorder key using the production Wrangler environment.
 The script is insert-only and fails if the org, project, or key already exists.
 
 Options:
   --dry-run                 Print the SQL without writing.
-  --key VALUE               Use a specific write key. Default: generate one.
+  --key VALUE               Use a specific recorder key. Default: generate one.
   --project-id VALUE        Project id. Default: ORANGE_REPLAY_PROD_PROJECT_ID, otherwise project_demo.
   --project-name VALUE      Project name. Default: Default project.
   --org-id VALUE            Org id. Default: o1.
@@ -401,7 +401,7 @@ Options:
   --retention-days VALUE    Retention days. Default: 30.
   --jurisdiction VALUE      Optional Durable Object jurisdiction, for example eu.
   --config VALUE            Wrangler config. Use the generated production config for hosted deploys.
-  --env-file VALUE          Save the write key to this ignored repo-local .env file. Default: apps/worker/.env.production.
+  --env-file VALUE          Save the recorder key to this ignored repo-local .env file. Default: apps/worker/.env.production.
   --no-env-file             Do not save the key. Requires --key unless this is --dry-run.
 `);
 }

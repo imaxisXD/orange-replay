@@ -18,7 +18,7 @@ Private dashboard routes require a Better Auth session. Copy `.env.example` to
 `.env`, add the GitHub OAuth values, and use the callback shown in that file.
 Anonymous access is limited to the configured read-only `/demo` workspace.
 
-Seed a project + write key through the guarded test surface (requires
+Seed a project + recorder key through the guarded test surface (requires
 `DEV_TEST_ROUTES=1`):
 
 ```sh

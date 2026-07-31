@@ -196,7 +196,7 @@ function AllWatchedState({ onShowAll, total }: { onShowAll: () => void; total: n
           </EmptyMedia>
           <EmptyTitle>All caught up</EmptyTitle>
           <EmptyDescription>
-            You have watched every one of the {total} sessions here.
+            You have watched {total === 1 ? "the session" : `all ${total} sessions`} here.
           </EmptyDescription>
         </EmptyHeader>
         <EmptyContent>

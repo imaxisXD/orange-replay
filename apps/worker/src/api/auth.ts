@@ -122,15 +122,15 @@ export function isSessionAuth(auth: ApiAuthContext): auth is SessionAuthContext 
 }
 
 export function readDemoConfig(
-  env: Pick<Env, "DEMO_PROJECT_ID" | "DEMO_WRITE_KEY">,
-): { projectId: string; writeKey: string } | null {
+  env: Pick<Env, "DEMO_PROJECT_ID" | "DEMO_RECORDER_KEY">,
+): { projectId: string; recorderKey: string } | null {
   const projectId = readDemoString(env.DEMO_PROJECT_ID);
-  const writeKey = readDemoString(env.DEMO_WRITE_KEY);
-  if (projectId === null || writeKey === null || !isValidPathId(projectId)) {
+  const recorderKey = readDemoString(env.DEMO_RECORDER_KEY);
+  if (projectId === null || recorderKey === null || !isValidPathId(projectId)) {
     return null;
   }
 
-  return { projectId, writeKey };
+  return { projectId, recorderKey };
 }
 
 async function readProjectRoles(

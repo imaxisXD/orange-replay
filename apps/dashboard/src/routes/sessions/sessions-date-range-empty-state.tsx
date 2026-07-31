@@ -29,9 +29,9 @@ export function SessionsDateRangeEmptyState({
   // live empty state sits in. No border utilities here, since `.lit` sets
   // border: none and draws its own dashed edge.
   return (
-    <Empty className="lit min-h-[38rem] min-w-0 flex-1 overflow-hidden rounded-lg p-0 md:p-0">
+    <Empty className="lit min-h-[28rem] min-w-0 flex-1 overflow-hidden rounded-lg p-0 md:p-0">
       <ParallaxEmptyStateField
-        className="min-h-[38rem] w-full flex-1 px-6 py-10"
+        className="w-full flex-1 px-6 py-10"
         layers={DATE_RANGE_EMPTY_STATE_LAYERS}
       >
         <EmptyHeader className="max-w-md gap-2">
@@ -54,7 +54,10 @@ export function SessionsDateRangeEmptyState({
           </EmptyDescription>
         </EmptyHeader>
         {canWiden && (
-          <EmptyContent>
+          // The action is its own group, so it clears the message by more than
+          // the 8px the title and description use between themselves. The
+          // parallax field's own 12px gap plus this 8px reads as one step out.
+          <EmptyContent className="mt-2">
             <Button onClick={onShowLast28Days} variant="secondary">
               Show last 28 days
             </Button>

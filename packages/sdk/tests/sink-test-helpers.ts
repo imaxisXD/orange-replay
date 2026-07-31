@@ -40,9 +40,9 @@ export class MemoryCookieDocument implements Pick<Document, "cookie"> {
 }
 
 export const config: RecorderConfig = {
-  key: "write-key",
+  key: "recorder-key",
   ingestUrl: "https://ingest.test",
-  projectRef: "write-key",
+  projectRef: "recorder-key",
   transport: "worker",
   sampleRate: 1,
   maskPolicyVersion: 0,
@@ -90,7 +90,7 @@ export function makeSession(
   cookieDocument?: Pick<Document, "cookie">,
 ): SessionManager {
   return new SessionManager({
-    projectRef: "write-key",
+    projectRef: "recorder-key",
     now: () => 1_000,
     storage: new MemoryStorage(),
     document: cookieDocument,

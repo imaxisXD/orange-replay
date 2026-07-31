@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vite-plus/test";
@@ -6,9 +7,17 @@ import { buildNewProjectAnalyticsReceiptSql } from "./analytics/project-bootstra
 
 const scriptsDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptsDirectory, "..");
-const fixedWriteKey = `or_live_${"a".repeat(32)}`;
+const fixedRecorderKey = `or_live_${"a".repeat(32)}`;
 
 describe("new project analytics receipt", () => {
+  it("lets Wrangler batch the demo inserts without an explicit SQL transaction", () => {
+    const source = readFileSync(path.join(scriptsDirectory, "bootstrap-demo-project.mjs"), "utf8");
+
+    expect(source).not.toContain("BEGIN TRANSACTION");
+    expect(source).not.toContain("COMMIT;");
+    expect(source).toContain('const d1Command = `${statements.join(";")};`;');
+  });
+
   it("builds a zero-source receipt only when the project insert changed a row", () => {
     const sql = buildNewProjectAnalyticsReceiptSql({
       projectId: "project_can't_mix",
@@ -56,7 +65,7 @@ describe("new project analytics receipt", () => {
     ({ file, projectId, args, reportId }) => {
       const output = execFileSync(
         process.execPath,
-        [path.join(scriptsDirectory, file), "--dry-run", "--key", fixedWriteKey, ...args],
+        [path.join(scriptsDirectory, file), "--dry-run", "--key", fixedRecorderKey, ...args],
         {
           cwd: repoRoot,
           encoding: "utf8",

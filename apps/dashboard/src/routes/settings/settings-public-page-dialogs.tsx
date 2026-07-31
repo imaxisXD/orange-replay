@@ -98,10 +98,10 @@ export function PublicRecordingPickerDialog({
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent className="max-w-180">
         <DialogHeader>
-          <DialogTitle>Choose public recordings</DialogTitle>
+          <DialogTitle>Choose public sessions</DialogTitle>
           <DialogDescription>
-            Select up to {MAX_PUBLIC_PAGE_RECORDINGS} finalized recordings. Their replay content
-            will be available without signing in.
+            Select up to {MAX_PUBLIC_PAGE_RECORDINGS} finalized sessions. Anyone can replay the
+            sessions you select without signing in.
           </DialogDescription>
         </DialogHeader>
 
@@ -121,14 +121,14 @@ export function PublicRecordingPickerDialog({
         </div>
 
         {isLoading ? (
-          <LoadingArea className="min-h-72" label="Loading finalized recordings" />
+          <LoadingArea className="min-h-72" label="Loading finalized sessions" />
         ) : loadFailed && choices.length === 0 ? (
           <div className="mt-3 rounded-lg border border-danger-border p-4 text-[13px] text-danger">
-            Could not load finalized recordings.
+            Could not load finalized sessions. Try again.
           </div>
         ) : choices.length === 0 ? (
           <div className="mt-3 rounded-lg border border-dashed border-dash px-4 py-12 text-center text-[13px] text-muted-foreground">
-            No finalized recordings are available yet.
+            No finalized sessions are available yet.
           </div>
         ) : (
           <ScrollArea className="mt-3 h-82 rounded-lg border border-border">
@@ -138,7 +138,7 @@ export function PublicRecordingPickerDialog({
                   checked={selectedSessionIdSet.has(choice.sessionId)}
                   className="gap-3 px-4 py-3"
                   key={choice.sessionId}
-                  label={`Share recording from ${formatAbsoluteTime(choice.startedAt)}`}
+                  label={`Share session from ${formatAbsoluteTime(choice.startedAt)}`}
                   labelContent={
                     <>
                       <span
@@ -182,7 +182,7 @@ export function PublicRecordingPickerDialog({
             Cancel
           </Button>
           <Button loading={isSaving} onClick={onSave}>
-            Save recordings
+            Save sessions
           </Button>
         </DialogFooter>
       </DialogContent>

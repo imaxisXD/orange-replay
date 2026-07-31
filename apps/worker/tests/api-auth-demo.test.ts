@@ -12,7 +12,7 @@ import {
   demoOtherProjectId,
   demoProjectId,
   demoSessionId,
-  demoWriteKey,
+  demoRecorderKey,
   listProjectId,
   segmentBytes,
   segmentName,
@@ -89,7 +89,7 @@ describe("dashboard api", () => {
     expect(res.headers.get("cache-control")).toBe("public, max-age=60");
     expect(await res.json()).toEqual({
       projectId: demoProjectId,
-      writeKey: demoWriteKey,
+      recorderKey: demoRecorderKey,
     });
   });
 

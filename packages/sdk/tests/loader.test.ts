@@ -78,13 +78,13 @@ describe("loader", () => {
       bundleUrl: "https://cdn.test/orange-replay.iife.js",
       queueLimit: 1,
       init: {
-        key: "write-key",
+        key: "recorder-key",
         ingestUrl: "https://ingest.test",
         blockSelector: ".secret-panel",
       },
     });
 
-    expect(snippet).toContain('"key":"write-key"');
+    expect(snippet).toContain('"key":"recorder-key"');
     expect(snippet).toContain('"blockSelector":".secret-panel"');
     expect(snippet).toContain("queueLimit:1");
     expect(snippet).toContain("q.length>=l");
@@ -93,7 +93,7 @@ describe("loader", () => {
 
     const scriptTag = buildLoaderScriptTag({
       bundleUrl: "https://cdn.test/orange-replay.iife.js",
-      init: { key: "write-key", ingestUrl: "https://ingest.test" },
+      init: { key: "recorder-key", ingestUrl: "https://ingest.test" },
     });
     expect(scriptTag).toMatch(/^<script>\n/);
     expect(scriptTag).toMatch(/\n<\/script>$/);
@@ -194,7 +194,7 @@ describe("loader", () => {
 
     const { init } = await import("../src/index.ts");
     const handle = init({
-      key: "write-key",
+      key: "recorder-key",
       ingestUrl: "https://ingest.test",
       sampleRate: 1,
       flushMs: 60_000,
@@ -254,7 +254,7 @@ describe("loader", () => {
 
     const { init } = await import("../src/index.ts");
     const handle = init({
-      key: "write-key",
+      key: "recorder-key",
       ingestUrl: "https://ingest.test",
       sampleRate: 1,
       flushMs: 60_000,
@@ -320,7 +320,7 @@ describe("loader", () => {
 
     const { init } = await import("../src/index.ts");
     const handle = init({
-      key: "write-key",
+      key: "recorder-key",
       ingestUrl: "https://ingest.test",
       sampleRate: 1,
       flushMs: 60_000,
@@ -355,7 +355,11 @@ describe("loader", () => {
     });
     Object.defineProperty(window, "fetch", { configurable: true, value: fetchMock });
     const { init } = await import("../src/index.ts");
-    const options = { key: "write-key", ingestUrl: "https://ingest.test", sampleRate: 1 } as const;
+    const options = {
+      key: "recorder-key",
+      ingestUrl: "https://ingest.test",
+      sampleRate: 1,
+    } as const;
     const oldHandle = init({ ...options, transport: "worker" });
     let newHandle = oldHandle;
     for (let attempt = 0; attempt < 50 && newHandle === oldHandle; attempt += 1) {

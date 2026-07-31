@@ -85,7 +85,9 @@ describe("sessions date range and pin lifecycle", () => {
     expect(errorIcon).not.toBeNull();
     expect(errorIcon?.classList).toContain("text-danger/70");
     expect(errorLabel?.nextElementSibling?.getAttribute("role")).toBe("switch");
-    expect(errorLabel?.parentElement?.classList).toContain("sm:ml-auto");
+    // The trailing-edge push moved to the lens group wrapper, and it is the
+    // logical `ms-auto` so RTL parks the pair on the trailing edge too.
+    expect(errorLabel?.closest("[data-lens-group]")?.classList).toContain("sm:ms-auto");
 
     const rageLabel = findSwitchLabel(container, "Rage clicks only");
     const rageIcon = rageLabel?.querySelector<SVGElement>('svg[aria-hidden="true"]');
@@ -184,11 +186,28 @@ describe("sessions date range and pin lifecycle", () => {
     expect(container.querySelectorAll('img[src*="date-range-owl"]')).toHaveLength(1);
     expect(container.textContent).not.toContain("The rooster has the reel");
     expect(container.textContent).not.toContain("Nothing to watch yet");
-    expect(
-      container
-        .querySelector("[data-session-workspace]")
-        ?.getAttribute("data-session-layout-state"),
-    ).toBe("empty");
+    const emptyWorkspace = container.querySelector<HTMLElement>("[data-session-workspace]");
+    expect(emptyWorkspace?.getAttribute("data-session-layout-state")).toBe("empty");
+    // The empty state must not inherit the results layout's fixed 690px, which
+    // pushed the card and its only action past the fold on short viewports.
+    expect(emptyWorkspace?.style.height).toBe("");
+    expect(emptyWorkspace?.className).toContain("100dvh");
+
+    // The two lenses stay one group on their own row instead of the grid
+    // pairing one of them with a dropdown.
+    const lensGroup = container.querySelector("[data-lens-group]");
+    expect(lensGroup?.querySelectorAll('[role="switch"]')).toHaveLength(2);
+    expect(lensGroup?.className).toContain("ms-auto");
+    expect(lensGroup?.className).not.toContain("ml-auto");
+
+    // Both spans must sit on real grid items. `SelectTrigger` renders its own
+    // wrapper, so a span on the trigger would silently do nothing.
+    const toolbar = container.querySelector("[data-sessions-toolbar]");
+    const durationCell = container.querySelector("[data-duration-cell]");
+    expect(durationCell?.parentElement).toBe(toolbar);
+    expect(durationCell?.className).toContain("col-span-2");
+    expect(durationCell?.querySelector('[aria-label="Minimum duration"]')).not.toBeNull();
+    expect(lensGroup?.parentElement).toBe(toolbar);
 
     // The default rolling window drives the outgoing request even with no URL.
     const listUrl = requestedUrls().find((url) => url.includes("/sessions?"));
@@ -238,7 +257,7 @@ describe("sessions date range and pin lifecycle", () => {
     expect(resultsWorkspace?.style.height).toBe("690px");
     expect(resultsWorkspace?.getAttribute("aria-busy")).toBe("false");
     expect(container.querySelectorAll('[data-slot="loading-indicator"]')).toHaveLength(0);
-    expect(container.textContent).toContain("The rooster has the reel");
+    expect(container.textContent).toContain("Choose a session to watch");
 
     await teardown();
   });

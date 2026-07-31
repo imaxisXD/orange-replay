@@ -385,7 +385,7 @@ describe("api wide events", () => {
     const rateLimitKeys: string[] = [];
     const env = {
       DEMO_PROJECT_ID: "demo_project",
-      DEMO_WRITE_KEY: "or_live_demo0000000000000000000000000000",
+      DEMO_RECORDER_KEY: "or_live_demo0000000000000000000000000000",
       DEMO_API_RATE_LIMITER: {
         async limit(input: { key: string }): Promise<{ success: boolean }> {
           rateLimitKeys.push(input.key);
@@ -406,7 +406,7 @@ describe("api wide events", () => {
     expect(response.headers.get("cache-control")).toBe("public, max-age=60");
     expect(await response.json()).toEqual({
       projectId: "demo_project",
-      writeKey: "or_live_demo0000000000000000000000000000",
+      recorderKey: "or_live_demo0000000000000000000000000000",
     });
     expect(rateLimitKeys).toEqual(["demo:ip:198.51.100.4"]);
     const parsed = JSON.parse(String(log.mock.calls[0]?.[0])) as Record<string, unknown>;
@@ -439,7 +439,7 @@ describe("api wide events", () => {
         WORKER_ENV: "test",
         DEV_TEST_ROUTES: "1",
         DEMO_PROJECT_ID: "project_1",
-        DEMO_WRITE_KEY: "or_live_demo0000000000000000000000000000",
+        DEMO_RECORDER_KEY: "or_live_demo0000000000000000000000000000",
       } as Env,
       {} as Parameters<typeof handleApi>[2],
     );
@@ -475,7 +475,7 @@ describe("demo api decisions", () => {
       {
         WORKER_ENV: "production",
         DEMO_PROJECT_ID: "demo_project",
-        DEMO_WRITE_KEY: "or_live_demo0000000000000000000000000000",
+        DEMO_RECORDER_KEY: "or_live_demo0000000000000000000000000000",
       } as Env,
       {} as Parameters<typeof handleApi>[2],
     );
@@ -494,7 +494,7 @@ describe("demo api decisions", () => {
       }),
       {
         DEMO_PROJECT_ID: "demo_project",
-        DEMO_WRITE_KEY: "or_live_demo0000000000000000000000000000",
+        DEMO_RECORDER_KEY: "or_live_demo0000000000000000000000000000",
         DEMO_API_RATE_LIMITER: {
           async limit(input: { key: string }): Promise<{ success: boolean }> {
             rateLimitKeys.push(input.key);
@@ -517,7 +517,7 @@ describe("demo api decisions", () => {
       isDevTestMode({
         WORKER_ENV: "production",
         DEMO_PROJECT_ID: "demo_project",
-        DEMO_WRITE_KEY: "or_live_demo0000000000000000000000000000",
+        DEMO_RECORDER_KEY: "or_live_demo0000000000000000000000000000",
       } as Env),
     ).toBe(false);
     expect(
@@ -525,7 +525,7 @@ describe("demo api decisions", () => {
         WORKER_ENV: "production",
         DEV_TEST_ROUTES: "1",
         DEMO_PROJECT_ID: "demo_project",
-        DEMO_WRITE_KEY: "or_live_demo0000000000000000000000000000",
+        DEMO_RECORDER_KEY: "or_live_demo0000000000000000000000000000",
       } as Env),
     ).toBe(false);
     expect(isDevTestMode({ WORKER_ENV: "development", DEV_TEST_ROUTES: "1" } as Env)).toBe(true);

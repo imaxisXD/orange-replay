@@ -31,19 +31,19 @@ describe("settings navigation", () => {
       "Capture",
       "Masking",
       "Allowed origins",
-      "Write keys",
+      "Recorder keys",
       "Public page",
       "Environment",
     ]);
     expect(findButton(container, "Capture").getAttribute("aria-current")).toBe("true");
 
-    await act(async () => findButton(container, "Write keys").click());
+    await act(async () => findButton(container, "Recorder keys").click());
     expect(onSelect).toHaveBeenCalledWith("keys");
 
     await act(async () => {
       root.render(<SettingsNav active="keys" onSelect={onSelect} />);
     });
-    expect(findButton(container, "Write keys").getAttribute("aria-current")).toBe("true");
+    expect(findButton(container, "Recorder keys").getAttribute("aria-current")).toBe("true");
     expect(findButton(container, "Capture").hasAttribute("aria-current")).toBe(false);
 
     await act(async () => root.unmount());
