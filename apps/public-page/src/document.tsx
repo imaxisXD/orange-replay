@@ -16,7 +16,7 @@ interface PublicPageDocumentProperties {
 
 export function PublicPageDocument({ bootstrap, replayPlayer }: PublicPageDocumentProperties) {
   const title = `${bootstrap.projectName} analytics | Orange Replay`;
-  const description = `Public product analytics and selected session recordings for ${bootstrap.projectName}.`;
+  const description = `Public product analytics and selected sessions for ${bootstrap.projectName}.`;
   const bootstrapJson = escapeJsonForHtml(JSON.stringify(bootstrap));
 
   return (

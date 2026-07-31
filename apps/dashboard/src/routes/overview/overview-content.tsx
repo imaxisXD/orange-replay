@@ -201,9 +201,9 @@ function pageCoverageLabel(
   if (coveredSessions === undefined || totalSessions === undefined) return "Waiting for page data";
   if (coveredSessions === 0) return "No page data for these sessions";
   if (coveredSessions === totalSessions) {
-    return `Based on all ${numberFormatter.format(totalSessions)} sessions`;
+    return `Based on all ${formatSessionCount(totalSessions)}`;
   }
-  return `Based on ${numberFormatter.format(coveredSessions)} of ${numberFormatter.format(totalSessions)} sessions`;
+  return `Based on ${numberFormatter.format(coveredSessions)} of ${formatSessionCount(totalSessions)}`;
 }
 
 function insightCoverageLabel(
@@ -215,7 +215,11 @@ function insightCoverageLabel(
   }
   if (includedSessions === 0) return "No behavior data for these sessions";
   if (includedSessions === totalSessions) {
-    return `Based on all ${numberFormatter.format(totalSessions)} sessions`;
+    return `Based on all ${formatSessionCount(totalSessions)}`;
   }
-  return `Based on ${numberFormatter.format(includedSessions)} of ${numberFormatter.format(totalSessions)} sessions`;
+  return `Based on ${numberFormatter.format(includedSessions)} of ${formatSessionCount(totalSessions)}`;
+}
+
+function formatSessionCount(value: number): string {
+  return `${numberFormatter.format(value)} ${value === 1 ? "session" : "sessions"}`;
 }

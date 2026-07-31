@@ -37,6 +37,11 @@ describe("public replay switching", () => {
       );
     });
     const watchButtons = Array.from(container.querySelectorAll<HTMLButtonElement>(".watch-button"));
+    expect(watchButtons.map((button) => button.textContent)).toEqual([
+      "Watch session",
+      "Watch session",
+    ]);
+    expect(container.textContent).toContain("2 sessions shared");
     await act(async () => watchButtons[0]?.click());
     const firstPlayer = findButton(container, "replay-one:0");
     await act(async () => firstPlayer.click());

@@ -76,9 +76,8 @@ function readThemeColor(name: string, fallback: string): string {
   return value.length > 0 ? value : fallback;
 }
 
-export function readErrorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return "The request failed. Try again in a moment.";
+export function readErrorMessage(_error: unknown): string {
+  return "Could not play this session. Try again.";
 }
 
 function encodePathPart(value: string): string {

@@ -145,7 +145,7 @@ export function AdminPage() {
               size="sm"
               variant="ghost"
             >
-              Log out
+              Sign out
             </Button>
           </div>
         </div>
@@ -302,7 +302,7 @@ export function AdminPage() {
               <DialogTitle>
                 {actionToConfirm?.type === "ban"
                   ? `Ban ${confirmationUser?.name ?? "this user"}?`
-                  : `Revoke all sessions for ${confirmationUser?.name ?? "this user"}?`}
+                  : `Sign out ${confirmationUser?.name ?? "this user"} on every device?`}
               </DialogTitle>
               <DialogDescription>
                 {actionToConfirm?.type === "ban"
@@ -333,7 +333,7 @@ export function AdminPage() {
                   if (actionToConfirm !== null) actionMutation.mutate(actionToConfirm);
                 }}
               >
-                {actionToConfirm?.type === "ban" ? "Ban user" : "Revoke sessions"}
+                {actionToConfirm?.type === "ban" ? "Ban user" : "Sign out on every device"}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -509,7 +509,7 @@ function AdminUserRow({
               size="sm"
               variant="ghost"
             >
-              Revoke sessions
+              Sign out everywhere
             </Button>
           </div>
         )}

@@ -112,7 +112,7 @@ describe("operator user actions", () => {
 
     const selfRow = findRow("sunny@example.com");
     expect(findButtonIn(selfRow, "Ban").disabled).toBe(true);
-    expect(findButtonIn(selfRow, "Revoke sessions").disabled).toBe(true);
+    expect(findButtonIn(selfRow, "Sign out everywhere").disabled).toBe(true);
     expect(
       selfRow.querySelector<HTMLButtonElement>('button[aria-label="Role for Sunny"]')?.disabled,
     ).toBe(true);

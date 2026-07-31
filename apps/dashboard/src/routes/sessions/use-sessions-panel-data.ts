@@ -226,12 +226,15 @@ export function useSessionsPanelData({
 
 function readErrorMessage(error: unknown): string {
   if (error instanceof ApiError) return readableApiError(error);
-  if (error instanceof Error) return error.message;
-  return "The request failed. Try again in a moment.";
+  return "Could not load sessions. Try again.";
 }
 
 function readableApiError(error: ApiError): string {
   if (error.code === "network_error") return error.message;
-  if (error.status >= 500) return "The sessions service is unavailable. Try again in a moment.";
-  return error.message.replaceAll("_", " ");
+  if (error.status === 429) return "Too many requests. Wait a moment and try again.";
+  if (error.code === "invalid_response") {
+    return "Sessions returned unexpected data. Refresh the page and try again.";
+  }
+  if (error.status >= 500) return "Sessions are temporarily unavailable. Try again.";
+  return "Could not load sessions. Try again.";
 }

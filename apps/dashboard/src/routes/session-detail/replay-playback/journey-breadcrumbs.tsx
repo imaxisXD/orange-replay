@@ -39,7 +39,9 @@ export function JourneyBreadcrumbs({
             {index > 0 && <span className="text-dim">·</span>}
             {"collapsedCount" in item ? (
               <Button
-                aria-label={`Show ${item.collapsedCount} hidden pages`}
+                aria-label={`Show ${item.collapsedCount} hidden ${
+                  item.collapsedCount === 1 ? "page" : "pages"
+                }`}
                 className="h-6 rounded-full px-2 font-mono text-[11px] text-muted-foreground"
                 onClick={() => setExpanded(true)}
                 size="sm"

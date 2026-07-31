@@ -92,7 +92,10 @@ function ProjectInstallSnippetBuilder({ projectId }: { projectId: string }) {
       : "";
   const shownSnippet =
     snippet.length === 0 ? blockedSnippetPreview : showFullCode ? snippet : shortSnippetPreview;
-  const keysError = keysQuery.error === null ? "" : readInstallErrorMessage(keysQuery.error);
+  const keysError =
+    keysQuery.error === null
+      ? ""
+      : readInstallErrorMessage(keysQuery.error, "Could not load recorder keys. Try again.");
   const snippetError = copyError || keysError;
   const copyBlockedReason = readCopyBlockedReason({
     cleanRecorderKey,
@@ -161,8 +164,8 @@ function ProjectInstallSnippetBuilder({ projectId }: { projectId: string }) {
       await window.navigator.clipboard.writeText(snippet);
       setCopyError("");
       setCopied(true);
-    } catch (caughtError) {
-      setCopyError(readInstallErrorMessage(caughtError));
+    } catch {
+      setCopyError("Could not copy the snippet. Select the code and copy it manually.");
     }
   }
 
@@ -170,7 +173,7 @@ function ProjectInstallSnippetBuilder({ projectId }: { projectId: string }) {
     <section className="lit rounded-lg p-5">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-[15px] font-medium leading-tight">Loader snippet</h2>
-        {keysQuery.isPending && <LoadingIndicator label="Checking project keys" />}
+        {keysQuery.isPending && <LoadingIndicator label="Checking recorder keys" />}
       </div>
       <p className="mt-1 text-[13px] text-muted-foreground">
         Paste before <code className="font-mono text-foreground">&lt;/head&gt;</code>. Raw keys are
@@ -344,7 +347,7 @@ function readCopyBlockedReason({
   originInput: string;
   recorderKeyReady: boolean;
 }): string | null {
-  if (keysLoading) return "Checking project keys.";
+  if (keysLoading) return "Checking recorder keys.";
   if (!hasActiveRecorderKey) return "Create an active recorder key first.";
   if (cleanRecorderKey.length === 0) return "Paste the raw recorder key first.";
   if (!recorderKeyReady) return "Use a generated recorder key that starts with or_live_.";

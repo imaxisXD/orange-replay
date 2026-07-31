@@ -88,7 +88,7 @@ describe("public page settings", () => {
   it("saves only the recordings chosen by the owner", async () => {
     const queryClient = await renderCard();
 
-    await act(async () => findButton("Choose recordings").click());
+    await act(async () => findButton("Choose sessions").click());
     await waitForUi(() => {
       expect(apiMocks.listSessions).toHaveBeenCalled();
       expect(document.body.textContent).toContain("/checkout");
@@ -103,15 +103,18 @@ describe("public page settings", () => {
       });
     });
 
-    await act(async () => findSwitch("Share recording from").parentElement?.click());
+    await act(async () => findSwitch("Share session from").parentElement?.click());
     await waitForUi(() => expect(document.body.textContent).toContain("1/10 selected"));
-    await act(async () => findButton("Save recordings").click());
+    await act(async () => findButton("Save sessions").click());
     await waitForUi(() =>
       expect(apiMocks.savePublicPageSettings).toHaveBeenCalledWith("project_one", {
         enabled: false,
         expectedRevision: 0,
         sessionIds: ["session_one"],
       }),
+    );
+    await waitForUi(() =>
+      expect(container.textContent).toContain("1/10 finalized session selected."),
     );
   });
 
@@ -204,7 +207,7 @@ async function renderCard(): Promise<QueryClient> {
   });
   await waitForUi(() => {
     expect(apiMocks.fetchPublicPageSettings).toHaveBeenCalled();
-    expect(container.textContent).toContain("Choose recordings");
+    expect(container.textContent).toContain("Choose sessions");
   });
   return queryClient;
 }

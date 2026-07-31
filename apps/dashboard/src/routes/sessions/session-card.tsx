@@ -181,7 +181,7 @@ function cardLabel(session: SessionDisplayItem, location: string, isWatched: boo
     parts.push(formatErrorCount(session.errors));
   }
   if (session.details_state === "exact" && session.rages > 0) {
-    parts.push(`${session.rages} rage clicks`);
+    parts.push(`${session.rages} ${session.rages === 1 ? "rage click" : "rage clicks"}`);
   }
   parts.push(location, formatShortRelativeTime(session.started_at));
   if (!isWatched) parts.push("not watched");

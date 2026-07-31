@@ -22,7 +22,9 @@ export const TimelineSidebar = memo(function TimelineSidebar({
     <aside className="lit flex h-full min-h-0 flex-col rounded-lg px-4 py-4 max-lg:max-h-90">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-[13px] font-semibold leading-tight">Timeline</h2>
-        <span className="text-[11.5px] text-dim">{rows.length} events</span>
+        <span className="text-[11.5px] text-dim">
+          {rows.length} {rows.length === 1 ? "event" : "events"}
+        </span>
       </div>
 
       {rows.length === 0 ? (

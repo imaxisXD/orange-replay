@@ -257,7 +257,7 @@ describe("sessions date range and pin lifecycle", () => {
     expect(resultsWorkspace?.style.height).toBe("690px");
     expect(resultsWorkspace?.getAttribute("aria-busy")).toBe("false");
     expect(container.querySelectorAll('[data-slot="loading-indicator"]')).toHaveLength(0);
-    expect(container.textContent).toContain("The rooster has the reel");
+    expect(container.textContent).toContain("Choose a session to watch");
 
     await teardown();
   });

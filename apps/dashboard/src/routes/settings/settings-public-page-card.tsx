@@ -133,7 +133,7 @@ export function PublicPageCard({ projectId }: { projectId: string }) {
       return;
     }
     if (selectedSessionIds.length >= MAX_PUBLIC_PAGE_RECORDINGS) {
-      setPickerError(`You can share up to ${MAX_PUBLIC_PAGE_RECORDINGS} recordings.`);
+      setPickerError(`You can share up to ${MAX_PUBLIC_PAGE_RECORDINGS} sessions.`);
       return;
     }
     setPickerError("");
@@ -165,7 +165,7 @@ export function PublicPageCard({ projectId }: { projectId: string }) {
           </Badge>
         }
         title="Public page"
-        body="Publish safe project analytics and up to ten recordings that you choose."
+        body="Publish safe project analytics and up to ten sessions that you choose."
       />
 
       {settingsQuery.isPending ? (
@@ -193,7 +193,7 @@ export function PublicPageCard({ projectId }: { projectId: string }) {
             <Info aria-hidden />
             <AlertTitle>Anyone with the address can view it</AlertTitle>
             <AlertDescription>
-              Published analytics can be indexed by search engines. Only recordings you select are
+              Published analytics can be indexed by search engines. Only sessions you select are
               shared, and live sessions are never included.
             </AlertDescription>
           </Alert>
@@ -202,7 +202,7 @@ export function PublicPageCard({ projectId }: { projectId: string }) {
             <Switch
               checked={settings.enabled}
               className="p-4"
-              description="Turning this off blocks the page and its recordings on the next request. Search results may take time to disappear."
+              description="Turning this off blocks the page and its sessions on the next request. Search results may take time to disappear."
               disabled={saveMutation.isPending}
               label="Publish this page"
               labelFirst
@@ -260,14 +260,17 @@ export function PublicPageCard({ projectId }: { projectId: string }) {
 
             <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className="text-[13px] font-medium text-foreground">Shared recordings</p>
+                <p className="text-[13px] font-medium text-foreground">Shared sessions</p>
                 <p className="mt-1 text-[12px] text-muted-foreground">
                   <AnimatedNumber value={settings.recordings.length} />/{MAX_PUBLIC_PAGE_RECORDINGS}{" "}
-                  finalized recordings selected. Analytics can be public with none selected.
+                  {settings.recordings.length === 1
+                    ? "finalized session selected."
+                    : "finalized sessions selected."}{" "}
+                  Analytics can be public with none selected.
                 </p>
               </div>
               <Button leadingIcon={Eye} onClick={openRecordingPicker} size="sm" variant="secondary">
-                Choose recordings
+                Choose sessions
               </Button>
             </div>
           </div>
@@ -361,7 +364,7 @@ function sessionToChoice(session: SessionListItem): RecordingChoice {
 
 function publicPageError(error: unknown, fallback: string): string {
   if (error === null || error === undefined) return "";
-  if (!(error instanceof ApiError)) return error instanceof Error ? error.message : fallback;
+  if (!(error instanceof ApiError)) return fallback;
   if (error.code === "public_page_origin_not_set") {
     return "The public page address is not set on the Worker.";
   }
@@ -369,7 +372,7 @@ function publicPageError(error: unknown, fallback: string): string {
     return "The public page address on the Worker is invalid.";
   }
   if (error.code === "recording_not_available") {
-    return "One selected recording is no longer available. Reload and choose again.";
+    return "One selected session is no longer available. Reload and choose again.";
   }
   if (error.code === "public_page_settings_changed") {
     return "Public page settings changed elsewhere. Review the latest values and try again.";
