@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vite-plus/test";
-import { WEBSITE_URL_ISSUE, websiteNameFromUrl, websiteUrlSchema } from "../src/website-url.ts";
+import {
+  FAVICON_API_VERSION,
+  WEBSITE_URL_ISSUE,
+  websiteNameFromUrl,
+  websiteUrlSchema,
+} from "../src/website-url.ts";
 
 describe("website URL schema", () => {
+  it("keeps a shared favicon API version for browser and edge cache busting", () => {
+    expect(FAVICON_API_VERSION).toBe("2");
+  });
+
   it("defaults normal website input to HTTPS", () => {
     expect(websiteUrlSchema.safeParse("acme.com").data?.href).toBe("https://acme.com/");
     expect(websiteUrlSchema.safeParse("  acme.com/pricing  ").data?.href).toBe(

@@ -1,4 +1,5 @@
 import {
+  FAVICON_API_VERSION,
   PROJECT_NAME_MAX_CHARS,
   WEBSITE_URL_ISSUE,
   websiteNameFromUrl,
@@ -38,7 +39,7 @@ export function websiteProjectName(url: URL): string {
 
 /** Same-origin image endpoint used by both favicon surfaces. */
 export function websiteFaviconUrl(url: URL): string {
-  return `/api/v1/favicon?website=${encodeURIComponent(url.origin)}`;
+  return `/api/v1/favicon?website=${encodeURIComponent(url.origin)}&v=${FAVICON_API_VERSION}`;
 }
 
 /**

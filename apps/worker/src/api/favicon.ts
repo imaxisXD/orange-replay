@@ -1,10 +1,14 @@
-import { websiteNameFromUrl, websiteUrlSchema, type WideEventLogger } from "@orange-replay/shared";
+import {
+  FAVICON_API_VERSION,
+  websiteNameFromUrl,
+  websiteUrlSchema,
+  type WideEventLogger,
+} from "@orange-replay/shared";
 import type { Env } from "../env.ts";
 import { jsonError } from "../http.ts";
 
-const CACHE_VERSION = "1";
 const FAVICON_CACHE_SECONDS = 7 * 24 * 60 * 60;
-const FALLBACK_CACHE_SECONDS = 60 * 60;
+const FALLBACK_CACHE_SECONDS = 60;
 const MAX_HTML_BYTES = 256 * 1_024;
 const MAX_IMAGE_BYTES = 512 * 1_024;
 const MAX_REDIRECTS = 4;
@@ -45,7 +49,7 @@ export async function getFavicon(
   const website = parsedWebsite.data;
 
   const cacheKey = new Request(
-    `${requestUrl.origin}/api/v1/favicon?website=${encodeURIComponent(website.origin)}&v=${CACHE_VERSION}`,
+    `${requestUrl.origin}/api/v1/favicon?website=${encodeURIComponent(website.origin)}&v=${FAVICON_API_VERSION}`,
   );
   const cache = defaultCache();
   const cached = await readCachedFavicon(cache, cacheKey);

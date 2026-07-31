@@ -48,9 +48,12 @@ than a broken image.
 
 The final response is cached in Cloudflare's local edge cache by normalized
 website origin. Verified icons are cached for seven days and generated
-fallbacks for one hour. A per-user Cloudflare rate-limit binding applies only
-to cache misses. The 16px favicon in the field and the real project switcher
-share the same debounced URL. Before a valid source exists, the favicon has
+fallbacks for one minute, so a temporary upstream failure cannot hide a real
+icon for the rest of onboarding. The dashboard URL and Worker edge key share a
+cache version, allowing old browser and edge entries to be invalidated together.
+A per-user Cloudflare rate-limit binding applies only to cache misses. The 16px
+favicon in the field and the real project switcher share the same debounced URL.
+Before a valid source exists, the favicon has
 zero width and cancels the parent's gap, so the field never shows a dark
 placeholder dot or reserves empty space. A saved website may keep its identity
 in the preview, but it is not passed into an empty input; the input stays
@@ -385,7 +388,9 @@ validation, fallback, cache, and rate-limit coverage in `apps/worker/tests/favic
 and signed-in-only routing coverage in `dashboard-request-policy.test.ts`.
 `onboarding-activation.test.tsx` also protects the bare-domain submit, inline
 error, shake trigger, favicon reveal, normalized API URL, and exact step-motion
-values.
+values. The NDLE regression adds a Next.js query-string icon, a multi-size
+Windows ICO served as `image/vnd.microsoft.icon`, the shared cache version, and
+the one-minute negative-cache policy.
 
 Visual proof came from real Chrome against the existing dev server on 8787 with
 `/api/v1/*` stubbed client-side; nothing was written to the local worker. Note
@@ -398,8 +403,10 @@ fallback answers every path, so it cannot prove the reachability lists above;
 The favicon follow-up used the existing authenticated Brave session on 8787
 without request stubs. A real Google icon and the safe generated fallback each
 appeared in both the input and project switcher; the invalid state and the next
-step were also exercised. This touched only the local development project. No
-production request, migration, or deploy was run.
+step were also exercised. The NDLE regression was then repeated against its real
+15,086-byte icon: the yellow dotted icon appeared in both surfaces, while the
+Worker wide event reported `favicon_result: "fetched"`. This touched only the
+local development project. No migration or deploy was run.
 
 ### Independent review, 2026-07-30
 
