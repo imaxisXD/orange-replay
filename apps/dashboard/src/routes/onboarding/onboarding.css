@@ -67,6 +67,25 @@
     color 180ms ease;
 }
 
+/* The lattice behind the highlighted switcher. `EmberField` already fades
+   upward from its bottom edge; this masks it horizontally too, so it reads as a
+   halo around the chip rather than a rectangle behind it. Same device as
+   `.live-dot__light`, which masks its own pixel grid with a radial gradient. */
+.onboarding-switcher-field {
+  -webkit-mask-image: radial-gradient(
+    ellipse 60% 100% at 50% 100%,
+    oklch(0 0 0) 0%,
+    oklch(0 0 0 / 0.55) 52%,
+    transparent 88%
+  );
+  mask-image: radial-gradient(
+    ellipse 60% 100% at 50% 100%,
+    oklch(0 0 0) 0%,
+    oklch(0 0 0 / 0.55) 52%,
+    transparent 88%
+  );
+}
+
 /* The highlight is the design system's own attention signal, not a new one. A
    1px amber ring is exactly what `InputField` shows on focus and what
    `NumberStepper` shows on focus-within, and `--ring` / `--focus-ring` both

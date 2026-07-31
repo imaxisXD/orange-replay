@@ -1,7 +1,15 @@
-import { m, useReducedMotion } from "@/lib/motion";
+import { AnimatePresence, m, useReducedMotion } from "@/lib/motion";
+import { EmberField } from "@/components/ember-field";
 import { DashboardWorkspaceProvider } from "@/lib/dashboard-workspace";
 import { AppShell } from "@/routes/app-shell";
-import { ACT, CAMERA, PREVIEW_FRAME, cameraStop, canvasParallaxScale } from "./onboarding-motion";
+import {
+  ACT,
+  CAMERA,
+  PREVIEW_FRAME,
+  SWITCHER_FIELD,
+  cameraStop,
+  canvasParallaxScale,
+} from "./onboarding-motion";
 import { useOnboarding } from "./onboarding-context";
 
 /** The stage the camera moves over. Fixed so the framing is not viewport-bound. */
@@ -13,14 +21,14 @@ const STAGE = { width: 1_100, height: 1_080 } as const;
  * This renders the real `AppShell` — the same header, project switcher,
  * environment badge, tab row and workspace card the dashboard ships — rather
  * than a hand-built lookalike, so the preview cannot drift from the product.
- * Only the page body is stand-in content: the project has no data yet, so
- * every metric keeps its real label and shows a pending value.
+ * The page body is placeholders and carries no copy at all; see
+ * `PendingOverview` for why.
  *
- * One act drives this pane (see the storyboard): the camera pushes in on the
- * switcher while the website is being named, rests wide through install and
- * waiting, and on the first event the frame lifts. The lift is deliberately the
- * only thing act 2 does — see `PendingOverview` for why nothing here can fill
- * in.
+ * One act drives this pane (see the storyboard): while the website is being
+ * named the camera pushes in toward the switcher, which takes the system's amber
+ * focus ring over a shimmering LED lattice; it rests wide through install and
+ * waiting; and on the first event the frame lifts. That lift is deliberately all
+ * act 2 does — again, see `PendingOverview`.
  */
 export function OnboardingPreview() {
   const reduceMotion = useReducedMotion() === true;
@@ -71,6 +79,35 @@ export function OnboardingPreview() {
         style={{ height: STAGE.height, width: STAGE.width }}
         transition={cameraTransition}
       >
+        {/* Behind the shell, so it sits under the switcher's amber ring and
+            bloom rather than over them. Mounted only while naming, so its
+            requestAnimationFrame loop does not run for the whole flow; the
+            presence wrapper keeps it alive long enough to fade out. */}
+        <AnimatePresence>
+          {isNaming && (
+            <m.div
+              animate={{ opacity: 1 }}
+              className="onboarding-switcher-field pointer-events-none absolute text-amber"
+              exit={{ opacity: 0 }}
+              initial={{ opacity: 0 }}
+              style={{
+                height: SWITCHER_FIELD.height,
+                left: SWITCHER_FIELD.x,
+                top: SWITCHER_FIELD.y,
+                width: SWITCHER_FIELD.width,
+              }}
+              transition={reduceMotion ? { duration: 0 } : SWITCHER_FIELD.spring}
+            >
+              <EmberField
+                className="inset-0 h-full w-full"
+                fadePerRow={SWITCHER_FIELD.fadePerRow}
+                intensity={SWITCHER_FIELD.intensity}
+                pulse={SWITCHER_FIELD.pulse}
+              />
+            </m.div>
+          )}
+        </AnimatePresence>
+
         <DashboardWorkspaceProvider isDemo={false} projectId={projectId}>
           <AppShell
             navigationPathname={`/projects/${projectId}/overview`}

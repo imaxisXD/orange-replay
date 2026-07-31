@@ -248,6 +248,29 @@ export function canvasParallaxScale(cameraScale: number): number {
   return 1 + (magnification - 1) * CAMERA.parallax.canvas;
 }
 
+/**
+ * The amber LED lattice behind the highlighted switcher, in unscaled stage
+ * coordinates. It rides inside the stage, so the camera scales it along with the
+ * dashboard and it needs no measurement of its own.
+ *
+ * `EmberField` is brightest along its bottom edge and fades upward, so the box
+ * ends just below the switcher: the bright row sits under the chip and the field
+ * thins out around and above it, which reads as light spilling from the control
+ * rather than a panel behind it. The box starts at the stage's top edge because
+ * the switcher is only 10px down from it and anything taller would be clipped.
+ */
+export const SWITCHER_FIELD = {
+  x: 154, // centred on the switcher's 264px centre
+  y: 0,
+  width: 220, // wider than the 132px switcher so the lattice reads around it
+  height: 52, // bottom edge lands ~8px below the switcher
+  fadePerRow: 0.1, // ~9 lattice rows in 52px, faded out by the top
+  intensity: 0.9,
+  pulse: 0.8, // calmer than the toast's field; this sits under live text
+  /** Fades in with the highlight rather than snapping on mid-keystroke. */
+  spring: { type: "spring" as const, duration: 0.32, bounce: 0 },
+} as const;
+
 /* The preview frame itself. Act 2's only move: a lift, because the frame is the
  * one thing on the right that can change without asserting something untrue.
  *

@@ -289,6 +289,29 @@ The point is the pairing. The website field the visitor is typing into is wearin
 that exact ring at that exact moment, and so is the switcher that is about to say
 what they typed — which is what connects the two halves of the screen.
 
+Behind the ring sits `EmberField`, the shared LED lattice the settings dock and
+the demo notch already use: 2px squares on a 5px pitch, each shimmering on its
+own slow sine wave, coloured amber from CSS `color`. `SWITCHER_FIELD` places it
+in unscaled **stage coordinates**, so it rides inside the stage and the camera
+scales it with the dashboard — no measuring the switcher at runtime.
+
+Three constraints shape that box, and each has a test:
+
+- **Centred on `CAMERA.target.x`** and wider than the 132px switcher, so the
+  lattice reads around the chip rather than beside it.
+- **Its bottom edge clears the switcher.** `EmberField` is brightest along the
+  bottom and fades upward, so an edge landing inside the control would hide the
+  brightest row behind a semi-opaque background. Ending just below it instead
+  reads as light spilling from the chip.
+- **It starts at the stage's top edge.** The switcher is only 10px down, so
+  anything taller would be cut off by the frame rather than fading out.
+
+A radial mask adds the horizontal falloff `EmberField` has no opinion about, the
+same device `.live-dot__light` uses on its own pixel grid. The field mounts only
+while naming so its `requestAnimationFrame` loop does not run for the whole flow,
+inside an `AnimatePresence` so it still fades out. `EmberField` already draws a
+single static frame under `prefers-reduced-motion`.
+
 ### Deliberate deviation from the lab
 
 The lab drew a generated one-letter favicon beside the project name and the

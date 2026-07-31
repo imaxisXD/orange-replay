@@ -41,6 +41,7 @@ import {
   ACT,
   CAMERA,
   PREVIEW_FRAME,
+  SWITCHER_FIELD,
   VERIFY,
   cameraStop,
   canvasParallaxScale,
@@ -616,5 +617,29 @@ describe("activation camera depth and timing", () => {
     // must start after it, not with it.
     expect(PREVIEW_FRAME.liveDelay).toBeGreaterThan(0);
     expect(PREVIEW_FRAME.liveDelay).toBeLessThan(VERIFY.checkSpring.duration);
+  });
+});
+
+describe("activation switcher lattice", () => {
+  it("frames the switcher rather than sitting somewhere near it", () => {
+    // Centred on the same subject the camera pushes toward.
+    const centre = SWITCHER_FIELD.x + SWITCHER_FIELD.width / 2;
+    expect(centre).toBeCloseTo(CAMERA.target.x, 6);
+    // Wider than the 132px switcher, so the lattice reads around the chip.
+    expect(SWITCHER_FIELD.width).toBeGreaterThan(132);
+  });
+
+  it("puts its bright edge below the switcher, not under it", () => {
+    // EmberField is brightest along its bottom edge. If that edge landed inside
+    // the switcher's own box the brightest row would be hidden behind a control
+    // with a semi-opaque background.
+    const switcherBottom = CAMERA.target.y + 15; // half of the 30px control
+    expect(SWITCHER_FIELD.y + SWITCHER_FIELD.height).toBeGreaterThan(switcherBottom);
+  });
+
+  it("cannot be clipped by the frame's top edge", () => {
+    // The switcher sits only 10px into the stage, so a field extending above the
+    // stage origin would be cut off rather than fading out.
+    expect(SWITCHER_FIELD.y).toBeGreaterThanOrEqual(0);
   });
 });
