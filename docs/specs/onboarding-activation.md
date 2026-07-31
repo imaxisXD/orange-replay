@@ -50,8 +50,15 @@ The final response is cached in Cloudflare's local edge cache by normalized
 website origin. Verified icons are cached for seven days and generated
 fallbacks for one hour. A per-user Cloudflare rate-limit binding applies only
 to cache misses. The 16px favicon in the field and the real project switcher
-share the same debounced URL, clear a stale icon as soon as the address changes,
-and use a skeleton-to-content reveal while the next image loads.
+share the same debounced URL. Before a valid source exists, the favicon has
+zero width and cancels the parent's gap, so the field never shows a dark
+placeholder dot or reserves empty space. A saved website may keep its identity
+in the preview, but it is not passed into an empty input; the input stays
+aligned until the visitor types. A valid source drives one integer
+through empty, loading, and revealed stages: the slot grows left-to-right while
+clearing a brief blur, then uses the requested skeleton-to-content reveal when
+the image finishes loading. A changed origin resets that sequence before paint;
+an unchanged origin keeps its current icon.
 
 ## What each step writes
 
@@ -175,7 +182,8 @@ framer-motion rather than its CSS variables:
 - copy control — the shared `IconSwap`.
 - first event — a stroke-drawn check clearing an 8px blur.
 - invalid URL — transitions.dev's 280ms decaying shake and error-message fade.
-- favicon — transitions.dev's skeleton reveal, clearing a 2px blur over 400ms.
+- favicon — a 250ms left-to-right slot entrance, followed by transitions.dev's
+  skeleton reveal clearing a 2px blur over 400ms.
 
 Reduced motion collapses every one of these: each component passes
 `initial={false}` and a zero-duration transition, and the three CSS keyframe
@@ -357,7 +365,9 @@ The lab's generated one-letter favicon is replaced by the fetched website icon
 with an initial-letter fallback. `AppShell` and the shared Select accept optional
 leading content, so onboarding can place the favicon in the real switcher
 without changing the normal dashboard switcher. The input and preview therefore
-show the same identity while the visitor types.
+show the same identity while the visitor types. Both surfaces use the same
+three-stage empty/loading/revealed component, so neither reserves a blank slot
+and both replay the loading blur when the visitor changes to a new origin.
 
 ## Verification
 

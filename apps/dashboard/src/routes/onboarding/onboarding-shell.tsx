@@ -91,7 +91,9 @@ export function OnboardingShell() {
       websiteDraft.trim().length > 0 ? websiteDraft : (savedWebsiteName ?? ""),
     );
     const nextFaviconUrl = faviconWebsite === null ? null : websiteFaviconUrl(faviconWebsite);
-    setFaviconUrl(null);
+    setFaviconUrl((currentFaviconUrl) =>
+      currentFaviconUrl === nextFaviconUrl ? currentFaviconUrl : null,
+    );
     if (nextFaviconUrl === null) return;
     const timeout = window.setTimeout(() => setFaviconUrl(nextFaviconUrl), 250);
     return () => window.clearTimeout(timeout);

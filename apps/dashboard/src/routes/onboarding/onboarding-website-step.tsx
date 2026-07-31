@@ -12,6 +12,7 @@ import { OnboardingStage } from "./onboarding-stage";
 import {
   activationAllowedOrigins,
   readWebsiteUrl,
+  websiteFaviconUrl,
   websiteProjectName,
   websiteUrlError,
 } from "./onboarding-website";
@@ -39,6 +40,8 @@ export function OnboardingWebsitePage() {
   const [showError, setShowError] = useState(false);
   const inputGroupRef = useRef<HTMLDivElement>(null);
   const websiteUrl = readWebsiteUrl(websiteDraft);
+  const expectedFaviconUrl = websiteUrl === null ? null : websiteFaviconUrl(websiteUrl);
+  const inputFaviconUrl = faviconUrl === expectedFaviconUrl ? faviconUrl : null;
 
   const activation = useMutation({
     mutationFn: async (url: URL) => {
@@ -134,7 +137,7 @@ export function OnboardingWebsitePage() {
             onFocus={() => setIsNamingProject(websiteDraft.trim().length > 0)}
             placeholder="example.com"
             startContent={
-              <WebsiteFavicon fallbackLabel={previewProjectLabel} source={faviconUrl} />
+              <WebsiteFavicon fallbackLabel={previewProjectLabel} source={inputFaviconUrl} />
             }
             type="text"
             value={websiteDraft}

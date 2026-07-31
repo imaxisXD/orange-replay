@@ -67,6 +67,14 @@
  *   blur     camera releases back to the whole dashboard
  *  invalid   field shakes 6px → -6px → 4px and settles
  *
+ * WEBSITE FAVICON — once a valid origin settles
+ *      0ms   stage 0 holds no slot and no gap before a source
+ *      0ms   stage 1 grows the slot left → right, travels 6px,
+ *            and clears a 2px blur while the skeleton pulses
+ *    250ms   the 16px slot has settled in both identity surfaces
+ *    loaded  stage 2 cross-fades skeleton → website icon
+ *    400ms   the icon has cleared its final 2px reveal blur
+ *
  * ACT 1 → PROMISE — install, and waiting on step 3
  *      0ms   camera rests wide and flush; nothing on the right
  *            moves, so the left pane carries the whole step
@@ -109,6 +117,19 @@ export const TIMING = {
   railTravel: 360, // rail reaches the next step
   check: 500, // success check finishes drawing
   shake: 280, // transitions.dev error-state shake, matches onboarding.css
+} as const;
+
+/** One integer drives the favicon's empty, loading, and revealed sequence. */
+export const FAVICON_STAGE = { empty: 0, loading: 1, revealed: 2 } as const;
+
+/** Favicon entrance shared by the field and preview switcher. */
+export const FAVICON_SLOT = {
+  size: 16, // px, matches the real switcher's compact identity mark
+  parentGap: 8, // px, cancelled while empty so no phantom gap is reserved
+  enterX: 6, // px, clipped by the growing slot for a left-to-right entrance
+  enterBlur: 2, // px, the brief loading blur before the slot settles
+  enterDuration: 250, // ms, quick enough to follow the input's quiet window
+  enterEase: "cubic-bezier(0.22, 1, 0.36, 1)",
 } as const;
 
 /* Progress rail above the form column */

@@ -62,6 +62,7 @@ import { OnboardingWebsitePage } from "../src/routes/onboarding/onboarding-websi
 
 const PROJECT_ID = "project_abc";
 const RAW_KEY = `or_live_${"a".repeat(32)}`;
+const SAVED_WEBSITE = new URL("https://saved.example");
 
 let container: HTMLDivElement;
 let root: Root;
@@ -257,15 +258,19 @@ describe("activation step 1: website", () => {
     });
     apiMocks.saveProjectConfig.mockResolvedValue({ version: 2 });
     await render(<OnboardingWebsitePage />);
+    expect(container.querySelector('.t-favicon-slot[data-stage="0"]')).not.toBeNull();
+    expect(container.querySelector(".t-favicon-frame")).toBeNull();
 
     await setWebsiteInput("acme.com");
     expect(findButton("Continue").disabled).toBe(false);
+    expect(container.querySelector('.t-favicon-slot[data-stage="1"]')).not.toBeNull();
     expect(container.querySelector("img")?.getAttribute("src")).toBe(
       "/api/v1/favicon?website=https%3A%2F%2Facme.com",
     );
     await act(async () => {
       container.querySelector("img")?.dispatchEvent(new Event("load"));
     });
+    expect(container.querySelector('.t-favicon-slot[data-stage="2"]')).not.toBeNull();
     expect(container.querySelector(".t-skel.is-revealed")).not.toBeNull();
     await act(async () => {
       findButton("Continue").click();
@@ -465,6 +470,7 @@ function Harness({ children }: { children: ReactNode }) {
   const [recording, setRecording] = useState(false);
   namingProject = isNaming;
   isRecordingReported = recording;
+  const draftWebsite = readWebsiteUrl(draft);
 
   return (
     <OnboardingProvider
@@ -472,14 +478,16 @@ function Harness({ children }: { children: ReactNode }) {
         act: onboardingAct(0, recording),
         direction: 1,
         faviconUrl:
-          readWebsiteUrl(draft) === null ? null : websiteFaviconUrl(readWebsiteUrl(draft)!),
+          draftWebsite === null
+            ? websiteFaviconUrl(SAVED_WEBSITE)
+            : websiteFaviconUrl(draftWebsite),
         isFirstPaint: true,
         isNamingProject: isNaming,
         isRecording: recording,
         previewProjectLabel: "acme.com",
         projectId: PROJECT_ID,
         recorderKey: key,
-        savedWebsiteName: null,
+        savedWebsiteName: SAVED_WEBSITE.hostname,
         setIsNamingProject: setIsNaming,
         setIsRecording: setRecording,
         setRecorderKey: setKey,
