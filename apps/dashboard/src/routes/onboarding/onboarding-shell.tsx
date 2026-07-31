@@ -17,7 +17,12 @@ import {
 } from "./onboarding-context";
 import { FRAME, RAIL, REVEAL, onboardingAct } from "./onboarding-motion";
 import { OnboardingPreview } from "./onboarding-preview";
-import { isWebsiteProjectName, websitePreviewLabel } from "./onboarding-website";
+import {
+  isWebsiteProjectName,
+  readWebsiteUrl,
+  websiteFaviconUrl,
+  websitePreviewLabel,
+} from "./onboarding-website";
 import "./onboarding.css";
 
 /** Shown in the project switcher before a website has been typed. */
@@ -42,6 +47,7 @@ export function OnboardingShell() {
   const [recorderKey, setRecorderKey] = useState<string | null>(null);
   const [isNamingProject, setIsNamingProject] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [faviconUrl, setFaviconUrl] = useState<string | null>(null);
 
   const accountQuery = useQuery({
     queryKey: accountQueryKey,
@@ -77,6 +83,20 @@ export function OnboardingShell() {
       ? websitePreviewLabel(websiteDraft, PLACEHOLDER_PROJECT_LABEL)
       : (savedWebsiteName ?? PLACEHOLDER_PROJECT_LABEL);
 
+  // Do not ask the Worker to fetch on every keystroke. A short quiet window is
+  // enough to catch pasted URLs quickly while keeping normal typing to one
+  // request. The API and browser cache handle repeated valid origins after it.
+  useEffect(() => {
+    const faviconWebsite = readWebsiteUrl(
+      websiteDraft.trim().length > 0 ? websiteDraft : (savedWebsiteName ?? ""),
+    );
+    const nextFaviconUrl = faviconWebsite === null ? null : websiteFaviconUrl(faviconWebsite);
+    setFaviconUrl(null);
+    if (nextFaviconUrl === null) return;
+    const timeout = window.setTimeout(() => setFaviconUrl(nextFaviconUrl), 250);
+    return () => window.clearTimeout(timeout);
+  }, [savedWebsiteName, websiteDraft]);
+
   // The camera only belongs on the switcher while the website is being named.
   // Submitting with the keyboard never blurs the field, so without this gate the
   // preview stayed zoomed on the switcher through the install and verify steps.
@@ -88,6 +108,7 @@ export function OnboardingShell() {
     () => ({
       act,
       direction,
+      faviconUrl,
       isFirstPaint,
       isNamingProject: isCameraOnProject,
       isRecording,
@@ -105,6 +126,7 @@ export function OnboardingShell() {
     [
       act,
       direction,
+      faviconUrl,
       isFirstPaint,
       isCameraOnProject,
       isRecording,
@@ -125,7 +147,7 @@ export function OnboardingShell() {
 
   return (
     <OnboardingProvider value={onboarding}>
-      <main className="grid min-h-svh grid-cols-1 overflow-hidden bg-background text-foreground lg:grid-cols-[51.9%_48.1%]">
+      <main className="onboarding-shell grid min-h-svh grid-cols-1 overflow-hidden bg-background text-foreground lg:grid-cols-[51.9%_48.1%]">
         <section className="relative min-h-svh bg-card lg:border-r lg:border-border">
           <div className="absolute top-6 left-6 flex items-center gap-2.5 text-[13px] font-medium">
             <BrandMark className="size-6" />

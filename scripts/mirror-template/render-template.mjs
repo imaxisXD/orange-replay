@@ -202,6 +202,8 @@ function rateLimitNote(name) {
       return "adds a fast per-location guard before the exact shared D1 budget";
     case "LIVE_TICKET_RATE_LIMITER":
       return "limits one-use live ticket minting per viewer";
+    case "FAVICON_RATE_LIMITER":
+      return "limits cache-miss website icon fetches per signed-in person";
     default:
       return "protects public ingest before Durable Object writes";
   }

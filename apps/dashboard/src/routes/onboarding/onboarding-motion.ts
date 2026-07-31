@@ -65,7 +65,7 @@
  *   blur     release takes 760ms, not 520: a pull-out is a reveal
  *            and gets more time than the push that preceded it
  *   blur     camera releases back to the whole dashboard
- *  invalid   field shakes 8px → 6px → 3px and settles
+ *  invalid   field shakes 6px → -6px → 4px and settles
  *
  * ACT 1 → PROMISE — install, and waiting on step 3
  *      0ms   camera rests wide and flush; nothing on the right
@@ -108,7 +108,7 @@ export const TIMING = {
   frame: 300, // form frame settles at the new step's height
   railTravel: 360, // rail reaches the next step
   check: 500, // success check finishes drawing
-  shake: 320, // invalid-URL shake, matches onboarding.css
+  shake: 280, // transitions.dev error-state shake, matches onboarding.css
 } as const;
 
 /* Progress rail above the form column */
@@ -118,12 +118,12 @@ export const RAIL = {
 } as const;
 
 /* Step forms entering the 394px column.
- * transitions.dev "page side-by-side": 8px travel, 3px cross-blur, smooth-out,
- * expressed as this codebase's bounce-free spring. */
+ * transitions.dev "page side-by-side": 8px travel, 3px cross-blur and the
+ * reference's exact 250ms smooth-out curve. */
 export const STEP = {
   travelX: 8, // px the step slides along the direction of travel
   blur: 3, // px blur it clears on the way in
-  spring: { type: "spring" as const, duration: 0.25, bounce: 0 },
+  transition: { duration: 0.25, ease: [0.22, 1, 0.36, 1] as const },
 } as const;
 
 /* Heading, supporting line, body and action inside one step.

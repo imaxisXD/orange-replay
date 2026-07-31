@@ -42,6 +42,7 @@ export function AppShell({
   children,
   navigationPathname,
   projectLabel,
+  projectLeadingContent,
   rootClassName,
   showAccountAvatar = true,
   workspaceKey,
@@ -54,6 +55,8 @@ export function AppShell({
    *  into the switcher before the rename is saved, so the preview follows the
    *  field instead of the account response. */
   projectLabel?: string;
+  /** Optional visual identity before the project label. */
+  projectLeadingContent?: ReactNode;
   /** Replaces root sizing so the shell can be framed inside a fixed-size
    *  preview stage instead of the viewport. */
   rootClassName?: string;
@@ -175,6 +178,7 @@ export function AppShell({
               <SelectTrigger
                 aria-label="Project"
                 className="h-7.5 min-w-33 bg-transparent rounded-lg border-none hover:bg-secondary px-2.75 py-1.25 text-[12.5px] hover:text-foreground text-muted-foreground"
+                leadingContent={projectLeadingContent}
                 placeholder="Project"
               />
               <SelectContent className="rounded-lg border border-border bg-popover">

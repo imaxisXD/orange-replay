@@ -49,6 +49,8 @@ interface OnboardingState {
   act: OnboardingAct;
   /** Label the dashboard preview shows in its project switcher. */
   previewProjectLabel: string;
+  /** Debounced same-origin favicon endpoint for the current valid website. */
+  faviconUrl: string | null;
   /** Step currently on screen, and which way the last move travelled. */
   stepIndex: number;
   direction: 1 | -1;

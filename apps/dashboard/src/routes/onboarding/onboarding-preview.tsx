@@ -11,6 +11,7 @@ import {
   canvasParallaxScale,
 } from "./onboarding-motion";
 import { useOnboarding } from "./onboarding-context";
+import { WebsiteFavicon } from "./website-favicon";
 
 /** The stage the camera moves over. Fixed so the framing is not viewport-bound. */
 const STAGE = { width: 1_100, height: 1_080 } as const;
@@ -32,7 +33,7 @@ const STAGE = { width: 1_100, height: 1_080 } as const;
  */
 export function OnboardingPreview() {
   const reduceMotion = useReducedMotion() === true;
-  const { act, isNamingProject, previewProjectLabel, projectId } = useOnboarding();
+  const { act, faviconUrl, isNamingProject, previewProjectLabel, projectId } = useOnboarding();
   const isNaming = isNamingProject && !reduceMotion;
   const camera = cameraStop(isNaming);
   const isLive = act === ACT.live;
@@ -112,6 +113,9 @@ export function OnboardingPreview() {
           <AppShell
             navigationPathname={`/projects/${projectId}/overview`}
             projectLabel={previewProjectLabel}
+            projectLeadingContent={
+              <WebsiteFavicon fallbackLabel={previewProjectLabel} source={faviconUrl} />
+            }
             rootClassName="h-full"
           >
             <PendingOverview />

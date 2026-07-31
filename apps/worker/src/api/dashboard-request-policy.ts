@@ -7,6 +7,7 @@ import { isValidPathId, isValidSegmentName } from "../query/session-query.ts";
 export type DashboardRouteName =
   | "better_auth"
   | "auth_config"
+  | "favicon"
   | "account"
   | "account_bootstrap"
   | "admin_stats"
@@ -188,7 +189,7 @@ export type ExecutableProjectRoutePlan = Exclude<
 
 export type AuthedRoute =
   | { access: "authenticated"; action: "not_found" }
-  | { access: "session"; action: "account"; mutationOrigin: false }
+  | { access: "session"; action: "account" | "favicon"; mutationOrigin: false }
   | { access: "session"; action: "account_bootstrap"; mutationOrigin: true }
   | { access: "global_admin"; action: "admin_stats" | "admin_users" }
   | ProjectRoutePlan;
@@ -328,6 +329,12 @@ export function matchDashboardRequest(method: string, pathname: string): Dashboa
           mutationOrigin: true,
         })
       : unsupported(pathname, "account_bootstrap");
+  }
+
+  if (pathname === "/api/v1/favicon") {
+    return method === "GET"
+      ? authed(pathname, "favicon", { access: "session", action: "favicon", mutationOrigin: false })
+      : unsupported(pathname, "favicon");
   }
 
   if (pathname === "/api/v1/admin/stats") {

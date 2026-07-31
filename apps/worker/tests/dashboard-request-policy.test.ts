@@ -58,6 +58,7 @@ function fakeExecutors() {
     liveProxy: vi.fn(async () => new Response("live")),
     account: vi.fn(async () => jsonResponse({ ok: true })),
     accountBootstrap: vi.fn(async () => jsonResponse({ ok: true })),
+    favicon: vi.fn(async () => new Response("icon", { headers: { "content-type": "image/png" } })),
     adminStats: vi.fn(async () => jsonResponse({ ok: true })),
     adminUsers: vi.fn(async () => jsonResponse({ ok: true })),
     project: vi.fn(
@@ -162,6 +163,12 @@ describe("dashboard request plans", () => {
       routeName: "account_bootstrap",
       projectIdForAuth: null,
       route: { access: "session", action: "account_bootstrap", mutationOrigin: true },
+    });
+    expect(matchDashboardRequest("GET", "/api/v1/favicon")).toEqual({
+      kind: "authed",
+      routeName: "favicon",
+      projectIdForAuth: null,
+      route: { access: "session", action: "favicon", mutationOrigin: false },
     });
     expect(matchDashboardRequest("GET", "/api/v1/admin/stats")).toEqual({
       kind: "authed",
@@ -419,6 +426,17 @@ describe("dashboard request plans", () => {
 });
 
 describe("dashboard request policy handler order", () => {
+  it("requires a signed-in session before fetching a favicon", async () => {
+    const response = await apiRequest("/api/v1/favicon?website=acme.com");
+    expect(response.status).toBe(200);
+    expect(executors.favicon).toHaveBeenCalledOnce();
+
+    mocks.checkAuth.mockResolvedValue(demoAuth("demo_project"));
+    const demo = await apiRequest("/api/v1/favicon?website=acme.com");
+    expect(demo.status).toBe(401);
+    expect(executors.favicon).toHaveBeenCalledOnce();
+  });
+
   it("rate limits a public request before rejecting its invalid id", async () => {
     mocks.publicPageRateLimitAllows.mockResolvedValue(false);
     const limited = await apiRequest("/api/v1/public-pages/bad%2Fid");

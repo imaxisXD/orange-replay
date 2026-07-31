@@ -87,6 +87,9 @@ interface InputFieldProps extends Omit<
   disabled?: boolean;
   className?: string;
   endContent?: ReactNode;
+  startContent?: ReactNode;
+  containerClassName?: string;
+  animateError?: boolean;
   hideLabel?: boolean;
 }
 
@@ -103,6 +106,9 @@ const InputField = forwardRef<HTMLDivElement, InputFieldProps>(
       disabled,
       className,
       endContent,
+      startContent,
+      containerClassName,
+      animateError = false,
       hideLabel = false,
       onBlur: onInputBlur,
       onFocus: onInputFocus,
@@ -194,8 +200,10 @@ const InputField = forwardRef<HTMLDivElement, InputFieldProps>(
             `flex items-center gap-2 rounded-[7px] border bg-secondary px-3 py-1.75 ring-1 transition-[border-color,box-shadow] duration-80`,
             error ? "border-danger/50" : "border-border",
             ringClass,
+            containerClassName,
           )}
         >
+          {startContent}
           {Icon && (
             <Icon
               size={16}
@@ -229,13 +237,13 @@ const InputField = forwardRef<HTMLDivElement, InputFieldProps>(
 
         {/* Error message — `match` pins it visible while our controlled
             `error` prop is standing. */}
-        {error && (
+        {(animateError || error) && (
           <Field.Error
             match
-            className="pl-0 text-[13px] text-danger"
+            className={cn(animateError && "t-error-msg", "pl-0 text-[13px] text-danger")}
             style={{ fontWeight: fontWeights.medium }}
           >
-            {error}
+            {error ?? ""}
           </Field.Error>
         )}
       </Field.Root>

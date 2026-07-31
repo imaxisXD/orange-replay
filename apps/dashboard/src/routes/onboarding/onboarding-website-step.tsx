@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import {
   websiteProjectName,
   websiteUrlError,
 } from "./onboarding-website";
+import { WebsiteFavicon } from "./website-favicon";
 
 /**
  * Step 1 of 3 — the website being recorded.
@@ -27,11 +28,17 @@ import {
  */
 export function OnboardingWebsitePage() {
   const navigate = useNavigate();
-  const { projectId, setIsNamingProject, setWebsiteDraft, websiteDraft } = useOnboarding();
+  const {
+    faviconUrl,
+    previewProjectLabel,
+    projectId,
+    setIsNamingProject,
+    setWebsiteDraft,
+    websiteDraft,
+  } = useOnboarding();
   const [showError, setShowError] = useState(false);
-  const [isShaking, setIsShaking] = useState(false);
+  const inputGroupRef = useRef<HTMLDivElement>(null);
   const websiteUrl = readWebsiteUrl(websiteDraft);
-  const isReady = websiteUrl !== null;
 
   const activation = useMutation({
     mutationFn: async (url: URL) => {
@@ -65,8 +72,14 @@ export function OnboardingWebsitePage() {
     event.preventDefault();
     if (websiteUrl === null) {
       setShowError(true);
-      setIsShaking(true);
-      window.setTimeout(() => setIsShaking(false), TIMING.shake);
+      window.requestAnimationFrame(() => {
+        const input = inputGroupRef.current?.querySelector(".t-input");
+        if (!(input instanceof HTMLElement)) return;
+        input.classList.remove("is-shaking");
+        void input.offsetWidth;
+        input.classList.add("is-shaking");
+        window.setTimeout(() => input.classList.remove("is-shaking"), TIMING.shake + 20);
+      });
       return;
     }
     activation.mutate(websiteUrl);
@@ -84,7 +97,7 @@ export function OnboardingWebsitePage() {
         <div className="flex flex-col gap-2">
           <Button
             className="w-full"
-            disabled={!isReady}
+            disabled={websiteDraft.trim().length === 0}
             loading={activation.isPending}
             size="lg"
             type="submit"
@@ -99,22 +112,31 @@ export function OnboardingWebsitePage() {
         </div>
       }
       body={
-        <InputGroup className={`w-full gap-0 ${isShaking ? "onboarding-shake" : ""}`}>
+        <InputGroup
+          className={`t-input-wrap w-full gap-0 ${fieldError.length > 0 ? "is-error" : ""}`}
+          ref={inputGroupRef}
+        >
           <InputField
+            animateError
             autoComplete="url"
             error={fieldError}
             index={0}
             inputMode="url"
             label="Website URL"
+            containerClassName={`t-input ${fieldError.length > 0 ? "is-error" : ""}`}
             onBlur={() => setIsNamingProject(false)}
             onChange={(value) => {
               setWebsiteDraft(value);
               setShowError(false);
+              inputGroupRef.current?.querySelector(".t-input")?.classList.remove("is-shaking");
               setIsNamingProject(value.trim().length > 0);
             }}
             onFocus={() => setIsNamingProject(websiteDraft.trim().length > 0)}
-            placeholder="https://example.com"
-            type="url"
+            placeholder="example.com"
+            startContent={
+              <WebsiteFavicon fallbackLabel={previewProjectLabel} source={faviconUrl} />
+            }
+            type="text"
             value={websiteDraft}
           />
         </InputGroup>

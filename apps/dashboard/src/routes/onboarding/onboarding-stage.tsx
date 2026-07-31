@@ -40,7 +40,7 @@ export function OnboardingStage({
           : { filter: `blur(${STEP.blur}px)`, opacity: 0, x: direction * STEP.travelX }
       }
       onSubmit={onSubmit}
-      transition={reduceMotion ? { duration: 0 } : { ...STEP.spring, delay: lead }}
+      transition={reduceMotion ? { duration: 0 } : { ...STEP.transition, delay: lead }}
     >
       <Chunk delay={lead + REVEAL.delays.heading} reduceMotion={reduceMotion}>
         <h1 className="text-[20px] font-semibold leading-6 tracking-[-0.025em] text-foreground">

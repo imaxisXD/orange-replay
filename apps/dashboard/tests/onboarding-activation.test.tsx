@@ -41,6 +41,7 @@ import {
   ACT,
   CAMERA,
   PREVIEW_FRAME,
+  STEP,
   SWITCHER_FIELD,
   VERIFY,
   cameraStop,
@@ -53,6 +54,7 @@ import {
   isWebsiteProjectName,
   readWebsiteUrl,
   websitePreviewLabel,
+  websiteFaviconUrl,
   websiteProjectName,
   websiteUrlError,
 } from "../src/routes/onboarding/onboarding-website";
@@ -96,10 +98,11 @@ afterEach(async () => {
 });
 
 describe("activation website identity", () => {
-  it("accepts only a full http or https address", () => {
+  it("accepts full and plain website addresses", () => {
     expect(readWebsiteUrl("https://acme.com")?.origin).toBe("https://acme.com");
     expect(readWebsiteUrl("http://localhost:3000")?.origin).toBe("http://localhost:3000");
-    expect(readWebsiteUrl("acme.com")).toBeNull();
+    expect(readWebsiteUrl("acme.com")?.origin).toBe("https://acme.com");
+    expect(readWebsiteUrl("www.acme.app")?.origin).toBe("https://www.acme.app");
     expect(readWebsiteUrl("javascript:alert(1)")).toBeNull();
     expect(readWebsiteUrl("  ")).toBeNull();
   });
@@ -142,7 +145,9 @@ describe("activation website identity", () => {
     const longHost = `https://${"a".repeat(50)}.${"b".repeat(50)}.com`;
     expect(readWebsiteUrl(longHost)).toBeNull();
     expect(websiteUrlError(longHost)).toContain("too long");
-    expect(websiteUrlError("acme.com")).toBe("Use a full address, like https://example.com.");
+    expect(websiteUrlError("not a website")).toBe(
+      "Enter a website like example.com or https://www.example.com.",
+    );
     expect(websiteUrlError("")).toBe("");
     expect(websiteUrlError("https://acme.com")).toBe("");
   });
@@ -226,14 +231,15 @@ describe("activation step 1: website", () => {
     expect(container.textContent).toContain("Add your website");
     expect(findButton("Continue").disabled).toBe(true);
 
-    await setWebsiteInput("acme.com");
-    expect(findButton("Continue").disabled).toBe(true);
+    await setWebsiteInput("not a website");
+    expect(findButton("Continue").disabled).toBe(false);
 
     await act(async () => {
       container.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true }));
     });
-    expect(container.textContent).toContain("Use a full address");
-    expect(container.querySelector(".onboarding-shake")).not.toBeNull();
+    expect(container.textContent).toContain("Enter a website like");
+    expect(container.querySelector(".t-input-wrap.is-error .t-error-msg")).not.toBeNull();
+    await vi.waitFor(() => expect(container.querySelector(".t-input.is-shaking")).not.toBeNull());
     expect(apiMocks.renameProject).not.toHaveBeenCalled();
   });
 
@@ -252,8 +258,15 @@ describe("activation step 1: website", () => {
     apiMocks.saveProjectConfig.mockResolvedValue({ version: 2 });
     await render(<OnboardingWebsitePage />);
 
-    await setWebsiteInput("https://acme.com");
+    await setWebsiteInput("acme.com");
     expect(findButton("Continue").disabled).toBe(false);
+    expect(container.querySelector("img")?.getAttribute("src")).toBe(
+      "/api/v1/favicon?website=https%3A%2F%2Facme.com",
+    );
+    await act(async () => {
+      container.querySelector("img")?.dispatchEvent(new Event("load"));
+    });
+    expect(container.querySelector(".t-skel.is-revealed")).not.toBeNull();
     await act(async () => {
       findButton("Continue").click();
     });
@@ -458,6 +471,8 @@ function Harness({ children }: { children: ReactNode }) {
       value={{
         act: onboardingAct(0, recording),
         direction: 1,
+        faviconUrl:
+          readWebsiteUrl(draft) === null ? null : websiteFaviconUrl(readWebsiteUrl(draft)!),
         isFirstPaint: true,
         isNamingProject: isNaming,
         isRecording: recording,
@@ -512,6 +527,12 @@ function projectKeyAudit() {
 }
 
 describe("activation story acts", () => {
+  it("uses the transitions.dev page slide values between steps", () => {
+    expect(STEP.travelX).toBe(8);
+    expect(STEP.blur).toBe(3);
+    expect(STEP.transition).toEqual({ duration: 0.25, ease: [0.22, 1, 0.36, 1] });
+  });
+
   it("derives one act from the step and the recorder", () => {
     expect(onboardingAct(0, false)).toBe(ACT.identity);
     expect(onboardingAct(1, false)).toBe(ACT.promise);

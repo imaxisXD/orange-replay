@@ -32,6 +32,10 @@ describe("mirror-template", () => {
       expect(wrangler).toContain("ANALYTICS_PROJECT_RATE_LIMITER");
       expect(wrangler).toContain("ANALYTICS_GLOBAL_RATE_LIMITER");
       expect(wrangler).toContain("LIVE_TICKET_RATE_LIMITER");
+      expect(wrangler).toContain("FAVICON_RATE_LIMITER");
+      expect(wrangler).toContain(
+        "FAVICON_RATE_LIMITER limits cache-miss website icon fetches per signed-in person",
+      );
       expect(
         wranglerConfig.ratelimits.find(
           (rateLimit) => rateLimit.name === "ANALYTICS_PROJECT_RATE_LIMITER",

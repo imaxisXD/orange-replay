@@ -1,4 +1,9 @@
-import { PROJECT_NAME_MAX_CHARS } from "@orange-replay/shared";
+import {
+  PROJECT_NAME_MAX_CHARS,
+  WEBSITE_URL_ISSUE,
+  websiteNameFromUrl,
+  websiteUrlSchema,
+} from "@orange-replay/shared";
 
 /**
  * Pure website-identity helpers for activation. The first onboarding step turns
@@ -6,30 +11,10 @@ import { PROJECT_NAME_MAX_CHARS } from "@orange-replay/shared";
  * follows every keystroke, and the ingest origin allowlist.
  */
 
-/** Parses a typed value into an http(s) URL, ignoring activation's own rules. */
-function parseHttpUrl(value: string): URL | null {
-  const cleanValue = value.trim();
-  if (cleanValue.length === 0) return null;
-  try {
-    const url = new URL(cleanValue);
-    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
-    if (url.hostname.length === 0) return null;
-    return url;
-  } catch {
-    return null;
-  }
-}
-
-/** Parses a typed value into a URL activation can actually use, or null. */
+/** Parses common website input into the canonical URL activation can use. */
 export function readWebsiteUrl(value: string): URL | null {
-  const url = parseHttpUrl(value);
-  if (url === null) return null;
-  // The hostname becomes the project name, which the rename route bounds at
-  // PROJECT_NAME_MAX_CHARS. Rejecting it here means Continue is never enabled
-  // for a name the API will refuse, which would otherwise be a dead end: the
-  // field looked valid and its only action returned invalid_project_name.
-  if (websiteProjectName(url).length > PROJECT_NAME_MAX_CHARS) return null;
-  return url;
+  const parsed = websiteUrlSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
 }
 
 /**
@@ -39,14 +24,21 @@ export function readWebsiteUrl(value: string): URL | null {
  */
 export function websiteUrlError(value: string): string {
   if (value.trim().length === 0 || readWebsiteUrl(value) !== null) return "";
-  return parseHttpUrl(value) === null
-    ? "Use a full address, like https://example.com."
-    : `That address is too long to name a project. Use ${PROJECT_NAME_MAX_CHARS} characters or fewer.`;
+  const parsed = websiteUrlSchema.safeParse(value);
+  return !parsed.success &&
+    parsed.error.issues.some((issue) => issue.message === WEBSITE_URL_ISSUE.projectNameTooLong)
+    ? `That address is too long to name a project. Use ${PROJECT_NAME_MAX_CHARS} characters or fewer.`
+    : "Enter a website like example.com or https://www.example.com.";
 }
 
 /** The project name a valid website URL becomes: its bare hostname. */
 export function websiteProjectName(url: URL): string {
-  return url.hostname.replace(/^www\./i, "");
+  return websiteNameFromUrl(url);
+}
+
+/** Same-origin image endpoint used by both favicon surfaces. */
+export function websiteFaviconUrl(url: URL): string {
+  return `/api/v1/favicon?website=${encodeURIComponent(url.origin)}`;
 }
 
 /**

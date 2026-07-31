@@ -121,6 +121,12 @@
       "namespace_id": "1010",
       "simple": { "limit": 30, "period": 60 },
     },
+    // # created by setup docs: FAVICON_RATE_LIMITER limits cache-miss website icon fetches per signed-in person.
+    {
+      "name": "FAVICON_RATE_LIMITER",
+      "namespace_id": "1011",
+      "simple": { "limit": 60, "period": 60 },
+    },
   ],
   "queues": {
     "producers": [

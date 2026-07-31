@@ -22,8 +22,36 @@ between screens of different heights.
 - `onboarding-stage.tsx` — the per-step frame (slide + staggered reveal)
 - `onboarding-preview.tsx` — the dashboard preview and its camera
 - `onboarding-motion.ts` — the storyboard; every timing and value lives here
-- `onboarding-website.ts` — pure URL → name / origins helpers
+- `onboarding-website.ts` — dashboard helpers around the shared website schema
 - `onboarding.css` — the three keyframe sequences and the preview canvas
+
+## Website address and favicon contract
+
+`packages/shared/src/website-url.ts` is the one Zod boundary used by both the
+dashboard form and the Worker favicon route. A bare domain such as `acme.com`,
+an address beginning with `www`, or a scheme-relative address is normalized to
+HTTPS. Explicit HTTP and HTTPS addresses, ports, paths, query strings, IPv4,
+IPv6, and localhost remain valid when the browser URL parser accepts them.
+Other schemes, credentials, whitespace, invalid hostnames, overlong values, and
+names that cannot fit the project name contract are rejected. The form maps
+those issues to its existing plain-English error instead of exposing schema
+messages. The repo already uses Zod, so this did not add Valibot or a second
+validation system.
+
+The authenticated `GET /api/v1/favicon?website=...` route uses that same schema.
+It reads a site's declared icon links, prefers scalable or larger icons, and
+falls back to `/favicon.ico`. Every request and redirect is capped and checked;
+private/local targets, oversized bodies, unrecognised image types, mismatched
+image bytes, credentials, excess redirects, and slow responses are refused. If
+no safe icon is available, the Worker returns a generated amber initial rather
+than a broken image.
+
+The final response is cached in Cloudflare's local edge cache by normalized
+website origin. Verified icons are cached for seven days and generated
+fallbacks for one hour. A per-user Cloudflare rate-limit binding applies only
+to cache misses. The 16px favicon in the field and the real project switcher
+share the same debounced URL, clear a stale icon as soon as the address changes,
+and use a skeleton-to-content reveal while the next image loads.
 
 ## What each step writes
 
@@ -136,7 +164,8 @@ transitions.dev's, expressed with this codebase's bounce-free springs and
 framer-motion rather than its CSS variables:
 
 - step change — "page side-by-side": 8px travel along the direction of travel,
-  3px cross-blur. Back travels the other way.
+  3px cross-blur, 250ms, and the reference `cubic-bezier(0.22, 1, 0.36, 1)`.
+  Back travels the other way.
 - within a step — "texts reveal": 12px rise with a cross-blur, staggered in
   reading order, tightened from the reference so the primary action is legible
   by the time the pointer arrives.
@@ -145,8 +174,8 @@ framer-motion rather than its CSS variables:
   against.
 - copy control — the shared `IconSwap`.
 - first event — a stroke-drawn check clearing an 8px blur.
-- invalid URL — a decaying shake, keyframed in CSS; amplitude decays and no
-  segment overshoots.
+- invalid URL — transitions.dev's 280ms decaying shake and error-message fade.
+- favicon — transitions.dev's skeleton reveal, clearing a 2px blur over 400ms.
 
 Reduced motion collapses every one of these: each component passes
 `initial={false}` and a zero-duration transition, and the three CSS keyframe
@@ -157,10 +186,11 @@ sequences are disabled in a `prefers-reduced-motion` block.
 The right pane renders the **real `AppShell`** — the same header, project
 switcher, environment badge, tab row and workspace card the dashboard ships —
 inside a fixed 1100×1080 stage that a camera scales and translates. It is
-`inert` and `aria-hidden`, so none of its links or controls are reachable. Two
+`inert` and `aria-hidden`, so none of its links or controls are reachable. Three
 optional `AppShell` props exist only for it: `projectLabel`, so the switcher
-follows the field before the rename is saved, and `rootClassName`, so the shell
-can be framed by the stage instead of the viewport.
+follows the field before the rename is saved; `projectLeadingContent`, so the
+same favicon can appear in the switcher; and `rootClassName`, so the shell can
+be framed by the stage instead of the viewport.
 
 Only the page body is stand-in content, and it carries **no copy at all**. The
 tab row keeps its real labels because those name where the visitor is about to
@@ -321,13 +351,13 @@ while naming so its `requestAnimationFrame` loop does not run for the whole flow
 inside an `AnimatePresence` so it still fades out. `EmberField` already draws a
 single static frame under `prefers-reduced-motion`.
 
-### Deliberate deviation from the lab
+### Favicon connection
 
-The lab drew a generated one-letter favicon beside the project name and the
-approved reference lists it as a must-match. The shipped dashboard's project
-switcher has no favicon, and this preview is the real switcher, so the favicon
-is not there. Adding one would mean changing the switcher everywhere in the
-product. Flagged rather than silently dropped.
+The lab's generated one-letter favicon is replaced by the fetched website icon
+with an initial-letter fallback. `AppShell` and the shared Select accept optional
+leading content, so onboarding can place the favicon in the real switcher
+without changing the normal dashboard switcher. The input and preview therefore
+show the same identity while the visitor types.
 
 ## Verification
 
@@ -339,6 +369,14 @@ The worker route is covered end-to-end in
 `apps/worker/tests/api-recordings-projects.test.ts`, and its access matrix
 entry in `apps/worker/tests/dashboard-request-policy.test.ts`.
 
+The favicon follow-up adds shared valid, invalid, trimmed, and boundary coverage
+in `packages/shared/tests/website-url.test.ts`; bounded fetch, redirect, image
+validation, fallback, cache, and rate-limit coverage in `apps/worker/tests/favicon.test.ts`;
+and signed-in-only routing coverage in `dashboard-request-policy.test.ts`.
+`onboarding-activation.test.tsx` also protects the bare-domain submit, inline
+error, shake trigger, favicon reveal, normalized API URL, and exact step-motion
+values.
+
 Visual proof came from real Chrome against the existing dev server on 8787 with
 `/api/v1/*` stubbed client-side; nothing was written to the local worker. Note
 for future passes: that tab is hidden, so `requestAnimationFrame` is suspended
@@ -346,6 +384,12 @@ and framer-motion holds every element at its `initial` value — force the
 settled state before judging, and judge end states only. The dev server's SPA
 fallback answers every path, so it cannot prove the reachability lists above;
 `dashboard-spa-routes.test.mjs` is what covers those.
+
+The favicon follow-up used the existing authenticated Brave session on 8787
+without request stubs. A real Google icon and the safe generated fallback each
+appeared in both the input and project switcher; the invalid state and the next
+step were also exercised. This touched only the local development project. No
+production request, migration, or deploy was run.
 
 ### Independent review, 2026-07-30
 
