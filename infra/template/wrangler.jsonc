@@ -149,5 +149,6 @@
   },
   // Better Auth and GitHub OAuth values are created with `wrangler secret put`.
   // LIVE_TICKET_SECRET is created with `wrangler secret put LIVE_TICKET_SECRET`.
+  // WEBSITE_KEY_WRAP_SECRET is created with `wrangler secret put WEBSITE_KEY_WRAP_SECRET`.
   // Do not put secret values in this file.
 }

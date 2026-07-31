@@ -2,7 +2,7 @@ import { useEffect, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
-import { fetchInstallStatus } from "@/lib/api";
+import { fetchProjectWebsiteInstallStatus } from "@/lib/api";
 import { readDashboardAccessError } from "@/lib/dashboard-access";
 import { formatRelativeTime } from "@/lib/format";
 import { m, useReducedMotion } from "@/lib/motion";
@@ -16,17 +16,21 @@ import { OnboardingStage } from "./onboarding-stage";
 /**
  * Step 3 of 3 — the first event.
  *
- * This is the same `/install-status` poll the Install page runs, so the flow
- * ends on a fact rather than on the visitor asserting they pasted the snippet.
- * The check only draws once the project has actually received an event.
+ * This polls the exact Website created in step one, so another Website's old
+ * activity cannot complete this setup. The check only draws once this Website
+ * has actually sent an accepted event.
  */
 export function OnboardingVerifyPage() {
   const navigate = useNavigate();
-  const { previewProjectLabel, projectId, setIsRecording } = useOnboarding();
+  const { previewProjectLabel, projectId, setIsRecording, websiteId } = useOnboarding();
 
   const statusQuery = useQuery({
-    queryKey: ["install-status", projectId],
-    queryFn: () => fetchInstallStatus(projectId),
+    queryKey: ["website-install-status", projectId, websiteId],
+    queryFn: () => {
+      if (websiteId === null) throw new Error("Choose a Website before checking its recorder.");
+      return fetchProjectWebsiteInstallStatus(projectId, websiteId);
+    },
+    enabled: websiteId !== null,
     refetchInterval: (query) => {
       if (query.state.data?.firstEventAt != null) return false;
       return shouldPollInstallStatus(document.visibilityState)
@@ -45,7 +49,7 @@ export function OnboardingVerifyPage() {
   useEffect(() => {
     if (!isConnected) return;
     setIsRecording(true);
-    clearOnboardingRecorderKey(projectId);
+    if (websiteId !== null) clearOnboardingRecorderKey(projectId, websiteId);
     const timeout = window.setTimeout(() => {
       void navigate({
         to: "/projects/$projectId/overview",
@@ -54,7 +58,7 @@ export function OnboardingVerifyPage() {
       });
     }, VERIFY.dashboardDelay);
     return () => window.clearTimeout(timeout);
-  }, [isConnected, navigate, projectId, setIsRecording]);
+  }, [isConnected, navigate, projectId, setIsRecording, websiteId]);
   const statusError =
     statusQuery.error === null
       ? ""

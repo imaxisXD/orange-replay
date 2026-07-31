@@ -134,15 +134,22 @@ const onboardingWebsiteRoute = createRoute({
   component: OnboardingWebsitePage,
 });
 
+function onboardingWebsiteSearch(search: Record<string, unknown>): { website?: string } {
+  const website = search["website"];
+  return typeof website === "string" && /^[A-Za-z0-9_-]{1,100}$/.test(website) ? { website } : {};
+}
+
 const onboardingInstallRoute = createRoute({
   getParentRoute: () => onboardingProjectRoute,
   path: "install",
+  validateSearch: onboardingWebsiteSearch,
   component: OnboardingInstallPage,
 });
 
 const onboardingVerifyRoute = createRoute({
   getParentRoute: () => onboardingProjectRoute,
   path: "verify",
+  validateSearch: onboardingWebsiteSearch,
   component: OnboardingVerifyPage,
 });
 

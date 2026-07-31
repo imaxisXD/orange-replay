@@ -35,26 +35,31 @@ export function init(options: InitOptions): OrangeReplayHandle {
     }
 
     const localConfig = resolveInitOptions(options);
-    const session = new SessionManager({
-      projectRef: localConfig.projectRef,
-      now: () => Date.now(),
-      cookieMode: window.location.protocol === "https:" ? "secure" : "none",
-    });
+    let session: SessionManager | undefined;
     let stopRequested = false;
     let runtime: RecorderRuntime | undefined;
     let handle: OrangeReplayHandle;
     const pendingCustomEvents: Array<{ name: string; meta?: Record<string, unknown> }> = [];
-    const startPromise = session.ready
+    const startPromise = Promise.resolve()
       .then(async () => {
         const config = await loadRecorderProjectConfig(
           localConfig,
           window.fetch.bind(window) as typeof fetch,
           document,
         );
-        session.setProjectId(config.projectId);
-        if (!shouldSampleSession(session.sessionId, config.sampleRate)) {
+        const activeSession = new SessionManager({
+          projectRef: config.sessionScope ?? config.projectId ?? localConfig.projectRef,
+          now: () => Date.now(),
+          cookieMode: window.location.protocol === "https:" ? "secure" : "none",
+          cookieDomain: config.sessionCookieDomain,
+          hostname: window.location.hostname,
+        });
+        session = activeSession;
+        await activeSession.ready;
+        activeSession.setProjectId(config.projectId);
+        if (!shouldSampleSession(activeSession.sessionId, config.sampleRate)) {
           discardLoaderPreBuffer(window);
-          session.stop();
+          activeSession.stop();
           return;
         }
         assertSafePrivacySelectors(config, document);
@@ -74,20 +79,20 @@ export function init(options: InitOptions): OrangeReplayHandle {
           config.transport === "inline"
             ? new InlineSink({
                 config,
-                session,
+                session: activeSession,
                 window,
                 onCheckpointRequested: requestCheckpointSnapshot,
               })
             : new WorkerSink({
                 config,
-                session,
+                session: activeSession,
                 window,
                 onCheckpointRequested: requestCheckpointSnapshot,
                 onWorkerUnavailable: () => stopForWorkerFailure(),
               });
         if (!sink.isAvailable()) {
           discardLoaderPreBuffer(window);
-          session.stop();
+          activeSession.stop();
           if (activeHandle === handle) activeHandle = undefined;
           return;
         }
@@ -103,7 +108,7 @@ export function init(options: InitOptions): OrangeReplayHandle {
           return;
         }
 
-        const stopTouchListeners = startSessionTouchListeners(window, session, () => {
+        const stopTouchListeners = startSessionTouchListeners(window, activeSession, () => {
           sink.resumeSessionAfterIdle();
         });
         runtime = { sink, sidecar, recorder, stopTouchListeners };
@@ -112,7 +117,7 @@ export function init(options: InitOptions): OrangeReplayHandle {
           runtime?.sidecar.stop();
           runtime?.recorder.stop();
           runtime?.stopTouchListeners();
-          session.stop();
+          activeSession.stop();
           runtime = undefined;
           if (activeHandle === handle) activeHandle = undefined;
         };
@@ -136,7 +141,7 @@ export function init(options: InitOptions): OrangeReplayHandle {
         runtime?.recorder.stop();
         runtime?.stopTouchListeners();
         await runtime?.sink.stop();
-        session.stop();
+        session?.stop();
         runtime = undefined;
         if (activeHandle === handle) activeHandle = undefined;
       });
@@ -150,7 +155,7 @@ export function init(options: InitOptions): OrangeReplayHandle {
           runtime?.recorder.stop();
           runtime?.stopTouchListeners();
           await runtime?.sink.stop();
-          session.stop();
+          session?.stop();
         } catch (error) {
           console.warn("Orange Replay stop failed.", error);
         } finally {
@@ -173,7 +178,7 @@ export function init(options: InitOptions): OrangeReplayHandle {
       },
       getSessionUrl(base?: string) {
         try {
-          return session.getSessionUrl(base ?? localConfig.ingestUrl);
+          return session?.getSessionUrl(base ?? localConfig.ingestUrl) ?? "";
         } catch {
           return "";
         }

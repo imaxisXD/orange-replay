@@ -251,6 +251,9 @@ function appendTriggers(lines, triggers) {
 function appendSecretNotes(lines) {
   lines.push("  // Better Auth and GitHub OAuth values are created with `wrangler secret put`.");
   lines.push("  // LIVE_TICKET_SECRET is created with `wrangler secret put LIVE_TICKET_SECRET`.");
+  lines.push(
+    "  // WEBSITE_KEY_WRAP_SECRET is created with `wrangler secret put WEBSITE_KEY_WRAP_SECRET`.",
+  );
   lines.push("  // Do not put secret values in this file.");
 }
 

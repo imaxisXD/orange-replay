@@ -145,6 +145,7 @@ function betterAuthVars(): Record<string, string> {
     BETTER_AUTH_TRUSTED_ORIGINS: betterAuthOrigin,
     GITHUB_CLIENT_ID: "github-test-client-id",
     GITHUB_CLIENT_SECRET: "github-test-client-secret-0000000000",
+    WEBSITE_KEY_WRAP_SECRET: "test-website-wrap-secret-000000000000000000",
   };
 }
 

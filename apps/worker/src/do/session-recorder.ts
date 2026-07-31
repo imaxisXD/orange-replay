@@ -58,6 +58,7 @@ interface DebugState {
   segmentCount: number;
   stateBytes: number;
   firstRequestId?: string;
+  websiteIds?: string[];
   tombstonePurgeAt?: number;
 }
 
@@ -419,6 +420,9 @@ export class SessionRecorder extends DurableObject<Env> {
         this.sessionState?.segmentCount ?? (this.schemaReady ? this.store.segmentRows().length : 0),
       stateBytes,
       firstRequestId: this.sessionState?.firstRequestId ?? this.finalizedTombstone?.firstRequestId,
+      ...(this.sessionState?.websiteIds === undefined
+        ? {}
+        : { websiteIds: this.sessionState.websiteIds }),
       ...(this.finalizedTombstone === null
         ? {}
         : { tombstonePurgeAt: this.finalizedTombstone.purgeAt }),

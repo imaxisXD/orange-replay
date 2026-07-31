@@ -1,11 +1,18 @@
 import { createHash } from "node:crypto";
 import {
   createdProjectKeyResponseSchema,
+  ensureProjectWebsiteResponseSchema,
   liveSessionsResponseSchema,
   projectKeyResponseSchema,
   projectKeysResponseSchema,
   sessionManifestSchema,
   type StoredProjectConfig,
+  encodeIngestBody,
+  HDR_FLAGS,
+  HDR_KEY,
+  HDR_SEQ,
+  HDR_SESSION,
+  HDR_TAB,
 } from "@orange-replay/shared";
 import { describe, expect, it } from "vite-plus/test";
 import {
@@ -34,9 +41,54 @@ import {
   setupApiTestWorkers,
   testRecorderKey,
   worker,
+  websiteProjectId,
 } from "./api-test-helpers.ts";
 
 setupApiTestWorkers();
+
+async function ensureWebsite(projectId: string, website: string) {
+  const response = await worker.fetch(`/api/v1/projects/${projectId}/websites`, {
+    method: "PUT",
+    headers: { ...authHeaders(), "content-type": "application/json" },
+    body: JSON.stringify({ website }),
+  });
+  expect([200, 201]).toContain(response.status);
+  return ensureProjectWebsiteResponseSchema.parse(await response.json());
+}
+
+async function websiteInstallStatus(projectId: string, websiteId: string) {
+  const response = await worker.fetch(
+    `/api/v1/projects/${projectId}/websites/${websiteId}/install-status`,
+    { headers: authHeaders() },
+  );
+  expect(response.status).toBe(200);
+  return (await response.json()) as { firstEventAt: number | null };
+}
+
+function postWebsiteIngest(
+  key: string,
+  origin: string,
+  sessionId: string,
+  tab: string,
+): Promise<Response> {
+  const now = Date.now();
+  return worker.fetch("/v1/ingest", {
+    method: "POST",
+    headers: {
+      [HDR_KEY]: key,
+      [HDR_SESSION]: sessionId,
+      [HDR_TAB]: tab,
+      [HDR_SEQ]: "0",
+      [HDR_FLAGS]: "0",
+      origin,
+      "content-type": "application/octet-stream",
+    },
+    body: encodeIngestBody(
+      { v: 1, s: sessionId, tab, seq: 0, t0: now, t1: now, e: [], u: `${origin}/` },
+      new TextEncoder().encode("[]"),
+    ),
+  });
+}
 
 describe("dashboard api", () => {
   it("streams manifests byte exact", async () => {
@@ -499,6 +551,80 @@ describe("dashboard api", () => {
           revokedBy: null,
         },
       ],
+    });
+  });
+
+  it("creates one key per Website and reuses a pending Website across tabs", async () => {
+    await seedIngestKey(
+      testRecorderKey("website_project_seed"),
+      makeProjectConfig({ projectId: websiteProjectId, allowedOrigins: [] }),
+      false,
+    );
+
+    const landing = await ensureWebsite(websiteProjectId, "example.com");
+    expect(landing.website).toMatchObject({ name: "example.com", origin: "https://example.com" });
+    expect(landing.secret).toMatch(/^or_live_[A-Za-z0-9_-]{32}$/);
+    expect(landing.alreadyConnected).toBe(false);
+
+    const landingAgain = await ensureWebsite(websiteProjectId, "https://example.com/pricing");
+    expect(landingAgain.website.id).toBe(landing.website.id);
+    expect(landingAgain.key?.id).toBe(landing.key?.id);
+    expect(landingAgain.secret).toBe(landing.secret);
+
+    const app = await ensureWebsite(websiteProjectId, "app.example.com");
+    expect(app.website.id).not.toBe(landing.website.id);
+    expect(app.key?.id).not.toBe(landing.key?.id);
+    expect(app.secret).not.toBe(landing.secret);
+
+    for (const setup of [landing, app]) {
+      if (setup.secret === null) throw new Error("The pending Website key is missing.");
+      const keyHash = createHash("sha256").update(setup.secret).digest("hex");
+      expect(await readConfigCache(keyHash)).toMatchObject({
+        active: true,
+        projectId: websiteProjectId,
+        websiteId: setup.website.id,
+        websitePending: true,
+        sessionCookieDomain: "example.com",
+      });
+    }
+  });
+
+  it("keeps two Website keys in one Workspace journey", async () => {
+    const landing = await ensureWebsite(websiteProjectId, "example.com");
+    const app = await ensureWebsite(websiteProjectId, "app.example.com");
+    if (landing.secret === null) throw new Error("The landing Website key is missing.");
+
+    const sessionId = "website-session-0001";
+    expect(
+      (await postWebsiteIngest(landing.secret, "https://example.com", sessionId, "landing-tab"))
+        .status,
+    ).toBe(200);
+    if (app.secret === null) throw new Error("The app Website key is missing.");
+    expect(
+      (await postWebsiteIngest(app.secret, "https://app.example.com", sessionId, "app-tab")).status,
+    ).toBe(200);
+
+    const landingStatus = await websiteInstallStatus(websiteProjectId, landing.website.id);
+    const appStatus = await websiteInstallStatus(websiteProjectId, app.website.id);
+    expect(landingStatus.firstEventAt).toEqual(expect.any(Number));
+    expect(appStatus.firstEventAt).toEqual(expect.any(Number));
+
+    const debug = await worker.fetch(
+      `/__test/do/debug?projectId=${websiteProjectId}&sessionId=${sessionId}`,
+    );
+    expect(debug.status).toBe(200);
+    expect(await debug.json()).toMatchObject({
+      websiteIds: [landing.website.id, app.website.id],
+    });
+
+    const reopened = await worker.fetch(
+      `/api/v1/projects/${websiteProjectId}/websites/${landing.website.id}`,
+      { headers: authHeaders() },
+    );
+    expect(reopened.status).toBe(200);
+    expect(ensureProjectWebsiteResponseSchema.parse(await reopened.json())).toMatchObject({
+      alreadyConnected: true,
+      secret: null,
     });
   });
 

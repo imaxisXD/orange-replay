@@ -2,6 +2,7 @@ import {
   FAVICON_API_VERSION,
   PROJECT_NAME_MAX_CHARS,
   WEBSITE_URL_ISSUE,
+  websiteAllowedOrigins,
   websiteNameFromUrl,
   websiteUrlSchema,
 } from "@orange-replay/shared";
@@ -81,13 +82,7 @@ export function websitePreviewSource(
  * path had already refused.
  */
 export function activationAllowedOrigins(url: URL): string[] {
-  const origins = [url.origin];
-  const sibling = new URL(url.origin);
-  sibling.hostname = /^www\./i.test(url.hostname)
-    ? url.hostname.replace(/^www\./i, "")
-    : `www.${url.hostname}`;
-  if (sibling.origin !== url.origin) origins.push(sibling.origin);
-  return origins;
+  return websiteAllowedOrigins(url);
 }
 
 /** True when a stored project name already looks like an activated website. */

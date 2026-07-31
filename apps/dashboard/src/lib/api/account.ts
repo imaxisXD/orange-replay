@@ -4,6 +4,8 @@ import {
   decodeCreatedProjectKeyResponse,
   decodeProjectKeyResponse,
   decodeProjectCreateResponse,
+  decodeEnsureProjectWebsiteResponse,
+  decodeProjectWebsiteInstallStatus,
   type AccountProject as SharedAccountProject,
   type AccountResponse as SharedAccountResponse,
   type AccountUser as SharedAccountUser,
@@ -12,6 +14,8 @@ import {
   type ProjectKeyAudit as SharedProjectKeyAudit,
   type ProjectKeysResponse as SharedProjectKeysResponse,
   type ProjectCreateResponse as SharedProjectCreateResponse,
+  type EnsureProjectWebsiteResponse as SharedEnsureProjectWebsiteResponse,
+  type ProjectWebsiteInstallStatus as SharedProjectWebsiteInstallStatus,
 } from "@orange-replay/shared";
 import type { DashboardProjectRole, ServerAuthMode } from "../dashboard-access";
 import { encodePathPart, requestJson } from "./client";
@@ -28,6 +32,8 @@ export type ProjectKeyAudit = SharedProjectKeyAudit;
 export type ProjectKeysResponse = SharedProjectKeysResponse;
 export type CreatedProjectKeyResponse = SharedCreatedProjectKeyResponse;
 export type ProjectCreateResponse = SharedProjectCreateResponse;
+export type EnsureProjectWebsiteResponse = SharedEnsureProjectWebsiteResponse;
+export type ProjectWebsiteInstallStatus = SharedProjectWebsiteInstallStatus;
 
 export interface AdminStatsResponse {
   users: number;
@@ -112,6 +118,41 @@ export async function createProjectKey(
       decode: decodeCreatedProjectKeyResponse,
       method: "POST",
     },
+  );
+}
+
+export async function ensureProjectWebsite(
+  projectId: string,
+  website: string,
+): Promise<EnsureProjectWebsiteResponse> {
+  return requestJson<EnsureProjectWebsiteResponse>(
+    `/api/v1/projects/${encodePathPart(projectId)}/websites`,
+    {
+      auth: true,
+      body: { website },
+      decode: decodeEnsureProjectWebsiteResponse,
+      method: "PUT",
+    },
+  );
+}
+
+export async function fetchProjectWebsiteSetup(
+  projectId: string,
+  websiteId: string,
+): Promise<EnsureProjectWebsiteResponse> {
+  return requestJson<EnsureProjectWebsiteResponse>(
+    `/api/v1/projects/${encodePathPart(projectId)}/websites/${encodePathPart(websiteId)}`,
+    { auth: true, decode: decodeEnsureProjectWebsiteResponse },
+  );
+}
+
+export async function fetchProjectWebsiteInstallStatus(
+  projectId: string,
+  websiteId: string,
+): Promise<ProjectWebsiteInstallStatus> {
+  return requestJson<ProjectWebsiteInstallStatus>(
+    `/api/v1/projects/${encodePathPart(projectId)}/websites/${encodePathPart(websiteId)}/install-status`,
+    { auth: true, decode: decodeProjectWebsiteInstallStatus },
   );
 }
 

@@ -32,6 +32,11 @@ const secretDefinitions = Object.freeze([
     kind: "secret",
   }),
   Object.freeze({
+    workerName: "WEBSITE_KEY_WRAP_SECRET",
+    environmentName: "ORANGE_REPLAY_PROD_WEBSITE_KEY_WRAP_SECRET",
+    kind: "secret",
+  }),
+  Object.freeze({
     workerName: "DEMO_PROJECT_ID",
     environmentName: "ORANGE_REPLAY_DEMO_PROJECT_ID",
     kind: "project_id",

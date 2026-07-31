@@ -25,6 +25,9 @@ export interface RecorderConfig {
   ingestUrl: string;
   projectRef: string;
   projectId?: string;
+  sessionScope?: string;
+  sessionCookieDomain?: string;
+  websiteId?: string;
   transport?: "worker" | "inline";
   sampleRate: number;
   maskPolicyVersion: number;

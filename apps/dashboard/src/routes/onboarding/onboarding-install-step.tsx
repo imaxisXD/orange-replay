@@ -5,59 +5,71 @@ import { buildLoaderScriptTag } from "@orange-replay/sdk/loader";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { IconSwap } from "@/components/ui/icon-swap";
-import { ApiError, createProjectKey } from "@/lib/api";
+import { ApiError, fetchProjectWebsiteSetup } from "@/lib/api";
 import { readDashboardAccessError } from "@/lib/dashboard-access";
 import { AlertCircle, Check, Code2, Copy, KeyRound } from "@/lib/icon-map";
 import { useOnboarding } from "./onboarding-context";
 import { readOnboardingRecorderKey, saveOnboardingRecorderKey } from "./onboarding-recorder-key";
 import { OnboardingStage } from "./onboarding-stage";
 
-const RECORDER_KEY_NAME = "Website recorder";
 const COPIED_RESET_MS = 1_500;
 
 /**
  * Step 2 of 3 — the loader snippet.
  *
- * A raw recorder key is readable exactly once, at the moment it is created, so
- * this step mints an onboarding key itself and keeps the once-readable value in
- * this tab until the recorder connects. A refresh can therefore rebuild the
- * snippet without creating another key. If an older key exists but its raw
- * value is already gone, onboarding creates the replacement automatically.
+ * Step one has already created or reused the Website key. This step only reads
+ * that pending setup, so refreshes and parallel tabs cannot create extra keys.
  */
 export function OnboardingInstallPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { projectId, recorderKey, setRecorderKey } = useOnboarding();
+  const { projectId, recorderKey, setRecorderKey, setWebsiteDraft, websiteId } = useOnboarding();
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState("");
   const [showFullCode, setShowFullCode] = useState(false);
 
-  const availableRecorderKey = recorderKey ?? readOnboardingRecorderKey(projectId);
+  const availableRecorderKey =
+    recorderKey ?? (websiteId === null ? null : readOnboardingRecorderKey(projectId, websiteId));
 
-  const keyMutation = useMutation({
-    mutationFn: () => createProjectKey(projectId, RECORDER_KEY_NAME),
+  const setupMutation = useMutation({
+    mutationFn: async () => {
+      if (websiteId === null) throw new Error("Choose a Website before preparing its snippet.");
+      return fetchProjectWebsiteSetup(projectId, websiteId);
+    },
     onSuccess: (created) => {
-      saveOnboardingRecorderKey(projectId, created.secret);
+      if (created.alreadyConnected) {
+        void navigate({
+          to: "/projects/$projectId/overview",
+          params: { projectId },
+          replace: true,
+        });
+        return;
+      }
+      if (created.secret === null || websiteId === null) return;
+      saveOnboardingRecorderKey(projectId, websiteId, created.secret);
       setRecorderKey(created.secret);
+      setWebsiteDraft(created.website.origin);
       void queryClient.invalidateQueries({ queryKey: ["project-keys", projectId] });
     },
   });
 
-  // The ref makes this mint once per mount: react-query hands back a fresh
-  // mutation object each render, so a plain dependency list would fire it
-  // repeatedly. Tab storage covers reloads of this unfinished flow.
-  const hasRequestedKey = useRef(false);
-  const shouldMintOnboardingKey =
-    availableRecorderKey === null && !hasRequestedKey.current && !keyMutation.isError;
+  // The ref makes this request once per mount. The Worker returns the same
+  // pending Website key, so a refresh or parallel tab never mints another one.
+  const hasRequestedSetup = useRef(false);
+  const shouldLoadWebsiteSetup =
+    websiteId !== null &&
+    availableRecorderKey === null &&
+    !hasRequestedSetup.current &&
+    !setupMutation.isError;
   const isPreparingKey =
-    availableRecorderKey === null && (keyMutation.isPending || shouldMintOnboardingKey);
+    availableRecorderKey === null && (setupMutation.isPending || shouldLoadWebsiteSetup);
   const revealRef = useRef<HTMLDivElement>(null);
   const wasPreparingKey = useRef(isPreparingKey);
   useEffect(() => {
-    if (!shouldMintOnboardingKey || hasRequestedKey.current) return;
-    hasRequestedKey.current = true;
-    keyMutation.mutate();
-  }, [keyMutation, shouldMintOnboardingKey]);
+    if (!shouldLoadWebsiteSetup || hasRequestedSetup.current) return;
+    hasRequestedSetup.current = true;
+    setupMutation.mutate();
+  }, [setupMutation, shouldLoadWebsiteSetup]);
 
   // transitions.dev skeleton replay: a retry or an explicit replacement key
   // snaps back to the page-shaped skeleton before its one pulse starts again.
@@ -96,7 +108,12 @@ export function OnboardingInstallPage() {
           init: { ingestUrl: readRecorderOrigin(), key: availableRecorderKey },
         });
 
-  const keyError = keyMutation.error === null ? "" : readRecorderKeyError(keyMutation.error);
+  const keyError =
+    websiteId === null
+      ? "Go back and choose the Website you want to install."
+      : setupMutation.error === null
+        ? ""
+        : readRecorderKeyError(setupMutation.error);
 
   async function copySnippet(): Promise<void> {
     if (snippet.length === 0) return;
@@ -114,6 +131,7 @@ export function OnboardingInstallPage() {
     void navigate({
       to: "/onboarding/$projectId/verify",
       params: { projectId },
+      search: websiteId === null ? {} : { website: websiteId },
     });
   }
 
@@ -225,8 +243,8 @@ export function OnboardingInstallPage() {
                 <p className="flex items-start gap-2 text-[12px] leading-[17px] text-muted-foreground">
                   <KeyRound aria-hidden className="mt-px shrink-0" size={15} strokeWidth={1.5} />
                   <span>
-                    This snippet carries your recorder key. The server keeps only a hash; this tab
-                    keeps the key until the recorder connects.
+                    This Website has its own recorder key. Orange Replay keeps a recoverable,
+                    encrypted copy only until the first event arrives.
                   </span>
                 </p>
               )}
@@ -239,8 +257,8 @@ export function OnboardingInstallPage() {
                     <p>{keyError}</p>
                     <Button
                       className="mt-2 border-danger-border bg-transparent text-danger-foreground hover:text-foreground"
-                      loading={keyMutation.isPending}
-                      onClick={() => keyMutation.mutate()}
+                      loading={setupMutation.isPending}
+                      onClick={() => setupMutation.mutate()}
                       size="sm"
                       type="button"
                       variant="secondary"

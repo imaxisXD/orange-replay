@@ -133,12 +133,13 @@ describe("rendered top-nav date-range carry", () => {
       account("member"),
     );
     expect(tabs.map((tab) => tab.text)).toEqual(["Overview", "Sessions", "Live"]);
-    expect(container.textContent).not.toContain("Add project");
+    expect(container.textContent).not.toContain("Add website");
+    expect(container.textContent).not.toContain("Add workspace");
     for (const tab of tabs) assertCarriesWindowOnly(tab.href);
     await teardown();
   });
 
-  it("adds a project to the active workspace and opens its onboarding", async () => {
+  it("adds a Workspace to the account and opens its onboarding", async () => {
     const before = account("owner");
     const after = structuredClone(before);
     const project = { id: "p-2", name: "Default project", role: "owner" as const };
@@ -156,7 +157,7 @@ describe("rendered top-nav date-range carry", () => {
       before,
     );
     const addProject = [...container.querySelectorAll("button")].find((button) =>
-      button.textContent?.includes("Add project"),
+      button.textContent?.includes("Add workspace"),
     );
     expect(addProject).toBeDefined();
     await act(async () => addProject?.click());
@@ -170,6 +171,26 @@ describe("rendered top-nav date-range carry", () => {
       expect(router.state.location.pathname).toBe("/onboarding/p-2/website");
     });
     expect(queryClient.getQueryData(accountQueryKey)).toEqual(after);
+    await teardown();
+  });
+
+  it("opens Website onboarding inside the current Workspace without creating another one", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+    const { container, router, teardown } = await renderShell(
+      "/projects/p-1/overview",
+      account("owner"),
+    );
+    const addWebsite = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Add website"),
+    );
+    expect(addWebsite).toBeDefined();
+    await act(async () => addWebsite?.click());
+
+    await vi.waitFor(() => {
+      expect(router.state.location.pathname).toBe("/onboarding/p-1/website");
+    });
+    expect(fetchMock).not.toHaveBeenCalledWith("/api/v1/projects", expect.anything());
     await teardown();
   });
 });

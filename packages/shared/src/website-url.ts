@@ -72,3 +72,17 @@ function parseWebsiteUrl(value: string): { ok: true; url: URL } | { ok: false; i
 export function websiteNameFromUrl(url: URL): string {
   return url.hostname.replace(/^www\./i, "").replace(/\.$/, "");
 }
+
+/** Exact browser origins accepted by one Website recorder key. */
+export function websiteAllowedOrigins(url: URL): string[] {
+  const origins = [url.origin];
+  const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
+  if (hostname === "localhost" || hostname.endsWith(".localhost") || hostname.startsWith("[")) {
+    return origins;
+  }
+
+  const sibling = new URL(url.origin);
+  sibling.hostname = hostname.startsWith("www.") ? hostname.slice(4) : `www.${hostname}`;
+  if (sibling.origin !== url.origin) origins.push(sibling.origin);
+  return origins;
+}

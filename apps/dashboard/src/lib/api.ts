@@ -5,10 +5,13 @@ export {
   bootstrapAccount,
   createProject,
   createProjectKey,
+  ensureProjectWebsite,
   fetchAccount,
   fetchAdminStats,
   fetchAdminUsers,
   fetchAuthConfig,
+  fetchProjectWebsiteInstallStatus,
+  fetchProjectWebsiteSetup,
   revokeProjectKey,
 } from "./api/account";
 export type {
@@ -22,9 +25,11 @@ export type {
   AuthConfigResponse,
   AuthMode,
   CreatedProjectKeyResponse,
+  EnsureProjectWebsiteResponse,
   ProjectKeyAudit,
   ProjectCreateResponse,
   ProjectKeysResponse,
+  ProjectWebsiteInstallStatus,
   WorkspaceRole,
 } from "./api/account";
 export {

@@ -19,6 +19,7 @@ interface KeyRow {
   [key: string]: unknown;
   key_hash: string;
   active: number;
+  website_id: string | null;
 }
 
 interface ActiveKeyRow {
@@ -31,6 +32,13 @@ interface ActiveCacheRepairRow {
   key_hash: string;
   project_id: string;
   cache_final_check_at: number | null;
+  website_id: string | null;
+}
+
+interface WebsiteKeyConfigRow {
+  [key: string]: unknown;
+  allowed_origins: string;
+  first_event_at: number | null;
 }
 
 interface KeyHashRow {
@@ -136,6 +144,13 @@ export async function saveProjectConfig(
   // pending so the scheduled repair can finish the same configuration version.
   await deliverProjectConfig(env, stored);
   return { status: "saved", config: stored };
+}
+
+/** Re-deliver the durable Workspace config after a Website changes it. */
+export async function refreshProjectConfigDelivery(env: Env, projectId: string): Promise<void> {
+  const config = await readStoredProjectConfig(env, projectId);
+  if (config === null) throw new Error("The workspace config could not be found.");
+  await deliverProjectConfig(env, config);
 }
 
 export async function listProjectRecorderKeys(
@@ -396,13 +411,13 @@ async function deliverProjectConfig(env: Env, config: StoredProjectConfig): Prom
     .bind(keyCacheFinalCheckTime(Date.now()), config.projectId)
     .run();
   const rows = await database
-    .prepare("SELECT key_hash, active FROM keys WHERE project_id = ?")
+    .prepare("SELECT key_hash, active, website_id FROM keys WHERE project_id = ?")
     .bind(config.projectId)
     .all<KeyRow>();
 
   for (const row of rows.results ?? []) {
     if (row.active === 1) {
-      await refreshActiveKeyCache(env, database, row.key_hash, config, false);
+      await refreshActiveKeyCache(env, database, row.key_hash, row.website_id, config, false);
     } else {
       await syncRevokedKeyCache(env, database, row.key_hash);
     }
@@ -413,7 +428,7 @@ async function repairActiveProjectKeyCache(env: Env, now: number): Promise<numbe
   const database = shardDb(env, 0);
   const rows = await database
     .prepare(
-      `SELECT key_hash, project_id, cache_final_check_at
+      `SELECT key_hash, project_id, website_id, cache_final_check_at
       FROM keys
       WHERE active = 1
         AND (
@@ -460,7 +475,14 @@ async function repairActiveProjectKeyCache(env: Env, now: number): Promise<numbe
     }
 
     const finalCheckIsDue = row.cache_final_check_at !== null && row.cache_final_check_at <= now;
-    await refreshActiveKeyCache(env, database, row.key_hash, config, finalCheckIsDue);
+    await refreshActiveKeyCache(
+      env,
+      database,
+      row.key_hash,
+      row.website_id,
+      config,
+      finalCheckIsDue,
+    );
   }
 
   return rows.results?.length ?? 0;
@@ -470,6 +492,7 @@ async function refreshActiveKeyCache(
   env: Env,
   database: D1Database,
   keyHash: string,
+  websiteId: string | null,
   config: StoredProjectConfig,
   clearFinalCheck: boolean,
 ): Promise<void> {
@@ -484,7 +507,7 @@ async function refreshActiveKeyCache(
       .prepare("UPDATE keys SET cache_synced = 0 WHERE key_hash = ? AND active = 1")
       .bind(keyHash)
       .run();
-    await writeKeyConfig(env, keyHash, config);
+    await writeKeyConfig(env, keyHash, await configForWebsite(database, websiteId, config));
 
     // Another writer may have completed while this older value was in flight.
     // Mark pending again before the version-guarded final state change.
@@ -722,13 +745,45 @@ async function finishRows(
   return rows.length;
 }
 
-async function writeKeyConfig(
-  env: Env,
-  keyHash: string,
-  config: StoredProjectConfig,
-): Promise<void> {
+async function writeKeyConfig(env: Env, keyHash: string, config: ProjectConfig): Promise<void> {
   const cachedConfig: ProjectConfig = { ...config, active: true };
   await env.CONFIG.put(configKvKey(keyHash), JSON.stringify(cachedConfig));
+}
+
+async function configForWebsite(
+  database: D1Database,
+  websiteId: string | null,
+  config: StoredProjectConfig,
+): Promise<ProjectConfig> {
+  if (websiteId === null) return config;
+  const website = await database
+    .prepare(
+      `SELECT allowed_origins, first_event_at
+      FROM project_websites
+      WHERE id = ? AND project_id = ?`,
+    )
+    .bind(websiteId, config.projectId)
+    .first<WebsiteKeyConfigRow>();
+  if (website === null) throw new Error("The recorder key Website could not be found.");
+
+  let allowedOrigins: unknown;
+  try {
+    allowedOrigins = JSON.parse(website.allowed_origins);
+  } catch {
+    throw new Error("The recorder key Website origins could not be read.");
+  }
+  if (
+    !Array.isArray(allowedOrigins) ||
+    !allowedOrigins.every((origin) => typeof origin === "string")
+  ) {
+    throw new Error("The recorder key Website origins are invalid.");
+  }
+  return {
+    ...config,
+    allowedOrigins,
+    websiteId,
+    websitePending: website.first_event_at === null,
+  };
 }
 
 async function readProjectKeyCounts(

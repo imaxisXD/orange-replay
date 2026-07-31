@@ -11,6 +11,7 @@ import {
 const fetchMock = vi.fn<typeof fetch>();
 
 beforeEach(() => {
+  fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
   window.history.replaceState({}, "", "/projects/project_one/overview");
   clearDashboardAccess();
@@ -109,10 +110,8 @@ describe("hosted project routing", () => {
     ).resolves.toBeUndefined();
   });
 
-  it("opens Overview instead of recreating keys for an activated project", async () => {
-    fetchMock
-      .mockResolvedValueOnce(accountResponse("owner"))
-      .mockResolvedValueOnce(Response.json({ firstEventAt: Date.now() - 1_000 }));
+  it("allows an activated Workspace to add another Website", async () => {
+    fetchMock.mockResolvedValueOnce(accountResponse("owner"));
 
     await expect(
       requireActivationAccess(
@@ -122,13 +121,8 @@ describe("hosted project routing", () => {
         },
         "project_one",
       ),
-    ).rejects.toMatchObject({
-      status: 307,
-      options: {
-        to: "/projects/$projectId/overview",
-        params: { projectId: "project_one" },
-      },
-    });
+    ).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 

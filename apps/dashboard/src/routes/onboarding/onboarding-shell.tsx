@@ -42,9 +42,16 @@ export function OnboardingShell() {
   const navigate = useNavigate();
   const { projectId } = useParams({ strict: false }) as { projectId: string };
   const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const searchedWebsiteId = useRouterState({
+    select: (state) => {
+      const value = (state.location.search as { website?: unknown }).website;
+      return typeof value === "string" && /^[A-Za-z0-9_-]{1,100}$/.test(value) ? value : null;
+    },
+  });
   const stepIndex = onboardingStepIndex(pathname);
 
   const [websiteDraft, setWebsiteDraft] = useState("");
+  const [websiteId, setWebsiteId] = useState<string | null>(searchedWebsiteId);
   const [recorderKey, setRecorderKey] = useState<string | null>(null);
   const [isNamingProject, setIsNamingProject] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -77,6 +84,10 @@ export function OnboardingShell() {
     committedStep.current = stepIndex;
     hasChangedStep.current = true;
   }, [stepIndex]);
+
+  useEffect(() => {
+    if (searchedWebsiteId !== null) setWebsiteId(searchedWebsiteId);
+  }, [searchedWebsiteId]);
 
   const previewWebsiteSource = websitePreviewSource(websiteDraft, savedWebsiteName, stepIndex > 0);
   const previewProjectLabel = websitePreviewLabel(previewWebsiteSource, PLACEHOLDER_PROJECT_LABEL);
@@ -124,6 +135,8 @@ export function OnboardingShell() {
       setWebsiteDraft,
       stepIndex,
       websiteDraft,
+      websiteId,
+      setWebsiteId,
     }),
     [
       act,
@@ -138,6 +151,7 @@ export function OnboardingShell() {
       savedWebsiteName,
       stepIndex,
       websiteDraft,
+      websiteId,
     ],
   );
 
@@ -147,6 +161,7 @@ export function OnboardingShell() {
     void navigate({
       to: `/onboarding/$projectId/${previousStep}`,
       params: { projectId },
+      search: websiteId === null ? {} : { website: websiteId },
       replace: true,
     });
   }

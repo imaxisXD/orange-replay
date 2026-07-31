@@ -270,6 +270,37 @@ describe("dashboard request plans", () => {
         ),
       ],
       [
+        "PUT",
+        "/websites",
+        "project_websites",
+        plannedProject("project_websites", "project_website_ensure", {
+          sessionAuthRequired: true,
+          mutationOrigin: true,
+        }),
+      ],
+      [
+        "GET",
+        "/websites/website_1",
+        "project_websites",
+        plannedProject(
+          "project_websites",
+          "project_website_setup",
+          { sessionAuthRequired: true },
+          { projectId: "project_1", websiteId: "website_1" },
+        ),
+      ],
+      [
+        "GET",
+        "/websites/website_1/install-status",
+        "project_website_install_status",
+        plannedProject(
+          "project_websites",
+          "project_website_install_status",
+          { sessionAuthRequired: true },
+          { projectId: "project_1", websiteId: "website_1" },
+        ),
+      ],
+      [
         "GET",
         "/sessions/session_1/manifest",
         "manifest",
@@ -421,6 +452,7 @@ describe("dashboard request plans", () => {
       public_page_write: { demoReadable: false, minimumRole: "manager" },
       install_status: { demoReadable: false, minimumRole: "member" },
       project_keys: { demoReadable: false, minimumRole: "manager" },
+      project_websites: { demoReadable: false, minimumRole: "manager" },
       manifest: { demoReadable: true, minimumRole: "member" },
       live_ticket: { demoReadable: true, minimumRole: "member" },
       segment: { demoReadable: true, minimumRole: "member" },
@@ -662,7 +694,13 @@ function plannedProject(
       "sessionAuthRequired" | "mutationOrigin" | "analyticsReadLimit" | "authenticatedResponse"
     >
   > = {},
-  ids: { projectId: string; sessionId?: string; segmentName?: string; keyId?: string } = {
+  ids: {
+    projectId: string;
+    sessionId?: string;
+    segmentName?: string;
+    keyId?: string;
+    websiteId?: string;
+  } = {
     projectId: "project_1",
   },
 ): ProjectRoutePlan {

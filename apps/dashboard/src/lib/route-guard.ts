@@ -82,11 +82,9 @@ export async function openProjectsHome(location: RouteLocation): Promise<void> {
 
 /**
  * Guards the activation flow. It needs a signed-in account with a project the
- * visitor can manage — activation writes the project name, its origin
- * allowlist, and a recorder key. Already-activated projects are not bounced
- * out: reaching the last step and seeing the recorder connected is the flow's
- * ending. A project that has already recorded is sent to Overview so revisiting
- * onboarding cannot create another installation key.
+ * visitor can manage. An existing Workspace may already have recordings from
+ * another Website, so project-wide activity must not block this flow. The
+ * Website API is idempotent and owns duplicate-key protection.
  */
 export async function requireActivationAccess(
   location: RouteLocation,
@@ -99,13 +97,6 @@ export async function requireActivationAccess(
   if (project === undefined || !canManageProject(project)) {
     throw redirect({ to: "/projects", replace: true });
   }
-  if ((await hasProjectFirstEvent(projectId)) === true) {
-    throw redirect({
-      to: "/projects/$projectId/overview",
-      params: { projectId },
-      replace: true,
-    });
-  }
 }
 
 /**
@@ -113,10 +104,7 @@ export async function requireActivationAccess(
  * itself failed.
  *
  * An unreachable presence registry must NOT be read as "not activated yet".
- * Activation's first step replaces the project's origin allowlist, so diverting
- * a project that is already live — because Presence happened to return 503 —
- * would let a routine outage walk an owner into overwriting a working install.
- * Uncertainty therefore means "leave them where they were going".
+ * Uncertainty means "leave them where they were going".
  */
 async function hasProjectFirstEvent(projectId: string): Promise<boolean | undefined> {
   try {

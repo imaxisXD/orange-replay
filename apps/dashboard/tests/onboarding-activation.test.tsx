@@ -17,11 +17,9 @@ vi.mock("@tanstack/react-router", async (importOriginal) => ({
 }));
 
 const apiMocks = vi.hoisted(() => ({
-  createProjectKey: vi.fn(),
-  fetchInstallStatus: vi.fn(),
-  fetchProjectConfig: vi.fn(),
-  renameProject: vi.fn(),
-  saveProjectConfig: vi.fn(),
+  ensureProjectWebsite: vi.fn(),
+  fetchProjectWebsiteInstallStatus: vi.fn(),
+  fetchProjectWebsiteSetup: vi.fn(),
 }));
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/api")>()),
@@ -66,6 +64,7 @@ import {
 import { OnboardingWebsitePage } from "../src/routes/onboarding/onboarding-website-step";
 
 const PROJECT_ID = "project_abc";
+const WEBSITE_ID = "website_abc";
 const RAW_KEY = `or_live_${"a".repeat(32)}`;
 const SAVED_WEBSITE = new URL("https://saved.example");
 
@@ -132,7 +131,6 @@ describe("activation website identity", () => {
     // A port belongs to the origin and must survive on both spellings.
     expect(activationAllowedOrigins(new URL("http://localhost:3000"))).toEqual([
       "http://localhost:3000",
-      "http://www.localhost:3000",
     ]);
   });
 
@@ -285,22 +283,11 @@ describe("activation step 1: website", () => {
     expect(container.textContent).toContain("Enter a website like");
     expect(container.querySelector(".t-input-wrap.is-error .t-error-msg")).not.toBeNull();
     await vi.waitFor(() => expect(container.querySelector(".t-input.is-shaking")).not.toBeNull());
-    expect(apiMocks.renameProject).not.toHaveBeenCalled();
+    expect(apiMocks.ensureProjectWebsite).not.toHaveBeenCalled();
   });
 
-  it("names the project and opens ingest for both spellings, then moves on", async () => {
-    apiMocks.renameProject.mockResolvedValue({ id: PROJECT_ID, name: "acme.com" });
-    apiMocks.fetchProjectConfig.mockResolvedValue({
-      allowedOrigins: [],
-      capture: { heatmaps: false, console: false, network: false, canvas: false },
-      jurisdiction: null,
-      maskPolicyVersion: 1,
-      maskRules: [],
-      retentionDays: 30,
-      sampleRate: 1,
-      version: 1,
-    });
-    apiMocks.saveProjectConfig.mockResolvedValue({ version: 2 });
+  it("adds one Website and opens its install step", async () => {
+    apiMocks.ensureProjectWebsite.mockResolvedValue(websiteSetup());
     await render(<OnboardingWebsitePage />);
     expect(container.querySelector('.t-favicon-slot[data-stage="0"]')).not.toBeNull();
     expect(container.querySelector(".t-favicon-frame")).toBeNull();
@@ -321,33 +308,17 @@ describe("activation step 1: website", () => {
     });
 
     await vi.waitFor(() => {
-      expect(apiMocks.renameProject).toHaveBeenCalledWith(PROJECT_ID, "acme.com");
-    });
-    await vi.waitFor(() => {
-      expect(apiMocks.saveProjectConfig).toHaveBeenCalledWith(
-        PROJECT_ID,
-        expect.objectContaining({
-          allowedOrigins: ["https://acme.com", "https://www.acme.com"],
-          expectedVersion: 1,
-        }),
-      );
-    });
-    // The allowlist is what lets the project record; the name is cosmetic. It
-    // has to land first so a failure between the two cannot leave a project
-    // named after the visitor's website yet unable to ingest anything.
-    expect(apiMocks.saveProjectConfig.mock.invocationCallOrder[0]).toBeLessThan(
-      apiMocks.renameProject.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
-    );
-    await vi.waitFor(() => {
+      expect(apiMocks.ensureProjectWebsite).toHaveBeenCalledWith(PROJECT_ID, "https://acme.com/");
       expect(navigate).toHaveBeenCalledWith({
         to: "/onboarding/$projectId/install",
         params: { projectId: PROJECT_ID },
+        search: { website: WEBSITE_ID },
       });
     });
   });
 
   it("keeps the visitor on the step and explains a failed write", async () => {
-    apiMocks.fetchProjectConfig.mockRejectedValue(new Error("Network is unreachable."));
+    apiMocks.ensureProjectWebsite.mockRejectedValue(new Error("Network is unreachable."));
     await render(<OnboardingWebsitePage />);
 
     await setWebsiteInput("https://acme.com");
@@ -359,9 +330,7 @@ describe("activation step 1: website", () => {
       expect(container.textContent).toContain("Network is unreachable.");
     });
     expect(navigate).not.toHaveBeenCalled();
-    // Nothing was renamed, so a failure before the allowlist lands leaves the
-    // project exactly as it was rather than half-activated.
-    expect(apiMocks.renameProject).not.toHaveBeenCalled();
+    expect(apiMocks.ensureProjectWebsite).toHaveBeenCalledTimes(1);
   });
 
   it("moves the preview camera onto the switcher only while a name is being typed", async () => {
@@ -381,8 +350,8 @@ describe("activation step 1: website", () => {
 
 describe("activation step 2: install", () => {
   it("pulses a page-shaped skeleton until the first recorder key is ready", async () => {
-    const keyRequest = deferred<{ key: ReturnType<typeof projectKeyAudit>; secret: string }>();
-    apiMocks.createProjectKey.mockReturnValue(keyRequest.promise);
+    const keyRequest = deferred<ReturnType<typeof websiteSetup>>();
+    apiMocks.fetchProjectWebsiteSetup.mockReturnValue(keyRequest.promise);
     await render(<OnboardingInstallPage />);
 
     const reveal = container.querySelector(".onboarding-install-reveal");
@@ -394,11 +363,11 @@ describe("activation step 2: install", () => {
     expect(container.querySelector('.t-skel-content[aria-hidden="true"]')).not.toBeNull();
 
     await vi.waitFor(() => {
-      expect(apiMocks.createProjectKey).toHaveBeenCalledWith(PROJECT_ID, "Website recorder");
+      expect(apiMocks.fetchProjectWebsiteSetup).toHaveBeenCalledWith(PROJECT_ID, WEBSITE_ID);
     });
     expect(reveal?.getAttribute("data-state")).toBe("loading");
 
-    keyRequest.resolve({ key: projectKeyAudit(), secret: RAW_KEY });
+    keyRequest.resolve(websiteSetup());
     await vi.waitFor(() => {
       expect(reveal?.getAttribute("data-state")).toBe("ready");
       expect(reveal?.classList.contains("is-revealed")).toBe(true);
@@ -408,7 +377,7 @@ describe("activation step 2: install", () => {
     expect(container.querySelector("pre")?.textContent).toContain("Orange Replay loader");
   });
 
-  it("mints the project's first recorder key and copies a snippet that carries it", async () => {
+  it("loads the Website key and copies a snippet that carries it", async () => {
     const writeText = vi.fn<(value: string) => Promise<void>>().mockResolvedValue();
     // Define the one property rather than replacing navigator: spreading it
     // would drop its prototype along with everything else the tree reads.
@@ -416,14 +385,11 @@ describe("activation step 2: install", () => {
       configurable: true,
       value: { writeText },
     });
-    apiMocks.createProjectKey.mockResolvedValue({
-      key: projectKeyAudit(),
-      secret: RAW_KEY,
-    });
+    apiMocks.fetchProjectWebsiteSetup.mockResolvedValue(websiteSetup());
     await render(<OnboardingInstallPage />);
 
     await vi.waitFor(() => {
-      expect(apiMocks.createProjectKey).toHaveBeenCalledWith(PROJECT_ID, "Website recorder");
+      expect(apiMocks.fetchProjectWebsiteSetup).toHaveBeenCalledWith(PROJECT_ID, WEBSITE_ID);
     });
     await vi.waitFor(() => {
       expect(findButton("I added the snippet").disabled).toBe(false);
@@ -453,9 +419,9 @@ describe("activation step 2: install", () => {
   });
 
   it("retries automatic recorder-key preparation after a request failure", async () => {
-    apiMocks.createProjectKey
+    apiMocks.fetchProjectWebsiteSetup
       .mockRejectedValueOnce(new Error("Recorder-key storage is unavailable."))
-      .mockResolvedValueOnce({ key: projectKeyAudit(), secret: RAW_KEY });
+      .mockResolvedValueOnce(websiteSetup());
     await render(<OnboardingInstallPage />);
 
     await vi.waitFor(() => {
@@ -465,16 +431,16 @@ describe("activation step 2: install", () => {
       findButton("Try again").click();
     });
     await vi.waitFor(() => {
-      expect(apiMocks.createProjectKey).toHaveBeenCalledTimes(2);
+      expect(apiMocks.fetchProjectWebsiteSetup).toHaveBeenCalledTimes(2);
       expect(findButton("I added the snippet").disabled).toBe(false);
     });
   });
 
   it("reuses the tab's once-readable key after a reload instead of creating another", async () => {
-    saveOnboardingRecorderKey(PROJECT_ID, RAW_KEY);
+    saveOnboardingRecorderKey(PROJECT_ID, WEBSITE_ID, RAW_KEY);
     await render(<OnboardingInstallPage />);
 
-    expect(apiMocks.createProjectKey).not.toHaveBeenCalled();
+    expect(apiMocks.fetchProjectWebsiteSetup).not.toHaveBeenCalled();
     expect(container.textContent).not.toContain("This project already has a key");
     expect(findButton("I added the snippet").disabled).toBe(false);
     expect(container.querySelector("pre")?.textContent).toContain("Orange Replay loader");
@@ -483,7 +449,7 @@ describe("activation step 2: install", () => {
 
 describe("activation step 3: verify", () => {
   it("waits on the real install status and does not claim success early", async () => {
-    apiMocks.fetchInstallStatus.mockResolvedValue({ firstEventAt: null });
+    apiMocks.fetchProjectWebsiteInstallStatus.mockResolvedValue({ firstEventAt: null });
     await render(<OnboardingVerifyPage />);
 
     await vi.waitFor(() => {
@@ -499,8 +465,10 @@ describe("activation step 3: verify", () => {
   });
 
   it("confirms the recorder once an event has arrived and opens the dashboard", async () => {
-    saveOnboardingRecorderKey(PROJECT_ID, RAW_KEY);
-    apiMocks.fetchInstallStatus.mockResolvedValue({ firstEventAt: Date.now() - 2_000 });
+    saveOnboardingRecorderKey(PROJECT_ID, WEBSITE_ID, RAW_KEY);
+    apiMocks.fetchProjectWebsiteInstallStatus.mockResolvedValue({
+      firstEventAt: Date.now() - 2_000,
+    });
     await render(<OnboardingVerifyPage />);
 
     await vi.waitFor(() => {
@@ -512,7 +480,7 @@ describe("activation step 3: verify", () => {
     await vi.waitFor(() => {
       expect(isRecordingReported).toBe(true);
     });
-    expect(readOnboardingRecorderKey(PROJECT_ID)).toBeNull();
+    expect(readOnboardingRecorderKey(PROJECT_ID, WEBSITE_ID)).toBeNull();
 
     await act(async () => {
       findButton("Open your dashboard").click();
@@ -526,7 +494,9 @@ describe("activation step 3: verify", () => {
 
   it("opens the exact project automatically after the connected state is readable", async () => {
     const setTimeoutSpy = vi.spyOn(window, "setTimeout");
-    apiMocks.fetchInstallStatus.mockResolvedValue({ firstEventAt: Date.now() - 2_000 });
+    apiMocks.fetchProjectWebsiteInstallStatus.mockResolvedValue({
+      firstEventAt: Date.now() - 2_000,
+    });
     await render(<OnboardingVerifyPage />);
 
     await vi.waitFor(() => {
@@ -566,6 +536,7 @@ async function render(step: ReactNode): Promise<void> {
 function Harness({ children }: { children: ReactNode }) {
   const [draft, setDraft] = useState("");
   const [key, setKey] = useState<string | null>(null);
+  const [websiteId, setWebsiteId] = useState<string | null>(WEBSITE_ID);
   const [isNaming, setIsNaming] = useState(false);
   const [recording, setRecording] = useState(false);
   namingProject = isNaming;
@@ -591,9 +562,11 @@ function Harness({ children }: { children: ReactNode }) {
         setIsNamingProject: setIsNaming,
         setIsRecording: setRecording,
         setRecorderKey: setKey,
+        setWebsiteId,
         setWebsiteDraft: setDraft,
         stepIndex: 0,
         websiteDraft: draft,
+        websiteId,
       }}
     >
       {children}
@@ -631,6 +604,20 @@ function projectKeyAudit() {
     name: "Website recorder",
     revokedAt: null,
     revokedBy: null,
+  };
+}
+
+function websiteSetup() {
+  return {
+    website: {
+      id: WEBSITE_ID,
+      name: "acme.com",
+      origin: "https://acme.com",
+      firstEventAt: null,
+    },
+    key: projectKeyAudit(),
+    secret: RAW_KEY,
+    alreadyConnected: false,
   };
 }
 

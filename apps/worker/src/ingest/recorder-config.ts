@@ -84,6 +84,11 @@ export async function handleRecorderConfig(
 
     const recorderConfig: RecorderProjectConfig = {
       projectId: config.projectId,
+      sessionScope: config.projectId,
+      ...(config.sessionCookieDomain === undefined
+        ? {}
+        : { sessionCookieDomain: config.sessionCookieDomain }),
+      ...(config.websiteId === undefined ? {} : { websiteId: config.websiteId }),
       sampleRate: config.quotaState === "exceeded" ? 0 : config.sampleRate,
       maskPolicyVersion: config.maskPolicyVersion,
       maskRules: config.maskRules ?? [],

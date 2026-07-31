@@ -19,6 +19,7 @@ const projectConfigColumns = [
   "ALTER TABLE projects ADD COLUMN config_version INTEGER NOT NULL DEFAULT 1",
   "ALTER TABLE projects ADD COLUMN mask_rules TEXT NOT NULL DEFAULT '[]'",
   `ALTER TABLE projects ADD COLUMN capture_toggles TEXT NOT NULL DEFAULT '{"heatmaps":false,"console":false,"network":false,"canvas":false}'`,
+  "ALTER TABLE projects ADD COLUMN session_cookie_domain TEXT",
 ] as const;
 let projectConfigColumnsEnsured = false;
 let projectConfigColumnsPending: Promise<void> | undefined;
@@ -37,6 +38,7 @@ const projectConfigSelect = `
     p.capture_toggles AS capture,
     p.quota_state AS quotaState,
     p.config_version AS version,
+    p.session_cookie_domain AS sessionCookieDomain,
     (SELECT COUNT(*) FROM keys k WHERE k.project_id = p.id AND k.active = 1) AS activeKeyCount
   FROM projects p
   JOIN orgs o ON o.id = p.org_id
@@ -57,6 +59,7 @@ interface ProjectConfigRow {
   capture: unknown;
   quotaState: unknown;
   version: unknown;
+  sessionCookieDomain: unknown;
   activeKeyCount: unknown;
 }
 
@@ -102,7 +105,14 @@ function mapProjectConfigRow(row: ProjectConfigRow): StoredProjectConfig | null 
   const maskRules = parseMaskRules(row.maskRules);
   const capture = parseCapture(row.capture);
   const jurisdiction = nullableJurisdiction(row.jurisdiction);
-  if (allowedOrigins === null || maskRules === null || capture === null || jurisdiction === null) {
+  const sessionCookieDomain = nullableString(row.sessionCookieDomain);
+  if (
+    allowedOrigins === null ||
+    maskRules === null ||
+    capture === null ||
+    jurisdiction === null ||
+    sessionCookieDomain === null
+  ) {
     return null;
   }
 
@@ -119,6 +129,7 @@ function mapProjectConfigRow(row: ProjectConfigRow): StoredProjectConfig | null 
     quotaState: row.quotaState,
     retentionDays: row.retentionDays,
     version: row.version,
+    ...(sessionCookieDomain === undefined ? {} : { sessionCookieDomain }),
     ...(jurisdiction === undefined ? {} : { jurisdiction }),
   };
 
@@ -175,6 +186,11 @@ function parseCapture(value: unknown): CaptureToggles | null {
 function nullableJurisdiction(value: unknown): "eu" | "fedramp" | undefined | null {
   if (value === null || value === undefined) return undefined;
   return value === "eu" || value === "fedramp" ? value : null;
+}
+
+function nullableString(value: unknown): string | undefined | null {
+  if (value === null || value === undefined) return undefined;
+  return typeof value === "string" && value.length > 0 ? value : null;
 }
 
 function readActive(value: unknown): boolean {

@@ -3,29 +3,22 @@ import { useMutation } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { InputField, InputGroup } from "@/components/ui/input-group";
-import { accountQueryKey, fetchProjectConfig, renameProject, saveProjectConfig } from "@/lib/api";
+import { accountQueryKey, ensureProjectWebsite } from "@/lib/api";
 import { queryClient } from "@/lib/query";
 import { readDashboardAccessError } from "@/lib/dashboard-access";
 import { useOnboarding } from "./onboarding-context";
 import { TIMING } from "./onboarding-motion";
 import { OnboardingStage } from "./onboarding-stage";
-import {
-  activationAllowedOrigins,
-  readWebsiteUrl,
-  websiteFaviconUrl,
-  websiteProjectName,
-  websiteUrlError,
-} from "./onboarding-website";
+import { readWebsiteUrl, websiteFaviconUrl, websiteUrlError } from "./onboarding-website";
 import { WebsiteFavicon } from "./website-favicon";
+import { saveOnboardingRecorderKey } from "./onboarding-recorder-key";
 
 /**
  * Step 1 of 3 — the website being recorded.
  *
- * One URL settles three things at once: the project's name, the favicon
- * identity shown in the switcher, and the origins ingest will accept. A
- * bootstrapped project starts with an empty origin allowlist, which the ingest
- * path treats as "allow nothing", so this step is what makes the project able
- * to record at all.
+ * The Worker owns this boundary: it creates or reuses one Website and one
+ * recorder key inside the current Workspace, then returns the recoverable key
+ * needed by the next step.
  */
 export function OnboardingWebsitePage() {
   const navigate = useNavigate();
@@ -34,6 +27,8 @@ export function OnboardingWebsitePage() {
     previewProjectLabel,
     projectId,
     setIsNamingProject,
+    setRecorderKey,
+    setWebsiteId,
     setWebsiteDraft,
     websiteDraft,
   } = useOnboarding();
@@ -93,32 +88,24 @@ export function OnboardingWebsitePage() {
   useEffect(() => stopErrorShake, [stopErrorShake]);
 
   const activation = useMutation({
-    mutationFn: async (url: URL) => {
-      // Two writes, and they cannot be one transaction, so order them by what a
-      // partial failure leaves behind. The allowlist is what lets the project
-      // record at all; the name is cosmetic. Writing the allowlist first means a
-      // failure after it leaves a project that works but is still called
-      // "Default project" — recoverable by retrying, and the retry re-reads the
-      // config so `expectedVersion` is fresh. The other order left a project
-      // renamed to the visitor's website yet unable to ingest a single event,
-      // which is the same state the flow exists to prevent.
-      const config = await fetchProjectConfig(projectId);
-      await saveProjectConfig(projectId, {
-        allowedOrigins: activationAllowedOrigins(url),
-        capture: config.capture,
-        expectedVersion: config.version,
-        maskPolicyVersion: config.maskPolicyVersion,
-        maskRules: config.maskRules,
-        retentionDays: config.retentionDays,
-        sampleRate: config.sampleRate,
-      });
-      await renameProject(projectId, websiteProjectName(url));
-      await queryClient.invalidateQueries({ queryKey: accountQueryKey });
-    },
-    onSuccess: () => {
+    mutationFn: (url: URL) => ensureProjectWebsite(projectId, url.href),
+    onSuccess: (result) => {
+      if (result.alreadyConnected || result.secret === null) {
+        void navigate({
+          to: "/projects/$projectId/overview",
+          params: { projectId },
+          replace: true,
+        });
+        return;
+      }
+      saveOnboardingRecorderKey(projectId, result.website.id, result.secret);
+      setRecorderKey(result.secret);
+      setWebsiteId(result.website.id);
+      void queryClient.invalidateQueries({ queryKey: accountQueryKey });
       void navigate({
         to: "/onboarding/$projectId/install",
         params: { projectId },
+        search: { website: result.website.id },
       });
     },
   });
@@ -189,7 +176,7 @@ export function OnboardingWebsitePage() {
       }
       heading="Add your website"
       onSubmit={handleSubmit}
-      support="Its address names your project and tells the recorder which pages to accept."
+      support="This adds one Website to your Workspace and prepares its own recorder key."
     />
   );
 }

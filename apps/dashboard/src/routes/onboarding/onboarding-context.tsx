@@ -24,6 +24,9 @@ interface OnboardingState {
   /** Raw text in the website field, kept while moving between steps. */
   websiteDraft: string;
   setWebsiteDraft: (value: string) => void;
+  /** Website being installed inside the Workspace. */
+  websiteId: string | null;
+  setWebsiteId: (value: string | null) => void;
   /** Project name already saved for this project, or null before activation. */
   savedWebsiteName: string | null;
   /** Raw recorder key minted this visit. Also kept in this tab until connection. */

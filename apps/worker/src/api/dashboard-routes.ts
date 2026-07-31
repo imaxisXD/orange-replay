@@ -18,6 +18,11 @@ import { getFavicon } from "./favicon.ts";
 import { mintLiveTicket, proxyLiveSession } from "./live-ticket.ts";
 import { getSessionState, listSessionHeads } from "./session-head-routes.ts";
 import { createProjectKey, revokeProjectKey } from "./project-keys.ts";
+import {
+  ensureProjectWebsite,
+  getProjectWebsiteInstallStatus,
+  getProjectWebsiteSetup,
+} from "./project-websites.ts";
 import { getPublicPageSettings, putPublicPageSettings } from "./public-page-settings.ts";
 import {
   getDemoDiscovery,
@@ -171,6 +176,19 @@ async function executeProjectRoute(
       const { projectId, keyId } = grantedIds(route.params);
       if (!isSessionAuth(auth)) return jsonError("unauthorized", 401);
       return revokeProjectKey(env, projectId, keyId, auth);
+    }
+    case "project_website_ensure": {
+      const { projectId } = grantedIds(route.params);
+      if (!isSessionAuth(auth)) return jsonError("unauthorized", 401);
+      return ensureProjectWebsite(request, env, projectId, auth, wideEvent);
+    }
+    case "project_website_install_status": {
+      const { projectId, websiteId } = grantedIds(route.params);
+      return getProjectWebsiteInstallStatus(env, projectId, websiteId);
+    }
+    case "project_website_setup": {
+      const { projectId, websiteId } = grantedIds(route.params);
+      return getProjectWebsiteSetup(env, projectId, websiteId);
     }
     case "manifest": {
       const { projectId, sessionId } = grantedIds(route.params);

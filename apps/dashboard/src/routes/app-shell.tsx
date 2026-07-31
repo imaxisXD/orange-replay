@@ -201,14 +201,14 @@ export function AppShell({
               value={projectId}
             >
               <SelectTrigger
-                aria-label="Project"
+                aria-label="Workspace"
                 className="h-7.5 min-w-33 bg-transparent rounded-lg border-none hover:bg-secondary px-2.75 py-1.25 text-[12.5px] hover:text-foreground text-muted-foreground"
                 leadingContent={projectLeadingContent}
-                placeholder="Project"
+                placeholder="Workspace"
               />
               <SelectContent className="rounded-lg border border-border bg-popover">
                 <SelectGroup>
-                  <SelectLabel>Projects</SelectLabel>
+                  <SelectLabel>Workspaces</SelectLabel>
                   {projectOptions.map((project, index) => (
                     <SelectItem index={index} key={project.id} value={project.id}>
                       {project.label}
@@ -222,13 +222,31 @@ export function AppShell({
               <Button
                 className="h-7.5 px-2.5 text-[12.5px]"
                 leadingIcon={Plus}
+                onClick={() =>
+                  void navigate({
+                    to: "/onboarding/$projectId/website",
+                    params: { projectId },
+                  })
+                }
+                size="sm"
+                type="button"
+                variant="ghost"
+              >
+                Add website
+              </Button>
+            )}
+
+            {canCreateProject && (
+              <Button
+                className="h-7.5 px-2.5 text-[12.5px]"
+                leadingIcon={Plus}
                 loading={createProjectMutation.isPending}
                 onClick={() => createProjectMutation.mutate()}
                 size="sm"
                 type="button"
                 variant="ghost"
               >
-                Add project
+                Add workspace
               </Button>
             )}
 
@@ -316,11 +334,11 @@ export function AppShell({
 
 function readCreateProjectError(error: unknown): string {
   if (error instanceof ApiError) {
-    if (error.status === 403) return "Only a workspace owner or admin can add a project.";
+    if (error.status === 403) return "Only a workspace owner or admin can add a workspace.";
     if (error.code === "network_error") return error.message;
-    return "Could not add the project. Try again.";
+    return "Could not add the workspace. Try again.";
   }
-  return readDashboardAccessError(error, "Could not add the project. Try again.");
+  return readDashboardAccessError(error, "Could not add the workspace. Try again.");
 }
 
 function AccountAvatar({ image, name }: { image?: string | null; name?: string }) {

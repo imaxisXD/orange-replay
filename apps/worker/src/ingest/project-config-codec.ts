@@ -14,6 +14,9 @@ export interface ProjectConfigRow {
   quotaState: unknown;
   shard: unknown;
   version?: unknown;
+  sessionCookieDomain?: unknown;
+  websiteId?: unknown;
+  websitePending?: unknown;
 }
 
 export function parseProjectConfig(value: unknown): ProjectConfig | null {
@@ -30,8 +33,17 @@ export function mapConfigRowToProjectConfig(row: ProjectConfigRow | null): Proje
   const allowedOrigins =
     typeof row.allowedOrigins === "string" ? parseJsonValue(row.allowedOrigins) : undefined;
   const jurisdiction = nullableString(row.jurisdiction);
+  const sessionCookieDomain = nullableString(row.sessionCookieDomain);
+  const websiteId = nullableString(row.websiteId);
+  const websitePending = optionalBooleanFlag(row.websitePending);
 
-  if (active === null || jurisdiction === null) {
+  if (
+    active === null ||
+    jurisdiction === null ||
+    sessionCookieDomain === null ||
+    websiteId === null ||
+    websitePending === null
+  ) {
     return null;
   }
 
@@ -49,9 +61,17 @@ export function mapConfigRowToProjectConfig(row: ProjectConfigRow | null): Proje
     retentionDays: row.retentionDays,
     version: row.version,
     ...(jurisdiction === undefined ? {} : { jurisdiction }),
+    ...(sessionCookieDomain === undefined ? {} : { sessionCookieDomain }),
+    ...(websiteId === undefined ? {} : { websiteId }),
+    ...(websitePending === undefined ? {} : { websitePending }),
   };
 
   return parseProjectConfig(candidate);
+}
+
+function optionalBooleanFlag(value: unknown): boolean | undefined | null {
+  if (value === undefined || value === null) return undefined;
+  return activeFlagToBoolean(value);
 }
 
 function parseJsonValue(value: unknown): unknown {

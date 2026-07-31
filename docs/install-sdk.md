@@ -22,7 +22,7 @@ const snippet = buildLoaderScriptTag({
 
 | Option          | Required           | Default     | What it does                                                                                   |
 | --------------- | ------------------ | ----------- | ---------------------------------------------------------------------------------------------- |
-| `key`           | Yes                | None        | Project recorder key used by ingest auth.                                                      |
+| `key`           | Yes                | None        | Website recorder key used by ingest auth.                                                      |
 | `ingestUrl`     | Yes                | None        | Worker origin that receives `/v1/ingest`.                                                      |
 | `sampleRate`    | No                 | `1`         | Fraction from `0` to `1`. Use `0` as a client-side kill switch.                                |
 | `flushMs`       | No                 | SDK default | Max time between normal flushes. The Worker can tighten cadence when live watch is active.     |

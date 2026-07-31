@@ -1,4 +1,4 @@
-# Project activation (first-run and later projects)
+# Website activation (first-run and later Websites)
 
 Routes: `/onboarding/:projectId/website`, `/onboarding/:projectId/install`,
 `/onboarding/:projectId/verify`
@@ -18,7 +18,8 @@ between screens of different heights.
 
 Every route carries the project id. The shell and its access guard resolve that
 exact project instead of selecting the first project in the account. This is
-what makes the same flow safe for both a new account and a later project.
+what makes the same flow safe for a new account, a later Workspace, and another
+Website inside an existing Workspace.
 
 - `onboarding-shell.tsx` — layout route: split pane, rail, shared state
 - `onboarding-website-step.tsx` — step 1
@@ -78,45 +79,45 @@ unchanged origin keeps its current icon.
 
 | Step      | Request                                                                                      |
 | --------- | -------------------------------------------------------------------------------------------- |
-| 1 Website | `PUT /api/v1/projects/:id/config` (allowedOrigins), then `PATCH /api/v1/projects/:id` (name) |
-| 2 Install | `POST /api/v1/projects/:id/keys` — only when the project has no active key                   |
-| 3 Verify  | `GET /api/v1/projects/:id/install-status`, polled at the shared 3s interval                  |
+| 1 Website | `PUT /api/v1/projects/:id/websites` — idempotently creates or reuses one Website and its key |
+| 2 Install | `GET /api/v1/projects/:id/websites/:websiteId` — restores the same unfinished setup          |
+| 3 Verify  | `GET /api/v1/projects/:id/websites/:websiteId/install-status`, polled every 3s               |
 
 ### Why step 1 is not cosmetic
 
-`bootstrapAccount` creates a project with `allowed_origins = "[]"`, and the
-ingest path treats an empty allowlist as "allow nothing"
-(`browserOriginIsAllowed`). A freshly bootstrapped project therefore cannot
-receive a single event until an origin is stored. Step 1 is what makes the
-project able to record.
+`bootstrapAccount` creates an internal project, shown as a Workspace, with
+`allowed_origins = "[]"`. The ingest path treats an empty allowlist as "allow
+nothing" (`browserOriginIsAllowed`). Step 1 creates a Website below that
+Workspace, stores its exact origin boundary, and gives that Website its own
+recorder key. It also adds those origins to the legacy Workspace-wide union so
+existing settings and older manual keys remain compatible.
 
 The allowlist gets both the typed origin and its `www` sibling. Ingest matches
 origins exactly and the same list drives the CORS response, so a one-entry list
 would leave step 3 waiting on an event the ingest path had already refused.
 
-### Why the project is renamed
+### Workspace naming
 
-`PATCH /api/v1/projects/:id` is a new route: manager-only, mutation-origin
-checked, body capped at 1 KB, name trimmed to 100 chars. The name is
-display-only — it feeds no key, no R2 path and no query — so a rename never
-bumps `config_version` or invalidates the recorder's cached config. A worker
-test asserts exactly that.
+The first Website replaces the old `Default project` label with its readable
+hostname. Adding later Websites does not rename the Workspace. The user can
+therefore treat the Workspace as the product name while each Website remains a
+separate recording source.
 
 ### Recorder keys
 
-A raw key is readable once, at creation. Step 2 therefore prepares an
-onboarding key automatically and keeps its value in tab-scoped session storage
-until the recorder connects. A refresh in that tab rebuilds the same snippet
-instead of creating another key. If an older project has an active key but its
-raw value is already gone, step 2 creates the recoverable onboarding key behind
-the existing page-shaped skeleton; there is no manual “already has a key” dead
-end. The server still stores only the hash, and the tab value is removed as
-soon as the first event arrives.
+Each Website has one active onboarding key. Step 1 creates it once. Repeating
+the request for the same normalized origin returns that Website and key instead
+of creating another, including requests from another tab. The raw value is
+encrypted server-side with `WEBSITE_KEY_WRAP_SECRET` only while setup is
+unfinished, so step 2 can recover the same snippet after a refresh or direct
+link. The browser also keeps a tab-scoped copy for the normal fast path.
 
-An activated project is redirected to Overview before onboarding mounts, so a
-direct revisit cannot create an unnecessary key. The card summarises the
-loader by default and reveals the full text on request, matching the Install
-page; the copied text is always the real snippet.
+After the first accepted event for that Website, D1 stores its connection time
+and deletes the encrypted raw value. The key remains active for recording, but
+the dashboard can no longer read its secret. Returning to onboarding for a
+connected Website therefore never mints a replacement or reveals that key.
+The existing page-shaped skeleton covers the short setup fetch, then reveals
+the real snippet.
 
 ## Reachability
 
@@ -148,15 +149,16 @@ knows no event has ever arrived. Two rules keep the guard from stranding anyone:
   outage walk an owner into overwriting a working install.
 
 `requireActivationAccess` applies the same manageability rule, so the two cannot
-disagree. It also redirects an already-activated project to Overview before the
-flow can prepare another key. Reaching step 3 and seeing the recorder connect
-is the normal ending: the success state stays visible for 900ms and then opens
+disagree. It deliberately allows an already-active Workspace to open
+onboarding because that is how an owner adds its second or later Website.
+Reaching step 3 and seeing this exact Website connect is the normal ending: the
+success state stays visible for 900ms and then opens
 `/projects/:id/overview` automatically; its button remains available to leave
 immediately.
 
-### Adding another project
+### Adding another Workspace or Website
 
-An owner or admin can choose **Add project** beside the project switcher. The
+An owner or admin can choose **Add workspace** beside the Workspace switcher. The
 dashboard sends `POST /api/v1/projects` with the active workspace id. The
 Worker checks that exact workspace membership, creates a project with the same
 safe defaults as account bootstrap (`allowed_origins = "[]"`, no recorder
@@ -164,19 +166,24 @@ keys), and creates the empty analytics bootstrap receipt in the same D1 batch.
 The response contains the new project and refreshed account, so the dashboard
 updates its account cache before navigating to that project's website step.
 
-The action is hidden for members, the public demo, and the inert dashboard
-preview inside onboarding. It never reuses the first project's id, website,
-keys, or draft.
+**Add website** opens the same onboarding flow for the current Workspace
+without creating a new Workspace. The Website API uses a unique
+`(project_id, origin)` row and a unique active Website-key index, so retries and
+parallel tabs cannot create duplicate Websites or recorder keys.
 
-## Step 1 write ordering
+Both actions are hidden for members, the public demo, and the inert dashboard
+preview inside onboarding.
 
-The two writes cannot be one transaction, so they are ordered by what a partial
-failure leaves behind. The allowlist write goes first, because it is what lets
-the project record at all; the rename is cosmetic. A failure between them leaves
-a project that works but is still called "Default project", recoverable by
-retrying (the retry re-reads the config, so `expectedVersion` is fresh). The
-other order left a project renamed to the visitor's website yet unable to ingest
-a single event, which is the state the flow exists to prevent.
+## Cross-subdomain journeys
+
+All Website keys inside one Workspace receive the same `sessionScope`. For
+HTTPS Websites, the Worker uses the public suffix list to derive the safe
+registrable cookie domain. `app.example.com` and `checkout.example.com`
+therefore share one Workspace session even if either subdomain is added first.
+Private suffixes such as `github.io` are handled as boundaries too. Localhost,
+IP addresses, HTTP Websites, and unrelated root domains keep host-only cookies.
+Recorder batches and the final session manifest keep every Website id observed
+in that journey.
 
 ## Motion
 
