@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { projectKeyNameSchema } from "@orange-replay/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Badge } from "@/components/ui/badge";
@@ -81,17 +82,13 @@ export function KeysCard({ projectId }: { projectId: string }) {
   const revokeError = readKeyError(revokeKeyMutation.error, "Could not revoke the recorder key.");
 
   function submitNewKey(): void {
-    const cleanName = name.trim();
-    if (cleanName.length === 0) {
-      setNameError("Enter a name for this key.");
-      return;
-    }
-    if (cleanName.length > 64) {
-      setNameError("Keep the key name under 65 characters.");
+    const parsed = projectKeyNameSchema.safeParse(name);
+    if (!parsed.success) {
+      setNameError(parsed.error.issues[0]?.message ?? "Enter a valid key name.");
       return;
     }
     setNameError("");
-    createKeyMutation.mutate(cleanName);
+    createKeyMutation.mutate(parsed.data);
   }
 
   async function copySecret(): Promise<boolean> {

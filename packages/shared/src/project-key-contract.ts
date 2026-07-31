@@ -1,5 +1,31 @@
 import { z } from "zod";
 
+const generatedRecorderKeyPattern = /^or_live_[A-Za-z0-9_-]{32}$/;
+
+export const projectKeyNameSchema = z
+  .string()
+  .trim()
+  .min(1, "Enter a name for this key.")
+  .max(64, "Keep the key name under 65 characters.")
+  .refine((name) => !hasControlCharacter(name), {
+    message: "Use a key name without control characters.",
+  });
+
+export const createProjectKeyRequestSchema = z.object({ name: projectKeyNameSchema }).strict();
+
+export const generatedRecorderKeySchema = z
+  .string()
+  .trim()
+  .regex(generatedRecorderKeyPattern, "Use a generated recorder key that starts with or_live_.");
+
+function hasControlCharacter(value: string): boolean {
+  for (const character of value) {
+    const code = character.codePointAt(0) ?? 0;
+    if (code <= 31 || code === 127) return true;
+  }
+  return false;
+}
+
 const projectKeyTimestampSchema = z.number().int().safe().nonnegative();
 
 export const projectKeyAuditSchema = z

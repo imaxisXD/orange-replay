@@ -207,7 +207,7 @@ describe("api client", () => {
         }),
       );
 
-    await createProjectKey("project one", "Production");
+    await createProjectKey("project one", "  Production  ");
     await revokeProjectKey("project one", "key/one");
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/v1/projects/project%20one/keys", {
@@ -230,7 +230,7 @@ describe("api client", () => {
       .mockResolvedValueOnce(jsonResponse({ users: [], total: 0, limit: 25, offset: 25 }));
 
     await fetchAdminStats();
-    await fetchAdminUsers({ limit: 25, offset: 25, search: "Sunny + team" });
+    await fetchAdminUsers({ limit: 25, offset: 25, search: "  Sunny + team  " });
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/v1/admin/stats", {
       headers: expect.any(Headers),
@@ -240,6 +240,14 @@ describe("api client", () => {
       "/api/v1/admin/users?limit=25&offset=25&search=Sunny+%2B+team",
       { headers: expect.any(Headers) },
     );
+  });
+
+  it("does not send invalid key names or admin queries", async () => {
+    await expect(createProjectKey("project one", "bad\u0000name")).rejects.toThrow(
+      "Use a key name without control characters.",
+    );
+    await expect(fetchAdminUsers({ limit: 0 })).rejects.toThrow("Limit must be from 1 to 100.");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("reports a clear invalid response when account data is incomplete", async () => {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { buildLoaderScriptTag } from "@orange-replay/sdk/loader";
+import { deploymentHttpOriginSchema, generatedRecorderKeySchema } from "@orange-replay/shared";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { IconSwap } from "@/components/ui/icon-swap";
@@ -40,8 +41,12 @@ function ProjectInstallSnippetBuilder({ projectId }: { projectId: string }) {
     recorderKey: "",
     status: "idle",
   });
-  const normalizedOrigin = normalizeOrigin(originInput);
-  const cleanRecorderKey = recorderKeyInput.trim();
+  const parsedOrigin = deploymentHttpOriginSchema.safeParse(originInput);
+  const normalizedOrigin = parsedOrigin.success ? parsedOrigin.data : null;
+  const parsedRecorderKey = generatedRecorderKeySchema.safeParse(recorderKeyInput);
+  const cleanRecorderKey = parsedRecorderKey.success
+    ? parsedRecorderKey.data
+    : recorderKeyInput.trim();
   const keysQuery = useQuery({
     queryKey: ["project-keys", projectId],
     queryFn: () => fetchProjectKeys(projectId),
@@ -58,7 +63,7 @@ function ProjectInstallSnippetBuilder({ projectId }: { projectId: string }) {
       : normalizedOrigin === null
         ? "Use a valid http or https URL."
         : "";
-  const recorderKeyReady = isGeneratedRecorderKey(cleanRecorderKey);
+  const recorderKeyReady = parsedRecorderKey.success;
   const keyMatchStatus =
     keyMatch.projectId === projectId &&
     keyMatch.recorderKey === cleanRecorderKey &&
@@ -314,19 +319,6 @@ function readDefaultOrigin(): string {
   return window.location.origin;
 }
 
-function normalizeOrigin(value: string): string | null {
-  const trimmedValue = value.trim();
-  if (trimmedValue.length === 0) return null;
-
-  try {
-    const url = new URL(trimmedValue);
-    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
-    return url.origin;
-  } catch {
-    return null;
-  }
-}
-
 function readCopyBlockedReason({
   cleanRecorderKey,
   hasActiveRecorderKey,
@@ -354,8 +346,4 @@ function readCopyBlockedReason({
   if (originInput.trim().length === 0) return "Enter your Orange Replay URL.";
   if (normalizedOrigin === null) return "Use a valid http or https URL.";
   return null;
-}
-
-function isGeneratedRecorderKey(value: string): boolean {
-  return /^or_live_[A-Za-z0-9_-]{32}$/.test(value);
 }

@@ -1,4 +1,6 @@
 import {
+  adminUsersQuerySchema,
+  createProjectKeyRequestSchema,
   decodeAccountResponse,
   decodeAuthConfigResponse,
   decodeCreatedProjectKeyResponse,
@@ -92,11 +94,12 @@ export async function createProjectKey(
   projectId: string,
   name: string,
 ): Promise<CreatedProjectKeyResponse> {
+  const body = createProjectKeyRequestSchema.parse({ name });
   return requestJson<CreatedProjectKeyResponse>(
     `/api/v1/projects/${encodePathPart(projectId)}/keys`,
     {
       auth: true,
-      body: { name },
+      body,
       decode: decodeCreatedProjectKeyResponse,
       method: "POST",
     },
@@ -122,11 +125,12 @@ export async function fetchAdminStats(): Promise<AdminStatsResponse> {
 }
 
 export async function fetchAdminUsers(search: AdminUserSearch = {}): Promise<AdminUsersResponse> {
+  const parsed = adminUsersQuerySchema.parse(search);
   const query = new URLSearchParams();
-  if (search.limit !== undefined) query.set("limit", String(search.limit));
-  if (search.offset !== undefined) query.set("offset", String(search.offset));
-  if (search.search !== undefined && search.search.length > 0) {
-    query.set("search", search.search);
+  if (search.limit !== undefined) query.set("limit", String(parsed.limit));
+  if (search.offset !== undefined) query.set("offset", String(parsed.offset));
+  if (parsed.search.length > 0) {
+    query.set("search", parsed.search);
   }
   const suffix = query.size === 0 ? "" : `?${query.toString()}`;
   return requestJson<AdminUsersResponse>(`/api/v1/admin/users${suffix}`, { auth: true });

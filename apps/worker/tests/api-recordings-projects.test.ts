@@ -284,11 +284,28 @@ describe("dashboard api", () => {
     expect(await unstableSelector.json()).toEqual({ error: "invalid_project_config" });
     expect((await getProjectConfig(configProjectId)).version).toBe(1);
 
+    const originWithPath = await worker.fetch(`/api/v1/projects/${configProjectId}/config`, {
+      method: "PUT",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({
+        expectedVersion: before.version,
+        sampleRate: 1,
+        retentionDays: 30,
+        allowedOrigins: ["https://app.example/path"],
+        maskPolicyVersion: 1,
+        maskRules: [],
+        capture: before.capture,
+      }),
+    });
+    expect(originWithPath.status).toBe(400);
+    expect(await originWithPath.json()).toEqual({ error: "invalid_project_config" });
+    expect((await getProjectConfig(configProjectId)).version).toBe(1);
+
     const update = {
       expectedVersion: before.version,
       sampleRate: 0.25,
       retentionDays: 45,
-      allowedOrigins: ["https://app.example"],
+      allowedOrigins: [" https://app.example/ "],
       maskPolicyVersion: 2,
       maskRules: [{ selector: ".secret", action: "block" as const }],
       capture: {
@@ -509,10 +526,20 @@ describe("dashboard api", () => {
       false,
     );
 
+    for (const name of ["", "bad\u0000name", "x".repeat(65)]) {
+      const invalid = await worker.fetch(`/api/v1/projects/${keysProjectId}/keys`, {
+        method: "POST",
+        headers: { ...authHeaders(), "content-type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      expect(invalid.status).toBe(400);
+      expect(await invalid.json()).toEqual({ error: "invalid_key_name" });
+    }
+
     const created = await worker.fetch(`/api/v1/projects/${keysProjectId}/keys`, {
       method: "POST",
       headers: { ...authHeaders(), "content-type": "application/json" },
-      body: JSON.stringify({ name: "Production website" }),
+      body: JSON.stringify({ name: "  Production website  " }),
     });
     expect(created.status).toBe(200);
     expect(created.headers.get("cache-control")).toBe("private, no-store");

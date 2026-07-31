@@ -97,6 +97,28 @@ describe("recorder key settings", () => {
       expect(apiMocks.revokeProjectKey).toHaveBeenCalledWith("project_one", "key_one"),
     );
   });
+
+  it("shows an inline name error, then retries with Enter and a normalized name", async () => {
+    apiMocks.fetchProjectKeys.mockResolvedValue({ keys: [] });
+    apiMocks.createProjectKey.mockResolvedValue({ key: projectKey, secret: "one-time-key" });
+    await renderCard();
+
+    const nameInput = container.querySelector<HTMLInputElement>('input[type="text"]')!;
+    await act(async () => {
+      setInputValue(nameInput, "bad\u0000name");
+      nameInput.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    expect(apiMocks.createProjectKey).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Use a key name without control characters.");
+
+    await act(async () => {
+      setInputValue(nameInput, "  Production website  ");
+      nameInput.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    await waitForUi(() =>
+      expect(apiMocks.createProjectKey).toHaveBeenCalledWith("project_one", "Production website"),
+    );
+  });
 });
 
 const projectKey = {

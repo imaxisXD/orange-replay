@@ -37,6 +37,14 @@ const optionalFilterValueSchema = z.preprocess(
   emptyStringToUndefined,
   z.string().trim().min(1).max(MAX_FILTER_VALUE_CHARS).optional(),
 );
+const countryCodeWireSchema = z
+  .string()
+  .regex(/^(?:[A-Z]{2}|T1)$/, "Use a two-character country code.");
+export const countryCodeSchema = z.string().trim().toUpperCase().pipe(countryCodeWireSchema);
+const optionalCountryCodeSchema = z.preprocess(
+  emptyStringToUndefined,
+  countryCodeSchema.optional(),
+);
 const optionalEntryUrlPrefixSchema = z.preprocess(
   emptyStringToUndefined,
   z.string().trim().min(1).max(MAX_ENTRY_URL_PREFIX_CHARS).optional(),
@@ -58,7 +66,7 @@ export const sessionFilterSchema = z
   .object({
     from: optionalEpochMsSchema,
     to: optionalEpochMsSchema,
-    country: optionalFilterValueSchema,
+    country: optionalCountryCodeSchema,
     region: optionalFilterValueSchema,
     city: optionalFilterValueSchema,
     device: optionalFilterValueSchema,
@@ -95,7 +103,7 @@ export const responseSessionFilterSchema = z
   .object({
     from: z.number().int().safe().nonnegative().optional(),
     to: z.number().int().safe().nonnegative().optional(),
-    country: z.string().min(1).max(MAX_FILTER_VALUE_CHARS).optional(),
+    country: countryCodeWireSchema.optional(),
     region: z.string().min(1).max(MAX_FILTER_VALUE_CHARS).optional(),
     city: z.string().min(1).max(MAX_FILTER_VALUE_CHARS).optional(),
     device: z.string().min(1).max(MAX_FILTER_VALUE_CHARS).optional(),

@@ -107,6 +107,7 @@ function DraftSection({
     return (
       <CaptureCard
         capture={draft.capture}
+        error={state.validationErrors.capture}
         retentionDays={draft.retentionDays}
         sampleRate={draft.sampleRate}
         updateDraft={actions.updateDraft}
@@ -118,7 +119,7 @@ function DraftSection({
   if (active === "masking") {
     return (
       <MaskingCard
-        error={state.maskRulesError}
+        error={state.validationErrors.masking || state.maskRulesError}
         maskPolicyVersion={draft.maskPolicyVersion}
         onAddRule={actions.addMaskRule}
         onRemoveRule={actions.removeMaskRule}
@@ -131,6 +132,7 @@ function DraftSection({
 
   return (
     <OriginsCard
+      error={state.validationErrors.origins}
       origins={draft.allowedOrigins}
       onRemoveOrigin={actions.removeOrigin}
       updateDraft={actions.updateDraft}
@@ -140,7 +142,12 @@ function DraftSection({
 
 function SettingsSaveBar({ editor }: { editor: SettingsEditorController }) {
   const { state, actions } = editor;
-  const error = state.saveError || state.maskRulesError;
+  const error =
+    state.saveError ||
+    state.validationErrors.capture ||
+    state.validationErrors.masking ||
+    state.validationErrors.origins ||
+    state.maskRulesError;
 
   // The settings grid is this screen's own concern, so it wraps the bar rather
   // than living inside the shared dock: an empty first cell holds the nav

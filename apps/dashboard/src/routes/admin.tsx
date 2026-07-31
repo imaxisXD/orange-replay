@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { adminUserSearchSchema } from "@orange-replay/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { AnimatedNumber } from "@/components/animated-number";
@@ -69,6 +70,7 @@ export function AdminPage() {
   const cache = useQueryClient();
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
+  const [searchError, setSearchError] = useState("");
   const [offset, setOffset] = useState(0);
   const [actionToConfirm, setActionToConfirm] = useState<AdminAction | null>(null);
   const [isSigningOut, setIsSigningOut] = useState(false);
@@ -103,8 +105,14 @@ export function AdminPage() {
 
   function submitSearch(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
+    const parsed = adminUserSearchSchema.safeParse(searchInput);
+    if (!parsed.success) {
+      setSearchError(parsed.error.issues[0]?.message ?? "Enter a valid search.");
+      return;
+    }
+    setSearchError("");
     setOffset(0);
-    setSearch(searchInput.trim());
+    setSearch(parsed.data);
   }
 
   async function signOut(): Promise<void> {
@@ -183,7 +191,11 @@ export function AdminPage() {
                   icon={Search}
                   index={0}
                   label="Search users"
-                  onChange={setSearchInput}
+                  error={searchError}
+                  onChange={(value) => {
+                    setSearchInput(value);
+                    setSearchError("");
+                  }}
                   placeholder="Search users"
                   value={searchInput}
                 />

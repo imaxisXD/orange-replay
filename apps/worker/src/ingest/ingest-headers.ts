@@ -6,6 +6,7 @@ import {
   HDR_SESSION,
   HDR_TAB,
   INGEST_HEADER_FLAG_MASK,
+  generatedRecorderKeySchema,
   isValidSessionId,
   MAX_SEQ,
 } from "@orange-replay/shared";
@@ -69,7 +70,6 @@ export type HeaderValidationResult =
   | { ok: false; error: string };
 
 const TAB_ID_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
-const RECORDER_KEY_PATTERN = /^or_live_[A-Za-z0-9_-]{32}$/;
 const INTEGER_PATTERN = /^[0-9]+$/;
 
 export function validateIngestHeaders(headers: Headers): HeaderValidationResult {
@@ -115,7 +115,7 @@ export function validateRecorderKeyHeader(
   if (key === null || key.length === 0) {
     return { ok: false, error: `${HDR_KEY} is required` };
   }
-  if (!RECORDER_KEY_PATTERN.test(key)) {
+  if (!generatedRecorderKeySchema.safeParse(key).success) {
     return {
       ok: false,
       error: `${HDR_KEY} must be a generated key like or_live_ plus 32 base64url characters`,
