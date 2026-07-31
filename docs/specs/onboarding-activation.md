@@ -36,7 +36,10 @@ Other schemes, credentials, whitespace, invalid hostnames, overlong values, and
 names that cannot fit the project name contract are rejected. The form maps
 those issues to its existing plain-English error instead of exposing schema
 messages. The repo already uses Zod, so this did not add Valibot or a second
-validation system.
+validation system. A non-empty invalid draft waits for one quiet second before
+showing that error and replaying the transitions.dev shake. Continue and Enter
+still validate immediately, and the error clears as soon as the visitor edits
+the address again.
 
 The authenticated `GET /api/v1/favicon?website=...` route uses that same schema.
 It reads a site's declared icon links, prefers scalable or larger icons, and
@@ -185,9 +188,14 @@ framer-motion rather than its CSS variables:
   against.
 - copy control — the shared `IconSwap`.
 - first event — a stroke-drawn check clearing an 8px blur.
-- invalid URL — transitions.dev's 280ms decaying shake and error-message fade.
+- invalid URL — after one quiet second, transitions.dev's 280ms decaying shake
+  and error-message fade; submit keeps the same immediate feedback.
 - favicon — a 250ms left-to-right slot entrance, followed by transitions.dev's
   skeleton reveal clearing a 2px blur over 400ms.
+- recorder key — page two first paints a one-pulse skeleton shaped like its
+  label, code card, and key note, then cross-fades and clears a 2px blur over
+  400ms when the key is ready. The skeleton and controls share one slot, so the
+  persistent form frame does not jump.
 
 Reduced motion collapses every one of these: each component passes
 `initial={false}` and a zero-duration transition, and the three CSS keyframe
@@ -387,11 +395,13 @@ The favicon follow-up adds shared valid, invalid, trimmed, and boundary coverage
 in `packages/shared/tests/website-url.test.ts`; bounded fetch, redirect, image
 validation, fallback, cache, and rate-limit coverage in `apps/worker/tests/favicon.test.ts`;
 and signed-in-only routing coverage in `dashboard-request-policy.test.ts`.
-`onboarding-activation.test.tsx` also protects the bare-domain submit, inline
-error, shake trigger, favicon reveal, normalized API URL, and exact step-motion
-values. The NDLE regression adds a Next.js query-string icon, a multi-size
-Windows ICO served as `image/vnd.microsoft.icon`, the shared cache version, and
-proof that generated fallbacks use `no-store` and never call `cache.put`.
+`onboarding-activation.test.tsx` also protects the bare-domain submit, the
+one-second typed-validation delay, immediate submit error, corrected retry,
+shake trigger, page-shaped recorder-key skeleton and reveal, favicon reveal,
+normalized API URL, and exact step-motion values. The NDLE regression adds a
+Next.js query-string icon, a multi-size Windows ICO served as
+`image/vnd.microsoft.icon`, the shared cache version, and proof that generated
+fallbacks use `no-store` and never call `cache.put`.
 
 Visual proof came from real Chrome against the existing dev server on 8787 with
 `/api/v1/*` stubbed client-side; nothing was written to the local worker. Note

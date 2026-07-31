@@ -43,6 +43,7 @@ import {
   PREVIEW_FRAME,
   STEP,
   SWITCHER_FIELD,
+  TIMING,
   VERIFY,
   cameraStop,
   canvasParallaxScale,
@@ -226,6 +227,37 @@ describe("activation routing decision", () => {
 });
 
 describe("activation step 1: website", () => {
+  it("reports an invalid address after one quiet second and clears it on correction", async () => {
+    await render(<OnboardingWebsitePage />);
+    vi.useFakeTimers();
+    try {
+      await setWebsiteInput("not a website");
+      expect(container.textContent).not.toContain("Enter a website like");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(TIMING.websiteValidation - 1);
+      });
+      expect(container.textContent).not.toContain("Enter a website like");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      expect(container.textContent).toContain("Enter a website like");
+      expect(container.querySelector(".t-input-wrap.is-error .t-error-msg")).not.toBeNull();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(16);
+      });
+      expect(container.querySelector(".t-input.is-shaking")).not.toBeNull();
+
+      await setWebsiteInput("acme.com");
+      expect(container.querySelector(".t-input-wrap.is-error")).toBeNull();
+      expect(container.querySelector(".t-input.is-shaking")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("blocks continuing until the address is usable, then shakes on submit", async () => {
     await render(<OnboardingWebsitePage />);
 
@@ -333,6 +365,37 @@ describe("activation step 1: website", () => {
 });
 
 describe("activation step 2: install", () => {
+  it("pulses a page-shaped skeleton until the first recorder key is ready", async () => {
+    const keysRequest = deferred<{ keys: ReturnType<typeof projectKeyAudit>[] }>();
+    const keyRequest = deferred<{ key: ReturnType<typeof projectKeyAudit>; secret: string }>();
+    apiMocks.fetchProjectKeys.mockReturnValue(keysRequest.promise);
+    apiMocks.createProjectKey.mockReturnValue(keyRequest.promise);
+    await render(<OnboardingInstallPage />);
+
+    const reveal = container.querySelector(".onboarding-install-reveal");
+    const skeleton = container.querySelector(".t-skel-skeleton.is-pulsing");
+    expect(reveal?.getAttribute("data-state")).toBe("loading");
+    expect(reveal?.classList.contains("is-revealed")).toBe(false);
+    expect(skeleton?.getAttribute("aria-hidden")).toBe("false");
+    expect(skeleton?.children).toHaveLength(3);
+    expect(container.querySelector('.t-skel-content[aria-hidden="true"]')).not.toBeNull();
+
+    keysRequest.resolve({ keys: [] });
+    await vi.waitFor(() => {
+      expect(apiMocks.createProjectKey).toHaveBeenCalledWith(PROJECT_ID, "Website recorder");
+    });
+    expect(reveal?.getAttribute("data-state")).toBe("loading");
+
+    keyRequest.resolve({ key: projectKeyAudit(), secret: RAW_KEY });
+    await vi.waitFor(() => {
+      expect(reveal?.getAttribute("data-state")).toBe("ready");
+      expect(reveal?.classList.contains("is-revealed")).toBe(true);
+    });
+    expect(skeleton?.getAttribute("aria-hidden")).toBe("true");
+    expect(container.querySelector('.t-skel-content[aria-hidden="true"]')).toBeNull();
+    expect(container.querySelector("pre")?.textContent).toContain("Orange Replay loader");
+  });
+
   it("mints the project's first recorder key and copies a snippet that carries it", async () => {
     const writeText = vi.fn<(value: string) => Promise<void>>().mockResolvedValue();
     // Define the one property rather than replacing navigator: spreading it
@@ -532,6 +595,14 @@ function projectKeyAudit() {
     revokedAt: null,
     revokedBy: null,
   };
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
 }
 
 describe("activation story acts", () => {

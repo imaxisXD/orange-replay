@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
@@ -39,9 +39,58 @@ export function OnboardingWebsitePage() {
   } = useOnboarding();
   const [showError, setShowError] = useState(false);
   const inputGroupRef = useRef<HTMLDivElement>(null);
+  const shakeFrameRef = useRef<number | null>(null);
+  const shakeEndRef = useRef<number | null>(null);
   const websiteUrl = readWebsiteUrl(websiteDraft);
+  const hasInvalidWebsite = websiteDraft.trim().length > 0 && websiteUrl === null;
   const expectedFaviconUrl = websiteUrl === null ? null : websiteFaviconUrl(websiteUrl);
   const inputFaviconUrl = faviconUrl === expectedFaviconUrl ? faviconUrl : null;
+
+  const stopErrorShake = useCallback(() => {
+    if (shakeFrameRef.current !== null) window.cancelAnimationFrame(shakeFrameRef.current);
+    if (shakeEndRef.current !== null) window.clearTimeout(shakeEndRef.current);
+    shakeFrameRef.current = null;
+    shakeEndRef.current = null;
+    inputGroupRef.current?.querySelector(".t-input")?.classList.remove("is-shaking");
+  }, []);
+
+  const clearWebsiteError = useCallback(() => {
+    setShowError(false);
+    stopErrorShake();
+  }, [stopErrorShake]);
+
+  const revealWebsiteError = useCallback(() => {
+    setShowError(true);
+    stopErrorShake();
+    shakeFrameRef.current = window.requestAnimationFrame(() => {
+      shakeFrameRef.current = null;
+      const input = inputGroupRef.current?.querySelector(".t-input");
+      if (!(input instanceof HTMLElement)) return;
+
+      input.classList.remove("is-shaking");
+      void input.offsetWidth;
+      input.classList.add("is-shaking");
+
+      const styles = window.getComputedStyle(input);
+      const duration = (name: string, fallback: number) => {
+        const value = Number.parseFloat(styles.getPropertyValue(name));
+        return Number.isFinite(value) ? value : fallback;
+      };
+      const shakeDuration = duration("--shake-dur-a", 80) * 2 + duration("--shake-dur-b", 60) * 2;
+      shakeEndRef.current = window.setTimeout(() => {
+        input.classList.remove("is-shaking");
+        shakeEndRef.current = null;
+      }, shakeDuration + 20);
+    });
+  }, [stopErrorShake]);
+
+  useEffect(() => {
+    if (!hasInvalidWebsite) return;
+    const timeout = window.setTimeout(revealWebsiteError, TIMING.websiteValidation);
+    return () => window.clearTimeout(timeout);
+  }, [hasInvalidWebsite, revealWebsiteError, websiteDraft]);
+
+  useEffect(() => stopErrorShake, [stopErrorShake]);
 
   const activation = useMutation({
     mutationFn: async (url: URL) => {
@@ -74,15 +123,7 @@ export function OnboardingWebsitePage() {
   function handleSubmit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
     if (websiteUrl === null) {
-      setShowError(true);
-      window.requestAnimationFrame(() => {
-        const input = inputGroupRef.current?.querySelector(".t-input");
-        if (!(input instanceof HTMLElement)) return;
-        input.classList.remove("is-shaking");
-        void input.offsetWidth;
-        input.classList.add("is-shaking");
-        window.setTimeout(() => input.classList.remove("is-shaking"), TIMING.shake + 20);
-      });
+      revealWebsiteError();
       return;
     }
     activation.mutate(websiteUrl);
@@ -129,9 +170,8 @@ export function OnboardingWebsitePage() {
             containerClassName={`t-input ${fieldError.length > 0 ? "is-error" : ""}`}
             onBlur={() => setIsNamingProject(false)}
             onChange={(value) => {
+              clearWebsiteError();
               setWebsiteDraft(value);
-              setShowError(false);
-              inputGroupRef.current?.querySelector(".t-input")?.classList.remove("is-shaking");
               setIsNamingProject(value.trim().length > 0);
             }}
             onFocus={() => setIsNamingProject(websiteDraft.trim().length > 0)}

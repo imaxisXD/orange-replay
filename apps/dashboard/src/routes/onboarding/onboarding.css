@@ -304,6 +304,13 @@
   transition: none !important;
 }
 
+/* Page two keeps the skeleton and final install controls in the same slot.
+   Once revealed, the real content returns to document flow so errors and the
+   optional full snippet can grow the frame normally. */
+.onboarding-install-reveal.is-revealed .t-skel-content {
+  position: relative;
+}
+
 .t-skel-skeleton.is-pulsing > * {
   animation: t-skel-pulse var(--pulse-dur) ease-in-out var(--pulse-count);
 }
