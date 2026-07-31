@@ -23,6 +23,7 @@ export const renameProjectId = "api_rename_project";
 export const keysProjectId = "api_keys_project";
 export const keyLimitProjectId = "api_key_limit_project";
 export const websiteProjectId = "api_website_project";
+export const websiteEditProjectId = "api_website_edit_project";
 export const ticketProjectId = "api_ticket_project";
 export const ticketSessionId = "api_ticket_session";
 export const demoProjectId = "api_demo_project";
@@ -42,6 +43,7 @@ export const privateProjectIds = [
   keysProjectId,
   keyLimitProjectId,
   websiteProjectId,
+  websiteEditProjectId,
   ticketProjectId,
 ];
 export const segmentName = "seg-000001.ors";

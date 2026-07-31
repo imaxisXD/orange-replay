@@ -1,8 +1,8 @@
 import { useEffect, type FormEvent } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
-import { fetchProjectWebsiteInstallStatus } from "@/lib/api";
+import { fetchProjectWebsiteInstallStatus, projectWebsitesQueryKey } from "@/lib/api";
 import { readDashboardAccessError } from "@/lib/dashboard-access";
 import { formatRelativeTime } from "@/lib/format";
 import { m, useReducedMotion } from "@/lib/motion";
@@ -22,6 +22,7 @@ import { OnboardingStage } from "./onboarding-stage";
  */
 export function OnboardingVerifyPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { previewProjectLabel, projectId, setIsRecording, websiteId } = useOnboarding();
 
   const statusQuery = useQuery({
@@ -50,6 +51,8 @@ export function OnboardingVerifyPage() {
     if (!isConnected) return;
     setIsRecording(true);
     if (websiteId !== null) clearOnboardingRecorderKey(projectId, websiteId);
+    void queryClient.invalidateQueries({ queryKey: projectWebsitesQueryKey(projectId) });
+    void queryClient.invalidateQueries({ queryKey: ["install-status", projectId] });
     const timeout = window.setTimeout(() => {
       void navigate({
         to: "/projects/$projectId/overview",
@@ -58,7 +61,7 @@ export function OnboardingVerifyPage() {
       });
     }, VERIFY.dashboardDelay);
     return () => window.clearTimeout(timeout);
-  }, [isConnected, navigate, projectId, setIsRecording, websiteId]);
+  }, [isConnected, navigate, projectId, queryClient, setIsRecording, websiteId]);
   const statusError =
     statusQuery.error === null
       ? ""

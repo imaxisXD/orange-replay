@@ -5,6 +5,8 @@ import {
   bootstrapAccount,
   fetchAccount,
   fetchInstallStatus,
+  fetchProjectWebsites,
+  projectWebsitesQueryKey,
 } from "./api";
 import {
   canManageProject,
@@ -12,6 +14,7 @@ import {
   decideAdminRoute,
   decideProjectRoute,
   decideProjectsHome,
+  decideWorkspaceStart,
   findAccountProject,
   type ProjectRouteDecision,
 } from "./dashboard-access";
@@ -21,6 +24,7 @@ import { loginSearch } from "./routes";
 interface RouteLocation {
   href: string;
   pathname: string;
+  search?: unknown;
 }
 
 type Account = Awaited<ReturnType<typeof fetchAccount>>;
@@ -65,11 +69,7 @@ export async function openProjectsHome(location: RouteLocation): Promise<void> {
     });
   }
   if (decision.action === "activate-project") {
-    throw redirect({
-      to: "/onboarding/$projectId/website",
-      params: { projectId: decision.projectId },
-      replace: true,
-    });
+    await openWorkspaceStart(decision.projectId);
   }
   if (decision.action === "open-project") {
     throw redirect({
@@ -97,6 +97,26 @@ export async function requireActivationAccess(
   if (project === undefined || !canManageProject(project)) {
     throw redirect({ to: "/projects", replace: true });
   }
+  if (!isWebsiteEntryPath(location.pathname, projectId)) return;
+
+  const websites = await loadProjectWebsites(projectId);
+  const editedWebsiteId = readWebsiteSearch(location);
+  if (
+    editedWebsiteId !== null &&
+    websites.some((website) => website.id === editedWebsiteId && website.firstEventAt === null)
+  ) {
+    return;
+  }
+
+  const start = decideWorkspaceStart(websites);
+  if (start.action === "resume-website") {
+    throw redirect({
+      to: "/onboarding/$projectId/install",
+      params: { projectId },
+      search: { website: start.websiteId },
+      replace: true,
+    });
+  }
 }
 
 /**
@@ -116,6 +136,56 @@ async function hasProjectFirstEvent(projectId: string): Promise<boolean | undefi
     return status.firstEventAt !== null;
   } catch {
     return undefined;
+  }
+}
+
+async function openWorkspaceStart(projectId: string): Promise<never> {
+  const start = decideWorkspaceStart(await loadProjectWebsites(projectId));
+  if (start.action === "open-project") {
+    throw redirect({
+      to: "/projects/$projectId/overview",
+      params: { projectId },
+      replace: true,
+    });
+  }
+  if (start.action === "resume-website") {
+    throw redirect({
+      to: "/onboarding/$projectId/install",
+      params: { projectId },
+      search: { website: start.websiteId },
+      replace: true,
+    });
+  }
+  throw redirect({
+    to: "/onboarding/$projectId/website",
+    params: { projectId },
+    replace: true,
+  });
+}
+
+async function loadProjectWebsites(projectId: string) {
+  const response = await queryClient.ensureQueryData({
+    queryKey: projectWebsitesQueryKey(projectId),
+    queryFn: () => fetchProjectWebsites(projectId),
+    staleTime: 30_000,
+  });
+  return response.websites;
+}
+
+function isWebsiteEntryPath(pathname: string, projectId: string): boolean {
+  return pathname.replace(/\/+$/, "") === `/onboarding/${projectId}/website`;
+}
+
+function readWebsiteSearch(location: RouteLocation): string | null {
+  if (typeof location.search === "object" && location.search !== null) {
+    const value = (location.search as Record<string, unknown>)["website"];
+    if (typeof value === "string" && /^[A-Za-z0-9_-]{1,100}$/.test(value)) return value;
+  }
+  try {
+    const value = new URL(location.href, "http://orange-replay.local").searchParams.get("website");
+    return value !== null && /^[A-Za-z0-9_-]{1,100}$/.test(value) ? value : null;
+  } catch {
+    return null;
   }
 }
 

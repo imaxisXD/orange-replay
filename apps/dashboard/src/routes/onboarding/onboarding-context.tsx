@@ -23,7 +23,7 @@ interface OnboardingState {
   projectId: string;
   /** Display name of the current Workspace once it has a user-facing name. */
   workspaceName: string | null;
-  /** True only for the untouched Workspace created during first sign-in. */
+  /** True only while this Workspace has no saved Website. */
   isFirstWebsite: boolean;
   /** Raw text in the website field, kept while moving between steps. */
   websiteDraft: string;
@@ -31,6 +31,8 @@ interface OnboardingState {
   /** Website being installed inside the Workspace. */
   websiteId: string | null;
   setWebsiteId: (value: string | null) => void;
+  /** Unfinished Website being edited after the visitor chose Back. */
+  editingWebsiteId: string | null;
   /** Project name already saved for this project, or null before activation. */
   savedWebsiteName: string | null;
   /** Internal installation key returned for this Website. Kept in this tab until connection. */

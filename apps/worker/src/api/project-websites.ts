@@ -7,6 +7,7 @@ import {
   type EnsureProjectWebsiteResponse,
   type ProjectKeyAudit,
   type ProjectWebsite,
+  type ProjectWebsitesResponse,
   type WideEventLogger,
 } from "@orange-replay/shared";
 import { configKvKey } from "@orange-replay/shared/constants";
@@ -22,15 +23,28 @@ import type { SessionAuthContext } from "./auth.ts";
 import { keyManagementRateLimitAllows } from "./project-keys.ts";
 import { nextWorkspaceCookieDomain } from "./project-website-domain.ts";
 
-interface WebsiteRow {
+interface WebsiteSummaryRow {
   [key: string]: unknown;
   id: string;
   name: string;
   origin: string;
   first_event_at: number | null;
+}
+
+interface WebsiteRow extends WebsiteSummaryRow {
+  allowed_origins: string;
+  created_at: number;
   recorder_key_id: string | null;
   recorder_secret_ciphertext: string | null;
   recorder_secret_iv: string | null;
+}
+
+interface WebsiteConfigRow {
+  [key: string]: unknown;
+  id: string;
+  origin: string;
+  allowed_origins: string;
+  created_at: number;
 }
 
 interface WebsiteKeyRow {
@@ -69,30 +83,47 @@ export async function ensureProjectWebsite(
   const origin = url.origin;
   const websiteName = websiteNameFromUrl(url);
   const actorId = auth.hostedSession.user.id;
-  const now = Date.now();
-  const proposedWebsiteId = `website_${uuidv7()}`;
-  const insertResult = await database
-    .prepare(
-      `INSERT OR IGNORE INTO project_websites
-        (id, project_id, name, origin, allowed_origins, first_event_at,
-          recorder_key_id, recorder_secret_ciphertext, recorder_secret_iv,
-          created_by, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?)`,
-    )
-    .bind(
-      proposedWebsiteId,
-      projectId,
-      websiteName,
-      origin,
-      JSON.stringify(websiteAllowedOrigins(url)),
-      actorId,
-      now,
-      now,
-    )
-    .run();
-  const websiteWasCreated = (insertResult.meta.changes ?? 0) > 0;
+  let websiteWasCreated = false;
+  let website: WebsiteRow | null;
 
-  let website = await readWebsite(database, projectId, origin);
+  if (parsed.data.websiteId === undefined) {
+    const now = Date.now();
+    const proposedWebsiteId = `website_${uuidv7()}`;
+    const insertResult = await database
+      .prepare(
+        `INSERT OR IGNORE INTO project_websites
+          (id, project_id, name, origin, allowed_origins, first_event_at,
+            recorder_key_id, recorder_secret_ciphertext, recorder_secret_iv,
+            created_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?)`,
+      )
+      .bind(
+        proposedWebsiteId,
+        projectId,
+        websiteName,
+        origin,
+        JSON.stringify(websiteAllowedOrigins(url)),
+        actorId,
+        now,
+        now,
+      )
+      .run();
+    websiteWasCreated = (insertResult.meta.changes ?? 0) > 0;
+    website = await readWebsite(database, projectId, origin);
+  } else {
+    const edited = await editPendingWebsite(
+      env,
+      database,
+      projectId,
+      parsed.data.websiteId,
+      url,
+      websiteName,
+    );
+    if (edited.status !== "ready") return pendingWebsiteEditError(edited.status);
+    website = edited.website;
+    if (edited.edited) wideEvent.set({ website_id: website.id, website_edited: true });
+  }
+
   if (website === null) return jsonError("website_create_failed", 500);
   await mergeWebsiteIntoWorkspace(env, projectId, url, websiteName);
 
@@ -160,6 +191,149 @@ export async function ensureProjectWebsite(
   return websiteResponse(website, created.key, created.secret, false, websiteWasCreated);
 }
 
+type PendingWebsiteEditResult =
+  | { status: "ready"; website: WebsiteRow; edited: boolean }
+  | { status: "not_found" | "already_connected" | "origin_taken" | "changed" };
+
+function pendingWebsiteEditError(
+  status: Exclude<PendingWebsiteEditResult["status"], "ready">,
+): Response {
+  if (status === "not_found") return jsonError("website_not_found", 404);
+  if (status === "already_connected") return jsonError("website_not_editable", 409);
+  if (status === "origin_taken") return jsonError("website_already_exists", 409);
+  return jsonError("website_changed", 409);
+}
+
+/** Update one unfinished Website in place so Back never creates a hidden key or Website. */
+async function editPendingWebsite(
+  env: Env,
+  database: D1Database,
+  projectId: string,
+  websiteId: string,
+  nextUrl: URL,
+  nextName: string,
+): Promise<PendingWebsiteEditResult> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const current = await readWebsiteById(database, projectId, websiteId);
+    if (current === null) return { status: "not_found" };
+    if (current.first_event_at !== null) return { status: "already_connected" };
+    if (current.origin === nextUrl.origin) {
+      return { status: "ready", website: current, edited: false };
+    }
+
+    const sameOrigin = await readWebsite(database, projectId, nextUrl.origin);
+    if (sameOrigin !== null && sameOrigin.id !== current.id) return { status: "origin_taken" };
+
+    const config = await readStoredProjectConfig(env, projectId);
+    if (config === null) return { status: "not_found" };
+    const websiteRows = await readWebsiteConfigRows(database, projectId);
+    const nextAllowedOrigins = workspaceOriginsAfterWebsiteEdit(
+      config.allowedOrigins,
+      websiteRows,
+      current,
+      nextUrl,
+    );
+    const nextCookieDomain = workspaceCookieDomainAfterWebsiteEdit(
+      websiteRows,
+      current.id,
+      nextUrl,
+    );
+    const editedAt = Date.now() + attempt;
+    let results: D1Result[];
+    try {
+      results = await database.batch([
+        database
+          .prepare(
+            `UPDATE project_websites
+            SET name = ?, origin = ?, allowed_origins = ?, updated_at = ?
+            WHERE id = ? AND project_id = ? AND origin = ? AND first_event_at IS NULL
+              AND EXISTS (
+                SELECT 1 FROM projects WHERE id = ? AND config_version = ?
+              )`,
+          )
+          .bind(
+            nextName,
+            nextUrl.origin,
+            JSON.stringify(websiteAllowedOrigins(nextUrl)),
+            editedAt,
+            current.id,
+            projectId,
+            current.origin,
+            projectId,
+            config.version,
+          ),
+        database
+          .prepare(
+            `UPDATE keys
+            SET name = ?, cache_synced = 0
+            WHERE project_id = ? AND website_id = ? AND active = 1
+              AND EXISTS (
+                SELECT 1 FROM project_websites
+                WHERE id = ? AND project_id = ? AND origin = ? AND updated_at = ?
+              )`,
+          )
+          .bind(
+            `${nextName} recorder`.slice(0, 64),
+            projectId,
+            current.id,
+            current.id,
+            projectId,
+            nextUrl.origin,
+            editedAt,
+          ),
+        database
+          .prepare(
+            `UPDATE projects
+            SET allowed_origins = ?,
+              session_cookie_domain = ?,
+              name = CASE
+                WHEN name = ? AND (
+                  SELECT COUNT(*) FROM project_websites WHERE project_id = ?
+                ) = 1 THEN ?
+                ELSE name
+              END,
+              config_version = config_version + 1
+            WHERE id = ? AND config_version = ?
+              AND EXISTS (
+                SELECT 1 FROM project_websites
+                WHERE id = ? AND project_id = ? AND origin = ? AND updated_at = ?
+              )`,
+          )
+          .bind(
+            JSON.stringify(nextAllowedOrigins),
+            nextCookieDomain,
+            current.name,
+            projectId,
+            nextName,
+            projectId,
+            config.version,
+            current.id,
+            projectId,
+            nextUrl.origin,
+            editedAt,
+          ),
+      ]);
+    } catch (error) {
+      const duplicate = await readWebsite(database, projectId, nextUrl.origin);
+      if (duplicate !== null && duplicate.id !== current.id) return { status: "origin_taken" };
+      throw error;
+    }
+
+    if ((results[0]?.meta.changes ?? 0) > 0 && (results[2]?.meta.changes ?? 0) > 0) {
+      await refreshProjectConfigDelivery(env, projectId);
+      const edited = await readWebsiteById(database, projectId, current.id);
+      if (edited === null) return { status: "not_found" };
+      return { status: "ready", website: edited, edited: true };
+    }
+
+    const latest = await readWebsiteById(database, projectId, current.id);
+    if (latest === null) return { status: "not_found" };
+    if (latest.first_event_at !== null) return { status: "already_connected" };
+    if (latest.origin !== current.origin) return { status: "changed" };
+  }
+  return { status: "changed" };
+}
+
 export async function getProjectWebsiteInstallStatus(
   env: Env,
   projectId: string,
@@ -174,6 +348,31 @@ export async function getProjectWebsiteInstallStatus(
     { firstEventAt: row.first_event_at },
     { headers: { "cache-control": "private, no-store" } },
   );
+}
+
+export async function listProjectWebsites(
+  env: Env,
+  projectId: string,
+  wideEvent: WideEventLogger,
+): Promise<Response> {
+  const rows = await shardDb(env, 0)
+    .prepare(
+      `SELECT id, name, origin, first_event_at
+      FROM project_websites
+      WHERE project_id = ?
+      ORDER BY created_at ASC, id ASC`,
+    )
+    .bind(projectId)
+    .all<WebsiteSummaryRow>();
+  const websites = (rows.results ?? []).map(projectWebsite);
+  wideEvent.set({
+    website_count: websites.length,
+    pending_website_count: websites.filter((website) => website.firstEventAt === null).length,
+  });
+  const response = { websites } satisfies ProjectWebsitesResponse;
+  return jsonResponse(response, {
+    headers: { "cache-control": "private, no-store", pragma: "no-cache" },
+  });
 }
 
 export async function getProjectWebsiteSetup(
@@ -270,6 +469,69 @@ async function mergeWebsiteIntoWorkspace(
   throw new Error("The workspace changed while the Website was being added.");
 }
 
+async function readWebsiteConfigRows(
+  database: D1Database,
+  projectId: string,
+): Promise<WebsiteConfigRow[]> {
+  const rows = await database
+    .prepare(
+      `SELECT id, origin, allowed_origins, created_at
+      FROM project_websites
+      WHERE project_id = ?
+      ORDER BY created_at ASC, id ASC`,
+    )
+    .bind(projectId)
+    .all<WebsiteConfigRow>();
+  return rows.results ?? [];
+}
+
+function workspaceOriginsAfterWebsiteEdit(
+  workspaceOrigins: string[],
+  rows: WebsiteConfigRow[],
+  current: WebsiteRow,
+  nextUrl: URL,
+): string[] {
+  const currentOrigins = new Set(readWebsiteOrigins(current.allowed_origins));
+  const originsUsedByOtherWebsites = new Set(
+    rows
+      .filter((row) => row.id !== current.id)
+      .flatMap((row) => readWebsiteOrigins(row.allowed_origins)),
+  );
+  const nextOrigins = workspaceOrigins.filter(
+    (origin) => !currentOrigins.has(origin) || originsUsedByOtherWebsites.has(origin),
+  );
+  for (const origin of websiteAllowedOrigins(nextUrl)) {
+    if (!nextOrigins.includes(origin)) nextOrigins.push(origin);
+  }
+  return nextOrigins;
+}
+
+function workspaceCookieDomainAfterWebsiteEdit(
+  rows: WebsiteConfigRow[],
+  websiteId: string,
+  nextUrl: URL,
+): string | null {
+  let cookieDomain: string | undefined;
+  for (const row of rows) {
+    const websiteUrl = row.id === websiteId ? nextUrl : new URL(row.origin);
+    cookieDomain = nextWorkspaceCookieDomain(cookieDomain, websiteUrl) ?? undefined;
+  }
+  return cookieDomain ?? null;
+}
+
+function readWebsiteOrigins(value: string): string[] {
+  let origins: unknown;
+  try {
+    origins = JSON.parse(value);
+  } catch {
+    throw new Error("The Website origins could not be read.");
+  }
+  if (!Array.isArray(origins) || !origins.every((origin) => typeof origin === "string")) {
+    throw new Error("The Website origins are invalid.");
+  }
+  return origins;
+}
+
 async function readWebsite(
   database: D1Database,
   projectId: string,
@@ -277,7 +539,7 @@ async function readWebsite(
 ): Promise<WebsiteRow | null> {
   return database
     .prepare(
-      `SELECT id, name, origin, first_event_at, recorder_key_id,
+      `SELECT id, name, origin, allowed_origins, first_event_at, created_at, recorder_key_id,
         recorder_secret_ciphertext, recorder_secret_iv
       FROM project_websites
       WHERE project_id = ? AND origin = ?`,
@@ -293,7 +555,7 @@ async function readWebsiteById(
 ): Promise<WebsiteRow | null> {
   return database
     .prepare(
-      `SELECT id, name, origin, first_event_at, recorder_key_id,
+      `SELECT id, name, origin, allowed_origins, first_event_at, created_at, recorder_key_id,
         recorder_secret_ciphertext, recorder_secret_iv
       FROM project_websites
       WHERE project_id = ? AND id = ?`,
@@ -326,12 +588,7 @@ function websiteResponse(
   alreadyConnected: boolean,
   created: boolean,
 ): Response {
-  const website: ProjectWebsite = {
-    id: row.id,
-    name: row.name,
-    origin: row.origin,
-    firstEventAt: row.first_event_at,
-  };
+  const website = projectWebsite(row);
   const response = {
     website,
     key,
@@ -342,6 +599,15 @@ function websiteResponse(
     status: created ? 201 : 200,
     headers: { "cache-control": "private, no-store", pragma: "no-cache" },
   });
+}
+
+function projectWebsite(row: WebsiteSummaryRow): ProjectWebsite {
+  return {
+    id: row.id,
+    name: row.name,
+    origin: row.origin,
+    firstEventAt: row.first_event_at,
+  };
 }
 
 function keyAudit(row: WebsiteKeyRow): ProjectKeyAudit {

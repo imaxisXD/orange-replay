@@ -3,7 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { InputField, InputGroup } from "@/components/ui/input-group";
-import { accountQueryKey, ensureProjectWebsite } from "@/lib/api";
+import { accountQueryKey, ensureProjectWebsite, projectWebsitesQueryKey } from "@/lib/api";
 import { queryClient } from "@/lib/query";
 import { useOnboarding } from "./onboarding-context";
 import { TIMING } from "./onboarding-motion";
@@ -23,6 +23,7 @@ import { clearOnboardingRecorderKey, saveOnboardingRecorderKey } from "./onboard
 export function OnboardingWebsitePage() {
   const navigate = useNavigate();
   const {
+    editingWebsiteId,
     faviconUrl,
     isFirstWebsite,
     previewProjectLabel,
@@ -93,8 +94,12 @@ export function OnboardingWebsitePage() {
   useEffect(() => stopErrorShake, [stopErrorShake]);
 
   const activation = useMutation({
-    mutationFn: (url: URL) => ensureProjectWebsite(projectId, url.href),
+    mutationFn: (url: URL) =>
+      editingWebsiteId === null
+        ? ensureProjectWebsite(projectId, url.href)
+        : ensureProjectWebsite(projectId, url.href, editingWebsiteId),
     onSuccess: (result) => {
+      void queryClient.invalidateQueries({ queryKey: projectWebsitesQueryKey(projectId) });
       if (result.alreadyConnected || result.secret === null) {
         clearOnboardingRecorderKey(projectId, result.website.id);
         setRecorderKey(null);
@@ -128,7 +133,12 @@ export function OnboardingWebsitePage() {
   const requestError =
     activation.error === null
       ? ""
-      : readWebsiteSetupError(activation.error, "Could not add this website. Try again.");
+      : readWebsiteSetupError(
+          activation.error,
+          editingWebsiteId === null
+            ? "Could not add this website. Try again."
+            : "Could not save this website. Try again.",
+        );
 
   if (connectedWebsite !== null) {
     return (
@@ -139,14 +149,20 @@ export function OnboardingWebsitePage() {
     );
   }
 
-  const heading = isFirstWebsite
-    ? "Add your first website"
-    : workspaceName === null
-      ? "Add your website"
-      : `Add a website to ${workspaceName}`;
-  const support = isFirstWebsite
-    ? "Enter the website where you want to start recording."
-    : "Add another website. Related subdomains stay together in one visitor journey.";
+  const heading =
+    editingWebsiteId !== null
+      ? "Edit website"
+      : isFirstWebsite
+        ? "Add your first website"
+        : workspaceName === null
+          ? "Add your website"
+          : `Add a website to ${workspaceName}`;
+  const support =
+    editingWebsiteId !== null
+      ? "Update the website you want Orange Replay to record."
+      : isFirstWebsite
+        ? "Enter the website where you want to start recording."
+        : "Add another website. Related subdomains stay together in one visitor journey.";
 
   return (
     <OnboardingStage
@@ -159,7 +175,7 @@ export function OnboardingWebsitePage() {
             size="lg"
             type="submit"
           >
-            Continue
+            {editingWebsiteId === null ? "Continue" : "Save and continue"}
           </Button>
           {requestError.length > 0 && (
             <p className="text-[12px] text-danger" role="alert">

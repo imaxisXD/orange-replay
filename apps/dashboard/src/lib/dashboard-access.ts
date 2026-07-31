@@ -217,6 +217,34 @@ export function decideProjectsHome<TProject extends AccessProject>(options: {
     : { action: "open-project", projectId: project.id };
 }
 
+interface WorkspaceWebsiteState {
+  id: string;
+  firstEventAt: number | null;
+}
+
+export type WorkspaceStartDecision =
+  | { action: "add-website" }
+  | { action: "resume-website"; websiteId: string }
+  | { action: "open-project" };
+
+/**
+ * Choose the honest next screen from durable Website state. A connected
+ * Website means the Workspace already has something useful to show. Otherwise
+ * resume the oldest unfinished setup instead of asking for the same address
+ * again and making the person think they are adding another Website.
+ */
+export function decideWorkspaceStart(
+  websites: readonly WorkspaceWebsiteState[],
+): WorkspaceStartDecision {
+  if (websites.some((website) => website.firstEventAt !== null)) {
+    return { action: "open-project" };
+  }
+  const pendingWebsite = websites.find((website) => website.firstEventAt === null);
+  return pendingWebsite === undefined
+    ? { action: "add-website" }
+    : { action: "resume-website", websiteId: pendingWebsite.id };
+}
+
 export type AdminRouteDecision =
   | { action: "load-account" }
   | { action: "allow" }

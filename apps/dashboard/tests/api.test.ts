@@ -7,6 +7,7 @@ import {
   buildStatsUrl,
   createProject,
   createProjectKey,
+  ensureProjectWebsite,
   fetchAccount,
   fetchAdminStats,
   fetchAdminUsers,
@@ -14,6 +15,7 @@ import {
   fetchLiveSessions,
   fetchProjectKeys,
   fetchProjectStats,
+  fetchProjectWebsites,
   fetchSessionHeads,
   fetchSessionState,
   health,
@@ -223,6 +225,47 @@ describe("api client", () => {
     expect(readFetchHeaders(0).get("authorization")).toBeNull();
     expect(readFetchHeaders(1).get("authorization")).toBeNull();
     expect(window.localStorage.length).toBe(0);
+  });
+
+  it("loads Website setup state with an encoded project id", async () => {
+    const websites = [
+      {
+        id: "website_one",
+        name: "ndle.app",
+        origin: "https://ndle.app",
+        firstEventAt: null,
+      },
+    ];
+    fetchMock.mockResolvedValue(jsonResponse({ websites }));
+
+    await expect(fetchProjectWebsites("project one")).resolves.toEqual({ websites });
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/projects/project%20one/websites", {
+      headers: expect.any(Headers),
+    });
+  });
+
+  it("sends the unfinished Website id when saving an edit", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        website: {
+          id: "website_one",
+          name: "next.example",
+          origin: "https://next.example",
+          firstEventAt: null,
+        },
+        key: validProjectKey(),
+        secret: "or_live_secret",
+        alreadyConnected: false,
+      }),
+    );
+
+    await ensureProjectWebsite("project one", "next.example", "website_one");
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/projects/project%20one/websites", {
+      headers: expect.any(Headers),
+      method: "PUT",
+      body: JSON.stringify({ website: "next.example", websiteId: "website_one" }),
+    });
   });
 
   it("loads operator totals and an encoded user page", async () => {

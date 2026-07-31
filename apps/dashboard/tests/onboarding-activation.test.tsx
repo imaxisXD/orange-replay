@@ -26,7 +26,7 @@ vi.mock("@/lib/api", async (importOriginal) => ({
   ...apiMocks,
 }));
 
-import { decideProjectsHome } from "../src/lib/dashboard-access";
+import { decideProjectsHome, decideWorkspaceStart } from "../src/lib/dashboard-access";
 import {
   ONBOARDING_STEPS,
   OnboardingProvider,
@@ -79,6 +79,7 @@ let namingProject: boolean;
 let isRecordingReported: boolean;
 let isFirstWebsite: boolean;
 let workspaceName: string | null;
+let editingWebsiteId: string | null;
 
 beforeEach(() => {
   container = document.createElement("div");
@@ -91,6 +92,7 @@ beforeEach(() => {
   isRecordingReported = false;
   isFirstWebsite = true;
   workspaceName = null;
+  editingWebsiteId = null;
   window.sessionStorage.clear();
   navigate.mockReset();
   for (const mock of Object.values(apiMocks)) mock.mockReset();
@@ -240,6 +242,28 @@ describe("activation routing decision", () => {
       action: "bootstrap-account",
     });
   });
+
+  it("starts a truly empty Workspace at Website entry", () => {
+    expect(decideWorkspaceStart([])).toEqual({ action: "add-website" });
+  });
+
+  it("resumes the oldest unfinished Website instead of asking for it again", () => {
+    expect(
+      decideWorkspaceStart([
+        { id: "website_ndle", firstEventAt: null },
+        { id: "website_app", firstEventAt: null },
+      ]),
+    ).toEqual({ action: "resume-website", websiteId: "website_ndle" });
+  });
+
+  it("opens a Workspace once any Website has connected", () => {
+    expect(
+      decideWorkspaceStart([
+        { id: "website_pending", firstEventAt: null },
+        { id: "website_connected", firstEventAt: 1 },
+      ]),
+    ).toEqual({ action: "open-project" });
+  });
 });
 
 describe("activation step 1: website", () => {
@@ -253,6 +277,12 @@ describe("activation step 1: website", () => {
     );
     expect(readWebsiteSetupError(new Error("Recorder-key storage is unavailable."))).toBe(
       "Could not prepare the installation script. Try again.",
+    );
+    expect(
+      readWebsiteSetupError(new ApiError("website_already_exists", 409, "website_already_exists")),
+    ).toBe("That Website is already part of this Workspace.");
+    expect(readWebsiteSetupError(new ApiError("website_changed", 409, "website_changed"))).toBe(
+      "This Website changed in another tab. Reload and try again.",
     );
   });
 
@@ -329,6 +359,40 @@ describe("activation step 1: website", () => {
 
     await vi.waitFor(() => {
       expect(apiMocks.ensureProjectWebsite).toHaveBeenCalledWith(PROJECT_ID, "https://acme.com/");
+      expect(navigate).toHaveBeenCalledWith({
+        to: "/onboarding/$projectId/install",
+        params: { projectId: PROJECT_ID },
+        search: { website: WEBSITE_ID },
+      });
+    });
+  });
+
+  it("edits the same unfinished Website and keeps its installation", async () => {
+    editingWebsiteId = WEBSITE_ID;
+    isFirstWebsite = false;
+    workspaceName = "Noodle";
+    apiMocks.ensureProjectWebsite.mockResolvedValue(
+      websiteSetup({ name: "next.example", origin: "https://next.example" }),
+    );
+    await render(<OnboardingWebsitePage />);
+
+    expect(container.textContent).toContain("Edit website");
+    expect(container.textContent).toContain("Update the website you want Orange Replay to record.");
+    expect((container.querySelector("input") as HTMLInputElement | null)?.value).toBe(
+      SAVED_WEBSITE.origin,
+    );
+
+    await setWebsiteInput("next.example");
+    await act(async () => {
+      findButton("Save and continue").click();
+    });
+
+    await vi.waitFor(() => {
+      expect(apiMocks.ensureProjectWebsite).toHaveBeenCalledWith(
+        PROJECT_ID,
+        "https://next.example/",
+        WEBSITE_ID,
+      );
       expect(navigate).toHaveBeenCalledWith({
         to: "/onboarding/$projectId/install",
         params: { projectId: PROJECT_ID },
@@ -626,7 +690,7 @@ async function render(step: ReactNode): Promise<void> {
  * writing the draft or the minted key re-renders exactly as it does in the app.
  */
 function Harness({ children }: { children: ReactNode }) {
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(editingWebsiteId === null ? "" : SAVED_WEBSITE.origin);
   const [key, setKey] = useState<string | null>(null);
   const [websiteId, setWebsiteId] = useState<string | null>(WEBSITE_ID);
   const [isNaming, setIsNaming] = useState(false);
@@ -640,6 +704,7 @@ function Harness({ children }: { children: ReactNode }) {
       value={{
         act: onboardingAct(0, recording),
         direction: 1,
+        editingWebsiteId,
         faviconUrl:
           draftWebsite === null
             ? websiteFaviconUrl(SAVED_WEBSITE)
@@ -701,12 +766,12 @@ function projectKeyAudit() {
   };
 }
 
-function websiteSetup() {
+function websiteSetup(website: Partial<{ name: string; origin: string }> = {}) {
   return {
     website: {
       id: WEBSITE_ID,
-      name: "acme.com",
-      origin: "https://acme.com",
+      name: website.name ?? "acme.com",
+      origin: website.origin ?? "https://acme.com",
       firstEventAt: null,
     },
     key: projectKeyAudit(),

@@ -21,20 +21,22 @@ vp exec --filter @orange-replay/worker -- wrangler queues create or-session-fina
 vp exec --filter @orange-replay/worker -- wrangler queues create or-dlq-prod
 ```
 
-Copy the printed D1 and KV ids into the current shell. Set the exact public Worker origin too. Use the real `workers.dev` origin until the custom domain is attached.
+Copy the printed D1 and KV ids into the current shell. Set the exact public Worker origin too. Use the real `workers.dev` origin only until the custom domain is attached.
+
+The hosted Orange Replay production origin is `https://orangereplay.app`. The same combined Worker serves the landing page, dashboard, APIs, ingest, SDK bundle, demo, and public replay pages, so both production origin variables use that one value:
 
 ```sh
 export ORANGE_REPLAY_PROD_D1_ID="your-production-d1-id"
 export ORANGE_REPLAY_PROD_KV_ID="your-production-kv-id"
-export ORANGE_REPLAY_PROD_WORKER_URL="https://replay.example.com"
-export ORANGE_REPLAY_PROD_PUBLIC_PAGE_ORIGIN="https://public.replay.example.com"
+export ORANGE_REPLAY_PROD_WORKER_URL="https://orangereplay.app"
+export ORANGE_REPLAY_PROD_PUBLIC_PAGE_ORIGIN="https://orangereplay.app"
 
 node scripts/prepare-cloudflare-build-config.mjs
 ```
 
 This creates the ignored `apps/worker/wrangler.cloudflare-build.jsonc` file with the real resource ids and public-page hostname. The committed config keeps placeholders so public commits never carry account-specific ids. Keep the rate-limit bindings in that generated config enabled.
 
-The public-page hostname must be in an active Cloudflare zone. Remove any conflicting CNAME for that exact hostname before deploying. The deploy attaches it as a Worker Custom Domain, so Cloudflare creates its DNS record and certificate. No second Worker or static publication job is needed.
+The public-page hostname must be in an active Cloudflare zone. Remove any conflicting CNAME for that exact hostname before deploying. The deploy attaches it as a Worker Custom Domain, so Cloudflare creates its DNS record and certificate. No second Worker or static publication job is needed. Keep the `workers.dev` route enabled only as a temporary fallback for recorder snippets copied before the custom-domain switch; do not publish it as the production address. Disable it after old snippets have moved to the custom domain.
 
 The analytics warehouse setup uses two different writer tokens. The bucket-scoped `ORANGE_REPLAY_CATALOG_TOKEN` is for catalog maintenance and the protected purge workflow. Cloudflare currently requires a separate account-wide `ORANGE_REPLAY_PIPELINE_CATALOG_TOKEN` when creating a missing Pipeline Data Catalog sink. Cloudflare then saves that credential in the sink, so it must stay valid while the sink runs even though setup does not need it again. Keep the broader token in a local secret store and never add it to the Worker, GitHub Actions, or Workers Builds. See `docs/runbooks/r2-analytics.md` for the exact permissions, setup command, expiry check, and rotation path.
 
@@ -247,10 +249,10 @@ The physical-deletion workflow needs the same `ANALYTICS_PURGE_RUNNER_TOKEN` as 
 
 ## 9. SDK Snippet Values
 
-Use one SDK package for both dev and prod. Only the values change. Production keeps `workers.dev` enabled until a custom domain is attached.
+Use one SDK package for both dev and prod. Only the values change. The hosted production origin is the Worker Custom Domain; `workers.dev` is only a temporary fallback for old snippets.
 
 - Dev `ingestUrl`: `http://localhost:8787`
-- Prod `ingestUrl`: your Worker URL or custom domain
+- Hosted prod `ingestUrl`: `https://orangereplay.app`
 - Dev key: local seed key
 - Prod key: the Website recorder key saved from onboarding, or a named manual key created in Settings
 

@@ -131,6 +131,7 @@ const onboardingProjectIndexRoute = createRoute({
 const onboardingWebsiteRoute = createRoute({
   getParentRoute: () => onboardingProjectRoute,
   path: "website",
+  validateSearch: onboardingWebsiteSearch,
   component: OnboardingWebsitePage,
 });
 

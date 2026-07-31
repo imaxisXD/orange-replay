@@ -22,6 +22,7 @@ import {
   ensureProjectWebsite,
   getProjectWebsiteInstallStatus,
   getProjectWebsiteSetup,
+  listProjectWebsites,
 } from "./project-websites.ts";
 import { getPublicPageSettings, putPublicPageSettings } from "./public-page-settings.ts";
 import {
@@ -181,6 +182,10 @@ async function executeProjectRoute(
       const { projectId } = grantedIds(route.params);
       if (!isSessionAuth(auth)) return jsonError("unauthorized", 401);
       return ensureProjectWebsite(request, env, projectId, auth, wideEvent);
+    }
+    case "project_websites_list": {
+      const { projectId } = grantedIds(route.params);
+      return listProjectWebsites(env, projectId, wideEvent);
     }
     case "project_website_install_status": {
       const { projectId, websiteId } = grantedIds(route.params);

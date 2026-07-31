@@ -4,7 +4,12 @@ import { useQuery } from "@tanstack/react-query";
 import { Outlet, useNavigate, useParams, useRouterState } from "@tanstack/react-router";
 import { BrandMark } from "@/components/brand-mark";
 import { Button } from "@/components/ui/button";
-import { accountQueryKey, fetchAccount } from "@/lib/api";
+import {
+  accountQueryKey,
+  fetchAccount,
+  fetchProjectWebsites,
+  projectWebsitesQueryKey,
+} from "@/lib/api";
 import { findAccountProject } from "@/lib/dashboard-access";
 import { ArrowLeft } from "@/lib/icon-map";
 import { m, useReducedMotion } from "@/lib/motion";
@@ -56,6 +61,7 @@ export function OnboardingShell() {
   const [isNamingProject, setIsNamingProject] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [faviconUrl, setFaviconUrl] = useState<string | null>(null);
+  const seededEditWebsiteId = useRef<string | null>(null);
 
   const accountQuery = useQuery({
     queryKey: accountQueryKey,
@@ -64,7 +70,29 @@ export function OnboardingShell() {
   });
   const account = accountQuery.data;
   const project = findAccountProject(account, projectId);
-  const isFirstWebsite = project?.name === "Default project";
+  const websitesQuery = useQuery({
+    queryKey: projectWebsitesQueryKey(projectId),
+    queryFn: () => fetchProjectWebsites(projectId),
+    enabled: stepIndex === 0,
+    staleTime: 30_000,
+  });
+  const searchedWebsite = websitesQuery.data?.websites.find(
+    (website) => website.id === searchedWebsiteId,
+  );
+  const editingWebsiteId =
+    stepIndex === 0 && searchedWebsite?.firstEventAt === null ? searchedWebsite.id : null;
+  const activeWebsiteDraft =
+    editingWebsiteId !== null &&
+    searchedWebsite !== undefined &&
+    seededEditWebsiteId.current !== editingWebsiteId
+      ? searchedWebsite.origin
+      : websiteDraft;
+  const websiteCount = websitesQuery.data?.websites.length;
+  // The route guard preloads this state before Step 1 renders. The name check
+  // remains only as a safe fallback for later steps, where this query is
+  // intentionally disabled because the exact Website id is already known.
+  const isFirstWebsite =
+    websiteCount === undefined ? project?.name === "Default project" : websiteCount === 0;
   const workspaceName = project === undefined || isFirstWebsite ? null : project.name;
   const savedWebsiteName =
     project !== undefined && isWebsiteProjectName(project.name) ? project.name : null;
@@ -91,7 +119,18 @@ export function OnboardingShell() {
     if (searchedWebsiteId !== null) setWebsiteId(searchedWebsiteId);
   }, [searchedWebsiteId]);
 
-  const previewWebsiteSource = websitePreviewSource(websiteDraft, savedWebsiteName, stepIndex > 0);
+  useEffect(() => {
+    if (editingWebsiteId === null || searchedWebsite === undefined) return;
+    if (seededEditWebsiteId.current === editingWebsiteId) return;
+    seededEditWebsiteId.current = editingWebsiteId;
+    setWebsiteDraft(searchedWebsite.origin);
+  }, [editingWebsiteId, searchedWebsite]);
+
+  const previewWebsiteSource = websitePreviewSource(
+    activeWebsiteDraft,
+    savedWebsiteName,
+    stepIndex > 0,
+  );
   const previewProjectLabel = websitePreviewLabel(previewWebsiteSource, PLACEHOLDER_PROJECT_LABEL);
   const previewWebsite = readWebsiteUrl(previewWebsiteSource);
   const expectedFaviconUrl = previewWebsite === null ? null : websiteFaviconUrl(previewWebsite);
@@ -123,6 +162,7 @@ export function OnboardingShell() {
     () => ({
       act,
       direction,
+      editingWebsiteId,
       faviconUrl: visibleFaviconUrl,
       isFirstPaint,
       isFirstWebsite,
@@ -137,7 +177,7 @@ export function OnboardingShell() {
       setRecorderKey,
       setWebsiteDraft,
       stepIndex,
-      websiteDraft,
+      websiteDraft: activeWebsiteDraft,
       websiteId,
       workspaceName,
       setWebsiteId,
@@ -145,6 +185,7 @@ export function OnboardingShell() {
     [
       act,
       direction,
+      editingWebsiteId,
       visibleFaviconUrl,
       isFirstPaint,
       isFirstWebsite,
@@ -155,7 +196,7 @@ export function OnboardingShell() {
       recorderKey,
       savedWebsiteName,
       stepIndex,
-      websiteDraft,
+      activeWebsiteDraft,
       websiteId,
       workspaceName,
     ],

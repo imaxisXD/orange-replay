@@ -5,6 +5,7 @@ import {
   liveSessionsResponseSchema,
   projectKeyResponseSchema,
   projectKeysResponseSchema,
+  projectWebsitesResponseSchema,
   sessionManifestSchema,
   type StoredProjectConfig,
   encodeIngestBody,
@@ -41,16 +42,17 @@ import {
   setupApiTestWorkers,
   testRecorderKey,
   worker,
+  websiteEditProjectId,
   websiteProjectId,
 } from "./api-test-helpers.ts";
 
 setupApiTestWorkers();
 
-async function ensureWebsite(projectId: string, website: string) {
+async function ensureWebsite(projectId: string, website: string, websiteId?: string) {
   const response = await worker.fetch(`/api/v1/projects/${projectId}/websites`, {
     method: "PUT",
     headers: { ...authHeaders(), "content-type": "application/json" },
-    body: JSON.stringify({ website }),
+    body: JSON.stringify({ website, ...(websiteId === undefined ? {} : { websiteId }) }),
   });
   expect([200, 201]).toContain(response.status);
   return ensureProjectWebsiteResponseSchema.parse(await response.json());
@@ -576,6 +578,15 @@ describe("dashboard api", () => {
     expect(app.key?.id).not.toBe(landing.key?.id);
     expect(app.secret).not.toBe(landing.secret);
 
+    const listed = await worker.fetch(`/api/v1/projects/${websiteProjectId}/websites`, {
+      headers: authHeaders(),
+    });
+    expect(listed.status).toBe(200);
+    expect(listed.headers.get("cache-control")).toBe("private, no-store");
+    expect(projectWebsitesResponseSchema.parse(await listed.json())).toEqual({
+      websites: [landing.website, app.website],
+    });
+
     for (const setup of [landing, app]) {
       if (setup.secret === null) throw new Error("The pending Website key is missing.");
       const keyHash = createHash("sha256").update(setup.secret).digest("hex");
@@ -587,6 +598,80 @@ describe("dashboard api", () => {
         sessionCookieDomain: "example.com",
       });
     }
+  });
+
+  it("edits one pending Website in place and reuses its recorder key", async () => {
+    const original = await ensureWebsite(websiteEditProjectId, "example.com");
+    if (original.secret === null) throw new Error("The pending Website key is missing.");
+
+    const unchanged = await ensureWebsite(
+      websiteEditProjectId,
+      "https://example.com/pricing",
+      original.website.id,
+    );
+    expect(unchanged.website.id).toBe(original.website.id);
+    expect(unchanged.key?.id).toBe(original.key?.id);
+    expect(unchanged.secret).toBe(original.secret);
+
+    const edited = await ensureWebsite(websiteEditProjectId, "next.example", original.website.id);
+    expect(edited.website).toMatchObject({
+      id: original.website.id,
+      name: "next.example",
+      origin: "https://next.example",
+      firstEventAt: null,
+    });
+    expect(edited.key?.id).toBe(original.key?.id);
+    expect(edited.secret).toBe(original.secret);
+
+    const listed = await worker.fetch(`/api/v1/projects/${websiteEditProjectId}/websites`, {
+      headers: authHeaders(),
+    });
+    expect(projectWebsitesResponseSchema.parse(await listed.json())).toEqual({
+      websites: [edited.website],
+    });
+
+    const keys = await worker.fetch(`/api/v1/projects/${websiteEditProjectId}/keys`, {
+      headers: authHeaders(),
+    });
+    expect(projectKeysResponseSchema.parse(await keys.json()).keys).toEqual([
+      expect.objectContaining({ id: original.key?.id, name: "next.example recorder" }),
+    ]);
+
+    const keyHash = createHash("sha256").update(original.secret).digest("hex");
+    expect(await readConfigCache(keyHash)).toMatchObject({
+      allowedOrigins: ["https://next.example", "https://www.next.example"],
+      sessionCookieDomain: "next.example",
+      websiteId: original.website.id,
+      websitePending: true,
+    });
+    expect(
+      (
+        await postWebsiteIngest(
+          original.secret,
+          "https://example.com",
+          "website-edit-old-origin",
+          "tab-old",
+        )
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await postWebsiteIngest(
+          original.secret,
+          "https://next.example",
+          "website-edit-new-origin",
+          "tab-new",
+        )
+      ).status,
+    ).toBe(200);
+
+    const connectedEdit = await worker.fetch(`/api/v1/projects/${websiteEditProjectId}/websites`, {
+      method: "PUT",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({ website: "later.example", websiteId: original.website.id }),
+    });
+    expect(connectedEdit.status).toBe(409);
+    expect(await connectedEdit.json()).toEqual({ error: "website_not_editable" });
   });
 
   it("keeps two Website keys in one Workspace journey", async () => {
@@ -608,6 +693,16 @@ describe("dashboard api", () => {
     const appStatus = await websiteInstallStatus(websiteProjectId, app.website.id);
     expect(landingStatus.firstEventAt).toEqual(expect.any(Number));
     expect(appStatus.firstEventAt).toEqual(expect.any(Number));
+
+    const listed = await worker.fetch(`/api/v1/projects/${websiteProjectId}/websites`, {
+      headers: authHeaders(),
+    });
+    expect(projectWebsitesResponseSchema.parse(await listed.json())).toEqual({
+      websites: [
+        { ...landing.website, firstEventAt: expect.any(Number) },
+        { ...app.website, firstEventAt: expect.any(Number) },
+      ],
+    });
 
     const debug = await worker.fetch(
       `/__test/do/debug?projectId=${websiteProjectId}&sessionId=${sessionId}`,

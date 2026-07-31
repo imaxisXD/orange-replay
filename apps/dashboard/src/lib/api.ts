@@ -12,6 +12,8 @@ export {
   fetchAuthConfig,
   fetchProjectWebsiteInstallStatus,
   fetchProjectWebsiteSetup,
+  fetchProjectWebsites,
+  projectWebsitesQueryKey,
   revokeProjectKey,
 } from "./api/account";
 export type {
@@ -30,6 +32,7 @@ export type {
   ProjectCreateResponse,
   ProjectKeysResponse,
   ProjectWebsiteInstallStatus,
+  ProjectWebsitesResponse,
   WorkspaceRole,
 } from "./api/account";
 export {

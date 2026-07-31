@@ -21,6 +21,18 @@ export function readWebsiteSetupError(
     if (error.code === "key_cache_unavailable") {
       return "Website setup is temporarily unavailable. Try again.";
     }
+    if (error.code === "website_already_exists") {
+      return "That Website is already part of this Workspace.";
+    }
+    if (error.code === "website_not_editable") {
+      return "This Website connected while you were editing it. Go to the dashboard or add another website.";
+    }
+    if (error.code === "website_changed") {
+      return "This Website changed in another tab. Reload and try again.";
+    }
+    if (error.code === "website_not_found") {
+      return "This Website is no longer available. Go back and choose another one.";
+    }
     if (error.code === "not_found") return "This Workspace is no longer available.";
     if (error.code !== "network_error") return fallback;
   }

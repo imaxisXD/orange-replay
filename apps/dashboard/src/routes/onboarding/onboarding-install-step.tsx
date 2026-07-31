@@ -6,7 +6,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { IconSwap } from "@/components/ui/icon-swap";
 import type { ProjectWebsite } from "@orange-replay/shared";
-import { fetchProjectWebsiteSetup } from "@/lib/api";
+import { fetchProjectWebsiteSetup, projectWebsitesQueryKey } from "@/lib/api";
 import { readDashboardAccessError } from "@/lib/dashboard-access";
 import { AlertCircle, Check, Code2, Copy, Global } from "@/lib/icon-map";
 import { OnboardingConnectedWebsite } from "./onboarding-connected-website";
@@ -53,6 +53,7 @@ export function OnboardingInstallPage() {
     },
     onSuccess: (created) => {
       setWebsiteDraft(created.website.origin);
+      void queryClient.invalidateQueries({ queryKey: projectWebsitesQueryKey(projectId) });
       if (created.alreadyConnected) {
         if (websiteId !== null) clearOnboardingRecorderKey(projectId, websiteId);
         setRecorderKey(null);

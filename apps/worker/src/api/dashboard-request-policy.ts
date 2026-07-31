@@ -178,6 +178,7 @@ export type ProjectRoutePlan = ProjectRouteFlags &
           | "public_page_write"
           | "project_keys_read"
           | "project_keys_create"
+          | "project_websites_list"
           | "project_website_ensure";
         params: ProjectParams<ProjectIds>;
       }
@@ -530,16 +531,26 @@ export function matchDashboardRequest(method: string, pathname: string): Dashboa
 
   match = PROJECT_WEBSITES_PATTERN.exec(pathname);
   if (match !== null) {
-    return method === "PUT"
-      ? authed(pathname, "project_websites", {
-          ...PROJECT_DEFAULTS,
-          route: "project_websites",
-          sessionAuthRequired: true,
-          mutationOrigin: true,
-          action: "project_website_ensure",
-          params: projectParams(match[1] ?? null),
-        })
-      : unsupported(pathname, "project_websites");
+    if (method === "GET") {
+      return authed(pathname, "project_websites", {
+        ...PROJECT_DEFAULTS,
+        route: "project_websites",
+        sessionAuthRequired: true,
+        action: "project_websites_list",
+        params: projectParams(match[1] ?? null),
+      });
+    }
+    if (method === "PUT") {
+      return authed(pathname, "project_websites", {
+        ...PROJECT_DEFAULTS,
+        route: "project_websites",
+        sessionAuthRequired: true,
+        mutationOrigin: true,
+        action: "project_website_ensure",
+        params: projectParams(match[1] ?? null),
+      });
+    }
+    return unsupported(pathname, "project_websites");
   }
 
   match = PROJECT_WEBSITE_INSTALL_STATUS_PATTERN.exec(pathname);

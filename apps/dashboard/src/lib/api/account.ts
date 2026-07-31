@@ -6,6 +6,7 @@ import {
   decodeProjectCreateResponse,
   decodeEnsureProjectWebsiteResponse,
   decodeProjectWebsiteInstallStatus,
+  decodeProjectWebsitesResponse,
   type AccountProject as SharedAccountProject,
   type AccountResponse as SharedAccountResponse,
   type AccountUser as SharedAccountUser,
@@ -16,6 +17,7 @@ import {
   type ProjectCreateResponse as SharedProjectCreateResponse,
   type EnsureProjectWebsiteResponse as SharedEnsureProjectWebsiteResponse,
   type ProjectWebsiteInstallStatus as SharedProjectWebsiteInstallStatus,
+  type ProjectWebsitesResponse as SharedProjectWebsitesResponse,
 } from "@orange-replay/shared";
 import type { DashboardProjectRole, ServerAuthMode } from "../dashboard-access";
 import { encodePathPart, requestJson } from "./client";
@@ -34,6 +36,7 @@ export type CreatedProjectKeyResponse = SharedCreatedProjectKeyResponse;
 export type ProjectCreateResponse = SharedProjectCreateResponse;
 export type EnsureProjectWebsiteResponse = SharedEnsureProjectWebsiteResponse;
 export type ProjectWebsiteInstallStatus = SharedProjectWebsiteInstallStatus;
+export type ProjectWebsitesResponse = SharedProjectWebsitesResponse;
 
 export interface AdminStatsResponse {
   users: number;
@@ -71,6 +74,10 @@ export interface AdminUserSearch {
 
 export const authConfigQueryKey = ["auth-config"] as const;
 export const accountQueryKey = ["account"] as const;
+
+export function projectWebsitesQueryKey(projectId: string) {
+  return ["project-websites", projectId] as const;
+}
 
 export async function fetchAuthConfig(): Promise<AuthConfigResponse> {
   return requestJson<AuthConfigResponse>("/api/v1/auth/config", {
@@ -124,15 +131,23 @@ export async function createProjectKey(
 export async function ensureProjectWebsite(
   projectId: string,
   website: string,
+  websiteId?: string,
 ): Promise<EnsureProjectWebsiteResponse> {
   return requestJson<EnsureProjectWebsiteResponse>(
     `/api/v1/projects/${encodePathPart(projectId)}/websites`,
     {
       auth: true,
-      body: { website },
+      body: { website, ...(websiteId === undefined ? {} : { websiteId }) },
       decode: decodeEnsureProjectWebsiteResponse,
       method: "PUT",
     },
+  );
+}
+
+export async function fetchProjectWebsites(projectId: string): Promise<ProjectWebsitesResponse> {
+  return requestJson<ProjectWebsitesResponse>(
+    `/api/v1/projects/${encodePathPart(projectId)}/websites`,
+    { auth: true, decode: decodeProjectWebsitesResponse },
   );
 }
 

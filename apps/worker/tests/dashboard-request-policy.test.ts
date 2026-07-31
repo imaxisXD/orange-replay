@@ -270,6 +270,14 @@ describe("dashboard request plans", () => {
         ),
       ],
       [
+        "GET",
+        "/websites",
+        "project_websites",
+        plannedProject("project_websites", "project_websites_list", {
+          sessionAuthRequired: true,
+        }),
+      ],
+      [
         "PUT",
         "/websites",
         "project_websites",
