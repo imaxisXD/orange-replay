@@ -97,12 +97,24 @@
    to say what they typed. The bloom is `.demo-scan-dot`'s
    `0 0 8px var(--amber-shadow)`, opened up because this control is far larger
    than a 5px dot and has to read across the pane. */
+/* Both amber layers are held below full strength. `ring-amber` is sized for a
+   control at 1:1, but the camera views this one at 1.18x and the lattice is
+   already carrying amber underneath, so full `--amber` on the border and a
+   0.7-alpha bloom read as a hot rim rather than a highlight. The ring keeps its
+   1px so the shape still matches the field the visitor is typing into.
+
+   The border is a solid colour, not translucent amber: it is mixed toward
+   `--surface-4`, the control's own background, so it lands on the same tone a
+   55% alpha would have composited to while staying opaque. A translucent border
+   would take its value from whatever the shimmering lattice happened to be
+   doing underneath, so the rim would flicker with the field behind it. The
+   bloom stays translucent because a glow that is not is just a rectangle. */
 .onboarding-canvas[data-camera="project"] [aria-label="Project"] {
   background: color-mix(in oklab, var(--surface-4) 88%, transparent);
   color: var(--foreground);
   box-shadow:
-    inset 0 0 0 1px var(--amber),
-    0 0 14px var(--amber-shadow),
+    inset 0 0 0 1px color-mix(in oklab, var(--amber) 55%, var(--surface-4)),
+    0 0 13px color-mix(in oklab, var(--amber) 38%, transparent),
     0 10px 28px oklch(0 0 0 / 0.22);
 }
 

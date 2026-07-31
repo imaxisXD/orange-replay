@@ -260,13 +260,26 @@ export function canvasParallaxScale(cameraScale: number): number {
  * the switcher is only 10px down from it and anything taller would be clipped.
  */
 export const SWITCHER_FIELD = {
-  x: 154, // centred on the switcher's 264px centre
+  x: 132, // centred on the switcher's 264px centre
   y: 0,
-  width: 220, // wider than the 132px switcher so the lattice reads around it
-  height: 52, // bottom edge lands ~8px below the switcher
-  fadePerRow: 0.1, // ~9 lattice rows in 52px, faded out by the top
-  intensity: 0.9,
-  pulse: 0.8, // calmer than the toast's field; this sits under live text
+  width: 264, // wider than the 132px switcher so the lattice reads around it
+  height: 56, // bottom edge lands ~16px below the switcher
+  fadePerRow: 0.1, // ~11 lattice rows in 56px, faded out by the top
+  /**
+   * Well above the toast's 1. `EmberField` gives 93% of its cells an alpha of
+   * about `0.03 + 0.15 * random²`, which lands near 0.08 — invisible as amber on
+   * this canvas, and swinging by 0.03 during the shimmer, so at the default the
+   * field read as a few scattered static dots rather than a lattice. At 2.2 the
+   * quiet majority sits near 0.18 and the bright 7% saturate, which is what
+   * makes it a surface instead of speckle.
+   */
+  intensity: 2.2,
+  /**
+   * Scales shimmer depth and speed together. 1.6 pins the depth at its 0.48 cap
+   * and doubles the rate, so cells visibly travel between about half and full
+   * brightness instead of wobbling within a range too narrow to notice.
+   */
+  pulse: 1.6,
   /** Fades in with the highlight rather than snapping on mid-keystroke. */
   spring: { type: "spring" as const, duration: 0.32, bounce: 0 },
 } as const;

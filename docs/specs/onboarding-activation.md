@@ -291,9 +291,18 @@ what they typed — which is what connects the two halves of the screen.
 
 Behind the ring sits `EmberField`, the shared LED lattice the settings dock and
 the demo notch already use: 2px squares on a 5px pitch, each shimmering on its
-own slow sine wave, coloured amber from CSS `color`. `SWITCHER_FIELD` places it
-in unscaled **stage coordinates**, so it rides inside the stage and the camera
+own sine wave, coloured amber from CSS `color`. `SWITCHER_FIELD` places it in
+unscaled **stage coordinates**, so it rides inside the stage and the camera
 scales it with the dashboard — no measuring the switcher at runtime.
+
+It runs far hotter than the toast field it borrows from, and the arithmetic is
+why. `EmberField` gives 93% of its cells an alpha near `0.03 + 0.15 * random²`,
+about `0.08`, which is invisible as amber on this canvas — and the default
+shimmer moves that by `0.03`, a change nothing can perceive. At the component's
+own defaults the field read as a handful of scattered static dots rather than a
+lattice. `intensity: 2.2` lifts the quiet majority to about `0.18` and saturates
+the bright 7%; `pulse: 1.6` pins shimmer depth at its `0.48` cap and doubles the
+rate, so cells visibly travel between roughly half and full brightness.
 
 Three constraints shape that box, and each has a test:
 
