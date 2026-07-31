@@ -265,7 +265,7 @@ describe("activation step 1: website", () => {
     expect(findButton("Continue").disabled).toBe(false);
     expect(container.querySelector('.t-favicon-slot[data-stage="1"]')).not.toBeNull();
     expect(container.querySelector("img")?.getAttribute("src")).toBe(
-      "/api/v1/favicon?website=https%3A%2F%2Facme.com&v=2",
+      "/api/v1/favicon?website=https%3A%2F%2Facme.com&v=3",
     );
     await act(async () => {
       container.querySelector("img")?.dispatchEvent(new Event("load"));

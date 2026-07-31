@@ -8,7 +8,6 @@ import type { Env } from "../env.ts";
 import { jsonError } from "../http.ts";
 
 const FAVICON_CACHE_SECONDS = 7 * 24 * 60 * 60;
-const FALLBACK_CACHE_SECONDS = 60;
 const MAX_HTML_BYTES = 256 * 1_024;
 const MAX_IMAGE_BYTES = 512 * 1_024;
 const MAX_REDIRECTS = 4;
@@ -76,15 +75,17 @@ export async function getFavicon(
   }
 
   let response: Response;
+  let shouldCache = false;
   if (!isSafePublicUrl(website)) {
     response = fallbackFavicon(website, "unsafe_target");
   } else {
     const favicon = await fetchWebsiteFavicon(website);
     response = favicon ?? fallbackFavicon(website, "not_found");
+    shouldCache = favicon !== null;
   }
 
   wideEvent.set({ favicon_result: response.headers.get("x-favicon-result") ?? "unknown" });
-  if (cache !== null) {
+  if (cache !== null && shouldCache) {
     ctx.waitUntil(cache.put(cacheKey, response.clone()).catch(() => undefined));
   }
   return response;
@@ -328,13 +329,13 @@ function fallbackFavicon(website: URL, result: string): Response {
     .replace(/[^A-Z0-9]/g, "?");
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#29251d"/><text x="16" y="21" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="16" font-weight="700" fill="#f59e0b">${letter}</text></svg>`;
   return new Response(svg, {
-    headers: faviconHeaders("image/svg+xml", FALLBACK_CACHE_SECONDS, result),
+    headers: faviconHeaders("image/svg+xml", null, result),
   });
 }
 
-function faviconHeaders(contentType: string, maxAge: number, result: string): Headers {
+function faviconHeaders(contentType: string, maxAge: number | null, result: string): Headers {
   return new Headers({
-    "cache-control": `public, max-age=${maxAge}`,
+    "cache-control": maxAge === null ? "no-store" : `public, max-age=${maxAge}`,
     "content-security-policy": "sandbox; default-src 'none'",
     "content-type": contentType,
     "referrer-policy": "no-referrer",

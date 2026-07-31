@@ -8,7 +8,7 @@ import {
 
 describe("website URL schema", () => {
   it("keeps a shared favicon API version for browser and edge cache busting", () => {
-    expect(FAVICON_API_VERSION).toBe("2");
+    expect(FAVICON_API_VERSION).toBe("3");
   });
 
   it("defaults normal website input to HTTPS", () => {

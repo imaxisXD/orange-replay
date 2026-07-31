@@ -5,7 +5,7 @@ const EXPLICIT_SCHEME = /^[a-z][a-z\d+.-]*:\/\//i;
 const DOMAIN_LABEL = /^[a-z\d](?:[a-z\d-]{0,61}[a-z\d])?$/i;
 
 /** Bump when browsers and edge caches must stop serving an older favicon result. */
-export const FAVICON_API_VERSION = "2";
+export const FAVICON_API_VERSION = "3";
 
 export const WEBSITE_URL_ISSUE = {
   invalid: "invalid_website",

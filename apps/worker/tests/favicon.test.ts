@@ -73,7 +73,9 @@ describe("favicon API", () => {
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(MULTI_SIZE_ICO);
   });
 
-  it("returns a deterministic image fallback when a site has no usable icon", async () => {
+  it("returns a deterministic uncached image fallback when a site has no usable icon", async () => {
+    const put = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("caches", { default: { match: vi.fn().mockResolvedValue(undefined), put } });
     vi.stubGlobal(
       "fetch",
       vi
@@ -87,10 +89,12 @@ describe("favicon API", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("image/svg+xml");
     expect(response.headers.get("x-favicon-result")).toBe("not_found");
-    expect(response.headers.get("cache-control")).toBe("public, max-age=60");
+    expect(response.headers.get("cache-control")).toBe("no-store");
     expect(response.headers.get("content-security-policy")).toBe("sandbox; default-src 'none'");
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
     expect(await response.text()).toContain(">N</text>");
+    expect(put).not.toHaveBeenCalled();
+    expect(waitUntil).not.toHaveBeenCalled();
   });
 
   it("rejects a fake image and continues to the safe fallback", async () => {
@@ -221,7 +225,7 @@ describe("favicon API", () => {
     const cacheCall = put.mock.calls.at(0);
     if (cacheCall === undefined) throw new Error("Expected the favicon to be cached.");
     expect((cacheCall[0] as Request).url).toBe(
-      "https://replay.example/api/v1/favicon?website=https%3A%2F%2Fwww.acme.com&v=2",
+      "https://replay.example/api/v1/favicon?website=https%3A%2F%2Fwww.acme.com&v=3",
     );
     expect(waitUntil).toHaveBeenCalledOnce();
   });

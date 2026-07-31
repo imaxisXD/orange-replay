@@ -47,10 +47,11 @@ no safe icon is available, the Worker returns a generated amber initial rather
 than a broken image.
 
 The final response is cached in Cloudflare's local edge cache by normalized
-website origin. Verified icons are cached for seven days and generated
-fallbacks for one minute, so a temporary upstream failure cannot hide a real
-icon for the rest of onboarding. The dashboard URL and Worker edge key share a
-cache version, allowing old browser and edge entries to be invalidated together.
+website origin only when a real icon was fetched and verified. Verified icons
+are cached for seven days. Generated initial-letter fallbacks use `no-store` and
+are never written to Cloudflare's edge cache, so every later request can try the
+website again. The dashboard URL and Worker edge key share a cache version,
+allowing old browser and edge entries to be invalidated together.
 A per-user Cloudflare rate-limit binding applies only to cache misses. The 16px
 favicon in the field and the real project switcher share the same debounced URL.
 Before a valid source exists, the favicon has
@@ -390,7 +391,7 @@ and signed-in-only routing coverage in `dashboard-request-policy.test.ts`.
 error, shake trigger, favicon reveal, normalized API URL, and exact step-motion
 values. The NDLE regression adds a Next.js query-string icon, a multi-size
 Windows ICO served as `image/vnd.microsoft.icon`, the shared cache version, and
-the one-minute negative-cache policy.
+proof that generated fallbacks use `no-store` and never call `cache.put`.
 
 Visual proof came from real Chrome against the existing dev server on 8787 with
 `/api/v1/*` stubbed client-side; nothing was written to the local worker. Note
