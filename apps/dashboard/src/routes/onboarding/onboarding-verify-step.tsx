@@ -10,6 +10,7 @@ import { installStatusPollIntervalMs, shouldPollInstallStatus } from "@/lib/proj
 import { cn } from "@/lib/utils";
 import { useOnboarding } from "./onboarding-context";
 import { VERIFY } from "./onboarding-motion";
+import { clearOnboardingRecorderKey } from "./onboarding-recorder-key";
 import { OnboardingStage } from "./onboarding-stage";
 
 /**
@@ -44,6 +45,7 @@ export function OnboardingVerifyPage() {
   useEffect(() => {
     if (!isConnected) return;
     setIsRecording(true);
+    clearOnboardingRecorderKey(projectId);
     const timeout = window.setTimeout(() => {
       void navigate({
         to: "/projects/$projectId/overview",

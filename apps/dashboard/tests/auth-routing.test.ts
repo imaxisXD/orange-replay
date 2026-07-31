@@ -2,7 +2,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { canManageProject, clearDashboardAccess } from "../src/lib/dashboard-access";
 import { queryClient } from "../src/lib/query";
-import { requireProjectAccess, requireProjectManager } from "../src/lib/route-guard";
+import {
+  requireActivationAccess,
+  requireProjectAccess,
+  requireProjectManager,
+} from "../src/lib/route-guard";
 
 const fetchMock = vi.fn<typeof fetch>();
 
@@ -87,6 +91,44 @@ describe("hosted project routing", () => {
         "project_one",
       ),
     ).resolves.toBeUndefined();
+  });
+
+  it("allows an unfinished project to continue onboarding", async () => {
+    fetchMock
+      .mockResolvedValueOnce(accountResponse("owner"))
+      .mockResolvedValueOnce(Response.json({ firstEventAt: null }));
+
+    await expect(
+      requireActivationAccess(
+        {
+          href: "/onboarding/project_one/install",
+          pathname: "/onboarding/project_one/install",
+        },
+        "project_one",
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("opens Overview instead of recreating keys for an activated project", async () => {
+    fetchMock
+      .mockResolvedValueOnce(accountResponse("owner"))
+      .mockResolvedValueOnce(Response.json({ firstEventAt: Date.now() - 1_000 }));
+
+    await expect(
+      requireActivationAccess(
+        {
+          href: "/onboarding/project_one/install",
+          pathname: "/onboarding/project_one/install",
+        },
+        "project_one",
+      ),
+    ).rejects.toMatchObject({
+      status: 307,
+      options: {
+        to: "/projects/$projectId/overview",
+        params: { projectId: "project_one" },
+      },
+    });
   });
 });
 

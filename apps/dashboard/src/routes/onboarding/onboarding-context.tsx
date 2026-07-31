@@ -26,7 +26,7 @@ interface OnboardingState {
   setWebsiteDraft: (value: string) => void;
   /** Project name already saved for this project, or null before activation. */
   savedWebsiteName: string | null;
-  /** Raw recorder key minted this visit. Never re-readable after a reload. */
+  /** Raw recorder key minted this visit. Also kept in this tab until connection. */
   recorderKey: string | null;
   setRecorderKey: (value: string | null) => void;
   /** True while the website field holds focus with something typed in it. */

@@ -20,7 +20,6 @@ const apiMocks = vi.hoisted(() => ({
   createProjectKey: vi.fn(),
   fetchInstallStatus: vi.fn(),
   fetchProjectConfig: vi.fn(),
-  fetchProjectKeys: vi.fn(),
   renameProject: vi.fn(),
   saveProjectConfig: vi.fn(),
 }));
@@ -50,6 +49,10 @@ import {
   onboardingAct,
 } from "../src/routes/onboarding/onboarding-motion";
 import { OnboardingVerifyPage } from "../src/routes/onboarding/onboarding-verify-step";
+import {
+  readOnboardingRecorderKey,
+  saveOnboardingRecorderKey,
+} from "../src/routes/onboarding/onboarding-recorder-key";
 import {
   activationAllowedOrigins,
   isWebsiteProjectName,
@@ -83,6 +86,7 @@ beforeEach(() => {
   });
   namingProject = false;
   isRecordingReported = false;
+  window.sessionStorage.clear();
   navigate.mockReset();
   for (const mock of Object.values(apiMocks)) mock.mockReset();
   window.matchMedia = vi.fn().mockReturnValue({
@@ -97,6 +101,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   queryClient.clear();
+  window.sessionStorage.clear();
   document.body.replaceChildren();
 });
 
@@ -376,9 +381,7 @@ describe("activation step 1: website", () => {
 
 describe("activation step 2: install", () => {
   it("pulses a page-shaped skeleton until the first recorder key is ready", async () => {
-    const keysRequest = deferred<{ keys: ReturnType<typeof projectKeyAudit>[] }>();
     const keyRequest = deferred<{ key: ReturnType<typeof projectKeyAudit>; secret: string }>();
-    apiMocks.fetchProjectKeys.mockReturnValue(keysRequest.promise);
     apiMocks.createProjectKey.mockReturnValue(keyRequest.promise);
     await render(<OnboardingInstallPage />);
 
@@ -390,7 +393,6 @@ describe("activation step 2: install", () => {
     expect(skeleton?.children).toHaveLength(3);
     expect(container.querySelector('.t-skel-content[aria-hidden="true"]')).not.toBeNull();
 
-    keysRequest.resolve({ keys: [] });
     await vi.waitFor(() => {
       expect(apiMocks.createProjectKey).toHaveBeenCalledWith(PROJECT_ID, "Website recorder");
     });
@@ -414,7 +416,6 @@ describe("activation step 2: install", () => {
       configurable: true,
       value: { writeText },
     });
-    apiMocks.fetchProjectKeys.mockResolvedValue({ keys: [] });
     apiMocks.createProjectKey.mockResolvedValue({
       key: projectKeyAudit(),
       secret: RAW_KEY,
@@ -451,31 +452,32 @@ describe("activation step 2: install", () => {
     expect(container.querySelector("pre")?.textContent).toContain(RAW_KEY);
   });
 
-  it("retries the request that failed instead of writing when a read failed", async () => {
-    // A failed key *list* answered with a key *create* would mint a fresh key on
-    // every press and walk the project towards its active-key limit.
-    apiMocks.fetchProjectKeys.mockRejectedValue(new Error("Keys are unavailable."));
+  it("retries automatic recorder-key preparation after a request failure", async () => {
+    apiMocks.createProjectKey
+      .mockRejectedValueOnce(new Error("Recorder-key storage is unavailable."))
+      .mockResolvedValueOnce({ key: projectKeyAudit(), secret: RAW_KEY });
     await render(<OnboardingInstallPage />);
 
     await vi.waitFor(() => {
-      expect(container.textContent).toContain("Could not check this project's keys");
+      expect(container.textContent).toContain("Recorder-key storage is unavailable.");
     });
     await act(async () => {
       findButton("Try again").click();
     });
-    expect(apiMocks.createProjectKey).not.toHaveBeenCalled();
-    expect(apiMocks.fetchProjectKeys.mock.calls.length).toBeGreaterThan(1);
+    await vi.waitFor(() => {
+      expect(apiMocks.createProjectKey).toHaveBeenCalledTimes(2);
+      expect(findButton("I added the snippet").disabled).toBe(false);
+    });
   });
 
-  it("never mints a second key on its own when one is already active", async () => {
-    apiMocks.fetchProjectKeys.mockResolvedValue({ keys: [projectKeyAudit()] });
+  it("reuses the tab's once-readable key after a reload instead of creating another", async () => {
+    saveOnboardingRecorderKey(PROJECT_ID, RAW_KEY);
     await render(<OnboardingInstallPage />);
 
-    await vi.waitFor(() => {
-      expect(container.textContent).toContain("This project already has a key");
-    });
     expect(apiMocks.createProjectKey).not.toHaveBeenCalled();
-    expect(findButton("I added the snippet").disabled).toBe(true);
+    expect(container.textContent).not.toContain("This project already has a key");
+    expect(findButton("I added the snippet").disabled).toBe(false);
+    expect(container.querySelector("pre")?.textContent).toContain("Orange Replay loader");
   });
 });
 
@@ -497,6 +499,7 @@ describe("activation step 3: verify", () => {
   });
 
   it("confirms the recorder once an event has arrived and opens the dashboard", async () => {
+    saveOnboardingRecorderKey(PROJECT_ID, RAW_KEY);
     apiMocks.fetchInstallStatus.mockResolvedValue({ firstEventAt: Date.now() - 2_000 });
     await render(<OnboardingVerifyPage />);
 
@@ -509,6 +512,7 @@ describe("activation step 3: verify", () => {
     await vi.waitFor(() => {
       expect(isRecordingReported).toBe(true);
     });
+    expect(readOnboardingRecorderKey(PROJECT_ID)).toBeNull();
 
     await act(async () => {
       findButton("Open your dashboard").click();

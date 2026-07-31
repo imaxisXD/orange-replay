@@ -85,7 +85,8 @@ export async function openProjectsHome(location: RouteLocation): Promise<void> {
  * visitor can manage — activation writes the project name, its origin
  * allowlist, and a recorder key. Already-activated projects are not bounced
  * out: reaching the last step and seeing the recorder connected is the flow's
- * ending, and revisiting it is harmless.
+ * ending. A project that has already recorded is sent to Overview so revisiting
+ * onboarding cannot create another installation key.
  */
 export async function requireActivationAccess(
   location: RouteLocation,
@@ -97,6 +98,13 @@ export async function requireActivationAccess(
   // disagree and bounce a visitor between /projects and /onboarding forever.
   if (project === undefined || !canManageProject(project)) {
     throw redirect({ to: "/projects", replace: true });
+  }
+  if ((await hasProjectFirstEvent(projectId)) === true) {
+    throw redirect({
+      to: "/projects/$projectId/overview",
+      params: { projectId },
+      replace: true,
+    });
   }
 }
 

@@ -1,14 +1,15 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { buildLoaderScriptTag } from "@orange-replay/sdk/loader";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { IconSwap } from "@/components/ui/icon-swap";
-import { createProjectKey, fetchProjectKeys } from "@/lib/api";
+import { ApiError, createProjectKey } from "@/lib/api";
 import { readDashboardAccessError } from "@/lib/dashboard-access";
 import { AlertCircle, Check, Code2, Copy, KeyRound } from "@/lib/icon-map";
 import { useOnboarding } from "./onboarding-context";
+import { readOnboardingRecorderKey, saveOnboardingRecorderKey } from "./onboarding-recorder-key";
 import { OnboardingStage } from "./onboarding-stage";
 
 const RECORDER_KEY_NAME = "Website recorder";
@@ -18,48 +19,45 @@ const COPIED_RESET_MS = 1_500;
  * Step 2 of 3 — the loader snippet.
  *
  * A raw recorder key is readable exactly once, at the moment it is created, so
- * this step mints the project's first key itself and holds it in memory for the
- * rest of the visit. A project that already has an active key cannot have its
- * raw value recovered, so that case asks before creating another one rather
- * than quietly stacking up keys on every reload.
+ * this step mints an onboarding key itself and keeps the once-readable value in
+ * this tab until the recorder connects. A refresh can therefore rebuild the
+ * snippet without creating another key. If an older key exists but its raw
+ * value is already gone, onboarding creates the replacement automatically.
  */
 export function OnboardingInstallPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { projectId, recorderKey, setRecorderKey } = useOnboarding();
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState("");
   const [showFullCode, setShowFullCode] = useState(false);
 
-  const keysQuery = useQuery({
-    queryKey: ["project-keys", projectId],
-    queryFn: () => fetchProjectKeys(projectId),
-  });
-  const hasActiveKey = keysQuery.data?.keys.some((key) => key.active) ?? false;
+  const availableRecorderKey = recorderKey ?? readOnboardingRecorderKey(projectId);
 
   const keyMutation = useMutation({
     mutationFn: () => createProjectKey(projectId, RECORDER_KEY_NAME),
     onSuccess: (created) => {
+      saveOnboardingRecorderKey(projectId, created.secret);
       setRecorderKey(created.secret);
-      void keysQuery.refetch();
+      void queryClient.invalidateQueries({ queryKey: ["project-keys", projectId] });
     },
   });
 
-  // A project reaching this step for the first time has no key at all, so the
-  // snippet is ready without asking. Anything else is an explicit choice. The
-  // ref makes this mint once per visit: react-query hands back a fresh mutation
-  // object each render, so a plain dependency list would fire it repeatedly.
+  // The ref makes this mint once per mount: react-query hands back a fresh
+  // mutation object each render, so a plain dependency list would fire it
+  // repeatedly. Tab storage covers reloads of this unfinished flow.
   const hasRequestedKey = useRef(false);
-  const shouldMintFirstKey =
-    recorderKey === null && !keysQuery.isPending && !keysQuery.isError && !hasActiveKey;
+  const shouldMintOnboardingKey =
+    availableRecorderKey === null && !hasRequestedKey.current && !keyMutation.isError;
   const isPreparingKey =
-    recorderKey === null && (keysQuery.isPending || keyMutation.isPending || shouldMintFirstKey);
+    availableRecorderKey === null && (keyMutation.isPending || shouldMintOnboardingKey);
   const revealRef = useRef<HTMLDivElement>(null);
   const wasPreparingKey = useRef(isPreparingKey);
   useEffect(() => {
-    if (!shouldMintFirstKey || hasRequestedKey.current) return;
+    if (!shouldMintOnboardingKey || hasRequestedKey.current) return;
     hasRequestedKey.current = true;
     keyMutation.mutate();
-  }, [keyMutation, shouldMintFirstKey]);
+  }, [keyMutation, shouldMintOnboardingKey]);
 
   // transitions.dev skeleton replay: a retry or an explicit replacement key
   // snaps back to the page-shaped skeleton before its one pulse starts again.
@@ -91,19 +89,14 @@ export function OnboardingInstallPage() {
   }, [copied]);
 
   const snippet =
-    recorderKey === null
+    availableRecorderKey === null
       ? ""
       : buildLoaderScriptTag({
           bundleUrl: `${readRecorderOrigin()}/or-recorder.js`,
-          init: { ingestUrl: readRecorderOrigin(), key: recorderKey },
+          init: { ingestUrl: readRecorderOrigin(), key: availableRecorderKey },
         });
 
-  const keyError =
-    keysQuery.error !== null
-      ? readDashboardAccessError(keysQuery.error, "Could not check this project's keys.")
-      : keyMutation.error !== null
-        ? readDashboardAccessError(keyMutation.error, "Could not create a recorder key.")
-        : "";
+  const keyError = keyMutation.error === null ? "" : readRecorderKeyError(keyMutation.error);
 
   async function copySnippet(): Promise<void> {
     if (snippet.length === 0) return;
@@ -232,8 +225,8 @@ export function OnboardingInstallPage() {
                 <p className="flex items-start gap-2 text-[12px] leading-[17px] text-muted-foreground">
                   <KeyRound aria-hidden className="mt-px shrink-0" size={15} strokeWidth={1.5} />
                   <span>
-                    This snippet carries your recorder key. Orange Replay keeps only a hash of it,
-                    so this is the only place you can copy it.
+                    This snippet carries your recorder key. The server keeps only a hash; this tab
+                    keeps the key until the recorder connects.
                   </span>
                 </p>
               )}
@@ -241,57 +234,18 @@ export function OnboardingInstallPage() {
               {keyError.length > 0 && (
                 <Alert variant="destructive">
                   <AlertCircle aria-hidden />
-                  <AlertTitle>
-                    {keysQuery.error === null
-                      ? "Could not create a recorder key"
-                      : "Could not check this project's keys"}
-                  </AlertTitle>
+                  <AlertTitle>Could not prepare the recorder key</AlertTitle>
                   <AlertDescription>
                     <p>{keyError}</p>
-                    {/* Retry the request that actually failed. Always creating a key
-                        here meant a failed *read* answered with a write: a project
-                        whose key list 503'd would gain a brand new key on every
-                        press, walking towards the active-key limit. */}
                     <Button
                       className="mt-2 border-danger-border bg-transparent text-danger-foreground hover:text-foreground"
-                      loading={
-                        keysQuery.error === null ? keyMutation.isPending : keysQuery.isFetching
-                      }
-                      onClick={() => {
-                        if (keysQuery.error !== null) {
-                          void keysQuery.refetch();
-                          return;
-                        }
-                        keyMutation.mutate();
-                      }}
-                      size="sm"
-                      type="button"
-                      variant="secondary"
-                    >
-                      Try again
-                    </Button>
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              {recorderKey === null && hasActiveKey && keyError.length === 0 && (
-                <Alert>
-                  <AlertCircle aria-hidden />
-                  <AlertTitle>This project already has a key</AlertTitle>
-                  <AlertDescription>
-                    <p>
-                      Raw keys are readable only when they are created. Create another one to build
-                      the snippet here, or copy an existing key from Settings.
-                    </p>
-                    <Button
-                      className="mt-2"
                       loading={keyMutation.isPending}
                       onClick={() => keyMutation.mutate()}
                       size="sm"
                       type="button"
                       variant="secondary"
                     >
-                      Create a new key
+                      Try again
                     </Button>
                   </AlertDescription>
                 </Alert>
@@ -330,6 +284,27 @@ const SNIPPET_SUMMARY = `<script>
 function readRecorderOrigin(): string {
   if (typeof window === "undefined") return "";
   return window.location.origin;
+}
+
+function readRecorderKeyError(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.code === "active_key_limit_reached") {
+      return "This project has reached its active recorder-key limit. Revoke an unused key in Settings, then try again.";
+    }
+    if (error.code === "key_history_limit_reached") {
+      return "This project has reached its recorder-key history limit. Try again later.";
+    }
+    if (error.code === "rate_limited") {
+      return "Too many recorder-key requests. Wait a minute, then try again.";
+    }
+    if (error.code === "key_cache_unavailable") {
+      return "Recorder-key storage is temporarily unavailable. Try again.";
+    }
+    if (error.code === "not_found") return "This project is no longer available.";
+    if (error.code === "network_error") return error.message;
+    return "Could not prepare the recorder key. Try again.";
+  }
+  return readDashboardAccessError(error, "Could not prepare the recorder key. Try again.");
 }
 
 export default OnboardingInstallPage;

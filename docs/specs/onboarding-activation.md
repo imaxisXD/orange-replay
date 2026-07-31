@@ -104,12 +104,19 @@ test asserts exactly that.
 
 ### Recorder keys
 
-A raw key is readable once, at creation. So step 2 mints the project's first
-key itself and holds it in memory for the visit. If the project already has an
-active key and the raw value is not in memory (a reload, or a returning
-visitor), the step asks before creating another rather than stacking up keys.
-The card summarises the loader by default and reveals the full text on request,
-matching the Install page; the copied text is always the real snippet.
+A raw key is readable once, at creation. Step 2 therefore prepares an
+onboarding key automatically and keeps its value in tab-scoped session storage
+until the recorder connects. A refresh in that tab rebuilds the same snippet
+instead of creating another key. If an older project has an active key but its
+raw value is already gone, step 2 creates the recoverable onboarding key behind
+the existing page-shaped skeleton; there is no manual “already has a key” dead
+end. The server still stores only the hash, and the tab value is removed as
+soon as the first event arrives.
+
+An activated project is redirected to Overview before onboarding mounts, so a
+direct revisit cannot create an unnecessary key. The card summarises the
+loader by default and reveals the full text on request, matching the Install
+page; the copied text is always the real snippet.
 
 ## Reachability
 
@@ -141,10 +148,11 @@ knows no event has ever arrived. Two rules keep the guard from stranding anyone:
   outage walk an owner into overwriting a working install.
 
 `requireActivationAccess` applies the same manageability rule, so the two cannot
-disagree. An already-activated project is not bounced out: reaching step 3 and
-seeing the recorder connected is the flow's ending. Step 3 holds that success
-state for 900ms and then opens `/projects/:id/overview` automatically; its
-button remains available to leave immediately.
+disagree. It also redirects an already-activated project to Overview before the
+flow can prepare another key. Reaching step 3 and seeing the recorder connect
+is the normal ending: the success state stays visible for 900ms and then opens
+`/projects/:id/overview` automatically; its button remains available to leave
+immediately.
 
 ### Adding another project
 
