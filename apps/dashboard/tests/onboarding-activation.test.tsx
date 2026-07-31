@@ -55,6 +55,7 @@ import {
   isWebsiteProjectName,
   readWebsiteUrl,
   websitePreviewLabel,
+  websitePreviewSource,
   websiteFaviconUrl,
   websiteProjectName,
   websiteUrlError,
@@ -134,6 +135,12 @@ describe("activation website identity", () => {
     expect(websitePreviewLabel("", "Your website")).toBe("Your website");
     expect(websitePreviewLabel("https://ac", "Your website")).toBe("ac");
     expect(websitePreviewLabel("https://www.acme.com/x", "Your website")).toBe("acme.com");
+  });
+
+  it("does not revive a saved website while step one is empty", () => {
+    expect(websitePreviewSource("", "getfileurl.com", false)).toBe("");
+    expect(websitePreviewSource("acme.com", "getfileurl.com", false)).toBe("acme.com");
+    expect(websitePreviewSource("", "getfileurl.com", true)).toBe("getfileurl.com");
   });
 
   it("recognises an already activated project name", () => {

@@ -59,13 +59,15 @@ A per-user Cloudflare rate-limit binding applies only to cache misses. The 16px
 favicon in the field and the real project switcher share the same debounced URL.
 Before a valid source exists, the favicon has
 zero width and cancels the parent's gap, so the field never shows a dark
-placeholder dot or reserves empty space. A saved website may keep its identity
-in the preview, but it is not passed into an empty input; the input stays
-aligned until the visitor types. A valid source drives one integer
-through empty, loading, and revealed stages: the slot grows left-to-right while
-clearing a brief blur, then uses the requested skeleton-to-content reveal when
-the image finishes loading. A changed origin resets that sequence before paint;
-an unchanged origin keeps its current icon.
+placeholder dot or reserves empty space. On step one, the right-side preview
+mirrors only the live field: clearing the field immediately restores “Your
+website” and removes the old favicon instead of reviving the saved project
+identity. Steps two and three have no website field, so a direct visit may use
+the saved identity there. A valid source drives one integer through empty,
+loading, and revealed stages: the slot grows left-to-right while clearing a
+brief blur, then uses the requested skeleton-to-content reveal when the image
+finishes loading. A changed origin resets that sequence before paint; an
+unchanged origin keeps its current icon.
 
 ## What each step writes
 

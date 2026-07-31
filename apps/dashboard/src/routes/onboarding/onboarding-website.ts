@@ -60,6 +60,20 @@ export function websitePreviewLabel(value: string, fallback: string): string {
 }
 
 /**
+ * Website identity the preview should follow. Step one mirrors only the live
+ * field, so clearing it cannot revive a previously saved name or favicon.
+ * Later steps have no website field and may use the saved project identity.
+ */
+export function websitePreviewSource(
+  websiteDraft: string,
+  savedWebsiteName: string | null,
+  allowSavedWebsite: boolean,
+): string {
+  if (websiteDraft.trim().length > 0) return websiteDraft;
+  return allowSavedWebsite ? (savedWebsiteName ?? "") : "";
+}
+
+/**
  * The ingest allowlist a website URL earns. Both the typed origin and its
  * www sibling are allowed: the recorder is rejected on an exact origin match,
  * and a site reached at one spelling routinely serves pages from the other. A

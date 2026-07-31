@@ -22,6 +22,7 @@ import {
   readWebsiteUrl,
   websiteFaviconUrl,
   websitePreviewLabel,
+  websitePreviewSource,
 } from "./onboarding-website";
 import "./onboarding.css";
 
@@ -78,26 +79,26 @@ export function OnboardingShell() {
     hasChangedStep.current = true;
   }, [stepIndex]);
 
-  const previewProjectLabel =
-    websiteDraft.trim().length > 0
-      ? websitePreviewLabel(websiteDraft, PLACEHOLDER_PROJECT_LABEL)
-      : (savedWebsiteName ?? PLACEHOLDER_PROJECT_LABEL);
+  const previewWebsiteSource = websitePreviewSource(websiteDraft, savedWebsiteName, stepIndex > 0);
+  const previewProjectLabel = websitePreviewLabel(previewWebsiteSource, PLACEHOLDER_PROJECT_LABEL);
+  const previewWebsite = readWebsiteUrl(previewWebsiteSource);
+  const expectedFaviconUrl = previewWebsite === null ? null : websiteFaviconUrl(previewWebsite);
+  // Do not wait for the effect below to clear an old icon. Effects run after
+  // paint, so deriving the visible value here guarantees that clearing or
+  // replacing the draft cannot flash a favicon from the previous website.
+  const visibleFaviconUrl = faviconUrl === expectedFaviconUrl ? faviconUrl : null;
 
   // Do not ask the Worker to fetch on every keystroke. A short quiet window is
   // enough to catch pasted URLs quickly while keeping normal typing to one
   // request. The API and browser cache handle repeated valid origins after it.
   useEffect(() => {
-    const faviconWebsite = readWebsiteUrl(
-      websiteDraft.trim().length > 0 ? websiteDraft : (savedWebsiteName ?? ""),
-    );
-    const nextFaviconUrl = faviconWebsite === null ? null : websiteFaviconUrl(faviconWebsite);
     setFaviconUrl((currentFaviconUrl) =>
-      currentFaviconUrl === nextFaviconUrl ? currentFaviconUrl : null,
+      currentFaviconUrl === expectedFaviconUrl ? currentFaviconUrl : null,
     );
-    if (nextFaviconUrl === null) return;
-    const timeout = window.setTimeout(() => setFaviconUrl(nextFaviconUrl), 250);
+    if (expectedFaviconUrl === null) return;
+    const timeout = window.setTimeout(() => setFaviconUrl(expectedFaviconUrl), 250);
     return () => window.clearTimeout(timeout);
-  }, [savedWebsiteName, websiteDraft]);
+  }, [expectedFaviconUrl]);
 
   // The camera only belongs on the switcher while the website is being named.
   // Submitting with the keyboard never blurs the field, so without this gate the
@@ -110,7 +111,7 @@ export function OnboardingShell() {
     () => ({
       act,
       direction,
-      faviconUrl,
+      faviconUrl: visibleFaviconUrl,
       isFirstPaint,
       isNamingProject: isCameraOnProject,
       isRecording,
@@ -128,7 +129,7 @@ export function OnboardingShell() {
     [
       act,
       direction,
-      faviconUrl,
+      visibleFaviconUrl,
       isFirstPaint,
       isCameraOnProject,
       isRecording,
