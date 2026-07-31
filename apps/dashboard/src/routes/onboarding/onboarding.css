@@ -110,11 +110,14 @@
    doing underneath, so the rim would flicker with the field behind it. The
    bloom stays translucent because a glow that is not is just a rectangle. */
 .onboarding-canvas[data-camera="project"] [aria-label="Project"] {
-  background: color-mix(in oklab, var(--surface-4) 88%, transparent);
+  /* Fully opaque, not the 88% this started as. The lattice sits directly behind
+     the switcher, so any transparency lets the shimmer show through the chip
+     and the label appears to sit on flickering dots instead of on a surface. */
+  background: var(--surface-4);
   color: var(--foreground);
   box-shadow:
-    inset 0 0 0 1px color-mix(in oklab, var(--amber) 55%, var(--surface-4)),
-    0 0 13px color-mix(in oklab, var(--amber) 38%, transparent),
+    inset 0 0 0 1px color-mix(in oklab, var(--amber) 72%, var(--surface-4)),
+    0 0 14px color-mix(in oklab, var(--amber) 50%, transparent),
     0 10px 28px oklch(0 0 0 / 0.22);
 }
 
