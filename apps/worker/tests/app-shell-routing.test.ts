@@ -52,9 +52,9 @@ describe("dashboard app shell routing", () => {
       "/projects",
       "/projects/p1/overview",
       "/onboarding",
-      "/onboarding/website",
-      "/onboarding/install",
-      "/onboarding/verify",
+      "/onboarding/project_1/website",
+      "/onboarding/project_1/install",
+      "/onboarding/project_1/verify",
     ]) {
       expect(isDashboardAppRoute(pathname), pathname).toBe(true);
     }

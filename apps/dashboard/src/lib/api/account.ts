@@ -3,6 +3,7 @@ import {
   decodeAuthConfigResponse,
   decodeCreatedProjectKeyResponse,
   decodeProjectKeyResponse,
+  decodeProjectCreateResponse,
   type AccountProject as SharedAccountProject,
   type AccountResponse as SharedAccountResponse,
   type AccountUser as SharedAccountUser,
@@ -10,6 +11,7 @@ import {
   type CreatedProjectKeyResponse as SharedCreatedProjectKeyResponse,
   type ProjectKeyAudit as SharedProjectKeyAudit,
   type ProjectKeysResponse as SharedProjectKeysResponse,
+  type ProjectCreateResponse as SharedProjectCreateResponse,
 } from "@orange-replay/shared";
 import type { DashboardProjectRole, ServerAuthMode } from "../dashboard-access";
 import { encodePathPart, requestJson } from "./client";
@@ -25,6 +27,7 @@ export type AccountResponse = SharedAccountResponse;
 export type ProjectKeyAudit = SharedProjectKeyAudit;
 export type ProjectKeysResponse = SharedProjectKeysResponse;
 export type CreatedProjectKeyResponse = SharedCreatedProjectKeyResponse;
+export type ProjectCreateResponse = SharedProjectCreateResponse;
 
 export interface AdminStatsResponse {
   users: number;
@@ -85,6 +88,15 @@ export async function bootstrapAccount(): Promise<AccountResponse> {
     decode: decodeAccountResponse,
     method: "POST",
     redirectOnAuthError: false,
+  });
+}
+
+export async function createProject(workspaceId: string): Promise<ProjectCreateResponse> {
+  return requestJson<ProjectCreateResponse>("/api/v1/projects", {
+    auth: true,
+    body: { workspaceId },
+    decode: decodeProjectCreateResponse,
+    method: "POST",
   });
 }
 

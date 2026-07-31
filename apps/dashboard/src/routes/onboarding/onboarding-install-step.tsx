@@ -8,7 +8,7 @@ import { IconSwap } from "@/components/ui/icon-swap";
 import { createProjectKey, fetchProjectKeys } from "@/lib/api";
 import { readDashboardAccessError } from "@/lib/dashboard-access";
 import { AlertCircle, Check, Code2, Copy, KeyRound } from "@/lib/icon-map";
-import { ONBOARDING_STEP_PATHS, useOnboarding } from "./onboarding-context";
+import { useOnboarding } from "./onboarding-context";
 import { OnboardingStage } from "./onboarding-stage";
 
 const RECORDER_KEY_NAME = "Website recorder";
@@ -118,7 +118,10 @@ export function OnboardingInstallPage() {
 
   function handleSubmit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
-    void navigate({ to: ONBOARDING_STEP_PATHS.verify });
+    void navigate({
+      to: "/onboarding/$projectId/verify",
+      params: { projectId },
+    });
   }
 
   return (

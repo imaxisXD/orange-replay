@@ -5,6 +5,7 @@ import {
   buildSessionHeadsUrl,
   buildSessionListUrl,
   buildStatsUrl,
+  createProject,
   createProjectKey,
   fetchAccount,
   fetchAdminStats,
@@ -252,6 +253,42 @@ describe("api client", () => {
       code: "invalid_response",
       message: "The server returned data in an unexpected format.",
     } satisfies Partial<ApiError>);
+  });
+
+  it("creates a project in the selected workspace and validates the response", async () => {
+    const created = {
+      project: { id: "project_two", name: "Default project", role: "owner" as const },
+      account: {
+        user: {
+          id: "user_one",
+          name: "Sunny",
+          email: "sunny@example.com",
+          emailVerified: true,
+          image: null,
+          role: "user",
+        },
+        workspaces: [
+          {
+            id: "workspace_one",
+            name: "Sunny's workspace",
+            slug: "sunny-workspace",
+            role: "owner" as const,
+            projects: [{ id: "project_one", name: "First project", role: "owner" as const }],
+          },
+        ],
+        activeWorkspaceId: "workspace_one",
+        isAdmin: false,
+      },
+    };
+    created.account.workspaces[0]?.projects.push(created.project);
+    fetchMock.mockResolvedValue(jsonResponse(created, 201));
+
+    await expect(createProject("workspace_one")).resolves.toEqual(created);
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/projects", {
+      body: JSON.stringify({ workspaceId: "workspace_one" }),
+      headers: expect.any(Headers),
+      method: "POST",
+    });
   });
 
   it("reports a clear invalid response when project key data is incomplete", async () => {

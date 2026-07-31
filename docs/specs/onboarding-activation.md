@@ -1,6 +1,7 @@
-# Activation (first-run onboarding)
+# Project activation (first-run and later projects)
 
-Routes: `/onboarding/website`, `/onboarding/install`, `/onboarding/verify`
+Routes: `/onboarding/:projectId/website`, `/onboarding/:projectId/install`,
+`/onboarding/:projectId/verify`
 
 Promoted from the approved local lab `/local-labs/onboarding`
 (`docs/specs/onboarding-reference-lab.md`, local-only). The lab stays on disk
@@ -14,6 +15,10 @@ node on the October canvas. The shell (`onboarding-shell.tsx`) owns everything
 that must survive a step change: the website draft, the recorder key minted
 this visit, the camera's focus, the progress rail, and the frame that tweens
 between screens of different heights.
+
+Every route carries the project id. The shell and its access guard resolve that
+exact project instead of selecting the first project in the account. This is
+what makes the same flow safe for both a new account and a later project.
 
 - `onboarding-shell.tsx` — layout route: split pane, rail, shared state
 - `onboarding-website-step.tsx` — step 1
@@ -73,7 +78,7 @@ unchanged origin keeps its current icon.
 
 | Step      | Request                                                                                      |
 | --------- | -------------------------------------------------------------------------------------------- |
-| 1 Website | `PATCH /api/v1/projects/:id` (name), then `PUT /api/v1/projects/:id/config` (allowedOrigins) |
+| 1 Website | `PUT /api/v1/projects/:id/config` (allowedOrigins), then `PATCH /api/v1/projects/:id` (name) |
 | 2 Install | `POST /api/v1/projects/:id/keys` — only when the project has no active key                   |
 | 3 Verify  | `GET /api/v1/projects/:id/install-status`, polled at the shared 3s interval                  |
 
@@ -124,8 +129,8 @@ routing.
 ## Entry and exit
 
 `openProjectsHome` asks `decideProjectsHome` for `check-activation`, reads
-`/install-status`, and routes to `/onboarding/website` only when it knows no
-event has ever arrived. Two rules keep the guard from stranding anyone:
+`/install-status`, and routes to `/onboarding/:projectId/website` only when it
+knows no event has ever arrived. Two rules keep the guard from stranding anyone:
 
 - **Only a manageable project is sent to activation.** Activation rejects a
   member-only project, so routing one there is an infinite redirect between
@@ -137,8 +142,23 @@ event has ever arrived. Two rules keep the guard from stranding anyone:
 
 `requireActivationAccess` applies the same manageability rule, so the two cannot
 disagree. An already-activated project is not bounced out: reaching step 3 and
-seeing the recorder connected is the flow's ending. Step 3's success opens
-`/projects/:id/overview`.
+seeing the recorder connected is the flow's ending. Step 3 holds that success
+state for 900ms and then opens `/projects/:id/overview` automatically; its
+button remains available to leave immediately.
+
+### Adding another project
+
+An owner or admin can choose **Add project** beside the project switcher. The
+dashboard sends `POST /api/v1/projects` with the active workspace id. The
+Worker checks that exact workspace membership, creates a project with the same
+safe defaults as account bootstrap (`allowed_origins = "[]"`, no recorder
+keys), and creates the empty analytics bootstrap receipt in the same D1 batch.
+The response contains the new project and refreshed account, so the dashboard
+updates its account cache before navigating to that project's website step.
+
+The action is hidden for members, the public demo, and the inert dashboard
+preview inside onboarding. It never reuses the first project's id, website,
+keys, or draft.
 
 ## Step 1 write ordering
 

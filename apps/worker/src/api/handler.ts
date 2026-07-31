@@ -153,6 +153,7 @@ async function handleAuthedRequest(
     }
     if (route.action === "account") return executors.account(rctx, auth);
     if (route.action === "favicon") return executors.favicon(rctx, auth);
+    if (route.action === "project_create") return executors.projectCreate(rctx, auth);
     return executors.accountBootstrap(rctx, auth);
   }
 

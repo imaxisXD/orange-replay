@@ -3,6 +3,7 @@ export {
   accountQueryKey,
   authConfigQueryKey,
   bootstrapAccount,
+  createProject,
   createProjectKey,
   fetchAccount,
   fetchAdminStats,
@@ -22,6 +23,7 @@ export type {
   AuthMode,
   CreatedProjectKeyResponse,
   ProjectKeyAudit,
+  ProjectCreateResponse,
   ProjectKeysResponse,
   WorkspaceRole,
 } from "./api/account";

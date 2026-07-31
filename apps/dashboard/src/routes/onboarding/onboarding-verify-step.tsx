@@ -42,8 +42,17 @@ export function OnboardingVerifyPage() {
   // right pane lives in the shell. This is the only place that knows an event
   // arrived, so it reports it up rather than animating the preview itself.
   useEffect(() => {
-    if (isConnected) setIsRecording(true);
-  }, [isConnected, setIsRecording]);
+    if (!isConnected) return;
+    setIsRecording(true);
+    const timeout = window.setTimeout(() => {
+      void navigate({
+        to: "/projects/$projectId/overview",
+        params: { projectId },
+        replace: true,
+      });
+    }, VERIFY.dashboardDelay);
+    return () => window.clearTimeout(timeout);
+  }, [isConnected, navigate, projectId, setIsRecording]);
   const statusError =
     statusQuery.error === null
       ? ""

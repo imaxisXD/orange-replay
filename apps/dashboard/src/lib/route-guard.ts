@@ -7,12 +7,12 @@ import {
   fetchInstallStatus,
 } from "./api";
 import {
-  accountProjects,
   canManageProject,
   currentDashboardScope,
   decideAdminRoute,
   decideProjectRoute,
   decideProjectsHome,
+  findAccountProject,
   type ProjectRouteDecision,
 } from "./dashboard-access";
 import { queryClient } from "./query";
@@ -65,7 +65,11 @@ export async function openProjectsHome(location: RouteLocation): Promise<void> {
     });
   }
   if (decision.action === "activate-project") {
-    throw redirect({ to: "/onboarding/website", replace: true });
+    throw redirect({
+      to: "/onboarding/$projectId/website",
+      params: { projectId: decision.projectId },
+      replace: true,
+    });
   }
   if (decision.action === "open-project") {
     throw redirect({
@@ -83,9 +87,12 @@ export async function openProjectsHome(location: RouteLocation): Promise<void> {
  * out: reaching the last step and seeing the recorder connected is the flow's
  * ending, and revisiting it is harmless.
  */
-export async function requireActivationAccess(location: RouteLocation): Promise<void> {
+export async function requireActivationAccess(
+  location: RouteLocation,
+  projectId: string,
+): Promise<void> {
   const account = await loadAccountOrRedirect(location);
-  const project = accountProjects(account)[0];
+  const project = findAccountProject(account, projectId);
   // Same manageability rule `decideProjectsHome` applies, so the two cannot
   // disagree and bounce a visitor between /projects and /onboarding forever.
   if (project === undefined || !canManageProject(project)) {

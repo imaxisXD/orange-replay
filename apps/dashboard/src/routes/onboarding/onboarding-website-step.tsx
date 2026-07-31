@@ -6,7 +6,7 @@ import { InputField, InputGroup } from "@/components/ui/input-group";
 import { accountQueryKey, fetchProjectConfig, renameProject, saveProjectConfig } from "@/lib/api";
 import { queryClient } from "@/lib/query";
 import { readDashboardAccessError } from "@/lib/dashboard-access";
-import { ONBOARDING_STEP_PATHS, useOnboarding } from "./onboarding-context";
+import { useOnboarding } from "./onboarding-context";
 import { TIMING } from "./onboarding-motion";
 import { OnboardingStage } from "./onboarding-stage";
 import {
@@ -116,7 +116,10 @@ export function OnboardingWebsitePage() {
       await queryClient.invalidateQueries({ queryKey: accountQueryKey });
     },
     onSuccess: () => {
-      void navigate({ to: ONBOARDING_STEP_PATHS.install });
+      void navigate({
+        to: "/onboarding/$projectId/install",
+        params: { projectId },
+      });
     },
   });
 

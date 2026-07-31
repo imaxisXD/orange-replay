@@ -58,6 +58,7 @@ function fakeExecutors() {
     liveProxy: vi.fn(async () => new Response("live")),
     account: vi.fn(async () => jsonResponse({ ok: true })),
     accountBootstrap: vi.fn(async () => jsonResponse({ ok: true })),
+    projectCreate: vi.fn(async () => jsonResponse({ ok: true }, 201)),
     favicon: vi.fn(async () => new Response("icon", { headers: { "content-type": "image/png" } })),
     adminStats: vi.fn(async () => jsonResponse({ ok: true })),
     adminUsers: vi.fn(async () => jsonResponse({ ok: true })),
@@ -163,6 +164,12 @@ describe("dashboard request plans", () => {
       routeName: "account_bootstrap",
       projectIdForAuth: null,
       route: { access: "session", action: "account_bootstrap", mutationOrigin: true },
+    });
+    expect(matchDashboardRequest("POST", "/api/v1/projects")).toEqual({
+      kind: "authed",
+      routeName: "project_create",
+      projectIdForAuth: null,
+      route: { access: "session", action: "project_create", mutationOrigin: true },
     });
     expect(matchDashboardRequest("GET", "/api/v1/favicon")).toEqual({
       kind: "authed",
@@ -426,6 +433,24 @@ describe("dashboard request plans", () => {
 });
 
 describe("dashboard request policy handler order", () => {
+  it("requires a signed-in session and trusted origin before creating a project", async () => {
+    const created = await apiRequest("/api/v1/projects", { method: "POST", body: "{}" });
+    expect(created.status).toBe(201);
+    expect(executors.projectCreate).toHaveBeenCalledOnce();
+
+    mocks.checkAuth.mockResolvedValue(demoAuth("demo_project"));
+    const demo = await apiRequest("/api/v1/projects", { method: "POST", body: "{}" });
+    expect(demo.status).toBe(401);
+    expect(executors.projectCreate).toHaveBeenCalledOnce();
+
+    mocks.checkAuth.mockResolvedValue(sessionAuth());
+    mocks.isTrustedMutationOrigin.mockReturnValue(false);
+    const untrusted = await apiRequest("/api/v1/projects", { method: "POST", body: "{}" });
+    expect(untrusted.status).toBe(403);
+    expect(await untrusted.json()).toEqual({ error: "untrusted_origin" });
+    expect(executors.projectCreate).toHaveBeenCalledOnce();
+  });
+
   it("requires a signed-in session before fetching a favicon", async () => {
     const response = await apiRequest("/api/v1/favicon?website=acme.com");
     expect(response.status).toBe(200);

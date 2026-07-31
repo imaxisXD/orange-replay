@@ -1,16 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { LazyMotion, domMax } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
-import { Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
+import { Outlet, useNavigate, useParams, useRouterState } from "@tanstack/react-router";
 import { BrandMark } from "@/components/brand-mark";
 import { Button } from "@/components/ui/button";
 import { accountQueryKey, fetchAccount } from "@/lib/api";
-import { accountProjects } from "@/lib/dashboard-access";
+import { findAccountProject } from "@/lib/dashboard-access";
 import { ArrowLeft } from "@/lib/icon-map";
 import { m, useReducedMotion } from "@/lib/motion";
 import {
   ONBOARDING_STEPS,
-  ONBOARDING_STEP_PATHS,
   OnboardingProvider,
   onboardingProgress,
   onboardingStepIndex,
@@ -41,6 +40,7 @@ const PLACEHOLDER_PROJECT_LABEL = "Your website";
 export function OnboardingShell() {
   const reduceMotion = useReducedMotion() === true;
   const navigate = useNavigate();
+  const { projectId } = useParams({ strict: false }) as { projectId: string };
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const stepIndex = onboardingStepIndex(pathname);
 
@@ -56,8 +56,7 @@ export function OnboardingShell() {
     staleTime: 30_000,
   });
   const account = accountQuery.data;
-  const project = account === undefined ? undefined : accountProjects(account)[0];
-  const projectId = project?.id ?? "";
+  const project = findAccountProject(account, projectId);
   const savedWebsiteName =
     project !== undefined && isWebsiteProjectName(project.name) ? project.name : null;
 
@@ -145,7 +144,11 @@ export function OnboardingShell() {
   function goBack(): void {
     const previousStep = ONBOARDING_STEPS[Math.max(0, stepIndex - 1)];
     if (previousStep === undefined) return;
-    void navigate({ to: ONBOARDING_STEP_PATHS[previousStep], replace: true });
+    void navigate({
+      to: `/onboarding/$projectId/${previousStep}`,
+      params: { projectId },
+      replace: true,
+    });
   }
 
   return (

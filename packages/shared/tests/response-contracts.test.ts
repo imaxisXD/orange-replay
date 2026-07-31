@@ -9,6 +9,9 @@ import {
   decodeSessionManifestResponse,
   decodeProjectKeysResponse,
   decodeProjectStatsResponse,
+  decodeProjectCreateResponse,
+  projectCreateRequestSchema,
+  projectCreateResponseSchema,
   projectKeysResponseSchema,
   projectStatsResponseSchema,
   sessionHeadSchema,
@@ -41,6 +44,30 @@ describe("resource response contracts", () => {
     );
     expect(decodeListSessionHeadsResponse(validListSessionHeadsResponse)).toEqual(
       validListSessionHeadsResponse,
+    );
+  });
+
+  it("validates project creation at both sides of the request boundary", () => {
+    expect(projectCreateRequestSchema.parse({ workspaceId: "workspace_contract" })).toEqual({
+      workspaceId: "workspace_contract",
+    });
+    for (const workspaceId of ["", " workspace_contract", "workspace/contract", "a".repeat(65)]) {
+      expect(projectCreateRequestSchema.safeParse({ workspaceId }).success, workspaceId).toBe(
+        false,
+      );
+    }
+    expect(
+      projectCreateRequestSchema.safeParse({ workspaceId: "workspace_1", extra: true }).success,
+    ).toBe(false);
+
+    const response = {
+      project: validAccountResponse.workspaces[0]?.projects[0],
+      account: validAccountResponse,
+    };
+    expect(projectCreateResponseSchema.safeParse(response).success).toBe(true);
+    expect(decodeProjectCreateResponse(response)).toEqual(response);
+    expect(projectCreateResponseSchema.safeParse({ account: validAccountResponse }).success).toBe(
+      false,
     );
   });
 

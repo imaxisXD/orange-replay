@@ -97,8 +97,7 @@ const localLabRoute = createRoute({
 const onboardingRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/onboarding",
-  beforeLoad: ({ location }) => requireActivationAccess(location),
-  component: OnboardingShell,
+  component: Outlet,
   errorComponent: RouteErrorBoundary,
 });
 
@@ -106,24 +105,43 @@ const onboardingIndexRoute = createRoute({
   getParentRoute: () => onboardingRoute,
   path: "/",
   beforeLoad: () => {
-    throw redirect({ to: "/onboarding/website", replace: true });
+    throw redirect({ to: "/projects", replace: true });
+  },
+});
+
+const onboardingProjectRoute = createRoute({
+  getParentRoute: () => onboardingRoute,
+  path: "$projectId",
+  beforeLoad: ({ location, params }) => requireActivationAccess(location, params.projectId),
+  component: OnboardingShell,
+});
+
+const onboardingProjectIndexRoute = createRoute({
+  getParentRoute: () => onboardingProjectRoute,
+  path: "/",
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: "/onboarding/$projectId/website",
+      params: { projectId: params.projectId },
+      replace: true,
+    });
   },
 });
 
 const onboardingWebsiteRoute = createRoute({
-  getParentRoute: () => onboardingRoute,
+  getParentRoute: () => onboardingProjectRoute,
   path: "website",
   component: OnboardingWebsitePage,
 });
 
 const onboardingInstallRoute = createRoute({
-  getParentRoute: () => onboardingRoute,
+  getParentRoute: () => onboardingProjectRoute,
   path: "install",
   component: OnboardingInstallPage,
 });
 
 const onboardingVerifyRoute = createRoute({
-  getParentRoute: () => onboardingRoute,
+  getParentRoute: () => onboardingProjectRoute,
   path: "verify",
   component: OnboardingVerifyPage,
 });
@@ -270,9 +288,12 @@ const routeTree = rootRoute.addChildren([
   adminRoute,
   onboardingRoute.addChildren([
     onboardingIndexRoute,
-    onboardingWebsiteRoute,
-    onboardingInstallRoute,
-    onboardingVerifyRoute,
+    onboardingProjectRoute.addChildren([
+      onboardingProjectIndexRoute,
+      onboardingWebsiteRoute,
+      onboardingInstallRoute,
+      onboardingVerifyRoute,
+    ]),
   ]),
   demoRoute.addChildren([
     demoIndexRoute,

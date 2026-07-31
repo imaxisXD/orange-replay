@@ -1,6 +1,6 @@
-import { accountResponseSchema } from "@orange-replay/shared";
+import { accountResponseSchema, projectCreateResponseSchema } from "@orange-replay/shared";
 import { describe, expect, it } from "vite-plus/test";
-import { setupApiTestWorkers, worker } from "./api-test-helpers.ts";
+import { authHeaders, setupApiTestWorkers, worker } from "./api-test-helpers.ts";
 
 setupApiTestWorkers();
 
@@ -14,6 +14,64 @@ interface AnalyticsBootstrapReceipt {
 }
 
 describe("hosted account bootstrap", () => {
+  it("adds another empty project to a workspace the user manages", async () => {
+    const accountResponse = await worker.fetch("/api/v1/account", { headers: authHeaders() });
+    expect(accountResponse.status).toBe(200);
+    const before = accountResponseSchema.parse(await accountResponse.json());
+    const workspace = before.workspaces.find(
+      (candidate) => candidate.id === before.activeWorkspaceId,
+    );
+    expect(workspace).toBeDefined();
+    if (workspace === undefined) throw new Error("The test workspace is missing.");
+
+    const response = await worker.fetch("/api/v1/projects", {
+      method: "POST",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({ workspaceId: workspace.id }),
+    });
+    expect(response.status).toBe(201);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    const created = projectCreateResponseSchema.parse(await response.json());
+    expect(created.project).toMatchObject({
+      id: expect.stringMatching(/^project_[0-9a-f-]{36}$/),
+      name: "Default project",
+      role: "owner",
+    });
+    expect(
+      created.account.workspaces.find((candidate) => candidate.id === workspace.id)?.projects,
+    ).toHaveLength(workspace.projects.length + 1);
+
+    const configResponse = await worker.fetch(`/api/v1/projects/${created.project.id}/config`, {
+      headers: authHeaders(),
+    });
+    expect(configResponse.status).toBe(200);
+    expect(await configResponse.json()).toMatchObject({ allowedOrigins: [], version: 1 });
+    expect(await readAnalyticsBootstrapReceipt(created.project.id)).toMatchObject({
+      projectId: created.project.id,
+      sourceSessionCount: 0,
+      requiredSequence: 0,
+      reportId: "new-project-bootstrap:hosted-account",
+    });
+  });
+
+  it("rejects invalid or unmanaged workspaces when adding a project", async () => {
+    const invalid = await worker.fetch("/api/v1/projects", {
+      method: "POST",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({ workspaceId: "not a workspace" }),
+    });
+    expect(invalid.status).toBe(400);
+    expect(await invalid.json()).toEqual({ error: "invalid_workspace" });
+
+    const forbidden = await worker.fetch("/api/v1/projects", {
+      method: "POST",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({ workspaceId: "workspace_someone_else" }),
+    });
+    expect(forbidden.status).toBe(403);
+    expect(await forbidden.json()).toEqual({ error: "forbidden" });
+  });
+
   it("creates one personal workspace and never claims an existing workspace", async () => {
     const body = {
       userId: "hosted_user_1",

@@ -349,6 +349,7 @@ export function cameraStop(isNaming: boolean): { scale: number; x: number; y: nu
 export const VERIFY = {
   checkBlur: 8, // px the check clears as it appears
   checkSpring: { type: "spring" as const, duration: TIMING.check / 1_000, bounce: 0 },
+  dashboardDelay: 900, // ms to read the connected state before opening Overview
   strokeSpring: { type: "spring" as const, duration: 0.42, bounce: 0 },
 } as const;
 

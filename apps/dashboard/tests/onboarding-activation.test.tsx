@@ -164,9 +164,9 @@ describe("activation website identity", () => {
 
 describe("activation step model", () => {
   it("maps each step path to its position in the flow", () => {
-    expect(onboardingStepIndex("/onboarding/website")).toBe(0);
-    expect(onboardingStepIndex("/onboarding/install/")).toBe(1);
-    expect(onboardingStepIndex("/onboarding/verify")).toBe(2);
+    expect(onboardingStepIndex(`/onboarding/${PROJECT_ID}/website`)).toBe(0);
+    expect(onboardingStepIndex(`/onboarding/${PROJECT_ID}/install/`)).toBe(1);
+    expect(onboardingStepIndex(`/onboarding/${PROJECT_ID}/verify`)).toBe(2);
     expect(onboardingStepIndex("/onboarding")).toBe(0);
     expect(ONBOARDING_STEPS).toHaveLength(3);
   });
@@ -334,7 +334,10 @@ describe("activation step 1: website", () => {
       apiMocks.renameProject.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
     );
     await vi.waitFor(() => {
-      expect(navigate).toHaveBeenCalledWith({ to: "/onboarding/install" });
+      expect(navigate).toHaveBeenCalledWith({
+        to: "/onboarding/$projectId/install",
+        params: { projectId: PROJECT_ID },
+      });
     });
   });
 
@@ -509,6 +512,29 @@ describe("activation step 3: verify", () => {
 
     await act(async () => {
       findButton("Open your dashboard").click();
+    });
+    expect(navigate).toHaveBeenCalledWith({
+      to: "/projects/$projectId/overview",
+      params: { projectId: PROJECT_ID },
+      replace: true,
+    });
+  });
+
+  it("opens the exact project automatically after the connected state is readable", async () => {
+    const setTimeoutSpy = vi.spyOn(window, "setTimeout");
+    apiMocks.fetchInstallStatus.mockResolvedValue({ firstEventAt: Date.now() - 2_000 });
+    await render(<OnboardingVerifyPage />);
+
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain("Recorder connected");
+    });
+    const redirectTimer = setTimeoutSpy.mock.calls.find(
+      ([, delay]) => delay === VERIFY.dashboardDelay,
+    );
+    expect(redirectTimer).toBeDefined();
+    await act(async () => {
+      const callback = redirectTimer?.[0];
+      if (typeof callback === "function") callback();
     });
     expect(navigate).toHaveBeenCalledWith({
       to: "/projects/$projectId/overview",

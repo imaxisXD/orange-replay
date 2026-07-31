@@ -41,6 +41,7 @@ describe("rendered top-nav date-range carry", () => {
     restoreProperty(window, "matchMedia", originalMatchMedia);
     document.body.replaceChildren();
     window.history.replaceState({}, "", "/");
+    vi.unstubAllGlobals();
   });
 
   it("shows demo tabs and carries only the window on every tab", async () => {
@@ -127,12 +128,48 @@ describe("rendered top-nav date-range carry", () => {
   });
 
   it("hides Settings/Install for a non-manager and still carries the window", async () => {
-    const { tabs, teardown } = await renderShell(
+    const { container, tabs, teardown } = await renderShell(
       `/projects/p-1/sessions${SEEDED_SEARCH}`,
       account("member"),
     );
     expect(tabs.map((tab) => tab.text)).toEqual(["Overview", "Sessions", "Live"]);
+    expect(container.textContent).not.toContain("Add project");
     for (const tab of tabs) assertCarriesWindowOnly(tab.href);
+    await teardown();
+  });
+
+  it("adds a project to the active workspace and opens its onboarding", async () => {
+    const before = account("owner");
+    const after = structuredClone(before);
+    const project = { id: "p-2", name: "Default project", role: "owner" as const };
+    after.workspaces[0]?.projects.push(project);
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ project, account: after }), {
+        status: 201,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { container, queryClient, router, teardown } = await renderShell(
+      "/projects/p-1/overview",
+      before,
+    );
+    const addProject = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Add project"),
+    );
+    expect(addProject).toBeDefined();
+    await act(async () => addProject?.click());
+
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith("/api/v1/projects", {
+        body: JSON.stringify({ workspaceId: "w-1" }),
+        headers: expect.any(Headers),
+        method: "POST",
+      });
+      expect(router.state.location.pathname).toBe("/onboarding/p-2/website");
+    });
+    expect(queryClient.getQueryData(accountQueryKey)).toEqual(after);
     await teardown();
   });
 });
@@ -164,8 +201,14 @@ async function renderShell(initialPath: string, accountData?: AccountResponse) {
     path: "/projects/$projectId",
     component: ProjectLayout,
   });
+  const onboardingWebsite = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/onboarding/$projectId/website",
+    component: () => <div data-testid="onboarding-website" />,
+  });
 
   const routeTree = rootRoute.addChildren([
+    onboardingWebsite,
     demoLayout.addChildren([
       leaf(demoLayout, "overview", validateSessionSearch),
       leaf(demoLayout, "sessions", validateSessionsViewSearch),
@@ -219,6 +262,8 @@ async function renderShell(initialPath: string, accountData?: AccountResponse) {
   return {
     container,
     main,
+    queryClient,
+    router,
     tabs,
     teardown: async () => {
       await act(async () => root.unmount());

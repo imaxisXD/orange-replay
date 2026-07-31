@@ -6,16 +6,10 @@ export const ONBOARDING_STEPS = ["website", "install", "verify"] as const;
 
 export type OnboardingStep = (typeof ONBOARDING_STEPS)[number];
 
-export const ONBOARDING_STEP_PATHS = {
-  website: "/onboarding/website",
-  install: "/onboarding/install",
-  verify: "/onboarding/verify",
-} as const satisfies Record<OnboardingStep, string>;
-
 /** Step index from a pathname, clamped to the first step when unrecognised. */
 export function onboardingStepIndex(pathname: string): number {
-  const normalized = pathname.replace(/\/+$/, "");
-  const index = ONBOARDING_STEPS.findIndex((step) => normalized === ONBOARDING_STEP_PATHS[step]);
+  const finalPathPart = pathname.replace(/\/+$/, "").split("/").at(-1);
+  const index = ONBOARDING_STEPS.findIndex((step) => step === finalPathPart);
   return index === -1 ? 0 : index;
 }
 

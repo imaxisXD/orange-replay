@@ -1,7 +1,7 @@
 import type { WideEventLogger } from "@orange-replay/shared";
 import { handleBetterAuthRequest } from "../auth/server.ts";
 import type { Env } from "../env.ts";
-import { bootstrapAccount, getAccount } from "./account-routes.ts";
+import { bootstrapAccount, createProject, getAccount } from "./account-routes.ts";
 import { getAdminStats, getAdminUsers } from "./admin-routes.ts";
 import { isSessionAuth, type ApiAuthContext, type SessionAuthContext } from "./auth.ts";
 import type {
@@ -58,6 +58,7 @@ export interface DashboardExecutors {
   liveProxy(rctx: DashboardRouteContext, ids: SessionIds): Promise<Response>;
   account(rctx: DashboardRouteContext, auth: SessionAuthContext): Promise<Response>;
   accountBootstrap(rctx: DashboardRouteContext, auth: SessionAuthContext): Promise<Response>;
+  projectCreate(rctx: DashboardRouteContext, auth: SessionAuthContext): Promise<Response>;
   favicon(rctx: DashboardRouteContext, auth: SessionAuthContext): Promise<Response>;
   adminStats(rctx: DashboardRouteContext): Promise<Response>;
   adminUsers(rctx: DashboardRouteContext): Promise<Response>;
@@ -76,6 +77,8 @@ export const DASHBOARD_EXECUTORS: DashboardExecutors = {
     proxyLiveSession(request, url, env, ids.projectId, ids.sessionId, requestId),
   account: ({ env }, auth) => getAccount(env, auth),
   accountBootstrap: ({ env }, auth) => bootstrapAccount(env, auth),
+  projectCreate: ({ request, env, wideEvent }, auth) =>
+    createProject(request, env, auth, wideEvent),
   favicon: ({ request, env, ctx, wideEvent }, auth) =>
     getFavicon(request, env, ctx, auth.hostedSession.user.id, wideEvent),
   adminStats: ({ env }) => getAdminStats(env),

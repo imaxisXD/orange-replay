@@ -10,6 +10,7 @@ export type DashboardRouteName =
   | "favicon"
   | "account"
   | "account_bootstrap"
+  | "project_create"
   | "admin_stats"
   | "admin_users"
   | "demo_discovery"
@@ -190,7 +191,7 @@ export type ExecutableProjectRoutePlan = Exclude<
 export type AuthedRoute =
   | { access: "authenticated"; action: "not_found" }
   | { access: "session"; action: "account" | "favicon"; mutationOrigin: false }
-  | { access: "session"; action: "account_bootstrap"; mutationOrigin: true }
+  | { access: "session"; action: "account_bootstrap" | "project_create"; mutationOrigin: true }
   | { access: "global_admin"; action: "admin_stats" | "admin_users" }
   | ProjectRoutePlan;
 
@@ -329,6 +330,16 @@ export function matchDashboardRequest(method: string, pathname: string): Dashboa
           mutationOrigin: true,
         })
       : unsupported(pathname, "account_bootstrap");
+  }
+
+  if (pathname === "/api/v1/projects") {
+    return method === "POST"
+      ? authed(pathname, "project_create", {
+          access: "session",
+          action: "project_create",
+          mutationOrigin: true,
+        })
+      : unsupported(pathname, "project_create");
   }
 
   if (pathname === "/api/v1/favicon") {
