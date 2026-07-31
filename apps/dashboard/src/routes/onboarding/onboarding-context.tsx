@@ -21,6 +21,10 @@ export function onboardingProgress(stepIndex: number): number {
 interface OnboardingState {
   /** Signed-in project being activated. */
   projectId: string;
+  /** Display name of the current Workspace once it has a user-facing name. */
+  workspaceName: string | null;
+  /** True only for the untouched Workspace created during first sign-in. */
+  isFirstWebsite: boolean;
   /** Raw text in the website field, kept while moving between steps. */
   websiteDraft: string;
   setWebsiteDraft: (value: string) => void;
@@ -29,7 +33,7 @@ interface OnboardingState {
   setWebsiteId: (value: string | null) => void;
   /** Project name already saved for this project, or null before activation. */
   savedWebsiteName: string | null;
-  /** Raw recorder key minted this visit. Also kept in this tab until connection. */
+  /** Internal installation key returned for this Website. Kept in this tab until connection. */
   recorderKey: string | null;
   setRecorderKey: (value: string | null) => void;
   /** True while the website field holds focus with something typed in it. */

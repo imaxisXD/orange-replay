@@ -12,9 +12,9 @@ for motion tuning; this is the shipped flow.
 One shell, three screens. Each screen is its own route file so it is
 deep-linkable, Back is ordinary browser history, and each shows up as its own
 node on the October canvas. The shell (`onboarding-shell.tsx`) owns everything
-that must survive a step change: the website draft, the recorder key minted
-this visit, the camera's focus, the progress rail, and the frame that tweens
-between screens of different heights.
+that must survive a step change: the website draft, its internal installation
+key, the camera's focus, the progress rail, and the frame that tweens between
+screens of different heights.
 
 Every route carries the project id. The shell and its access guard resolve that
 exact project instead of selecting the first project in the account. This is
@@ -30,6 +30,27 @@ Website inside an existing Workspace.
 - `onboarding-motion.ts` — the storyboard; every timing and value lives here
 - `onboarding-website.ts` — dashboard helpers around the shared website schema
 - `onboarding.css` — the three keyframe sequences and the preview canvas
+
+## User-facing contract
+
+Onboarding describes only what the person needs to do: add a Website, copy its
+installation script, and check the connection. Recorder keys remain an internal
+implementation detail and never appear in onboarding headings, support text,
+loading labels, success states, or recoverable errors.
+
+For the untouched Workspace created at first sign-in, step one says **Add your
+first website**. The first valid Website gives that Workspace its default
+hostname name. For an existing Workspace, step one names the destination, such
+as **Add a website to Noodle**, and explains that related subdomains remain in
+one visitor journey.
+
+Repeating an unfinished Website returns the same installation script. Repeating
+an already-connected Website does not silently redirect and does not create a
+replacement: the screen says that the Website is already connected, confirms
+that no new installation was created, and offers **Go to dashboard** or **Add
+another website**. A direct or refreshed install link confirms the Website in
+the background too, so a connection completed in another tab reaches that same
+state instead of showing stale setup.
 
 ## Website address and favicon contract
 
@@ -101,16 +122,20 @@ would leave step 3 waiting on an event the ingest path had already refused.
 The first Website replaces the old `Default project` label with its readable
 hostname. Adding later Websites does not rename the Workspace. The user can
 therefore treat the Workspace as the product name while each Website remains a
-separate recording source.
+separate recording source. The generated hostname is only the default; Settings
+can rename the Workspace to its product name, such as Noodle.
 
 ### Recorder keys
 
-Each Website has one active onboarding key. Step 1 creates it once. Repeating
-the request for the same normalized origin returns that Website and key instead
-of creating another, including requests from another tab. The raw value is
-encrypted server-side with `WEBSITE_KEY_WRAP_SECRET` only while setup is
-unfinished, so step 2 can recover the same snippet after a refresh or direct
-link. The browser also keeps a tab-scoped copy for the normal fast path.
+Recorder keys are the developer-side installation boundary; onboarding calls
+the result an installation script and hides the key itself. Each Website has
+one active onboarding key. Step 1 creates it once. Repeating the request for the
+same normalized origin returns that Website and key instead of creating
+another, including requests from another tab. The raw value is encrypted
+server-side with `WEBSITE_KEY_WRAP_SECRET` only while setup is unfinished, so
+step 2 can recover the same snippet after a refresh or direct link. The browser
+also keeps a tab-scoped copy for the normal fast path while confirming current
+Website status with the server once per mount.
 
 After the first accepted event for that Website, D1 stores its connection time
 and deletes the encrypted raw value. The key remains active for recording, but
@@ -169,7 +194,8 @@ updates its account cache before navigating to that project's website step.
 **Add website** opens the same onboarding flow for the current Workspace
 without creating a new Workspace. The Website API uses a unique
 `(project_id, origin)` row and a unique active Website-key index, so retries and
-parallel tabs cannot create duplicate Websites or recorder keys.
+parallel tabs cannot create duplicate Websites or recorder keys. The screen
+names the current Workspace so the person knows where the Website will appear.
 
 Both actions are hidden for members, the public demo, and the inert dashboard
 preview inside onboarding.
@@ -229,10 +255,10 @@ framer-motion rather than its CSS variables:
   and error-message fade; submit keeps the same immediate feedback.
 - favicon — a 250ms left-to-right slot entrance, followed by transitions.dev's
   skeleton reveal clearing a 2px blur over 400ms.
-- recorder key — page two first paints a one-pulse skeleton shaped like its
-  label, code card, and key note, then cross-fades and clears a 2px blur over
-  400ms when the key is ready. The skeleton and controls share one slot, so the
-  persistent form frame does not jump.
+- installation script — page two first paints a one-pulse skeleton shaped like
+  its label, code card, and Website note, then cross-fades and clears a 2px blur
+  over 400ms when setup is ready. The skeleton and controls share one slot, so
+  the persistent form frame does not jump.
 
 Reduced motion collapses every one of these: each component passes
 `initial={false}` and a zero-duration transition, and the three CSS keyframe

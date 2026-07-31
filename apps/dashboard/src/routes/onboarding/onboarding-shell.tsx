@@ -33,8 +33,8 @@ const PLACEHOLDER_PROJECT_LABEL = "Your website";
  * dashboard preview on the right, and the state the three steps share.
  *
  * Everything that must survive a step change lives here — the website draft,
- * the recorder key minted this visit, the camera's focus, and the frame that
- * owns the height tween between steps. The steps themselves are three separate
+ * its internal installation key, the camera's focus, and the frame that owns
+ * the height tween between steps. The steps themselves are three separate
  * routes rendered through the outlet.
  */
 export function OnboardingShell() {
@@ -64,6 +64,8 @@ export function OnboardingShell() {
   });
   const account = accountQuery.data;
   const project = findAccountProject(account, projectId);
+  const isFirstWebsite = project?.name === "Default project";
+  const workspaceName = project === undefined || isFirstWebsite ? null : project.name;
   const savedWebsiteName =
     project !== undefined && isWebsiteProjectName(project.name) ? project.name : null;
 
@@ -123,6 +125,7 @@ export function OnboardingShell() {
       direction,
       faviconUrl: visibleFaviconUrl,
       isFirstPaint,
+      isFirstWebsite,
       isNamingProject: isCameraOnProject,
       isRecording,
       previewProjectLabel,
@@ -136,6 +139,7 @@ export function OnboardingShell() {
       stepIndex,
       websiteDraft,
       websiteId,
+      workspaceName,
       setWebsiteId,
     }),
     [
@@ -143,6 +147,7 @@ export function OnboardingShell() {
       direction,
       visibleFaviconUrl,
       isFirstPaint,
+      isFirstWebsite,
       isCameraOnProject,
       isRecording,
       previewProjectLabel,
@@ -152,6 +157,7 @@ export function OnboardingShell() {
       stepIndex,
       websiteDraft,
       websiteId,
+      workspaceName,
     ],
   );
 

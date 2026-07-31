@@ -105,7 +105,7 @@ export function LoginPage() {
                   Sign in to your workspace
                 </h1>
                 <p className="mt-1 text-[13px] text-muted-foreground">
-                  Use GitHub to manage projects and recorder keys.
+                  Use GitHub to manage your Workspaces and Websites.
                 </p>
               </div>
               {shownError.length > 0 && (

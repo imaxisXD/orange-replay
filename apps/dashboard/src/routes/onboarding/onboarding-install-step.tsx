@@ -5,11 +5,18 @@ import { buildLoaderScriptTag } from "@orange-replay/sdk/loader";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { IconSwap } from "@/components/ui/icon-swap";
-import { ApiError, fetchProjectWebsiteSetup } from "@/lib/api";
+import type { ProjectWebsite } from "@orange-replay/shared";
+import { fetchProjectWebsiteSetup } from "@/lib/api";
 import { readDashboardAccessError } from "@/lib/dashboard-access";
-import { AlertCircle, Check, Code2, Copy, KeyRound } from "@/lib/icon-map";
+import { AlertCircle, Check, Code2, Copy, Global } from "@/lib/icon-map";
+import { OnboardingConnectedWebsite } from "./onboarding-connected-website";
 import { useOnboarding } from "./onboarding-context";
-import { readOnboardingRecorderKey, saveOnboardingRecorderKey } from "./onboarding-recorder-key";
+import {
+  clearOnboardingRecorderKey,
+  readOnboardingRecorderKey,
+  saveOnboardingRecorderKey,
+} from "./onboarding-recorder-key";
+import { readWebsiteSetupError } from "./onboarding-setup-error";
 import { OnboardingStage } from "./onboarding-stage";
 
 const COPIED_RESET_MS = 1_500;
@@ -17,15 +24,23 @@ const COPIED_RESET_MS = 1_500;
 /**
  * Step 2 of 3 — the loader snippet.
  *
- * Step one has already created or reused the Website key. This step only reads
- * that pending setup, so refreshes and parallel tabs cannot create extra keys.
+ * Step one has already created or reused the Website installation. This step
+ * only reads that setup, so refreshes and parallel tabs cannot create extras.
  */
 export function OnboardingInstallPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { projectId, recorderKey, setRecorderKey, setWebsiteDraft, websiteId } = useOnboarding();
+  const {
+    previewProjectLabel,
+    projectId,
+    recorderKey,
+    setRecorderKey,
+    setWebsiteDraft,
+    websiteId,
+  } = useOnboarding();
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState("");
+  const [connectedWebsite, setConnectedWebsite] = useState<ProjectWebsite | null>(null);
   const [showFullCode, setShowFullCode] = useState(false);
 
   const availableRecorderKey =
@@ -37,30 +52,26 @@ export function OnboardingInstallPage() {
       return fetchProjectWebsiteSetup(projectId, websiteId);
     },
     onSuccess: (created) => {
+      setWebsiteDraft(created.website.origin);
       if (created.alreadyConnected) {
-        void navigate({
-          to: "/projects/$projectId/overview",
-          params: { projectId },
-          replace: true,
-        });
+        if (websiteId !== null) clearOnboardingRecorderKey(projectId, websiteId);
+        setRecorderKey(null);
+        setConnectedWebsite(created.website);
         return;
       }
       if (created.secret === null || websiteId === null) return;
       saveOnboardingRecorderKey(projectId, websiteId, created.secret);
       setRecorderKey(created.secret);
-      setWebsiteDraft(created.website.origin);
       void queryClient.invalidateQueries({ queryKey: ["project-keys", projectId] });
     },
   });
 
-  // The ref makes this request once per mount. The Worker returns the same
-  // pending Website key, so a refresh or parallel tab never mints another one.
+  // Confirm the Website once per mount even when this tab already has its
+  // script. That lets another tab's successful connection replace stale setup
+  // with the clear already-connected state without creating anything new.
   const hasRequestedSetup = useRef(false);
   const shouldLoadWebsiteSetup =
-    websiteId !== null &&
-    availableRecorderKey === null &&
-    !hasRequestedSetup.current &&
-    !setupMutation.isError;
+    websiteId !== null && !hasRequestedSetup.current && !setupMutation.isError;
   const isPreparingKey =
     availableRecorderKey === null && (setupMutation.isPending || shouldLoadWebsiteSetup);
   const revealRef = useRef<HTMLDivElement>(null);
@@ -111,9 +122,24 @@ export function OnboardingInstallPage() {
   const keyError =
     websiteId === null
       ? "Go back and choose the Website you want to install."
-      : setupMutation.error === null
+      : setupMutation.error === null || availableRecorderKey !== null
         ? ""
-        : readRecorderKeyError(setupMutation.error);
+        : readWebsiteSetupError(setupMutation.error);
+
+  if (connectedWebsite !== null) {
+    return (
+      <OnboardingConnectedWebsite
+        onAddAnother={() =>
+          void navigate({
+            to: "/onboarding/$projectId/website",
+            params: { projectId },
+            replace: true,
+          })
+        }
+        website={connectedWebsite}
+      />
+    );
+  }
 
   async function copySnippet(): Promise<void> {
     if (snippet.length === 0) return;
@@ -139,7 +165,7 @@ export function OnboardingInstallPage() {
     <OnboardingStage
       action={
         <Button className="w-full" disabled={snippet.length === 0} size="lg" type="submit">
-          I added the snippet
+          Continue
         </Button>
       }
       body={
@@ -151,7 +177,7 @@ export function OnboardingInstallPage() {
         >
           <div
             aria-hidden={!isPreparingKey}
-            aria-label="Preparing your recorder key"
+            aria-label="Preparing your installation script"
             className="t-skel-skeleton is-pulsing flex flex-col gap-2"
             role="status"
           >
@@ -178,7 +204,7 @@ export function OnboardingInstallPage() {
           <div aria-hidden={isPreparingKey} className="t-skel-content" inert={isPreparingKey}>
             <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between">
-                <span className="text-[13px] font-medium text-foreground">Loader snippet</span>
+                <span className="text-[13px] font-medium text-foreground">Installation script</span>
                 {snippet.length > 0 && (
                   <Button
                     className="h-7 px-2 text-[12px]"
@@ -236,15 +262,15 @@ export function OnboardingInstallPage() {
                 </div>
               )}
 
-              {/* The key note uses items-start, not items-center: it wraps to two
+              {/* The Website note uses items-start, not items-center: it wraps to two
                   lines, and a centred icon would float between them instead of
                   leading the first. mt-px lands it on the first line's cap height. */}
               {snippet.length > 0 && (
                 <p className="flex items-start gap-2 text-[12px] leading-[17px] text-muted-foreground">
-                  <KeyRound aria-hidden className="mt-px shrink-0" size={15} strokeWidth={1.5} />
+                  <Global aria-hidden className="mt-px shrink-0" size={15} strokeWidth={1.5} />
                   <span>
-                    This Website has its own recorder key. Orange Replay keeps a recoverable,
-                    encrypted copy only until the first event arrives.
+                    Use this script on {previewProjectLabel}. Orange Replay handles the connection
+                    automatically.
                   </span>
                 </p>
               )}
@@ -252,7 +278,7 @@ export function OnboardingInstallPage() {
               {keyError.length > 0 && (
                 <Alert variant="destructive">
                   <AlertCircle aria-hidden />
-                  <AlertTitle>Could not prepare the recorder key</AlertTitle>
+                  <AlertTitle>Could not prepare the installation script</AlertTitle>
                   <AlertDescription>
                     <p>{keyError}</p>
                     <Button
@@ -278,7 +304,7 @@ export function OnboardingInstallPage() {
           </div>
         </div>
       }
-      heading="Install the recorder"
+      heading="Install Orange Replay"
       onSubmit={handleSubmit}
       support={
         <>
@@ -296,33 +322,12 @@ const SNIPPET_PLACEHOLDER = `<script>
 </script>`;
 
 const SNIPPET_SUMMARY = `<script>
-  /* Orange Replay loader: under 2 KB, async */
+  /* Orange Replay installation script */
 </script>`;
 
 function readRecorderOrigin(): string {
   if (typeof window === "undefined") return "";
   return window.location.origin;
-}
-
-function readRecorderKeyError(error: unknown): string {
-  if (error instanceof ApiError) {
-    if (error.code === "active_key_limit_reached") {
-      return "This project has reached its active recorder-key limit. Revoke an unused key in Settings, then try again.";
-    }
-    if (error.code === "key_history_limit_reached") {
-      return "This project has reached its recorder-key history limit. Try again later.";
-    }
-    if (error.code === "rate_limited") {
-      return "Too many recorder-key requests. Wait a minute, then try again.";
-    }
-    if (error.code === "key_cache_unavailable") {
-      return "Recorder-key storage is temporarily unavailable. Try again.";
-    }
-    if (error.code === "not_found") return "This project is no longer available.";
-    if (error.code === "network_error") return error.message;
-    return "Could not prepare the recorder key. Try again.";
-  }
-  return readDashboardAccessError(error, "Could not prepare the recorder key. Try again.");
 }
 
 export default OnboardingInstallPage;

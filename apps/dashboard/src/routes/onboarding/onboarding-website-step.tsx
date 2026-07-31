@@ -5,25 +5,26 @@ import { Button } from "@/components/ui/button";
 import { InputField, InputGroup } from "@/components/ui/input-group";
 import { accountQueryKey, ensureProjectWebsite } from "@/lib/api";
 import { queryClient } from "@/lib/query";
-import { readDashboardAccessError } from "@/lib/dashboard-access";
 import { useOnboarding } from "./onboarding-context";
 import { TIMING } from "./onboarding-motion";
+import { readWebsiteSetupError } from "./onboarding-setup-error";
 import { OnboardingStage } from "./onboarding-stage";
+import { OnboardingConnectedWebsite } from "./onboarding-connected-website";
 import { readWebsiteUrl, websiteFaviconUrl, websiteUrlError } from "./onboarding-website";
 import { WebsiteFavicon } from "./website-favicon";
-import { saveOnboardingRecorderKey } from "./onboarding-recorder-key";
+import { clearOnboardingRecorderKey, saveOnboardingRecorderKey } from "./onboarding-recorder-key";
 
 /**
  * Step 1 of 3 — the website being recorded.
  *
- * The Worker owns this boundary: it creates or reuses one Website and one
- * recorder key inside the current Workspace, then returns the recoverable key
- * needed by the next step.
+ * The Worker owns this boundary: it creates or reuses one Website installation
+ * inside the current Workspace, then returns the setup needed by the next step.
  */
 export function OnboardingWebsitePage() {
   const navigate = useNavigate();
   const {
     faviconUrl,
+    isFirstWebsite,
     previewProjectLabel,
     projectId,
     setIsNamingProject,
@@ -31,8 +32,12 @@ export function OnboardingWebsitePage() {
     setWebsiteId,
     setWebsiteDraft,
     websiteDraft,
+    workspaceName,
   } = useOnboarding();
   const [showError, setShowError] = useState(false);
+  const [connectedWebsite, setConnectedWebsite] = useState<
+    Awaited<ReturnType<typeof ensureProjectWebsite>>["website"] | null
+  >(null);
   const inputGroupRef = useRef<HTMLDivElement>(null);
   const shakeFrameRef = useRef<number | null>(null);
   const shakeEndRef = useRef<number | null>(null);
@@ -91,11 +96,11 @@ export function OnboardingWebsitePage() {
     mutationFn: (url: URL) => ensureProjectWebsite(projectId, url.href),
     onSuccess: (result) => {
       if (result.alreadyConnected || result.secret === null) {
-        void navigate({
-          to: "/projects/$projectId/overview",
-          params: { projectId },
-          replace: true,
-        });
+        clearOnboardingRecorderKey(projectId, result.website.id);
+        setRecorderKey(null);
+        setWebsiteDraft(result.website.origin);
+        setWebsiteId(result.website.id);
+        setConnectedWebsite(result.website);
         return;
       }
       saveOnboardingRecorderKey(projectId, result.website.id, result.secret);
@@ -123,7 +128,25 @@ export function OnboardingWebsitePage() {
   const requestError =
     activation.error === null
       ? ""
-      : readDashboardAccessError(activation.error, "Could not save your website. Try again.");
+      : readWebsiteSetupError(activation.error, "Could not add this website. Try again.");
+
+  if (connectedWebsite !== null) {
+    return (
+      <OnboardingConnectedWebsite
+        onAddAnother={() => setConnectedWebsite(null)}
+        website={connectedWebsite}
+      />
+    );
+  }
+
+  const heading = isFirstWebsite
+    ? "Add your first website"
+    : workspaceName === null
+      ? "Add your website"
+      : `Add a website to ${workspaceName}`;
+  const support = isFirstWebsite
+    ? "Enter the website where you want to start recording."
+    : "Add another website. Related subdomains stay together in one visitor journey.";
 
   return (
     <OnboardingStage
@@ -174,9 +197,9 @@ export function OnboardingWebsitePage() {
           />
         </InputGroup>
       }
-      heading="Add your website"
+      heading={heading}
       onSubmit={handleSubmit}
-      support="This adds one Website to your Workspace and prepares its own recorder key."
+      support={support}
     />
   );
 }

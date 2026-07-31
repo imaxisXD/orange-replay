@@ -27,7 +27,7 @@ export function OnboardingVerifyPage() {
   const statusQuery = useQuery({
     queryKey: ["website-install-status", projectId, websiteId],
     queryFn: () => {
-      if (websiteId === null) throw new Error("Choose a Website before checking its recorder.");
+      if (websiteId === null) throw new Error("Choose a Website before checking its connection.");
       return fetchProjectWebsiteInstallStatus(projectId, websiteId);
     },
     enabled: websiteId !== null,
@@ -86,7 +86,7 @@ export function OnboardingVerifyPage() {
           size="lg"
           type="submit"
         >
-          {isConnected ? "Open your dashboard" : "Check again"}
+          {isConnected ? "Go to dashboard" : "Check again"}
         </Button>
       }
       body={
@@ -97,21 +97,21 @@ export function OnboardingVerifyPage() {
           <VerifySignal isConnected={isConnected} />
           <div>
             <strong className="text-[13px] font-medium text-foreground">
-              {isConnected ? "Recorder connected" : "Waiting for the first event"}
+              {isConnected ? `${previewProjectLabel} is connected` : "Waiting for your website"}
             </strong>
             <p className="mt-1 text-[12px] leading-[17px] text-muted-foreground">
               {isConnected
-                ? `First event seen ${formatRelativeTime(firstEventAt)}.`
+                ? `Connected ${formatRelativeTime(firstEventAt)}.`
                 : statusError.length > 0
                   ? statusError
-                  : `Open ${previewProjectLabel} in another tab and click around.`}
+                  : `Open ${previewProjectLabel} in another tab and browse a page.`}
             </p>
           </div>
         </div>
       }
-      heading="Send your first recording"
+      heading="Check your connection"
       onSubmit={handleSubmit}
-      support="Visit your site once with the snippet in place. This updates the moment data arrives."
+      support="Open your website after adding the script. This page updates when Orange Replay connects."
     />
   );
 }
