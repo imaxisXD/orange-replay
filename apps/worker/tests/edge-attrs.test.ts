@@ -1,5 +1,59 @@
 import { describe, expect, it } from "vite-plus/test";
-import { attrsFromRequest } from "../src/ingest/edge-attrs.ts";
+import { attrsFromRequest, browserOriginIsAllowed } from "../src/ingest/edge-attrs.ts";
+
+describe("browser origin allowlist", () => {
+  const allowedOrigins = ["https://site.example"];
+
+  it("accepts an exact Origin header", () => {
+    const request = new Request("https://ingest.example/v1/config", {
+      headers: { origin: "https://site.example" },
+    });
+
+    expect(browserOriginIsAllowed(request, allowedOrigins)).toBe(true);
+  });
+
+  it("accepts a same-origin GET when the browser omits Origin", () => {
+    const request = new Request("https://site.example/v1/config", {
+      headers: {
+        referer: "https://site.example/",
+        "sec-fetch-site": "same-origin",
+      },
+    });
+
+    expect(browserOriginIsAllowed(request, allowedOrigins)).toBe(true);
+  });
+
+  it("accepts an exact referrer for an older GET client without Fetch Metadata", () => {
+    const request = new Request("https://site.example/v1/config", {
+      headers: { referer: "https://site.example/page" },
+    });
+
+    expect(browserOriginIsAllowed(request, allowedOrigins)).toBe(true);
+  });
+
+  it("rejects a browser-marked cross-site GET even with an allowed referrer", () => {
+    const request = new Request("https://site.example/v1/config", {
+      headers: {
+        referer: "https://site.example/",
+        "sec-fetch-site": "cross-site",
+      },
+    });
+
+    expect(browserOriginIsAllowed(request, allowedOrigins)).toBe(false);
+  });
+
+  it("rejects a POST without Origin even when Fetch Metadata says same-origin", () => {
+    const request = new Request("https://site.example/v1/ingest", {
+      method: "POST",
+      headers: {
+        referer: "https://site.example/",
+        "sec-fetch-site": "same-origin",
+      },
+    });
+
+    expect(browserOriginIsAllowed(request, allowedOrigins)).toBe(false);
+  });
+});
 
 describe("user-agent attributes", () => {
   it("separates Brave from Chrome using the browser brand hint", () => {
