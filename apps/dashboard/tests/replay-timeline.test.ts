@@ -19,18 +19,28 @@ describe("event sidebar rows", () => {
   it("maps displayable events and filters noisy types", () => {
     const rows = mapTimelineSidebarRows(
       [
-        { t: 1_000, k: "scroll" },
+        { t: 1_000, k: "scroll", m: { depth: 53.33 } },
         { t: 2_000, k: "click", d: "main > button.buy-now", m: { text: "Buy now" } },
         { t: 3_000, k: "error", d: "Checkout failed", m: { source: "console" } },
         { t: 4_000, k: "rage", m: { selector: ".quantity-stepper" } },
         { t: 5_000, k: "nav", d: "https://example.com/pricing?plan=pro" },
+        { t: 6_000, k: "vital", d: "navigation", m: { url: "/pricing" } },
       ],
       { startedAt: 1_000, durationMs: 8_000 },
     );
 
     expect(rows).toEqual([
       {
-        id: "click-2000-0",
+        id: "scroll-1000-0",
+        type: "scroll",
+        dot: "dim",
+        label: "Scrolled",
+        detail: "53% depth",
+        offsetMs: 0,
+        offsetLabel: "0:00",
+      },
+      {
+        id: "click-2000-1",
         type: "click",
         dot: "blue",
         label: "Clicked “Buy now”",
@@ -39,7 +49,7 @@ describe("event sidebar rows", () => {
         offsetLabel: "0:01",
       },
       {
-        id: "error-3000-1",
+        id: "error-3000-2",
         type: "error",
         dot: "danger",
         label: "Checkout failed",
@@ -48,7 +58,7 @@ describe("event sidebar rows", () => {
         offsetLabel: "0:02",
       },
       {
-        id: "rage-4000-2",
+        id: "rage-4000-3",
         type: "rage",
         dot: "amber",
         label: "Rage click",
@@ -57,7 +67,7 @@ describe("event sidebar rows", () => {
         offsetLabel: "0:03",
       },
       {
-        id: "nav-5000-3",
+        id: "nav-5000-4",
         type: "nav",
         dot: "teal",
         label: "→ /pricing?plan=pro",
@@ -65,6 +75,26 @@ describe("event sidebar rows", () => {
         offsetLabel: "0:04",
       },
     ]);
+  });
+
+  it("collapses an uninterrupted scroll run into one row with the deepest point", () => {
+    const rows = mapTimelineSidebarRows(
+      [
+        { t: 2_000, k: "scroll", m: { depth: 22 } },
+        { t: 4_000, k: "scroll", m: { depth: 84.6 } },
+        { t: 6_000, k: "scroll", m: { depth: 47 } },
+        { t: 7_000, k: "click", d: "button.next" },
+        { t: 8_000, k: "scroll", m: { depth: 12 } },
+      ],
+      { startedAt: 1_000, durationMs: 10_000 },
+    );
+
+    expect(rows.map((row) => ({ type: row.type, label: row.label, detail: row.detail }))).toEqual([
+      { type: "scroll", label: "Scrolled", detail: "85% depth" },
+      { type: "click", label: "Clicked", detail: "button.next" },
+      { type: "scroll", label: "Scrolled", detail: "12% depth" },
+    ]);
+    expect(rows[0]?.offsetMs).toBe(1_000);
   });
 
   it("relabels detected dead clicks without duplicating the click row", () => {

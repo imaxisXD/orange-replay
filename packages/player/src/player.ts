@@ -139,6 +139,7 @@ export class OrangePlayer {
     }
     if (this.isAtRecordedEnd(manifest, this.eventStore.events)) {
       this.currentMs = 0;
+      this.surface.resetCursorPosition();
       this.overlay.draw(0);
       this.emitProgress();
     }

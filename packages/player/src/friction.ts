@@ -65,6 +65,11 @@ export function detectDeadClicks(
       continue;
     }
 
+    // The result window is inclusive of the click's own millisecond. The
+    // sidecar stamps the click in the capture phase, before page handlers
+    // run, and rrweb's MutationObserver emits after them — so a synchronous
+    // handler's mutation regularly lands at exactly click.t and must count
+    // as a visible result.
     const resultWindowEnd = click.t + DEAD_CLICK_RESULT_WINDOW_MS;
     if (
       errorCursor.hasTimeInRange(click.t - DEAD_CLICK_ERROR_LOOKBACK_MS, resultWindowEnd) ||
@@ -153,10 +158,10 @@ class OrderedTimeRangeCursor {
 
   constructor(private readonly times: readonly number[]) {}
 
-  hasTimeInRange(startExclusive: number, endInclusive: number): boolean {
+  hasTimeInRange(startInclusive: number, endInclusive: number): boolean {
     while (
       this.index < this.times.length &&
-      (this.times[this.index] ?? Infinity) <= startExclusive
+      (this.times[this.index] ?? Infinity) < startInclusive
     ) {
       this.index += 1;
     }

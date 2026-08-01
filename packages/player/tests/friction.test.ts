@@ -73,10 +73,22 @@ describe("dead click detection", () => {
     ).toEqual([]);
   });
 
-  it("uses strict window edges", () => {
+  it("counts a same-millisecond mutation as the click's result", () => {
+    // Synchronous click handlers mutate the DOM in the click's own
+    // millisecond; treating the window start as exclusive flagged every
+    // instant-feedback click as dead.
     expect(
       detectDeadClicks(
         [mutation(1_000), event(2_000, EventType.Load)],
+        [{ t: 1_000, k: "click", d: "button" }],
+      ),
+    ).toEqual([]);
+  });
+
+  it("uses strict window edges", () => {
+    expect(
+      detectDeadClicks(
+        [mutation(999), event(2_000, EventType.Load)],
         [{ t: 1_000, k: "click", d: "button" }],
       ),
     ).toEqual([{ t: 1_000, detail: "button" }]);
