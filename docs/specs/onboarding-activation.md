@@ -1,6 +1,7 @@
-# Activation (first-run onboarding)
+# Website activation (first-run and later Websites)
 
-Routes: `/onboarding/website`, `/onboarding/install`, `/onboarding/verify`
+Routes: `/onboarding/:projectId/website`, `/onboarding/:projectId/install`,
+`/onboarding/:projectId/verify`
 
 Promoted from the approved local lab `/local-labs/onboarding`
 (`docs/specs/onboarding-reference-lab.md`, local-only). The lab stays on disk
@@ -11,9 +12,14 @@ for motion tuning; this is the shipped flow.
 One shell, three screens. Each screen is its own route file so it is
 deep-linkable, Back is ordinary browser history, and each shows up as its own
 node on the October canvas. The shell (`onboarding-shell.tsx`) owns everything
-that must survive a step change: the website draft, the recorder key minted
-this visit, the camera's focus, the progress rail, and the frame that tweens
-between screens of different heights.
+that must survive a step change: the website draft, its internal installation
+key, the camera's focus, the progress rail, and the frame that tweens between
+screens of different heights.
+
+Every route carries the project id. The shell and its access guard resolve that
+exact project instead of selecting the first project in the account. This is
+what makes the same flow safe for a new account, a later Workspace, and another
+Website inside an existing Workspace.
 
 - `onboarding-shell.tsx` — layout route: split pane, rail, shared state
 - `onboarding-website-step.tsx` — step 1
@@ -24,6 +30,27 @@ between screens of different heights.
 - `onboarding-motion.ts` — the storyboard; every timing and value lives here
 - `onboarding-website.ts` — dashboard helpers around the shared website schema
 - `onboarding.css` — the three keyframe sequences and the preview canvas
+
+## User-facing contract
+
+Onboarding describes only what the person needs to do: add a Website, copy its
+installation script, and check the connection. Recorder keys remain an internal
+implementation detail and never appear in onboarding headings, support text,
+loading labels, success states, or recoverable errors.
+
+For the untouched Workspace created at first sign-in, step one says **Add your
+first website**. The first valid Website gives that Workspace its default
+hostname name. For an existing Workspace, step one names the destination, such
+as **Add a website to Noodle**, and explains that related subdomains remain in
+one visitor journey.
+
+Repeating an unfinished Website returns the same installation script. Repeating
+an already-connected Website does not silently redirect and does not create a
+replacement: the screen says that the Website is already connected, confirms
+that no new installation was created, and offers **Go to dashboard** or **Add
+another website**. A direct or refreshed install link confirms the Website in
+the background too, so a connection completed in another tab reaches that same
+state instead of showing stale setup.
 
 ## Website address and favicon contract
 
@@ -36,7 +63,10 @@ Other schemes, credentials, whitespace, invalid hostnames, overlong values, and
 names that cannot fit the project name contract are rejected. The form maps
 those issues to its existing plain-English error instead of exposing schema
 messages. The repo already uses Zod, so this did not add Valibot or a second
-validation system.
+validation system. A non-empty invalid draft waits for one quiet second before
+showing that error and replaying the transitions.dev shake. Continue and Enter
+still validate immediately, and the error clears as soon as the visitor edits
+the address again.
 
 The authenticated `GET /api/v1/favicon?website=...` route uses that same schema.
 It reads a site's declared icon links, prefers scalable or larger icons, and
@@ -56,50 +86,63 @@ A per-user Cloudflare rate-limit binding applies only to cache misses. The 16px
 favicon in the field and the real project switcher share the same debounced URL.
 Before a valid source exists, the favicon has
 zero width and cancels the parent's gap, so the field never shows a dark
-placeholder dot or reserves empty space. A saved website may keep its identity
-in the preview, but it is not passed into an empty input; the input stays
-aligned until the visitor types. A valid source drives one integer
-through empty, loading, and revealed stages: the slot grows left-to-right while
-clearing a brief blur, then uses the requested skeleton-to-content reveal when
-the image finishes loading. A changed origin resets that sequence before paint;
-an unchanged origin keeps its current icon.
+placeholder dot or reserves empty space. On step one, the right-side preview
+mirrors only the live field: clearing the field immediately restores “Your
+website” and removes the old favicon instead of reviving the saved project
+identity. Steps two and three have no website field, so a direct visit may use
+the saved identity there. A valid source drives one integer through empty,
+loading, and revealed stages: the slot grows left-to-right while clearing a
+brief blur, then uses the requested skeleton-to-content reveal when the image
+finishes loading. A changed origin resets that sequence before paint; an
+unchanged origin keeps its current icon.
 
 ## What each step writes
 
 | Step      | Request                                                                                      |
 | --------- | -------------------------------------------------------------------------------------------- |
-| 1 Website | `PATCH /api/v1/projects/:id` (name), then `PUT /api/v1/projects/:id/config` (allowedOrigins) |
-| 2 Install | `POST /api/v1/projects/:id/keys` — only when the project has no active key                   |
-| 3 Verify  | `GET /api/v1/projects/:id/install-status`, polled at the shared 3s interval                  |
+| 1 Website | `PUT /api/v1/projects/:id/websites` — idempotently creates or reuses one Website and its key |
+| 2 Install | `GET /api/v1/projects/:id/websites/:websiteId` — restores the same unfinished setup          |
+| 3 Verify  | `GET /api/v1/projects/:id/websites/:websiteId/install-status`, polled every 3s               |
 
 ### Why step 1 is not cosmetic
 
-`bootstrapAccount` creates a project with `allowed_origins = "[]"`, and the
-ingest path treats an empty allowlist as "allow nothing"
-(`browserOriginIsAllowed`). A freshly bootstrapped project therefore cannot
-receive a single event until an origin is stored. Step 1 is what makes the
-project able to record.
+`bootstrapAccount` creates an internal project, shown as a Workspace, with
+`allowed_origins = "[]"`. The ingest path treats an empty allowlist as "allow
+nothing" (`browserOriginIsAllowed`). Step 1 creates a Website below that
+Workspace, stores its exact origin boundary, and gives that Website its own
+recorder key. It also adds those origins to the legacy Workspace-wide union so
+existing settings and older manual keys remain compatible.
 
 The allowlist gets both the typed origin and its `www` sibling. Ingest matches
 origins exactly and the same list drives the CORS response, so a one-entry list
 would leave step 3 waiting on an event the ingest path had already refused.
 
-### Why the project is renamed
+### Workspace naming
 
-`PATCH /api/v1/projects/:id` is a new route: manager-only, mutation-origin
-checked, body capped at 1 KB, name trimmed to 100 chars. The name is
-display-only — it feeds no key, no R2 path and no query — so a rename never
-bumps `config_version` or invalidates the recorder's cached config. A worker
-test asserts exactly that.
+The first Website replaces the old `Default project` label with its readable
+hostname. Adding later Websites does not rename the Workspace. The user can
+therefore treat the Workspace as the product name while each Website remains a
+separate recording source. The generated hostname is only the default; Settings
+can rename the Workspace to its product name, such as Noodle.
 
 ### Recorder keys
 
-A raw key is readable once, at creation. So step 2 mints the project's first
-key itself and holds it in memory for the visit. If the project already has an
-active key and the raw value is not in memory (a reload, or a returning
-visitor), the step asks before creating another rather than stacking up keys.
-The card summarises the loader by default and reveals the full text on request,
-matching the Install page; the copied text is always the real snippet.
+Recorder keys are the developer-side installation boundary; onboarding calls
+the result an installation script and hides the key itself. Each Website has
+one active onboarding key. Step 1 creates it once. Repeating the request for the
+same normalized origin returns that Website and key instead of creating
+another, including requests from another tab. The raw value is encrypted
+server-side with `WEBSITE_KEY_WRAP_SECRET` only while setup is unfinished, so
+step 2 can recover the same snippet after a refresh or direct link. The browser
+also keeps a tab-scoped copy for the normal fast path while confirming current
+Website status with the server once per mount.
+
+After the first accepted event for that Website, D1 stores its connection time
+and deletes the encrypted raw value. The key remains active for recording, but
+the dashboard can no longer read its secret. Returning to onboarding for a
+connected Website therefore never mints a replacement or reveals that key.
+The existing page-shaped skeleton covers the short setup fetch, then reveals
+the real snippet.
 
 ## Reachability
 
@@ -119,8 +162,8 @@ routing.
 ## Entry and exit
 
 `openProjectsHome` asks `decideProjectsHome` for `check-activation`, reads
-`/install-status`, and routes to `/onboarding/website` only when it knows no
-event has ever arrived. Two rules keep the guard from stranding anyone:
+`/install-status`, and routes to `/onboarding/:projectId/website` only when it
+knows no event has ever arrived. Two rules keep the guard from stranding anyone:
 
 - **Only a manageable project is sent to activation.** Activation rejects a
   member-only project, so routing one there is an infinite redirect between
@@ -131,19 +174,42 @@ event has ever arrived. Two rules keep the guard from stranding anyone:
   outage walk an owner into overwriting a working install.
 
 `requireActivationAccess` applies the same manageability rule, so the two cannot
-disagree. An already-activated project is not bounced out: reaching step 3 and
-seeing the recorder connected is the flow's ending. Step 3's success opens
-`/projects/:id/overview`.
+disagree. It deliberately allows an already-active Workspace to open
+onboarding because that is how an owner adds its second or later Website.
+Reaching step 3 and seeing this exact Website connect is the normal ending: the
+success state stays visible for 900ms and then opens
+`/projects/:id/overview` automatically; its button remains available to leave
+immediately.
 
-## Step 1 write ordering
+### Adding another Workspace or Website
 
-The two writes cannot be one transaction, so they are ordered by what a partial
-failure leaves behind. The allowlist write goes first, because it is what lets
-the project record at all; the rename is cosmetic. A failure between them leaves
-a project that works but is still called "Default project", recoverable by
-retrying (the retry re-reads the config, so `expectedVersion` is fresh). The
-other order left a project renamed to the visitor's website yet unable to ingest
-a single event, which is the state the flow exists to prevent.
+An owner or admin can choose **Add workspace** beside the Workspace switcher. The
+dashboard sends `POST /api/v1/projects` with the active workspace id. The
+Worker checks that exact workspace membership, creates a project with the same
+safe defaults as account bootstrap (`allowed_origins = "[]"`, no recorder
+keys), and creates the empty analytics bootstrap receipt in the same D1 batch.
+The response contains the new project and refreshed account, so the dashboard
+updates its account cache before navigating to that project's website step.
+
+**Add website** opens the same onboarding flow for the current Workspace
+without creating a new Workspace. The Website API uses a unique
+`(project_id, origin)` row and a unique active Website-key index, so retries and
+parallel tabs cannot create duplicate Websites or recorder keys. The screen
+names the current Workspace so the person knows where the Website will appear.
+
+Both actions are hidden for members, the public demo, and the inert dashboard
+preview inside onboarding.
+
+## Cross-subdomain journeys
+
+All Website keys inside one Workspace receive the same `sessionScope`. For
+HTTPS Websites, the Worker uses the public suffix list to derive the safe
+registrable cookie domain. `app.example.com` and `checkout.example.com`
+therefore share one Workspace session even if either subdomain is added first.
+Private suffixes such as `github.io` are handled as boundaries too. Localhost,
+IP addresses, HTTP Websites, and unrelated root domains keep host-only cookies.
+Recorder batches and the final session manifest keep every Website id observed
+in that journey.
 
 ## Motion
 
@@ -185,9 +251,14 @@ framer-motion rather than its CSS variables:
   against.
 - copy control — the shared `IconSwap`.
 - first event — a stroke-drawn check clearing an 8px blur.
-- invalid URL — transitions.dev's 280ms decaying shake and error-message fade.
+- invalid URL — after one quiet second, transitions.dev's 280ms decaying shake
+  and error-message fade; submit keeps the same immediate feedback.
 - favicon — a 250ms left-to-right slot entrance, followed by transitions.dev's
   skeleton reveal clearing a 2px blur over 400ms.
+- installation script — page two first paints a one-pulse skeleton shaped like
+  its label, code card, and Website note, then cross-fades and clears a 2px blur
+  over 400ms when setup is ready. The skeleton and controls share one slot, so
+  the persistent form frame does not jump.
 
 Reduced motion collapses every one of these: each component passes
 `initial={false}` and a zero-duration transition, and the three CSS keyframe
@@ -387,11 +458,13 @@ The favicon follow-up adds shared valid, invalid, trimmed, and boundary coverage
 in `packages/shared/tests/website-url.test.ts`; bounded fetch, redirect, image
 validation, fallback, cache, and rate-limit coverage in `apps/worker/tests/favicon.test.ts`;
 and signed-in-only routing coverage in `dashboard-request-policy.test.ts`.
-`onboarding-activation.test.tsx` also protects the bare-domain submit, inline
-error, shake trigger, favicon reveal, normalized API URL, and exact step-motion
-values. The NDLE regression adds a Next.js query-string icon, a multi-size
-Windows ICO served as `image/vnd.microsoft.icon`, the shared cache version, and
-proof that generated fallbacks use `no-store` and never call `cache.put`.
+`onboarding-activation.test.tsx` also protects the bare-domain submit, the
+one-second typed-validation delay, immediate submit error, corrected retry,
+shake trigger, page-shaped recorder-key skeleton and reveal, favicon reveal,
+normalized API URL, and exact step-motion values. The NDLE regression adds a
+Next.js query-string icon, a multi-size Windows ICO served as
+`image/vnd.microsoft.icon`, the shared cache version, and proof that generated
+fallbacks use `no-store` and never call `cache.put`.
 
 Visual proof came from real Chrome against the existing dev server on 8787 with
 `/api/v1/*` stubbed client-side; nothing was written to the local worker. Note

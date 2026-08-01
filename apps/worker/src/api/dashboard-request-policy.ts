@@ -10,6 +10,7 @@ export type DashboardRouteName =
   | "favicon"
   | "account"
   | "account_bootstrap"
+  | "project_create"
   | "admin_stats"
   | "admin_users"
   | "demo_discovery"
@@ -27,6 +28,8 @@ export type DashboardRouteName =
   | "public_page_settings"
   | "project_keys"
   | "project_key"
+  | "project_websites"
+  | "project_website_install_status"
   | "manifest"
   | "session_state"
   | "live_ticket"
@@ -47,6 +50,7 @@ export type DashboardProjectRouteName =
   | "public_page_write"
   | "install_status"
   | "project_keys"
+  | "project_websites"
   | "manifest"
   | "live_ticket"
   | "segment";
@@ -69,6 +73,7 @@ const PROJECT_ACCESS: Readonly<Record<DashboardProjectRouteName, DashboardProjec
   public_page_write: { demoReadable: false, minimumRole: "manager" },
   install_status: { demoReadable: false, minimumRole: "member" },
   project_keys: { demoReadable: false, minimumRole: "manager" },
+  project_websites: { demoReadable: false, minimumRole: "manager" },
   manifest: { demoReadable: true, minimumRole: "member" },
   live_ticket: { demoReadable: true, minimumRole: "member" },
   segment: { demoReadable: true, minimumRole: "member" },
@@ -89,6 +94,9 @@ export interface SegmentIds extends SessionIds {
 }
 export interface KeyIds extends ProjectIds {
   keyId: string;
+}
+export interface WebsiteIds extends ProjectIds {
+  websiteId: string;
 }
 
 /**
@@ -169,12 +177,18 @@ export type ProjectRoutePlan = ProjectRouteFlags &
           | "public_page_read"
           | "public_page_write"
           | "project_keys_read"
-          | "project_keys_create";
+          | "project_keys_create"
+          | "project_websites_list"
+          | "project_website_ensure";
         params: ProjectParams<ProjectIds>;
       }
     | { action: "project_config_method_not_allowed"; params: ProjectParams<ProjectIds> }
     | { action: "manifest" | "session_state" | "live_ticket"; params: ProjectParams<SessionIds> }
     | { action: "project_key_revoke"; params: ProjectParams<KeyIds> }
+    | {
+        action: "project_website_install_status" | "project_website_setup";
+        params: ProjectParams<WebsiteIds>;
+      }
     | { action: "segment"; params: ProjectParams<SegmentIds> }
   );
 
@@ -190,7 +204,7 @@ export type ExecutableProjectRoutePlan = Exclude<
 export type AuthedRoute =
   | { access: "authenticated"; action: "not_found" }
   | { access: "session"; action: "account" | "favicon"; mutationOrigin: false }
-  | { access: "session"; action: "account_bootstrap"; mutationOrigin: true }
+  | { access: "session"; action: "account_bootstrap" | "project_create"; mutationOrigin: true }
   | { access: "global_admin"; action: "admin_stats" | "admin_users" }
   | ProjectRoutePlan;
 
@@ -231,6 +245,10 @@ const INSTALL_STATUS_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/install-status$/;
 const PUBLIC_PAGE_SETTINGS_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/public-page$/;
 const PROJECT_KEYS_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/keys$/;
 const PROJECT_KEY_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/keys\/([^/]+)$/;
+const PROJECT_WEBSITES_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/websites$/;
+const PROJECT_WEBSITE_INSTALL_STATUS_PATTERN =
+  /^\/api\/v1\/projects\/([^/]+)\/websites\/([^/]+)\/install-status$/;
+const PROJECT_WEBSITE_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/websites\/([^/]+)$/;
 const MANIFEST_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/manifest$/;
 const SESSION_STATE_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/state$/;
 const LIVE_TICKET_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/live-ticket$/;
@@ -329,6 +347,16 @@ export function matchDashboardRequest(method: string, pathname: string): Dashboa
           mutationOrigin: true,
         })
       : unsupported(pathname, "account_bootstrap");
+  }
+
+  if (pathname === "/api/v1/projects") {
+    return method === "POST"
+      ? authed(pathname, "project_create", {
+          access: "session",
+          action: "project_create",
+          mutationOrigin: true,
+        })
+      : unsupported(pathname, "project_create");
   }
 
   if (pathname === "/api/v1/favicon") {
@@ -501,6 +529,56 @@ export function matchDashboardRequest(method: string, pathname: string): Dashboa
     return unsupported(pathname, "project_keys");
   }
 
+  match = PROJECT_WEBSITES_PATTERN.exec(pathname);
+  if (match !== null) {
+    if (method === "GET") {
+      return authed(pathname, "project_websites", {
+        ...PROJECT_DEFAULTS,
+        route: "project_websites",
+        sessionAuthRequired: true,
+        action: "project_websites_list",
+        params: projectParams(match[1] ?? null),
+      });
+    }
+    if (method === "PUT") {
+      return authed(pathname, "project_websites", {
+        ...PROJECT_DEFAULTS,
+        route: "project_websites",
+        sessionAuthRequired: true,
+        mutationOrigin: true,
+        action: "project_website_ensure",
+        params: projectParams(match[1] ?? null),
+      });
+    }
+    return unsupported(pathname, "project_websites");
+  }
+
+  match = PROJECT_WEBSITE_INSTALL_STATUS_PATTERN.exec(pathname);
+  if (match !== null) {
+    return method === "GET"
+      ? authed(pathname, "project_website_install_status", {
+          ...PROJECT_DEFAULTS,
+          route: "project_websites",
+          sessionAuthRequired: true,
+          action: "project_website_install_status",
+          params: websiteParams(match[1] ?? null, match[2] ?? null),
+        })
+      : unsupported(pathname, "project_website_install_status");
+  }
+
+  match = PROJECT_WEBSITE_PATTERN.exec(pathname);
+  if (match !== null) {
+    return method === "GET"
+      ? authed(pathname, "project_websites", {
+          ...PROJECT_DEFAULTS,
+          route: "project_websites",
+          sessionAuthRequired: true,
+          action: "project_website_setup",
+          params: websiteParams(match[1] ?? null, match[2] ?? null),
+        })
+      : unsupported(pathname, "project_websites");
+  }
+
   match = PROJECT_KEY_PATTERN.exec(pathname);
   if (match !== null) {
     return method === "DELETE"
@@ -608,6 +686,21 @@ function keyParams(projectId: string | null, keyId: string | null): ProjectParam
     return INVALID_PATH;
   }
   return { ok: true, ids: { projectId, keyId } };
+}
+
+function websiteParams(
+  projectId: string | null,
+  websiteId: string | null,
+): ProjectParams<WebsiteIds> {
+  if (
+    projectId === null ||
+    websiteId === null ||
+    !isValidPathId(projectId) ||
+    !isValidPathId(websiteId)
+  ) {
+    return INVALID_PATH;
+  }
+  return { ok: true, ids: { projectId, websiteId } };
 }
 
 function segmentParams(

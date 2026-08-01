@@ -4,6 +4,7 @@ import { isValidSessionId } from "@orange-replay/shared/session-id";
 import { uuidv7 } from "@orange-replay/shared/uuid";
 
 const SECURE_SESSION_COOKIE_PREFIX = "__Host-or_s_";
+const SHARED_SESSION_COOKIE_PREFIX = "__Secure-or_s_";
 
 // Keep the public SDK name, but use the same number as the server. One shared
 // value prevents the browser and Durable Object from silently drifting apart.
@@ -26,6 +27,8 @@ export interface SessionManagerOptions {
   storage?: StorageLike;
   document?: Pick<Document, "cookie">;
   cookieMode?: SessionCookieMode;
+  cookieDomain?: string;
+  hostname?: string;
   makeId?: () => string;
   broadcastChannel?: BroadcastChannelCtor;
   wait?: (ms: number) => Promise<void>;
@@ -48,6 +51,7 @@ export class SessionManager {
 
   readonly #storagePrefix: string;
   readonly #sessionCookie: string | undefined;
+  readonly #cookieDomain: string | undefined;
   readonly #now: () => number;
   readonly #storage?: StorageLike;
   readonly #document?: Pick<Document, "cookie">;
@@ -66,8 +70,8 @@ export class SessionManager {
     const projectScope = projectScopeForRef(options.projectRef);
     this.#storagePrefix = `or:${projectScope}:`;
     const cookieMode = options.cookieMode ?? "secure";
-    this.#sessionCookie =
-      cookieMode === "secure" ? `${SECURE_SESSION_COOKIE_PREFIX}${projectScope}` : undefined;
+    this.#cookieDomain = safeCookieDomain(options.cookieDomain, options.hostname);
+    this.#sessionCookie = sessionCookieNameForScope(projectScope, cookieMode, this.#cookieDomain);
     this.#now = options.now;
     this.#storage = options.storage ?? safeSessionStorage();
     this.#document = options.document ?? safeDocument();
@@ -294,9 +298,10 @@ export class SessionManager {
       return;
     }
 
+    const domain = this.#cookieDomain === undefined ? "" : `; Domain=${this.#cookieDomain}`;
     this.#document.cookie = `${sessionCookie}=${this.currentSessionId}; Path=/; Max-Age=${
       SESSION_IDLE_MS / 1_000
-    }; SameSite=Lax; Secure`;
+    }; SameSite=Lax; Secure${domain}`;
   }
 }
 
@@ -313,12 +318,18 @@ export function sessionStorageKeysForProject(projectRef: string): SessionStorage
 export function sessionCookieNameForProject(
   projectRef: string,
   mode: SessionCookieMode,
+  cookieDomain?: string,
 ): string | undefined {
-  return sessionCookieNameForScope(projectScopeForRef(projectRef), mode);
+  return sessionCookieNameForScope(projectScopeForRef(projectRef), mode, cookieDomain);
 }
 
-function sessionCookieNameForScope(scope: string, mode: SessionCookieMode): string | undefined {
-  return mode === "secure" ? `${SECURE_SESSION_COOKIE_PREFIX}${scope}` : undefined;
+function sessionCookieNameForScope(
+  scope: string,
+  mode: SessionCookieMode,
+  cookieDomain?: string,
+): string | undefined {
+  if (mode !== "secure") return undefined;
+  return `${cookieDomain === undefined ? SECURE_SESSION_COOKIE_PREFIX : SHARED_SESSION_COOKIE_PREFIX}${scope}`;
 }
 
 export function sessionCookieModeForLocation(
@@ -330,6 +341,19 @@ export function sessionCookieModeForLocation(
 function projectScopeForRef(projectRef: string): string {
   const hash = (value: string) => Math.floor(hashToUnit(value) * 0x1_0000_0000).toString(36);
   return `${hash(projectRef)}${hash(`scope:${projectRef}`)}`;
+}
+
+function safeCookieDomain(
+  domain: string | undefined,
+  hostname: string | undefined,
+): string | undefined {
+  if (domain === undefined || hostname === undefined) return undefined;
+  const cleanDomain = domain.toLowerCase().replace(/^\./, "").replace(/\.$/, "");
+  const cleanHostname = hostname.toLowerCase().replace(/\.$/, "");
+  if (!/^[a-z\d](?:[a-z\d.-]*[a-z\d])?$/i.test(cleanDomain)) return undefined;
+  return cleanHostname === cleanDomain || cleanHostname.endsWith(`.${cleanDomain}`)
+    ? cleanDomain
+    : undefined;
 }
 
 function safeSessionStorage(): StorageLike | undefined {

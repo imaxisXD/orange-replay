@@ -89,6 +89,7 @@ describe("ingest route", () => {
     expect(res.headers.get("cache-control")).toBe("no-store");
     expect(await res.json()).toEqual({
       projectId: config.projectId,
+      sessionScope: config.projectId,
       sampleRate: 0.25,
       maskPolicyVersion: 4,
       maskRules: [{ selector: ".private", action: "block" }],

@@ -24,6 +24,8 @@ import RefreshIcon from "@hugeicons/core-free-icons/RefreshIcon";
 import Search01Icon from "@hugeicons/core-free-icons/Search01Icon";
 import ArrowUpRight01Icon from "@hugeicons/core-free-icons/ArrowUpRight01Icon";
 import MouseLeftClick06Icon from "@hugeicons/core-free-icons/MouseLeftClick06Icon";
+import MouseScroll01Icon from "@hugeicons/core-free-icons/MouseScroll01Icon";
+import Tag01Icon from "@hugeicons/core-free-icons/Tag01Icon";
 import AngryIcon from "@hugeicons/core-free-icons/AngryIcon";
 import AndroidIcon from "@hugeicons/core-free-icons/AndroidIcon";
 import AppleFinderIcon from "@hugeicons/core-free-icons/AppleFinderIcon";
@@ -110,6 +112,8 @@ export function Linux({ size = 16, strokeWidth: _strokeWidth, ...props }: IconCo
 export const ArrowLeft = createHugeIcon(ArrowLeft01Icon);
 export const ArrowUpRight = createHugeIcon(ArrowUpRight01Icon);
 export const MousePointer = createHugeIcon(MouseLeftClick06Icon);
+export const MouseScroll = createHugeIcon(MouseScroll01Icon);
+export const Tag = createHugeIcon(Tag01Icon);
 export const Smartphone = createHugeIcon(SmartPhone01Icon);
 export const Check = createHugeIcon(CheckIcon);
 export const ChevronDown = createHugeIcon(ChevronDownIcon);

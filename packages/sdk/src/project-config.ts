@@ -52,6 +52,9 @@ export function mergeRecorderProjectConfig(
   return {
     ...localConfig,
     projectId: remoteConfig.projectId,
+    sessionScope: remoteConfig.sessionScope,
+    sessionCookieDomain: remoteConfig.sessionCookieDomain,
+    websiteId: remoteConfig.websiteId,
     sampleRate: Math.min(localConfig.sampleRate, remoteConfig.sampleRate),
     maskPolicyVersion: remoteConfig.maskPolicyVersion,
     capture: { ...remoteConfig.capture },
@@ -65,6 +68,9 @@ export function parseRecorderProjectConfig(value: unknown): RecorderProjectConfi
 
   const sampleRate = value["sampleRate"];
   const projectId = value["projectId"];
+  const sessionScope = value["sessionScope"];
+  const sessionCookieDomain = value["sessionCookieDomain"];
+  const websiteId = value["websiteId"];
   const maskPolicyVersion = value["maskPolicyVersion"];
   const version = value["version"];
   const maskRules = parseMaskRules(value["maskRules"]);
@@ -76,6 +82,14 @@ export function parseRecorderProjectConfig(value: unknown): RecorderProjectConfi
     sampleRate > 1 ||
     (projectId !== undefined &&
       (typeof projectId !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(projectId))) ||
+    (sessionScope !== undefined &&
+      (typeof sessionScope !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(sessionScope))) ||
+    (websiteId !== undefined &&
+      (typeof websiteId !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(websiteId))) ||
+    (sessionCookieDomain !== undefined &&
+      (typeof sessionCookieDomain !== "string" ||
+        sessionCookieDomain.length > 253 ||
+        !/^[a-z\d](?:[a-z\d.-]*[a-z\d])?$/i.test(sessionCookieDomain))) ||
     !isNonNegativeInteger(maskPolicyVersion) ||
     !isNonNegativeInteger(version) ||
     maskRules === null ||
@@ -86,6 +100,9 @@ export function parseRecorderProjectConfig(value: unknown): RecorderProjectConfi
 
   return {
     projectId,
+    sessionScope,
+    sessionCookieDomain,
+    websiteId,
     sampleRate,
     maskPolicyVersion,
     maskRules,

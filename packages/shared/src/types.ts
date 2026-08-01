@@ -97,6 +97,8 @@ export interface SessionManifest {
   sessionId: string;
   projectId: string;
   orgId: string;
+  /** Websites visited during this Workspace journey, in first-seen order. */
+  websiteIds?: string[];
   startedAt: number;
   endedAt: number;
   durationMs: number;
@@ -138,6 +140,12 @@ export interface ProjectConfig {
   retentionDays: number;
   jurisdiction?: ProjectJurisdiction;
   version?: number;
+  /** Stable parent domain used only to continue one Workspace journey across its subdomains. */
+  sessionCookieDomain?: string;
+  /** Website that owns the recorder key used for this request. Legacy/manual keys omit it. */
+  websiteId?: string;
+  /** True until this Website sends its first accepted batch. */
+  websitePending?: boolean;
 }
 
 export interface StoredProjectConfig extends ProjectConfig {
@@ -150,6 +158,12 @@ export interface StoredProjectConfig extends ProjectConfig {
 export interface RecorderProjectConfig {
   /** Stable public project id used to build dashboard session links. */
   projectId?: string;
+  /** Stable Workspace scope. Different Website keys in one Workspace receive the same value. */
+  sessionScope?: string;
+  /** Explicit cookie domain for related Websites, such as example.com and app.example.com. */
+  sessionCookieDomain?: string;
+  /** Website that owns this recorder key. */
+  websiteId?: string;
   sampleRate: number;
   maskPolicyVersion: number;
   maskRules: MaskRule[];

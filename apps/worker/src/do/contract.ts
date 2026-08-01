@@ -7,6 +7,7 @@ export interface AppendArgs {
   requestId: string;
   projectId: string;
   orgId: string;
+  websiteId?: string;
   shard: number;
   retentionDays: number;
   sessionId: string;

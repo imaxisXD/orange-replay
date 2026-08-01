@@ -5,14 +5,17 @@ import {
   bootstrapAccount,
   fetchAccount,
   fetchInstallStatus,
+  fetchProjectWebsites,
+  projectWebsitesQueryKey,
 } from "./api";
 import {
-  accountProjects,
   canManageProject,
   currentDashboardScope,
   decideAdminRoute,
   decideProjectRoute,
   decideProjectsHome,
+  decideWorkspaceStart,
+  findAccountProject,
   type ProjectRouteDecision,
 } from "./dashboard-access";
 import { queryClient } from "./query";
@@ -21,6 +24,7 @@ import { loginSearch } from "./routes";
 interface RouteLocation {
   href: string;
   pathname: string;
+  search?: unknown;
 }
 
 type Account = Awaited<ReturnType<typeof fetchAccount>>;
@@ -65,7 +69,7 @@ export async function openProjectsHome(location: RouteLocation): Promise<void> {
     });
   }
   if (decision.action === "activate-project") {
-    throw redirect({ to: "/onboarding/website", replace: true });
+    await openWorkspaceStart(decision.projectId);
   }
   if (decision.action === "open-project") {
     throw redirect({
@@ -78,18 +82,40 @@ export async function openProjectsHome(location: RouteLocation): Promise<void> {
 
 /**
  * Guards the activation flow. It needs a signed-in account with a project the
- * visitor can manage — activation writes the project name, its origin
- * allowlist, and a recorder key. Already-activated projects are not bounced
- * out: reaching the last step and seeing the recorder connected is the flow's
- * ending, and revisiting it is harmless.
+ * visitor can manage. An existing Workspace may already have recordings from
+ * another Website, so project-wide activity must not block this flow. The
+ * Website API is idempotent and owns duplicate-key protection.
  */
-export async function requireActivationAccess(location: RouteLocation): Promise<void> {
+export async function requireActivationAccess(
+  location: RouteLocation,
+  projectId: string,
+): Promise<void> {
   const account = await loadAccountOrRedirect(location);
-  const project = accountProjects(account)[0];
+  const project = findAccountProject(account, projectId);
   // Same manageability rule `decideProjectsHome` applies, so the two cannot
   // disagree and bounce a visitor between /projects and /onboarding forever.
   if (project === undefined || !canManageProject(project)) {
     throw redirect({ to: "/projects", replace: true });
+  }
+  if (!isWebsiteEntryPath(location.pathname, projectId)) return;
+
+  const websites = await loadProjectWebsites(projectId);
+  const editedWebsiteId = readWebsiteSearch(location);
+  if (
+    editedWebsiteId !== null &&
+    websites.some((website) => website.id === editedWebsiteId && website.firstEventAt === null)
+  ) {
+    return;
+  }
+
+  const start = decideWorkspaceStart(websites);
+  if (start.action === "resume-website") {
+    throw redirect({
+      to: "/onboarding/$projectId/install",
+      params: { projectId },
+      search: { website: start.websiteId },
+      replace: true,
+    });
   }
 }
 
@@ -98,10 +124,7 @@ export async function requireActivationAccess(location: RouteLocation): Promise<
  * itself failed.
  *
  * An unreachable presence registry must NOT be read as "not activated yet".
- * Activation's first step replaces the project's origin allowlist, so diverting
- * a project that is already live — because Presence happened to return 503 —
- * would let a routine outage walk an owner into overwriting a working install.
- * Uncertainty therefore means "leave them where they were going".
+ * Uncertainty means "leave them where they were going".
  */
 async function hasProjectFirstEvent(projectId: string): Promise<boolean | undefined> {
   try {
@@ -113,6 +136,56 @@ async function hasProjectFirstEvent(projectId: string): Promise<boolean | undefi
     return status.firstEventAt !== null;
   } catch {
     return undefined;
+  }
+}
+
+async function openWorkspaceStart(projectId: string): Promise<never> {
+  const start = decideWorkspaceStart(await loadProjectWebsites(projectId));
+  if (start.action === "open-project") {
+    throw redirect({
+      to: "/projects/$projectId/overview",
+      params: { projectId },
+      replace: true,
+    });
+  }
+  if (start.action === "resume-website") {
+    throw redirect({
+      to: "/onboarding/$projectId/install",
+      params: { projectId },
+      search: { website: start.websiteId },
+      replace: true,
+    });
+  }
+  throw redirect({
+    to: "/onboarding/$projectId/website",
+    params: { projectId },
+    replace: true,
+  });
+}
+
+async function loadProjectWebsites(projectId: string) {
+  const response = await queryClient.ensureQueryData({
+    queryKey: projectWebsitesQueryKey(projectId),
+    queryFn: () => fetchProjectWebsites(projectId),
+    staleTime: 30_000,
+  });
+  return response.websites;
+}
+
+function isWebsiteEntryPath(pathname: string, projectId: string): boolean {
+  return pathname.replace(/\/+$/, "") === `/onboarding/${projectId}/website`;
+}
+
+function readWebsiteSearch(location: RouteLocation): string | null {
+  if (typeof location.search === "object" && location.search !== null) {
+    const value = (location.search as Record<string, unknown>)["website"];
+    if (typeof value === "string" && /^[A-Za-z0-9_-]{1,100}$/.test(value)) return value;
+  }
+  try {
+    const value = new URL(location.href, "http://orange-replay.local").searchParams.get("website");
+    return value !== null && /^[A-Za-z0-9_-]{1,100}$/.test(value) ? value : null;
+  } catch {
+    return null;
   }
 }
 

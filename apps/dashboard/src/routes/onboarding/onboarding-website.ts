@@ -2,6 +2,7 @@ import {
   FAVICON_API_VERSION,
   PROJECT_NAME_MAX_CHARS,
   WEBSITE_URL_ISSUE,
+  websiteAllowedOrigins,
   websiteNameFromUrl,
   websiteUrlSchema,
 } from "@orange-replay/shared";
@@ -60,6 +61,20 @@ export function websitePreviewLabel(value: string, fallback: string): string {
 }
 
 /**
+ * Website identity the preview should follow. Step one mirrors only the live
+ * field, so clearing it cannot revive a previously saved name or favicon.
+ * Later steps have no website field and may use the saved project identity.
+ */
+export function websitePreviewSource(
+  websiteDraft: string,
+  savedWebsiteName: string | null,
+  allowSavedWebsite: boolean,
+): string {
+  if (websiteDraft.trim().length > 0) return websiteDraft;
+  return allowSavedWebsite ? (savedWebsiteName ?? "") : "";
+}
+
+/**
  * The ingest allowlist a website URL earns. Both the typed origin and its
  * www sibling are allowed: the recorder is rejected on an exact origin match,
  * and a site reached at one spelling routinely serves pages from the other. A
@@ -67,13 +82,7 @@ export function websitePreviewLabel(value: string, fallback: string): string {
  * path had already refused.
  */
 export function activationAllowedOrigins(url: URL): string[] {
-  const origins = [url.origin];
-  const sibling = new URL(url.origin);
-  sibling.hostname = /^www\./i.test(url.hostname)
-    ? url.hostname.replace(/^www\./i, "")
-    : `www.${url.hostname}`;
-  if (sibling.origin !== url.origin) origins.push(sibling.origin);
-  return origins;
+  return websiteAllowedOrigins(url);
 }
 
 /** True when a stored project name already looks like an activated website. */

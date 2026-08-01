@@ -16,6 +16,7 @@
     "./logger": "./src/logger.ts",
     "./privacy-selector": "./src/privacy-selector.ts",
     "./project-config-update": "./src/project-config-update.ts",
+    "./project-website-contract": "./src/project-website-contract.ts",
     "./project-key-contract": "./src/project-key-contract.ts",
     "./rage": "./src/rage.ts",
     "./sampling": "./src/sampling.ts",

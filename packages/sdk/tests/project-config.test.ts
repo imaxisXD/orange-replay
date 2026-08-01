@@ -23,6 +23,9 @@ const localConfig: RecorderConfig = {
 
 const remoteConfig = {
   projectId: "project_123",
+  sessionScope: "project_123",
+  sessionCookieDomain: "example.com",
+  websiteId: "website_landing",
   sampleRate: 0.5,
   maskPolicyVersion: 3,
   maskRules: [
@@ -37,6 +40,9 @@ describe("recorder project config", () => {
   it("merges dashboard sampling, masking, and capture settings", () => {
     expect(mergeRecorderProjectConfig(localConfig, remoteConfig, document)).toMatchObject({
       projectId: "project_123",
+      sessionScope: "project_123",
+      sessionCookieDomain: "example.com",
+      websiteId: "website_landing",
       sampleRate: 0.5,
       maskPolicyVersion: 3,
       maskTextSelector: ".local-mask, .remote-mask",
@@ -121,12 +127,30 @@ describe("recorder project config", () => {
   });
 
   it("accepts an older config response without a project id", () => {
-    const { projectId: _projectId, ...olderConfig } = remoteConfig;
+    const {
+      projectId: _projectId,
+      sessionScope: _sessionScope,
+      sessionCookieDomain: _sessionCookieDomain,
+      websiteId: _websiteId,
+      ...olderConfig
+    } = remoteConfig;
 
     expect(parseRecorderProjectConfig(olderConfig)).toEqual({
       ...olderConfig,
       projectId: undefined,
+      sessionScope: undefined,
+      sessionCookieDomain: undefined,
+      websiteId: undefined,
     });
+  });
+
+  it("rejects a cookie domain that could inject cookie attributes", () => {
+    expect(
+      parseRecorderProjectConfig({
+        ...remoteConfig,
+        sessionCookieDomain: "example.com; SameSite=None",
+      }),
+    ).toBeNull();
   });
 
   it("rejects a project id that cannot be used in a session path", () => {

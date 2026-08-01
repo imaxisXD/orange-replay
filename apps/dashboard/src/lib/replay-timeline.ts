@@ -1,12 +1,19 @@
 import type { IndexEvent } from "@orange-replay/shared/types";
 import type { DeadClick } from "@orange-replay/player";
 
-const displayableKinds = new Set<SidebarEventKind>(["click", "error", "rage", "nav"]);
+const displayableKinds = new Set<SidebarEventKind>([
+  "click",
+  "error",
+  "rage",
+  "nav",
+  "scroll",
+  "custom",
+]);
 
 export type SidebarEventKind =
-  | Extract<IndexEvent["k"], "click" | "error" | "rage" | "nav">
+  | Extract<IndexEvent["k"], "click" | "error" | "rage" | "nav" | "scroll" | "custom">
   | "dead-click";
-export type TimelineDot = "blue" | "danger" | "amber" | "teal" | "hollow";
+export type TimelineDot = "blue" | "danger" | "amber" | "teal" | "hollow" | "dim" | "success";
 
 export interface TimelineSidebarOptions {
   startedAt: number;
@@ -62,38 +69,83 @@ export function mapTimelineSidebarRows(
 ): TimelineSidebarRow[] {
   const durationMs = Math.max(0, Math.floor(options.durationMs));
   const deadClickByTime = new Map(deadClicks.map((click) => [click.t, click]));
-
-  return events
-    .filter((event): event is IndexEvent & { k: "click" | "error" | "rage" | "nav" } =>
-      displayableKinds.has(event.k as "click" | "error" | "rage" | "nav"),
+  const displayable = events
+    .filter((event): event is IndexEvent & { k: Exclude<SidebarEventKind, "dead-click"> } =>
+      displayableKinds.has(event.k as SidebarEventKind),
     )
-    .toSorted((left, right) => left.t - right.t)
-    .map((event, index) => {
-      const offsetMs = clamp(event.t - options.startedAt, 0, durationMs);
-      const deadClick = event.k === "click" ? deadClickByTime.get(event.t) : undefined;
-      if (deadClick !== undefined) {
-        return {
-          id: `dead-click-${event.t}-${index}`,
-          type: "dead-click" as const,
-          dot: "hollow" as const,
-          label: "Dead click",
-          detail: shortSelector(deadClick.detail),
-          offsetMs,
-          offsetLabel: formatOffsetTime(offsetMs),
-        };
-      }
-      const content = eventRowContent(event);
+    .toSorted((left, right) => left.t - right.t);
+  const rows: TimelineSidebarRow[] = [];
 
-      return {
-        id: `${event.k}-${event.t}-${index}`,
-        type: event.k,
-        dot: dotForEvent(event.k),
-        label: content.label,
-        ...(content.detail !== undefined ? { detail: content.detail } : {}),
+  for (let index = 0; index < displayable.length; index += 1) {
+    const event = displayable[index];
+    if (event === undefined) {
+      continue;
+    }
+
+    const offsetMs = clamp(event.t - options.startedAt, 0, durationMs);
+
+    if (event.k === "scroll") {
+      // An uninterrupted run of scroll events is one reading gesture, not a
+      // list of moments — collapse it into a single row so scrolling never
+      // drowns out clicks and errors. The SDK throttles scrolls to one per
+      // 2s, so the deepest point of the run is the fact worth surfacing.
+      let deepestDepth = scrollDepth(event);
+      while (displayable[index + 1]?.k === "scroll") {
+        index += 1;
+        const nextDepth = scrollDepth(displayable[index]);
+        if (nextDepth !== undefined && (deepestDepth === undefined || nextDepth > deepestDepth)) {
+          deepestDepth = nextDepth;
+        }
+      }
+
+      rows.push({
+        id: `scroll-${event.t}-${rows.length}`,
+        type: "scroll",
+        dot: "dim",
+        label: "Scrolled",
+        ...(deepestDepth === undefined ? {} : { detail: `${deepestDepth}% depth` }),
         offsetMs,
         offsetLabel: formatOffsetTime(offsetMs),
-      };
+      });
+      continue;
+    }
+
+    const deadClick = event.k === "click" ? deadClickByTime.get(event.t) : undefined;
+    if (deadClick !== undefined) {
+      rows.push({
+        id: `dead-click-${event.t}-${rows.length}`,
+        type: "dead-click",
+        dot: "hollow",
+        label: "Dead click",
+        detail: shortSelector(deadClick.detail),
+        offsetMs,
+        offsetLabel: formatOffsetTime(offsetMs),
+      });
+      continue;
+    }
+
+    const content = eventRowContent(event);
+    rows.push({
+      id: `${event.k}-${event.t}-${rows.length}`,
+      type: event.k,
+      dot: dotForEvent(event.k),
+      label: content.label,
+      ...(content.detail !== undefined ? { detail: content.detail } : {}),
+      offsetMs,
+      offsetLabel: formatOffsetTime(offsetMs),
     });
+  }
+
+  return rows;
+}
+
+function scrollDepth(event: IndexEvent | undefined): number | undefined {
+  const depth = event?.m?.["depth"];
+  if (typeof depth !== "number" || !Number.isFinite(depth)) {
+    return undefined;
+  }
+
+  return Math.round(clamp(depth, 0, 100));
 }
 
 export function buildJourneyBreadcrumbs(
@@ -230,6 +282,17 @@ function eventRowContent(event: IndexEvent & { k: SidebarEventKind }): {
     };
   }
 
+  if (event.k === "custom") {
+    // The developer-chosen event name is the headline; its metadata is
+    // supporting detail, same shape as a click's selector line.
+    const name = event.d?.trim();
+    const detail = customMetaSummary(event);
+    return {
+      label: name === undefined || name.length === 0 ? "Custom event" : truncateText(name, 56),
+      ...(detail !== undefined ? { detail } : {}),
+    };
+  }
+
   const target = event.d ?? firstMetaText(event, ["url", "href", "to", "path"]) ?? "/";
   const detail = firstMetaText(event, ["title", "from", "referrer"]);
   return {
@@ -242,7 +305,25 @@ function dotForEvent(kind: SidebarEventKind): TimelineDot {
   if (kind === "click") return "blue";
   if (kind === "error") return "danger";
   if (kind === "rage") return "amber";
+  if (kind === "custom") return "success";
   return "teal";
+}
+
+function customMetaSummary(event: IndexEvent): string | undefined {
+  const entries = Object.entries(event.m ?? {})
+    .filter(
+      ([key, value]) =>
+        key.trim().length > 0 &&
+        (typeof value === "number" || (typeof value === "string" && value.trim().length > 0)),
+    )
+    .slice(0, 2)
+    .map(([key, value]) => `${key.trim()}: ${String(value).trim()}`);
+
+  if (entries.length === 0) {
+    return undefined;
+  }
+
+  return truncateText(entries.join(" · "), 42);
 }
 
 function firstMetaText(event: IndexEvent, keys: readonly string[]): string | undefined {

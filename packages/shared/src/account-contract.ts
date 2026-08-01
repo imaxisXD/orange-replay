@@ -37,6 +37,17 @@ export const accountResponseSchema = z.object({
   isAdmin: z.boolean(),
 });
 
+export const projectCreateRequestSchema = z
+  .object({
+    workspaceId: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
+  })
+  .strict();
+
+export const projectCreateResponseSchema = z.object({
+  project: accountProjectSchema,
+  account: accountResponseSchema,
+});
+
 const optionalAdminWholeNumber = (fallback: number, min: number, max: number, message: string) =>
   z.preprocess(
     (value) => {
@@ -72,6 +83,8 @@ export type AccountUser = z.output<typeof accountUserSchema>;
 export type AccountProject = z.output<typeof accountProjectSchema>;
 export type AccountWorkspace = z.output<typeof accountWorkspaceSchema>;
 export type AccountResponse = z.output<typeof accountResponseSchema>;
+export type ProjectCreateRequest = z.output<typeof projectCreateRequestSchema>;
+export type ProjectCreateResponse = z.output<typeof projectCreateResponseSchema>;
 
 export function decodeAuthConfigResponse(value: unknown): AuthConfigResponse {
   return authConfigResponseSchema.parse(value);
@@ -79,4 +92,8 @@ export function decodeAuthConfigResponse(value: unknown): AuthConfigResponse {
 
 export function decodeAccountResponse(value: unknown): AccountResponse {
   return accountResponseSchema.parse(value);
+}
+
+export function decodeProjectCreateResponse(value: unknown): ProjectCreateResponse {
+  return projectCreateResponseSchema.parse(value);
 }

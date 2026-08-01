@@ -97,9 +97,10 @@ wrangler secret put BETTER_AUTH_TRUSTED_ORIGINS
 wrangler secret put GITHUB_CLIENT_ID
 wrangler secret put GITHUB_CLIENT_SECRET
 wrangler secret put LIVE_TICKET_SECRET
+wrangler secret put WEBSITE_KEY_WRAP_SECRET
 ```
 
-Generate separate random values of at least 32 characters for `BETTER_AUTH_SECRET` and `LIVE_TICKET_SECRET`. Set `BETTER_AUTH_URL` to the exact public Worker origin. Set `BETTER_AUTH_TRUSTED_ORIGINS` to that same origin, or a comma-separated list of exact allowed origins. Do not put secret values in `wrangler.jsonc`.
+Generate separate random values of at least 32 characters for `BETTER_AUTH_SECRET`, `LIVE_TICKET_SECRET`, and `WEBSITE_KEY_WRAP_SECRET`. The Website secret encrypts a newly created Website key only until that Website sends its first accepted event; changing it strands any setup that is still unfinished. Set `BETTER_AUTH_URL` to the exact public Worker origin. Set `BETTER_AUTH_TRUSTED_ORIGINS` to that same origin, or a comma-separated list of exact allowed origins. Do not put secret values in `wrangler.jsonc`.
 
 A missing or partial Better Auth setup fails closed. It does not enable a shared-token fallback. Cloudflare Access can be added around `/_admin*` as an optional second gate, but the Worker still checks the Better Auth account and admin role itself.
 
@@ -127,7 +128,7 @@ For playback caching, use a custom domain. Workers served only on `workers.dev` 
 
 Use the install guide: [Install the SDK](./install-sdk.md).
 
-Set `ingestUrl` to your deployed Worker URL or custom domain. Set `key` to the recorder key for the project you created in the Worker data.
+Set `ingestUrl` to your deployed Worker URL or custom domain. Set `key` to the recorder key shown for that Website during onboarding.
 
 ## Upgrade
 

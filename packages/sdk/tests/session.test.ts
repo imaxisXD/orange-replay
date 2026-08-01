@@ -620,6 +620,52 @@ describe("SessionManager", () => {
     expect(cookieDocument.lastWrite).not.toContain("public-recorder-key");
   });
 
+  it("continues one Workspace session across related subdomains", () => {
+    const cookieDocument = new CookieDocument();
+    const first = new SessionManager({
+      projectRef: "workspace-noodle",
+      now: () => START_TIME,
+      storage: new MemoryStorage(),
+      document: cookieDocument,
+      cookieMode: "secure",
+      cookieDomain: "example.com",
+      hostname: "example.com",
+      makeId: sequenceIds(["session-shared-01", "landing-tab"]),
+    });
+    const second = new SessionManager({
+      projectRef: "workspace-noodle",
+      now: () => START_TIME + 100,
+      storage: new MemoryStorage(),
+      document: cookieDocument,
+      cookieMode: "secure",
+      cookieDomain: "example.com",
+      hostname: "app.example.com",
+      makeId: sequenceIds(["dashboard-tab"]),
+    });
+
+    expect(second.sessionId).toBe(first.sessionId);
+    expect(second.tabId).not.toBe(first.tabId);
+    expect(cookieDocument.lastWrite).toMatch(/^__Secure-or_s_[a-z0-9]{2,14}=/);
+    expect(cookieDocument.lastWrite).toContain("; Domain=example.com");
+  });
+
+  it("refuses a shared cookie domain that does not contain the current Website", () => {
+    const cookieDocument = new CookieDocument();
+    new SessionManager({
+      projectRef: "workspace-noodle",
+      now: () => START_TIME,
+      storage: new MemoryStorage(),
+      document: cookieDocument,
+      cookieMode: "secure",
+      cookieDomain: "other.example",
+      hostname: "app.example.com",
+      makeId: sequenceIds(["session-host-only", "dashboard-tab"]),
+    });
+
+    expect(cookieDocument.lastWrite).toMatch(/^__Host-or_s_[a-z0-9]{2,14}=/);
+    expect(cookieDocument.lastWrite).not.toContain("Domain=");
+  });
+
   it("does not read cookies when cookies are disabled", () => {
     const cookieDocument = new CookieDocument();
     cookieDocument.cookie = "undefined=session-from-wrong-cookie; Path=/";

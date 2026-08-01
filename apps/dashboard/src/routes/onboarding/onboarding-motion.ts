@@ -64,6 +64,8 @@
  *    520ms   push has landed
  *   blur     release takes 760ms, not 520: a pull-out is a reveal
  *            and gets more time than the push that preceded it
+ *   1000ms   an invalid non-empty address has stayed unchanged long
+ *            enough to be deliberate; reveal its error and shake once
  *   blur     camera releases back to the whole dashboard
  *  invalid   field shakes 6px → -6px → 4px and settles
  *
@@ -117,6 +119,7 @@ export const TIMING = {
   railTravel: 360, // rail reaches the next step
   check: 500, // success check finishes drawing
   shake: 280, // transitions.dev error-state shake, matches onboarding.css
+  websiteValidation: 1_000, // quiet window before an invalid typed URL is reported
 } as const;
 
 /** One integer drives the favicon's empty, loading, and revealed sequence. */
@@ -346,6 +349,7 @@ export function cameraStop(isNaming: boolean): { scale: number; x: number; y: nu
 export const VERIFY = {
   checkBlur: 8, // px the check clears as it appears
   checkSpring: { type: "spring" as const, duration: TIMING.check / 1_000, bounce: 0 },
+  dashboardDelay: 900, // ms to read the connected state before opening Overview
   strokeSpring: { type: "spring" as const, duration: 0.42, bounce: 0 },
 } as const;
 

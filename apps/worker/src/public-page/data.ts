@@ -154,6 +154,7 @@ export async function getPublicManifest(
     projectId: publicId,
     sessionId: publicReplayId,
     orgId: "public",
+    websiteIds: undefined,
     segments: manifest.segments.map((segment) => ({
       ...segment,
       key: `${sessionPrefix(publicId, publicReplayId)}/${segment.key.split("/").at(-1) ?? ""}`,

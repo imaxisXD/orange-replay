@@ -17,19 +17,16 @@ vi.mock("@tanstack/react-router", async (importOriginal) => ({
 }));
 
 const apiMocks = vi.hoisted(() => ({
-  createProjectKey: vi.fn(),
-  fetchInstallStatus: vi.fn(),
-  fetchProjectConfig: vi.fn(),
-  fetchProjectKeys: vi.fn(),
-  renameProject: vi.fn(),
-  saveProjectConfig: vi.fn(),
+  ensureProjectWebsite: vi.fn(),
+  fetchProjectWebsiteInstallStatus: vi.fn(),
+  fetchProjectWebsiteSetup: vi.fn(),
 }));
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/api")>()),
   ...apiMocks,
 }));
 
-import { decideProjectsHome } from "../src/lib/dashboard-access";
+import { decideProjectsHome, decideWorkspaceStart } from "../src/lib/dashboard-access";
 import {
   ONBOARDING_STEPS,
   OnboardingProvider,
@@ -37,12 +34,14 @@ import {
   onboardingStepIndex,
 } from "../src/routes/onboarding/onboarding-context";
 import { OnboardingInstallPage } from "../src/routes/onboarding/onboarding-install-step";
+import { readWebsiteSetupError } from "../src/routes/onboarding/onboarding-setup-error";
 import {
   ACT,
   CAMERA,
   PREVIEW_FRAME,
   STEP,
   SWITCHER_FIELD,
+  TIMING,
   VERIFY,
   cameraStop,
   canvasParallaxScale,
@@ -50,17 +49,24 @@ import {
 } from "../src/routes/onboarding/onboarding-motion";
 import { OnboardingVerifyPage } from "../src/routes/onboarding/onboarding-verify-step";
 import {
+  readOnboardingRecorderKey,
+  saveOnboardingRecorderKey,
+} from "../src/routes/onboarding/onboarding-recorder-key";
+import {
   activationAllowedOrigins,
   isWebsiteProjectName,
   readWebsiteUrl,
   websitePreviewLabel,
+  websitePreviewSource,
   websiteFaviconUrl,
   websiteProjectName,
   websiteUrlError,
 } from "../src/routes/onboarding/onboarding-website";
 import { OnboardingWebsitePage } from "../src/routes/onboarding/onboarding-website-step";
+import { ApiError } from "../src/lib/api";
 
 const PROJECT_ID = "project_abc";
+const WEBSITE_ID = "website_abc";
 const RAW_KEY = `or_live_${"a".repeat(32)}`;
 const SAVED_WEBSITE = new URL("https://saved.example");
 
@@ -71,6 +77,9 @@ let queryClient: QueryClient;
 let namingProject: boolean;
 /** Mirrors the act flag the verify step reports up to the shell. */
 let isRecordingReported: boolean;
+let isFirstWebsite: boolean;
+let workspaceName: string | null;
+let editingWebsiteId: string | null;
 
 beforeEach(() => {
   container = document.createElement("div");
@@ -81,6 +90,10 @@ beforeEach(() => {
   });
   namingProject = false;
   isRecordingReported = false;
+  isFirstWebsite = true;
+  workspaceName = null;
+  editingWebsiteId = null;
+  window.sessionStorage.clear();
   navigate.mockReset();
   for (const mock of Object.values(apiMocks)) mock.mockReset();
   window.matchMedia = vi.fn().mockReturnValue({
@@ -95,6 +108,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   queryClient.clear();
+  window.sessionStorage.clear();
   document.body.replaceChildren();
 });
 
@@ -125,7 +139,6 @@ describe("activation website identity", () => {
     // A port belongs to the origin and must survive on both spellings.
     expect(activationAllowedOrigins(new URL("http://localhost:3000"))).toEqual([
       "http://localhost:3000",
-      "http://www.localhost:3000",
     ]);
   });
 
@@ -133,6 +146,12 @@ describe("activation website identity", () => {
     expect(websitePreviewLabel("", "Your website")).toBe("Your website");
     expect(websitePreviewLabel("https://ac", "Your website")).toBe("ac");
     expect(websitePreviewLabel("https://www.acme.com/x", "Your website")).toBe("acme.com");
+  });
+
+  it("does not revive a saved website while step one is empty", () => {
+    expect(websitePreviewSource("", "getfileurl.com", false)).toBe("");
+    expect(websitePreviewSource("acme.com", "getfileurl.com", false)).toBe("acme.com");
+    expect(websitePreviewSource("", "getfileurl.com", true)).toBe("getfileurl.com");
   });
 
   it("recognises an already activated project name", () => {
@@ -156,9 +175,9 @@ describe("activation website identity", () => {
 
 describe("activation step model", () => {
   it("maps each step path to its position in the flow", () => {
-    expect(onboardingStepIndex("/onboarding/website")).toBe(0);
-    expect(onboardingStepIndex("/onboarding/install/")).toBe(1);
-    expect(onboardingStepIndex("/onboarding/verify")).toBe(2);
+    expect(onboardingStepIndex(`/onboarding/${PROJECT_ID}/website`)).toBe(0);
+    expect(onboardingStepIndex(`/onboarding/${PROJECT_ID}/install/`)).toBe(1);
+    expect(onboardingStepIndex(`/onboarding/${PROJECT_ID}/verify`)).toBe(2);
     expect(onboardingStepIndex("/onboarding")).toBe(0);
     expect(ONBOARDING_STEPS).toHaveLength(3);
   });
@@ -223,13 +242,86 @@ describe("activation routing decision", () => {
       action: "bootstrap-account",
     });
   });
+
+  it("starts a truly empty Workspace at Website entry", () => {
+    expect(decideWorkspaceStart([])).toEqual({ action: "add-website" });
+  });
+
+  it("resumes the oldest unfinished Website instead of asking for it again", () => {
+    expect(
+      decideWorkspaceStart([
+        { id: "website_ndle", firstEventAt: null },
+        { id: "website_app", firstEventAt: null },
+      ]),
+    ).toEqual({ action: "resume-website", websiteId: "website_ndle" });
+  });
+
+  it("opens a Workspace once any Website has connected", () => {
+    expect(
+      decideWorkspaceStart([
+        { id: "website_pending", firstEventAt: null },
+        { id: "website_connected", firstEventAt: 1 },
+      ]),
+    ).toEqual({ action: "open-project" });
+  });
 });
 
 describe("activation step 1: website", () => {
+  it("keeps internal key failures out of the onboarding copy", () => {
+    expect(
+      readWebsiteSetupError(
+        new ApiError("active_key_limit_reached", 409, "active_key_limit_reached"),
+      ),
+    ).toBe(
+      "This Workspace has reached its Website limit. Contact support before adding another website.",
+    );
+    expect(readWebsiteSetupError(new Error("Recorder-key storage is unavailable."))).toBe(
+      "Could not prepare the installation script. Try again.",
+    );
+    expect(
+      readWebsiteSetupError(new ApiError("website_already_exists", 409, "website_already_exists")),
+    ).toBe("That Website is already part of this Workspace.");
+    expect(readWebsiteSetupError(new ApiError("website_changed", 409, "website_changed"))).toBe(
+      "This Website changed in another tab. Reload and try again.",
+    );
+  });
+
+  it("reports an invalid address after one quiet second and clears it on correction", async () => {
+    await render(<OnboardingWebsitePage />);
+    vi.useFakeTimers();
+    try {
+      await setWebsiteInput("not a website");
+      expect(container.textContent).not.toContain("Enter a website like");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(TIMING.websiteValidation - 1);
+      });
+      expect(container.textContent).not.toContain("Enter a website like");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      expect(container.textContent).toContain("Enter a website like");
+      expect(container.querySelector(".t-input-wrap.is-error .t-error-msg")).not.toBeNull();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(16);
+      });
+      expect(container.querySelector(".t-input.is-shaking")).not.toBeNull();
+
+      await setWebsiteInput("acme.com");
+      expect(container.querySelector(".t-input-wrap.is-error")).toBeNull();
+      expect(container.querySelector(".t-input.is-shaking")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("blocks continuing until the address is usable, then shakes on submit", async () => {
     await render(<OnboardingWebsitePage />);
 
-    expect(container.textContent).toContain("Add your website");
+    expect(container.textContent).toContain("Add your first website");
+    expect(container.textContent).toContain("Enter the website where you want to start recording.");
     expect(findButton("Continue").disabled).toBe(true);
 
     await setWebsiteInput("not a website");
@@ -241,22 +333,11 @@ describe("activation step 1: website", () => {
     expect(container.textContent).toContain("Enter a website like");
     expect(container.querySelector(".t-input-wrap.is-error .t-error-msg")).not.toBeNull();
     await vi.waitFor(() => expect(container.querySelector(".t-input.is-shaking")).not.toBeNull());
-    expect(apiMocks.renameProject).not.toHaveBeenCalled();
+    expect(apiMocks.ensureProjectWebsite).not.toHaveBeenCalled();
   });
 
-  it("names the project and opens ingest for both spellings, then moves on", async () => {
-    apiMocks.renameProject.mockResolvedValue({ id: PROJECT_ID, name: "acme.com" });
-    apiMocks.fetchProjectConfig.mockResolvedValue({
-      allowedOrigins: [],
-      capture: { heatmaps: false, console: false, network: false, canvas: false },
-      jurisdiction: null,
-      maskPolicyVersion: 1,
-      maskRules: [],
-      retentionDays: 30,
-      sampleRate: 1,
-      version: 1,
-    });
-    apiMocks.saveProjectConfig.mockResolvedValue({ version: 2 });
+  it("adds one Website and opens its install step", async () => {
+    apiMocks.ensureProjectWebsite.mockResolvedValue(websiteSetup());
     await render(<OnboardingWebsitePage />);
     expect(container.querySelector('.t-favicon-slot[data-stage="0"]')).not.toBeNull();
     expect(container.querySelector(".t-favicon-frame")).toBeNull();
@@ -277,30 +358,92 @@ describe("activation step 1: website", () => {
     });
 
     await vi.waitFor(() => {
-      expect(apiMocks.renameProject).toHaveBeenCalledWith(PROJECT_ID, "acme.com");
+      expect(apiMocks.ensureProjectWebsite).toHaveBeenCalledWith(PROJECT_ID, "https://acme.com/");
+      expect(navigate).toHaveBeenCalledWith({
+        to: "/onboarding/$projectId/install",
+        params: { projectId: PROJECT_ID },
+        search: { website: WEBSITE_ID },
+      });
     });
-    await vi.waitFor(() => {
-      expect(apiMocks.saveProjectConfig).toHaveBeenCalledWith(
-        PROJECT_ID,
-        expect.objectContaining({
-          allowedOrigins: ["https://acme.com", "https://www.acme.com"],
-          expectedVersion: 1,
-        }),
-      );
-    });
-    // The allowlist is what lets the project record; the name is cosmetic. It
-    // has to land first so a failure between the two cannot leave a project
-    // named after the visitor's website yet unable to ingest anything.
-    expect(apiMocks.saveProjectConfig.mock.invocationCallOrder[0]).toBeLessThan(
-      apiMocks.renameProject.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+  });
+
+  it("edits the same unfinished Website and keeps its installation", async () => {
+    editingWebsiteId = WEBSITE_ID;
+    isFirstWebsite = false;
+    workspaceName = "Noodle";
+    apiMocks.ensureProjectWebsite.mockResolvedValue(
+      websiteSetup({ name: "next.example", origin: "https://next.example" }),
     );
+    await render(<OnboardingWebsitePage />);
+
+    expect(container.textContent).toContain("Edit website");
+    expect(container.textContent).toContain("Update the website you want Orange Replay to record.");
+    expect((container.querySelector("input") as HTMLInputElement | null)?.value).toBe(
+      SAVED_WEBSITE.origin,
+    );
+
+    await setWebsiteInput("next.example");
+    await act(async () => {
+      findButton("Save and continue").click();
+    });
+
     await vi.waitFor(() => {
-      expect(navigate).toHaveBeenCalledWith({ to: "/onboarding/install" });
+      expect(apiMocks.ensureProjectWebsite).toHaveBeenCalledWith(
+        PROJECT_ID,
+        "https://next.example/",
+        WEBSITE_ID,
+      );
+      expect(navigate).toHaveBeenCalledWith({
+        to: "/onboarding/$projectId/install",
+        params: { projectId: PROJECT_ID },
+        search: { website: WEBSITE_ID },
+      });
+    });
+  });
+
+  it("names the Workspace when adding a later Website", async () => {
+    isFirstWebsite = false;
+    workspaceName = "Noodle";
+    await render(<OnboardingWebsitePage />);
+
+    expect(container.textContent).toContain("Add a website to Noodle");
+    expect(container.textContent).toContain(
+      "Related subdomains stay together in one visitor journey.",
+    );
+    expect(container.textContent).not.toContain("recorder key");
+  });
+
+  it("explains that an existing Website is connected without changing its setup", async () => {
+    isFirstWebsite = false;
+    workspaceName = "Noodle";
+    apiMocks.ensureProjectWebsite.mockResolvedValue(connectedWebsiteSetup());
+    await render(<OnboardingWebsitePage />);
+
+    await setWebsiteInput("acme.com");
+    await act(async () => {
+      findButton("Continue").click();
+    });
+
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain("acme.com is already connected");
+    });
+    expect(container.textContent).toContain("This website is already connected to Noodle.");
+    expect(container.textContent).toContain("No new installation was created.");
+    expect(container.textContent).not.toContain("recorder key");
+    expect(navigate).not.toHaveBeenCalled();
+
+    await act(async () => {
+      findButton("Go to dashboard").click();
+    });
+    expect(navigate).toHaveBeenCalledWith({
+      to: "/projects/$projectId/overview",
+      params: { projectId: PROJECT_ID },
+      replace: true,
     });
   });
 
   it("keeps the visitor on the step and explains a failed write", async () => {
-    apiMocks.fetchProjectConfig.mockRejectedValue(new Error("Network is unreachable."));
+    apiMocks.ensureProjectWebsite.mockRejectedValue(new Error("Network is unreachable."));
     await render(<OnboardingWebsitePage />);
 
     await setWebsiteInput("https://acme.com");
@@ -309,12 +452,10 @@ describe("activation step 1: website", () => {
     });
 
     await vi.waitFor(() => {
-      expect(container.textContent).toContain("Could not save your website. Try again.");
+      expect(container.textContent).toContain("Could not add this website. Try again.");
     });
     expect(navigate).not.toHaveBeenCalled();
-    // Nothing was renamed, so a failure before the allowlist lands leaves the
-    // project exactly as it was rather than half-activated.
-    expect(apiMocks.renameProject).not.toHaveBeenCalled();
+    expect(apiMocks.ensureProjectWebsite).toHaveBeenCalledTimes(1);
   });
 
   it("moves the preview camera onto the switcher only while a name is being typed", async () => {
@@ -333,7 +474,38 @@ describe("activation step 1: website", () => {
 });
 
 describe("activation step 2: install", () => {
-  it("mints the project's first recorder key and copies a snippet that carries it", async () => {
+  it("pulses a page-shaped skeleton until the installation script is ready", async () => {
+    const keyRequest = deferred<ReturnType<typeof websiteSetup>>();
+    apiMocks.fetchProjectWebsiteSetup.mockReturnValue(keyRequest.promise);
+    await render(<OnboardingInstallPage />);
+
+    const reveal = container.querySelector(".onboarding-install-reveal");
+    const skeleton = container.querySelector(".t-skel-skeleton.is-pulsing");
+    expect(reveal?.getAttribute("data-state")).toBe("loading");
+    expect(reveal?.classList.contains("is-revealed")).toBe(false);
+    expect(skeleton?.getAttribute("aria-hidden")).toBe("false");
+    expect(skeleton?.children).toHaveLength(3);
+    expect(container.querySelector('.t-skel-content[aria-hidden="true"]')).not.toBeNull();
+
+    await vi.waitFor(() => {
+      expect(apiMocks.fetchProjectWebsiteSetup).toHaveBeenCalledWith(PROJECT_ID, WEBSITE_ID);
+    });
+    expect(reveal?.getAttribute("data-state")).toBe("loading");
+
+    keyRequest.resolve(websiteSetup());
+    await vi.waitFor(() => {
+      expect(reveal?.getAttribute("data-state")).toBe("ready");
+      expect(reveal?.classList.contains("is-revealed")).toBe(true);
+    });
+    expect(skeleton?.getAttribute("aria-hidden")).toBe("true");
+    expect(container.querySelector('.t-skel-content[aria-hidden="true"]')).toBeNull();
+    expect(container.querySelector("pre")?.textContent).toContain(
+      "Orange Replay installation script",
+    );
+    expect(container.textContent).not.toContain("recorder key");
+  });
+
+  it("loads and copies the Website installation script", async () => {
     const writeText = vi.fn<(value: string) => Promise<void>>().mockResolvedValue();
     // Define the one property rather than replacing navigator: spreading it
     // would drop its prototype along with everything else the tree reads.
@@ -341,25 +513,21 @@ describe("activation step 2: install", () => {
       configurable: true,
       value: { writeText },
     });
-    apiMocks.fetchProjectKeys.mockResolvedValue({ keys: [] });
-    apiMocks.createProjectKey.mockResolvedValue({
-      key: projectKeyAudit(),
-      secret: RAW_KEY,
-    });
+    apiMocks.fetchProjectWebsiteSetup.mockResolvedValue(websiteSetup());
     await render(<OnboardingInstallPage />);
 
     await vi.waitFor(() => {
-      expect(apiMocks.createProjectKey).toHaveBeenCalledWith(PROJECT_ID, "Website recorder");
+      expect(apiMocks.fetchProjectWebsiteSetup).toHaveBeenCalledWith(PROJECT_ID, WEBSITE_ID);
     });
     await vi.waitFor(() => {
-      expect(findButton("I added the snippet").disabled).toBe(false);
+      expect(findButton("Continue").disabled).toBe(false);
     });
 
     // The card summarises the loader by default, so a 1,800-character minified
     // line does not fill the column — and the raw key is not on screen until
     // asked for. What gets pasted is what must carry the key.
     const collapsed = container.querySelector("pre")?.textContent ?? "";
-    expect(collapsed).toContain("Orange Replay loader");
+    expect(collapsed).toContain("Orange Replay installation script");
     expect(collapsed).not.toContain(RAW_KEY);
 
     await act(async () => {
@@ -378,43 +546,74 @@ describe("activation step 2: install", () => {
     expect(container.querySelector("pre")?.textContent).toContain(RAW_KEY);
   });
 
-  it("retries the request that failed instead of writing when a read failed", async () => {
-    // A failed key *list* answered with a key *create* would mint a fresh key on
-    // every press and walk the project towards its active-key limit.
-    apiMocks.fetchProjectKeys.mockRejectedValue(new Error("Keys are unavailable."));
+  it("retries automatic script preparation after a request failure", async () => {
+    apiMocks.fetchProjectWebsiteSetup
+      .mockRejectedValueOnce(new Error("Website setup is unavailable."))
+      .mockResolvedValueOnce(websiteSetup());
     await render(<OnboardingInstallPage />);
 
     await vi.waitFor(() => {
-      expect(container.textContent).toContain("Could not check this project's keys");
+      expect(container.textContent).toContain(
+        "Could not prepare the installation script. Try again.",
+      );
     });
     await act(async () => {
       findButton("Try again").click();
     });
-    expect(apiMocks.createProjectKey).not.toHaveBeenCalled();
-    expect(apiMocks.fetchProjectKeys.mock.calls.length).toBeGreaterThan(1);
+    await vi.waitFor(() => {
+      expect(apiMocks.fetchProjectWebsiteSetup).toHaveBeenCalledTimes(2);
+      expect(findButton("Continue").disabled).toBe(false);
+    });
   });
 
-  it("never mints a second key on its own when one is already active", async () => {
-    apiMocks.fetchProjectKeys.mockResolvedValue({ keys: [projectKeyAudit()] });
+  it("uses the tab's saved script immediately while confirming its Website", async () => {
+    saveOnboardingRecorderKey(PROJECT_ID, WEBSITE_ID, RAW_KEY);
+    apiMocks.fetchProjectWebsiteSetup.mockResolvedValue(websiteSetup());
+    await render(<OnboardingInstallPage />);
+
+    expect(container.textContent).not.toContain("This project already has a key");
+    expect(findButton("Continue").disabled).toBe(false);
+    expect(container.querySelector("pre")?.textContent).toContain(
+      "Orange Replay installation script",
+    );
+    await vi.waitFor(() => {
+      expect(apiMocks.fetchProjectWebsiteSetup).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("shows the connected state when another tab finished setup", async () => {
+    saveOnboardingRecorderKey(PROJECT_ID, WEBSITE_ID, RAW_KEY);
+    apiMocks.fetchProjectWebsiteSetup.mockResolvedValue(connectedWebsiteSetup());
     await render(<OnboardingInstallPage />);
 
     await vi.waitFor(() => {
-      expect(container.textContent).toContain("This project already has a key");
+      expect(container.textContent).toContain("acme.com is already connected");
     });
-    expect(apiMocks.createProjectKey).not.toHaveBeenCalled();
-    expect(findButton("I added the snippet").disabled).toBe(true);
+    expect(container.textContent).toContain("No changes needed");
+    expect(container.textContent).not.toContain(RAW_KEY);
+    expect(readOnboardingRecorderKey(PROJECT_ID, WEBSITE_ID)).toBeNull();
+    expect(navigate).not.toHaveBeenCalled();
+
+    await act(async () => {
+      findButton("Add another website").click();
+    });
+    expect(navigate).toHaveBeenCalledWith({
+      to: "/onboarding/$projectId/website",
+      params: { projectId: PROJECT_ID },
+      replace: true,
+    });
   });
 });
 
 describe("activation step 3: verify", () => {
   it("waits on the real install status and does not claim success early", async () => {
-    apiMocks.fetchInstallStatus.mockResolvedValue({ firstEventAt: null });
+    apiMocks.fetchProjectWebsiteInstallStatus.mockResolvedValue({ firstEventAt: null });
     await render(<OnboardingVerifyPage />);
 
     await vi.waitFor(() => {
-      expect(container.textContent).toContain("Waiting for the first event");
+      expect(container.textContent).toContain("Waiting for your website");
     });
-    expect(container.textContent).not.toContain("Recorder connected");
+    expect(container.textContent).not.toContain("acme.com is connected");
     expect(container.querySelector(".onboarding-signal")).not.toBeNull();
 
     await act(async () => {
@@ -424,11 +623,14 @@ describe("activation step 3: verify", () => {
   });
 
   it("confirms the recorder once an event has arrived and opens the dashboard", async () => {
-    apiMocks.fetchInstallStatus.mockResolvedValue({ firstEventAt: Date.now() - 2_000 });
+    saveOnboardingRecorderKey(PROJECT_ID, WEBSITE_ID, RAW_KEY);
+    apiMocks.fetchProjectWebsiteInstallStatus.mockResolvedValue({
+      firstEventAt: Date.now() - 2_000,
+    });
     await render(<OnboardingVerifyPage />);
 
     await vi.waitFor(() => {
-      expect(container.textContent).toContain("Recorder connected");
+      expect(container.textContent).toContain("acme.com is connected");
     });
     expect(container.querySelector("svg path")).not.toBeNull();
     // The step is a route and cannot animate the right pane itself, so the act
@@ -436,9 +638,35 @@ describe("activation step 3: verify", () => {
     await vi.waitFor(() => {
       expect(isRecordingReported).toBe(true);
     });
+    expect(readOnboardingRecorderKey(PROJECT_ID, WEBSITE_ID)).toBeNull();
 
     await act(async () => {
-      findButton("Open your dashboard").click();
+      findButton("Go to dashboard").click();
+    });
+    expect(navigate).toHaveBeenCalledWith({
+      to: "/projects/$projectId/overview",
+      params: { projectId: PROJECT_ID },
+      replace: true,
+    });
+  });
+
+  it("opens the exact project automatically after the connected state is readable", async () => {
+    const setTimeoutSpy = vi.spyOn(window, "setTimeout");
+    apiMocks.fetchProjectWebsiteInstallStatus.mockResolvedValue({
+      firstEventAt: Date.now() - 2_000,
+    });
+    await render(<OnboardingVerifyPage />);
+
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain("acme.com is connected");
+    });
+    const redirectTimer = setTimeoutSpy.mock.calls.find(
+      ([, delay]) => delay === VERIFY.dashboardDelay,
+    );
+    expect(redirectTimer).toBeDefined();
+    await act(async () => {
+      const callback = redirectTimer?.[0];
+      if (typeof callback === "function") callback();
     });
     expect(navigate).toHaveBeenCalledWith({
       to: "/projects/$projectId/overview",
@@ -464,8 +692,9 @@ async function render(step: ReactNode): Promise<void> {
  * writing the draft or the minted key re-renders exactly as it does in the app.
  */
 function Harness({ children }: { children: ReactNode }) {
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(editingWebsiteId === null ? "" : SAVED_WEBSITE.origin);
   const [key, setKey] = useState<string | null>(null);
+  const [websiteId, setWebsiteId] = useState<string | null>(WEBSITE_ID);
   const [isNaming, setIsNaming] = useState(false);
   const [recording, setRecording] = useState(false);
   namingProject = isNaming;
@@ -477,11 +706,13 @@ function Harness({ children }: { children: ReactNode }) {
       value={{
         act: onboardingAct(0, recording),
         direction: 1,
+        editingWebsiteId,
         faviconUrl:
           draftWebsite === null
             ? websiteFaviconUrl(SAVED_WEBSITE)
             : websiteFaviconUrl(draftWebsite),
         isFirstPaint: true,
+        isFirstWebsite,
         isNamingProject: isNaming,
         isRecording: recording,
         previewProjectLabel: "acme.com",
@@ -491,9 +722,12 @@ function Harness({ children }: { children: ReactNode }) {
         setIsNamingProject: setIsNaming,
         setIsRecording: setRecording,
         setRecorderKey: setKey,
+        setWebsiteId,
         setWebsiteDraft: setDraft,
         stepIndex: 0,
         websiteDraft: draft,
+        websiteId,
+        workspaceName,
       }}
     >
       {children}
@@ -532,6 +766,38 @@ function projectKeyAudit() {
     revokedAt: null,
     revokedBy: null,
   };
+}
+
+function websiteSetup(website: Partial<{ name: string; origin: string }> = {}) {
+  return {
+    website: {
+      id: WEBSITE_ID,
+      name: website.name ?? "acme.com",
+      origin: website.origin ?? "https://acme.com",
+      firstEventAt: null,
+    },
+    key: projectKeyAudit(),
+    secret: RAW_KEY,
+    alreadyConnected: false,
+  };
+}
+
+function connectedWebsiteSetup() {
+  const setup = websiteSetup();
+  return {
+    ...setup,
+    alreadyConnected: true,
+    secret: null,
+    website: { ...setup.website, firstEventAt: Date.now() - 2_000 },
+  };
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
 }
 
 describe("activation story acts", () => {

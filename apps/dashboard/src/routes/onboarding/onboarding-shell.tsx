@@ -1,16 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { LazyMotion, domMax } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
-import { Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
+import { Outlet, useNavigate, useParams, useRouterState } from "@tanstack/react-router";
 import { BrandMark } from "@/components/brand-mark";
 import { Button } from "@/components/ui/button";
-import { accountQueryKey, fetchAccount } from "@/lib/api";
-import { accountProjects } from "@/lib/dashboard-access";
+import {
+  accountQueryKey,
+  fetchAccount,
+  fetchProjectWebsites,
+  projectWebsitesQueryKey,
+} from "@/lib/api";
+import { findAccountProject } from "@/lib/dashboard-access";
 import { ArrowLeft } from "@/lib/icon-map";
 import { m, useReducedMotion } from "@/lib/motion";
 import {
   ONBOARDING_STEPS,
-  ONBOARDING_STEP_PATHS,
   OnboardingProvider,
   onboardingProgress,
   onboardingStepIndex,
@@ -22,6 +26,7 @@ import {
   readWebsiteUrl,
   websiteFaviconUrl,
   websitePreviewLabel,
+  websitePreviewSource,
 } from "./onboarding-website";
 import "./onboarding.css";
 
@@ -33,21 +38,30 @@ const PLACEHOLDER_PROJECT_LABEL = "Your website";
  * dashboard preview on the right, and the state the three steps share.
  *
  * Everything that must survive a step change lives here — the website draft,
- * the recorder key minted this visit, the camera's focus, and the frame that
- * owns the height tween between steps. The steps themselves are three separate
+ * its internal installation key, the camera's focus, and the frame that owns
+ * the height tween between steps. The steps themselves are three separate
  * routes rendered through the outlet.
  */
 export function OnboardingShell() {
   const reduceMotion = useReducedMotion() === true;
   const navigate = useNavigate();
+  const { projectId } = useParams({ strict: false }) as { projectId: string };
   const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const searchedWebsiteId = useRouterState({
+    select: (state) => {
+      const value = (state.location.search as { website?: unknown }).website;
+      return typeof value === "string" && /^[A-Za-z0-9_-]{1,100}$/.test(value) ? value : null;
+    },
+  });
   const stepIndex = onboardingStepIndex(pathname);
 
   const [websiteDraft, setWebsiteDraft] = useState("");
+  const [websiteId, setWebsiteId] = useState<string | null>(searchedWebsiteId);
   const [recorderKey, setRecorderKey] = useState<string | null>(null);
   const [isNamingProject, setIsNamingProject] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [faviconUrl, setFaviconUrl] = useState<string | null>(null);
+  const seededEditWebsiteId = useRef<string | null>(null);
 
   const accountQuery = useQuery({
     queryKey: accountQueryKey,
@@ -55,8 +69,31 @@ export function OnboardingShell() {
     staleTime: 30_000,
   });
   const account = accountQuery.data;
-  const project = account === undefined ? undefined : accountProjects(account)[0];
-  const projectId = project?.id ?? "";
+  const project = findAccountProject(account, projectId);
+  const websitesQuery = useQuery({
+    queryKey: projectWebsitesQueryKey(projectId),
+    queryFn: () => fetchProjectWebsites(projectId),
+    enabled: stepIndex === 0,
+    staleTime: 30_000,
+  });
+  const searchedWebsite = websitesQuery.data?.websites.find(
+    (website) => website.id === searchedWebsiteId,
+  );
+  const editingWebsiteId =
+    stepIndex === 0 && searchedWebsite?.firstEventAt === null ? searchedWebsite.id : null;
+  const activeWebsiteDraft =
+    editingWebsiteId !== null &&
+    searchedWebsite !== undefined &&
+    seededEditWebsiteId.current !== editingWebsiteId
+      ? searchedWebsite.origin
+      : websiteDraft;
+  const websiteCount = websitesQuery.data?.websites.length;
+  // The route guard preloads this state before Step 1 renders. The name check
+  // remains only as a safe fallback for later steps, where this query is
+  // intentionally disabled because the exact Website id is already known.
+  const isFirstWebsite =
+    websiteCount === undefined ? project?.name === "Default project" : websiteCount === 0;
+  const workspaceName = project === undefined || isFirstWebsite ? null : project.name;
   const savedWebsiteName =
     project !== undefined && isWebsiteProjectName(project.name) ? project.name : null;
 
@@ -78,26 +115,41 @@ export function OnboardingShell() {
     hasChangedStep.current = true;
   }, [stepIndex]);
 
-  const previewProjectLabel =
-    websiteDraft.trim().length > 0
-      ? websitePreviewLabel(websiteDraft, PLACEHOLDER_PROJECT_LABEL)
-      : (savedWebsiteName ?? PLACEHOLDER_PROJECT_LABEL);
+  useEffect(() => {
+    if (searchedWebsiteId !== null) setWebsiteId(searchedWebsiteId);
+  }, [searchedWebsiteId]);
+
+  useEffect(() => {
+    if (editingWebsiteId === null || searchedWebsite === undefined) return;
+    if (seededEditWebsiteId.current === editingWebsiteId) return;
+    seededEditWebsiteId.current = editingWebsiteId;
+    setWebsiteDraft(searchedWebsite.origin);
+  }, [editingWebsiteId, searchedWebsite]);
+
+  const previewWebsiteSource = websitePreviewSource(
+    activeWebsiteDraft,
+    savedWebsiteName,
+    stepIndex > 0,
+  );
+  const previewProjectLabel = websitePreviewLabel(previewWebsiteSource, PLACEHOLDER_PROJECT_LABEL);
+  const previewWebsite = readWebsiteUrl(previewWebsiteSource);
+  const expectedFaviconUrl = previewWebsite === null ? null : websiteFaviconUrl(previewWebsite);
+  // Do not wait for the effect below to clear an old icon. Effects run after
+  // paint, so deriving the visible value here guarantees that clearing or
+  // replacing the draft cannot flash a favicon from the previous website.
+  const visibleFaviconUrl = faviconUrl === expectedFaviconUrl ? faviconUrl : null;
 
   // Do not ask the Worker to fetch on every keystroke. A short quiet window is
   // enough to catch pasted URLs quickly while keeping normal typing to one
   // request. The API and browser cache handle repeated valid origins after it.
   useEffect(() => {
-    const faviconWebsite = readWebsiteUrl(
-      websiteDraft.trim().length > 0 ? websiteDraft : (savedWebsiteName ?? ""),
-    );
-    const nextFaviconUrl = faviconWebsite === null ? null : websiteFaviconUrl(faviconWebsite);
     setFaviconUrl((currentFaviconUrl) =>
-      currentFaviconUrl === nextFaviconUrl ? currentFaviconUrl : null,
+      currentFaviconUrl === expectedFaviconUrl ? currentFaviconUrl : null,
     );
-    if (nextFaviconUrl === null) return;
-    const timeout = window.setTimeout(() => setFaviconUrl(nextFaviconUrl), 250);
+    if (expectedFaviconUrl === null) return;
+    const timeout = window.setTimeout(() => setFaviconUrl(expectedFaviconUrl), 250);
     return () => window.clearTimeout(timeout);
-  }, [savedWebsiteName, websiteDraft]);
+  }, [expectedFaviconUrl]);
 
   // The camera only belongs on the switcher while the website is being named.
   // Submitting with the keyboard never blurs the field, so without this gate the
@@ -110,8 +162,10 @@ export function OnboardingShell() {
     () => ({
       act,
       direction,
-      faviconUrl,
+      editingWebsiteId,
+      faviconUrl: visibleFaviconUrl,
       isFirstPaint,
+      isFirstWebsite,
       isNamingProject: isCameraOnProject,
       isRecording,
       previewProjectLabel,
@@ -123,13 +177,18 @@ export function OnboardingShell() {
       setRecorderKey,
       setWebsiteDraft,
       stepIndex,
-      websiteDraft,
+      websiteDraft: activeWebsiteDraft,
+      websiteId,
+      workspaceName,
+      setWebsiteId,
     }),
     [
       act,
       direction,
-      faviconUrl,
+      editingWebsiteId,
+      visibleFaviconUrl,
       isFirstPaint,
+      isFirstWebsite,
       isCameraOnProject,
       isRecording,
       previewProjectLabel,
@@ -137,14 +196,21 @@ export function OnboardingShell() {
       recorderKey,
       savedWebsiteName,
       stepIndex,
-      websiteDraft,
+      activeWebsiteDraft,
+      websiteId,
+      workspaceName,
     ],
   );
 
   function goBack(): void {
     const previousStep = ONBOARDING_STEPS[Math.max(0, stepIndex - 1)];
     if (previousStep === undefined) return;
-    void navigate({ to: ONBOARDING_STEP_PATHS[previousStep], replace: true });
+    void navigate({
+      to: `/onboarding/$projectId/${previousStep}`,
+      params: { projectId },
+      search: websiteId === null ? {} : { website: websiteId },
+      replace: true,
+    });
   }
 
   return (

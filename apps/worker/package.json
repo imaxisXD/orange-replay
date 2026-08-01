@@ -15,7 +15,8 @@
   "dependencies": {
     "@orange-replay/public-page": "workspace:*",
     "@orange-replay/shared": "workspace:*",
-    "better-auth": "1.6.23"
+    "better-auth": "1.6.23",
+    "tldts": "catalog:"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260708.1",

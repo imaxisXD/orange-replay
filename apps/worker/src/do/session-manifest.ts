@@ -94,6 +94,7 @@ export function buildSessionManifest(
     sessionId: state.sessionId,
     projectId: state.projectId,
     orgId: state.orgId,
+    ...(state.websiteIds === undefined ? {} : { websiteIds: state.websiteIds }),
     startedAt,
     endedAt,
     durationMs: Math.max(0, endedAt - startedAt),

@@ -75,6 +75,8 @@ export interface Env {
   GITHUB_CLIENT_SECRET?: string;
   /** Server-only HMAC secret for live WebSocket tickets. */
   LIVE_TICKET_SECRET?: string;
+  /** Dedicated secret that encrypts recoverable onboarding Website keys. */
+  WEBSITE_KEY_WRAP_SECRET?: string;
   /** Public read-only demo project id. Demo is disabled unless this and DEMO_RECORDER_KEY are set. */
   DEMO_PROJECT_ID?: string;
   /** Public SDK recorder key for the demo landing page recorder. */

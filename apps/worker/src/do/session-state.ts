@@ -10,6 +10,8 @@ import {
 export interface SessionState {
   projectId: string;
   orgId: string;
+  /** Websites visited during this one Workspace journey. */
+  websiteIds?: string[];
   shard: number;
   retentionDays: number;
   sessionId: string;
@@ -42,6 +44,7 @@ export function createFreshState(args: AppendArgs): SessionState {
   return {
     projectId: args.projectId,
     orgId: args.orgId,
+    ...(args.websiteId === undefined ? {} : { websiteIds: [args.websiteId] }),
     shard: args.shard,
     retentionDays: args.retentionDays,
     sessionId: args.sessionId,
@@ -81,6 +84,7 @@ export function normalizeSessionState(state: SessionState): SessionState {
         ? Math.max(0, state.quickBacks)
         : 0,
     pageTabs: normalizePageTabs(state.pageTabs),
+    websiteIds: normalizeWebsiteIds(state.websiteIds),
   };
 
   if (
@@ -108,6 +112,9 @@ export function updateStateWithBatch(
   state.totalEventBytes += eventBytes;
   state.batchCount += 1;
   state.flags = (state.flags | args.flags) >>> 0;
+  if (args.websiteId !== undefined && !(state.websiteIds ?? []).includes(args.websiteId)) {
+    state.websiteIds = [...(state.websiteIds ?? []), args.websiteId];
+  }
 
   if (clampedIndex.u !== undefined && clampedIndex.u.length > 0) {
     state.entryUrl ??= clampedIndex.u;
@@ -119,6 +126,15 @@ export function updateStateWithBatch(
   if (clampedIndex.enc?.k !== undefined) {
     state.encKeyId = clampedIndex.enc.k;
   }
+}
+
+function normalizeWebsiteIds(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const ids = [...new Set(value.filter((id): id is string => typeof id === "string"))].slice(
+    0,
+    100,
+  );
+  return ids.length === 0 ? undefined : ids;
 }
 
 export function encodedTextBytes(value: string): number {

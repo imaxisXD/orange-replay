@@ -86,7 +86,7 @@ export async function revokeProjectKey(
   return jsonResponse(response, { headers: { "cache-control": "private, no-store" } });
 }
 
-async function keyManagementRateLimitAllows(
+export async function keyManagementRateLimitAllows(
   env: Env,
   projectId: string,
   auth: SessionAuthContext,

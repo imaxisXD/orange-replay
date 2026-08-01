@@ -21,20 +21,22 @@ vp exec --filter @orange-replay/worker -- wrangler queues create or-session-fina
 vp exec --filter @orange-replay/worker -- wrangler queues create or-dlq-prod
 ```
 
-Copy the printed D1 and KV ids into the current shell. Set the exact public Worker origin too. Use the real `workers.dev` origin until the custom domain is attached.
+Copy the printed D1 and KV ids into the current shell. Set the exact public Worker origin too. Use the real `workers.dev` origin only until the custom domain is attached.
+
+The hosted Orange Replay production origin is `https://orangereplay.app`. The same combined Worker serves the landing page, dashboard, APIs, ingest, SDK bundle, demo, and public replay pages, so both production origin variables use that one value:
 
 ```sh
 export ORANGE_REPLAY_PROD_D1_ID="your-production-d1-id"
 export ORANGE_REPLAY_PROD_KV_ID="your-production-kv-id"
-export ORANGE_REPLAY_PROD_WORKER_URL="https://replay.example.com"
-export ORANGE_REPLAY_PROD_PUBLIC_PAGE_ORIGIN="https://public.replay.example.com"
+export ORANGE_REPLAY_PROD_WORKER_URL="https://orangereplay.app"
+export ORANGE_REPLAY_PROD_PUBLIC_PAGE_ORIGIN="https://orangereplay.app"
 
 node scripts/prepare-cloudflare-build-config.mjs
 ```
 
 This creates the ignored `apps/worker/wrangler.cloudflare-build.jsonc` file with the real resource ids and public-page hostname. The committed config keeps placeholders so public commits never carry account-specific ids. Keep the rate-limit bindings in that generated config enabled.
 
-The public-page hostname must be in an active Cloudflare zone. Remove any conflicting CNAME for that exact hostname before deploying. The deploy attaches it as a Worker Custom Domain, so Cloudflare creates its DNS record and certificate. No second Worker or static publication job is needed.
+The public-page hostname must be in an active Cloudflare zone. Remove any conflicting CNAME for that exact hostname before deploying. The deploy attaches it as a Worker Custom Domain, so Cloudflare creates its DNS record and certificate. No second Worker or static publication job is needed. Keep the `workers.dev` route enabled only as a temporary fallback for recorder snippets copied before the custom-domain switch; do not publish it as the production address. Disable it after old snippets have moved to the custom domain.
 
 The analytics warehouse setup uses two different writer tokens. The bucket-scoped `ORANGE_REPLAY_CATALOG_TOKEN` is for catalog maintenance and the protected purge workflow. Cloudflare currently requires a separate account-wide `ORANGE_REPLAY_PIPELINE_CATALOG_TOKEN` when creating a missing Pipeline Data Catalog sink. Cloudflare then saves that credential in the sink, so it must stay valid while the sink runs even though setup does not need it again. Keep the broader token in a local secret store and never add it to the Worker, GitHub Actions, or Workers Builds. See `docs/runbooks/r2-analytics.md` for the exact permissions, setup command, expiry check, and rotation path.
 
@@ -78,11 +80,12 @@ export ORANGE_REPLAY_PROD_GITHUB_CLIENT_ID="your-github-client-id"
 export ORANGE_REPLAY_PROD_GITHUB_CLIENT_SECRET="your-github-client-secret"
 export ORANGE_REPLAY_PROD_PROJECT_ID="your-analytics-gate-project-id"
 export ORANGE_REPLAY_PROD_LIVE_TICKET_SECRET="your-saved-live-ticket-secret"
+export ORANGE_REPLAY_PROD_WEBSITE_KEY_WRAP_SECRET="your-saved-website-key-wrap-secret"
 export ORANGE_REPLAY_PROD_R2_SQL_TOKEN="your-read-only-r2-sql-token"
 export ORANGE_REPLAY_PROD_ANALYTICS_PURGE_RUNNER_TOKEN="your-saved-purge-runner-secret"
 ```
 
-Generate the Better Auth, live-ticket, and purge-runner secrets once with `openssl rand -base64 48`, save them in a password manager, and reuse the same values on later deploys. Changing `BETTER_AUTH_SECRET` signs everyone out and can make stored encrypted OAuth tokens unreadable. The purge workflow and Worker must use the same purge-runner value.
+Generate the Better Auth, live-ticket, Website-key-wrap, and purge-runner secrets once with `openssl rand -base64 48`, save them in a password manager, and reuse the same values on later deploys. Changing `BETTER_AUTH_SECRET` signs everyone out and can make stored encrypted OAuth tokens unreadable. Changing `WEBSITE_KEY_WRAP_SECRET` makes any unfinished Website setup unreadable; connected Websites have already deleted that encrypted value. The purge workflow and Worker must use the same purge-runner value.
 
 Private dashboard and project APIs use Better Auth sessions only. The post-deploy analytics smoke check reads the anonymous demo API, so it does not need a private dashboard credential.
 
@@ -119,11 +122,11 @@ Before running either deploy path, check every local value:
 node scripts/check-prod-secret.mjs --validate-only
 ```
 
-This checks all ten hosted-auth, analytics, and public-demo values without contacting or changing Cloudflare.
+This checks all eleven hosted-auth, Website-setup, analytics, and public-demo values without contacting or changing Cloudflare.
 
 ## 6. Build And Deploy From This Machine
 
-Keep the resource ids and all ten production secret values loaded in the same shell, then run:
+Keep the resource ids and all eleven production secret values loaded in the same shell, then run:
 
 ```sh
 vp run deploy:prod:d1
@@ -161,7 +164,7 @@ Production route split:
 
 ## 7. Link The First Account
 
-Open `/login` and sign in with GitHub once. A new install creates a personal workspace and default project when the dashboard opens. Create the first named project key from Settings; its plaintext is shown only once.
+Open `/login` and sign in with GitHub once. A new install creates a personal team and default Workspace when the dashboard opens. Finish onboarding to add the first Website and receive its install snippet.
 
 If this database already has a workspace from before Better Auth, link it deliberately. The script refuses to guess or replace another owner:
 
@@ -197,7 +200,7 @@ Optionally add Cloudflare Access around `/_admin*` as a second gate; the Worker 
 
 Complete sections 1 through 5 once before the first automatic build. The demo needs its D1 rows before the post-deploy smoke check can pass; the Worker fills its KV cache safely.
 
-Run one reviewed machine deploy before connecting the build. That path validates and uploads all ten runtime secrets only after the analytics gate passes. The automatic build then checks their names and preserves their existing values.
+Run one reviewed machine deploy before connecting the build. That path validates and uploads all eleven runtime secrets only after the analytics gate passes. The automatic build then checks their names and preserves their existing values.
 
 In Cloudflare Workers Builds, connect the GitHub repo to the `orange-replay` Worker and use these settings:
 
@@ -224,7 +227,7 @@ Add these Workers Builds variables before the first build:
 | `ORANGE_REPLAY_PROD_WORKER_URL`                      | Exact public Worker origin used by the smoke checks   |
 | `ORANGE_REPLAY_PROD_PUBLIC_PAGE_ORIGIN`              | Exact HTTPS origin used for public project pages      |
 
-The deploy command generates ignored selected-backend and D1-fallback Wrangler files inside the build machine. It checks that all ten secret names already exist before it changes the database, then applies migrations, runs the analytics gate, deploys, and runs both smoke checks. Keep `ORANGE_REPLAY_PROD_ANALYTICS_DELETION_READ_VERSION=v1` until the v2 deletion table is provisioned and D1 reports every retained tombstone as visible; only then use `v2`. For `compare` and `r2_sql`, store `ORANGE_REPLAY_PROD_R2_SQL_TOKEN` as a protected build secret; the gate and deployed Worker use the exact same reader token. The Worker must already have these runtime secret names:
+The deploy command generates ignored selected-backend and D1-fallback Wrangler files inside the build machine. It checks that all eleven secret names already exist before it changes the database, then applies migrations, runs the analytics gate, deploys, and runs both smoke checks. Keep `ORANGE_REPLAY_PROD_ANALYTICS_DELETION_READ_VERSION=v1` until the v2 deletion table is provisioned and D1 reports every retained tombstone as visible; only then use `v2`. For `compare` and `r2_sql`, store `ORANGE_REPLAY_PROD_R2_SQL_TOKEN` as a protected build secret; the gate and deployed Worker use the exact same reader token. The Worker must already have these runtime secret names:
 
 | Worker secret                  | Value loaded locally from                         |
 | ------------------------------ | ------------------------------------------------- |
@@ -234,6 +237,7 @@ The deploy command generates ignored selected-backend and D1-fallback Wrangler f
 | `GITHUB_CLIENT_ID`             | `ORANGE_REPLAY_PROD_GITHUB_CLIENT_ID`             |
 | `GITHUB_CLIENT_SECRET`         | `ORANGE_REPLAY_PROD_GITHUB_CLIENT_SECRET`         |
 | `LIVE_TICKET_SECRET`           | `ORANGE_REPLAY_PROD_LIVE_TICKET_SECRET`           |
+| `WEBSITE_KEY_WRAP_SECRET`      | `ORANGE_REPLAY_PROD_WEBSITE_KEY_WRAP_SECRET`      |
 | `DEMO_PROJECT_ID`              | `ORANGE_REPLAY_DEMO_PROJECT_ID`                   |
 | `DEMO_RECORDER_KEY`            | `ORANGE_REPLAY_DEMO_RECORDER_KEY`                 |
 | `R2_SQL_TOKEN`                 | `ORANGE_REPLAY_PROD_R2_SQL_TOKEN`                 |
@@ -245,11 +249,11 @@ The physical-deletion workflow needs the same `ANALYTICS_PURGE_RUNNER_TOKEN` as 
 
 ## 9. SDK Snippet Values
 
-Use one SDK package for both dev and prod. Only the values change. Keep `workers.dev` enabled only until the custom domain, GitHub login and logout, health endpoint, demo, and recorder SDK have passed their production checks. Then set `workers_dev` to `false` in the production Wrangler config so later deploys do not reopen the fallback address.
+Use one SDK package for both dev and prod. Only the values change. The hosted production origin is the Worker Custom Domain. Its production checks have passed, so `workers_dev` is `false` and the fallback address stays retired on later deploys.
 
 - Dev `ingestUrl`: `http://localhost:8787`
-- Prod `ingestUrl`: your Worker URL or custom domain
+- Hosted prod `ingestUrl`: `https://orangereplay.app`
 - Dev key: local seed key
-- Prod key: a named project key created in Settings and saved when it is shown once
+- Prod key: the Website recorder key saved from onboarding, or a named manual key created in Settings
 
 The SDK recorder key is public once it is installed on a website. Treat it as a project-scoped browser credential, not a dashboard login secret. Exact allowed origins are a browser and CORS guard only. Keep the rate limits, quota state, payload caps, and session caps enabled because a non-browser client can set any `Origin` header.

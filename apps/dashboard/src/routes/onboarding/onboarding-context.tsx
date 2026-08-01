@@ -6,16 +6,10 @@ export const ONBOARDING_STEPS = ["website", "install", "verify"] as const;
 
 export type OnboardingStep = (typeof ONBOARDING_STEPS)[number];
 
-export const ONBOARDING_STEP_PATHS = {
-  website: "/onboarding/website",
-  install: "/onboarding/install",
-  verify: "/onboarding/verify",
-} as const satisfies Record<OnboardingStep, string>;
-
 /** Step index from a pathname, clamped to the first step when unrecognised. */
 export function onboardingStepIndex(pathname: string): number {
-  const normalized = pathname.replace(/\/+$/, "");
-  const index = ONBOARDING_STEPS.findIndex((step) => normalized === ONBOARDING_STEP_PATHS[step]);
+  const finalPathPart = pathname.replace(/\/+$/, "").split("/").at(-1);
+  const index = ONBOARDING_STEPS.findIndex((step) => step === finalPathPart);
   return index === -1 ? 0 : index;
 }
 
@@ -27,12 +21,21 @@ export function onboardingProgress(stepIndex: number): number {
 interface OnboardingState {
   /** Signed-in project being activated. */
   projectId: string;
+  /** Display name of the current Workspace once it has a user-facing name. */
+  workspaceName: string | null;
+  /** True only while this Workspace has no saved Website. */
+  isFirstWebsite: boolean;
   /** Raw text in the website field, kept while moving between steps. */
   websiteDraft: string;
   setWebsiteDraft: (value: string) => void;
+  /** Website being installed inside the Workspace. */
+  websiteId: string | null;
+  setWebsiteId: (value: string | null) => void;
+  /** Unfinished Website being edited after the visitor chose Back. */
+  editingWebsiteId: string | null;
   /** Project name already saved for this project, or null before activation. */
   savedWebsiteName: string | null;
-  /** Raw recorder key minted this visit. Never re-readable after a reload. */
+  /** Internal installation key returned for this Website. Kept in this tab until connection. */
   recorderKey: string | null;
   setRecorderKey: (value: string | null) => void;
   /** True while the website field holds focus with something typed in it. */

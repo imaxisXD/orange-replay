@@ -197,6 +197,9 @@ const projectConfigObject = z
     retentionDays: z.number().int().min(1).max(365),
     jurisdiction: z.enum(["eu", "fedramp"]).optional(),
     version: z.number().int().nonnegative().optional(),
+    sessionCookieDomain: z.string().min(1).max(253).optional(),
+    websiteId: pathIdSchema.optional(),
+    websitePending: z.boolean().optional(),
   })
   .strict();
 
@@ -249,6 +252,7 @@ export const sessionManifestSchema: z.ZodType<SessionManifest> = z
     sessionId: pathIdSchema,
     projectId: pathIdSchema,
     orgId: pathIdSchema,
+    websiteIds: z.array(pathIdSchema).max(100).optional(),
     startedAt: z.number(),
     endedAt: z.number(),
     durationMs: z.number().nonnegative(),

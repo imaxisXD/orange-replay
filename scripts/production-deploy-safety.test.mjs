@@ -44,6 +44,7 @@ function validEnvironment() {
     ORANGE_REPLAY_PROD_GITHUB_CLIENT_ID: "github-client-id-12345",
     ORANGE_REPLAY_PROD_GITHUB_CLIENT_SECRET: `${longSecret}github`,
     ORANGE_REPLAY_PROD_LIVE_TICKET_SECRET: `${longSecret}ticket`,
+    ORANGE_REPLAY_PROD_WEBSITE_KEY_WRAP_SECRET: `${longSecret}website`,
     ORANGE_REPLAY_DEMO_PROJECT_ID: "demo_project",
     ORANGE_REPLAY_DEMO_RECORDER_KEY: demoRecorderKey,
     ORANGE_REPLAY_PROD_R2_SQL_TOKEN: `${longSecret}r2`,
@@ -72,6 +73,7 @@ describe("production deploy secret safety", () => {
       GITHUB_CLIENT_ID: "github-client-id-12345",
       GITHUB_CLIENT_SECRET: `${longSecret}github`,
       LIVE_TICKET_SECRET: `${longSecret}ticket`,
+      WEBSITE_KEY_WRAP_SECRET: `${longSecret}website`,
       R2_SQL_TOKEN: `${longSecret}r2`,
     });
     expect(readWorkerDeploySecrets(validEnvironment())).toEqual(values);
@@ -161,6 +163,7 @@ describe("production deploy secret safety", () => {
       DEMO_PROJECT_ID: "direct-demo-project",
       DEMO_RECORDER_KEY: "direct-demo-recorder-key",
       LIVE_TICKET_SECRET: "direct-ticket",
+      WEBSITE_KEY_WRAP_SECRET: "direct-website-key",
       R2_SQL_TOKEN: "direct-r2",
       ANALYTICS_PURGE_RUNNER_TOKEN: "direct-purge",
     });

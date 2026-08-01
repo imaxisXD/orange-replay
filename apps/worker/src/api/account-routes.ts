@@ -1,11 +1,19 @@
-import type { AccountResponse, AccountWorkspace } from "@orange-replay/shared";
+import {
+  MAX_PROJECT_CREATE_BODY_BYTES,
+  projectCreateRequestSchema,
+  uuidv7,
+  type AccountResponse,
+  type AccountWorkspace,
+  type ProjectCreateResponse,
+  type WideEventLogger,
+} from "@orange-replay/shared";
 import type { Env } from "../env.ts";
 import {
   hostedProjectBootstrapReportId,
   prepareNewProjectAnalyticsReceipt,
 } from "../analytics/project-bootstrap.ts";
 import type { ProjectRole, SessionAuthContext } from "./auth.ts";
-import { jsonResponse } from "../http.ts";
+import { jsonError, jsonResponse, readJsonBodyCapped } from "../http.ts";
 
 interface AccountProjectRow {
   [key: string]: unknown;
@@ -23,6 +31,11 @@ interface MembershipCountRow {
 }
 
 export type { AccountResponse } from "@orange-replay/shared";
+
+interface WorkspaceMembershipRow {
+  [key: string]: unknown;
+  role: string;
+}
 
 export async function getAccount(env: Env, auth: SessionAuthContext): Promise<Response> {
   const body = await readAccount(env, auth);
@@ -53,27 +66,7 @@ export async function bootstrapAccount(env: Env, auth: SessionAuthContext): Prom
           (id, name, slug, logo, metadata, shard, created_at)
           VALUES (?, ?, ?, ?, ?, ?, ?)`,
       ).bind(workspaceId, workspaceName, workspaceSlug, null, null, 0, now),
-      env.IDX_00.prepare(
-        `INSERT OR IGNORE INTO projects
-          (id, org_id, name, jurisdiction, retention_days, sample_rate,
-            allowed_origins, mask_policy_version, mask_rules, capture_toggles,
-            quota_state, config_version, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).bind(
-        projectId,
-        workspaceId,
-        "Default project",
-        null,
-        30,
-        1,
-        "[]",
-        1,
-        "[]",
-        JSON.stringify({ heatmaps: false, console: false, network: false, canvas: false }),
-        "ok",
-        1,
-        now,
-      ),
+      prepareProjectInsert(env.IDX_00, projectId, workspaceId, now, true),
       prepareNewProjectAnalyticsReceipt(env.IDX_00, projectId, now, hostedProjectBootstrapReportId),
       env.IDX_00.prepare(
         `INSERT OR IGNORE INTO members
@@ -90,6 +83,47 @@ export async function bootstrapAccount(env: Env, auth: SessionAuthContext): Prom
 
   const body = await readAccount(env, auth);
   return jsonResponse(body, { headers: { "cache-control": "private, no-store" } });
+}
+
+export async function createProject(
+  request: Request,
+  env: Env,
+  auth: SessionAuthContext,
+  wideEvent: WideEventLogger,
+): Promise<Response> {
+  const body = await readJsonBodyCapped(request, MAX_PROJECT_CREATE_BODY_BYTES);
+  if (!body.ok) return jsonError(body.error, body.status);
+
+  const parsed = projectCreateRequestSchema.safeParse(body.value);
+  if (!parsed.success) return jsonError("invalid_workspace", 400);
+
+  const membership = await env.IDX_00.prepare(
+    "SELECT role FROM members WHERE org_id = ? AND user_id = ?",
+  )
+    .bind(parsed.data.workspaceId, auth.hostedSession.user.id)
+    .first<WorkspaceMembershipRow>();
+  const role = membership === null ? null : readProjectRole(membership.role);
+  if (role !== "owner" && role !== "admin") return jsonError("forbidden", 403);
+
+  const projectId = `project_${uuidv7()}`;
+  const now = Date.now();
+  await env.IDX_00.batch([
+    prepareProjectInsert(env.IDX_00, projectId, parsed.data.workspaceId, now, false),
+    prepareNewProjectAnalyticsReceipt(env.IDX_00, projectId, now, hostedProjectBootstrapReportId),
+  ]);
+
+  const account = await readAccount(env, auth);
+  const project = account.workspaces
+    .find((workspace) => workspace.id === parsed.data.workspaceId)
+    ?.projects.find((candidate) => candidate.id === projectId);
+  if (project === undefined) return jsonError("project_create_failed", 500);
+
+  wideEvent.set({ project_id: projectId, org_id: parsed.data.workspaceId });
+  const response = { project, account } satisfies ProjectCreateResponse;
+  return jsonResponse(response, {
+    status: 201,
+    headers: { "cache-control": "private, no-store" },
+  });
 }
 
 async function readAccount(env: Env, auth: SessionAuthContext): Promise<AccountResponse> {
@@ -181,4 +215,36 @@ async function stableUserPart(userId: string): Promise<string> {
     value += byte.toString(16).padStart(2, "0");
   }
   return value;
+}
+
+function prepareProjectInsert(
+  database: D1Database,
+  projectId: string,
+  workspaceId: string,
+  createdAt: number,
+  ignoreExisting: boolean,
+): D1PreparedStatement {
+  return database
+    .prepare(
+      `INSERT ${ignoreExisting ? "OR IGNORE " : ""}INTO projects
+        (id, org_id, name, jurisdiction, retention_days, sample_rate,
+          allowed_origins, mask_policy_version, mask_rules, capture_toggles,
+          quota_state, config_version, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      projectId,
+      workspaceId,
+      "Default project",
+      null,
+      30,
+      1,
+      "[]",
+      1,
+      "[]",
+      JSON.stringify({ heatmaps: false, console: false, network: false, canvas: false }),
+      "ok",
+      1,
+      createdAt,
+    );
 }

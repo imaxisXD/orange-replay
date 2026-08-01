@@ -11,6 +11,10 @@ import type { ReplayOverlay } from "../overlay.ts";
 import { installReplayFramePolicy } from "../replay-security.ts";
 import { createSecureReplayer } from "../secure-replayer.ts";
 import type { ReplayEvent } from "../types.ts";
+import {
+  watchReplayCursorPosition,
+  type ReplayCursorVisibility,
+} from "./replay-cursor-visibility.ts";
 
 export interface ReplaySurfaceHost {
   onFinish(): void;
@@ -46,6 +50,7 @@ export class ReplaySurface {
   private replayer: Replayer | undefined;
   private replayWrapper: HTMLDivElement | undefined;
   private replayViewport: ReplayViewport | undefined;
+  private replayCursorVisibility: ReplayCursorVisibility | undefined;
 
   constructor(options: ReplaySurfaceOptions) {
     this.container = options.container;
@@ -166,6 +171,10 @@ export class ReplaySurface {
     return this.replayer?.getCurrentTime() ?? null;
   }
 
+  resetCursorPosition(): void {
+    this.replayCursorVisibility?.reset();
+  }
+
   destroyReplay(): void {
     this.destroyReplayerOnly();
     this.replayWrapper = undefined;
@@ -177,6 +186,8 @@ export class ReplaySurface {
   }
 
   private destroyReplayerOnly(): void {
+    this.replayCursorVisibility?.stop();
+    this.replayCursorVisibility = undefined;
     this.replayer?.destroy();
     this.replayer = undefined;
   }
@@ -205,6 +216,7 @@ export class ReplaySurface {
     wrapper.style.margin = "0";
     wrapper.style.transformOrigin = "top left";
     wrapper.style.overflow = "hidden";
+    this.replayCursorVisibility = watchReplayCursorPosition(wrapper);
     this.applyReplayLayout();
     this.overlay.mount(wrapper);
     this.overlay.bringToFront();

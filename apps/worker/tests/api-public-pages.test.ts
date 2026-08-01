@@ -82,11 +82,13 @@ describe.sequential("public project pages", () => {
       bytes: segmentBytes.byteLength,
       segment_count: 1,
     });
-    await seedSession(
-      privateSession,
-      makeManifest(privateSession, [{ name: segmentName, bytes: segmentBytes }]),
-      [{ name: segmentName, bytes: segmentBytes }],
-    );
+    const privateManifest = makeManifest(privateSession, [
+      { name: segmentName, bytes: segmentBytes },
+    ]);
+    privateManifest.websiteIds = ["website_private_source"];
+    await seedSession(privateSession, privateManifest, [
+      { name: segmentName, bytes: segmentBytes },
+    ]);
 
     const publishedResponse = await updateSettings(assetProjectId, true, [privateSessionId], 0);
     expect(publishedResponse.status).toBe(200);
@@ -179,6 +181,8 @@ describe.sequential("public project pages", () => {
     expect(manifestText).not.toContain(privateSessionId);
     expect(manifestText).not.toContain("private@example.com");
     expect(manifestText).not.toContain("api_org");
+    expect(manifestText).not.toContain("website_private_source");
+    expect(manifest).not.toHaveProperty("websiteIds");
 
     const segmentResponse = await worker.fetch(
       `/api/v1/public-pages/${publicId}/replays/${publicReplayId}/segments/${segmentName}`,

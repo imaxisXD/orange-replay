@@ -131,6 +131,7 @@
           "GITHUB_CLIENT_ID",
           "GITHUB_CLIENT_SECRET",
           "LIVE_TICKET_SECRET",
+          "WEBSITE_KEY_WRAP_SECRET",
           "DEMO_PROJECT_ID",
           "DEMO_RECORDER_KEY",
           "R2_SQL_TOKEN",

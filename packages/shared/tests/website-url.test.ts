@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   FAVICON_API_VERSION,
   WEBSITE_URL_ISSUE,
+  websiteAllowedOrigins,
   websiteNameFromUrl,
   websiteUrlSchema,
 } from "../src/website-url.ts";
@@ -56,5 +57,15 @@ describe("website URL schema", () => {
 
   it("uses the bare hostname as the website name", () => {
     expect(websiteNameFromUrl(new URL("https://www.acme.com/path"))).toBe("acme.com");
+  });
+
+  it("builds the exact Website origin boundary and its common www alias", () => {
+    expect(websiteAllowedOrigins(new URL("https://example.com/path"))).toEqual([
+      "https://example.com",
+      "https://www.example.com",
+    ]);
+    expect(websiteAllowedOrigins(new URL("http://localhost:3000"))).toEqual([
+      "http://localhost:3000",
+    ]);
   });
 });

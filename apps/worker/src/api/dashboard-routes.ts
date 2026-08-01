@@ -1,7 +1,7 @@
 import type { WideEventLogger } from "@orange-replay/shared";
 import { handleBetterAuthRequest } from "../auth/server.ts";
 import type { Env } from "../env.ts";
-import { bootstrapAccount, getAccount } from "./account-routes.ts";
+import { bootstrapAccount, createProject, getAccount } from "./account-routes.ts";
 import { getAdminStats, getAdminUsers } from "./admin-routes.ts";
 import { isSessionAuth, type ApiAuthContext, type SessionAuthContext } from "./auth.ts";
 import type {
@@ -18,6 +18,12 @@ import { getFavicon } from "./favicon.ts";
 import { mintLiveTicket, proxyLiveSession } from "./live-ticket.ts";
 import { getSessionState, listSessionHeads } from "./session-head-routes.ts";
 import { createProjectKey, revokeProjectKey } from "./project-keys.ts";
+import {
+  ensureProjectWebsite,
+  getProjectWebsiteInstallStatus,
+  getProjectWebsiteSetup,
+  listProjectWebsites,
+} from "./project-websites.ts";
 import { getPublicPageSettings, putPublicPageSettings } from "./public-page-settings.ts";
 import {
   getDemoDiscovery,
@@ -58,6 +64,7 @@ export interface DashboardExecutors {
   liveProxy(rctx: DashboardRouteContext, ids: SessionIds): Promise<Response>;
   account(rctx: DashboardRouteContext, auth: SessionAuthContext): Promise<Response>;
   accountBootstrap(rctx: DashboardRouteContext, auth: SessionAuthContext): Promise<Response>;
+  projectCreate(rctx: DashboardRouteContext, auth: SessionAuthContext): Promise<Response>;
   favicon(rctx: DashboardRouteContext, auth: SessionAuthContext): Promise<Response>;
   adminStats(rctx: DashboardRouteContext): Promise<Response>;
   adminUsers(rctx: DashboardRouteContext): Promise<Response>;
@@ -76,6 +83,8 @@ export const DASHBOARD_EXECUTORS: DashboardExecutors = {
     proxyLiveSession(request, url, env, ids.projectId, ids.sessionId, requestId),
   account: ({ env }, auth) => getAccount(env, auth),
   accountBootstrap: ({ env }, auth) => bootstrapAccount(env, auth),
+  projectCreate: ({ request, env, wideEvent }, auth) =>
+    createProject(request, env, auth, wideEvent),
   favicon: ({ request, env, ctx, wideEvent }, auth) =>
     getFavicon(request, env, ctx, auth.hostedSession.user.id, wideEvent),
   adminStats: ({ env }) => getAdminStats(env),
@@ -168,6 +177,23 @@ async function executeProjectRoute(
       const { projectId, keyId } = grantedIds(route.params);
       if (!isSessionAuth(auth)) return jsonError("unauthorized", 401);
       return revokeProjectKey(env, projectId, keyId, auth);
+    }
+    case "project_website_ensure": {
+      const { projectId } = grantedIds(route.params);
+      if (!isSessionAuth(auth)) return jsonError("unauthorized", 401);
+      return ensureProjectWebsite(request, env, projectId, auth, wideEvent);
+    }
+    case "project_websites_list": {
+      const { projectId } = grantedIds(route.params);
+      return listProjectWebsites(env, projectId, wideEvent);
+    }
+    case "project_website_install_status": {
+      const { projectId, websiteId } = grantedIds(route.params);
+      return getProjectWebsiteInstallStatus(env, projectId, websiteId);
+    }
+    case "project_website_setup": {
+      const { projectId, websiteId } = grantedIds(route.params);
+      return getProjectWebsiteSetup(env, projectId, websiteId);
     }
     case "manifest": {
       const { projectId, sessionId } = grantedIds(route.params);

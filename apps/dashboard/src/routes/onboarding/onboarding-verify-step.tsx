@@ -1,8 +1,8 @@
 import { useEffect, type FormEvent } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
-import { fetchInstallStatus } from "@/lib/api";
+import { fetchProjectWebsiteInstallStatus, projectWebsitesQueryKey } from "@/lib/api";
 import { readDashboardAccessError } from "@/lib/dashboard-access";
 import { formatRelativeTime } from "@/lib/format";
 import { m, useReducedMotion } from "@/lib/motion";
@@ -10,22 +10,28 @@ import { installStatusPollIntervalMs, shouldPollInstallStatus } from "@/lib/proj
 import { cn } from "@/lib/utils";
 import { useOnboarding } from "./onboarding-context";
 import { VERIFY } from "./onboarding-motion";
+import { clearOnboardingRecorderKey } from "./onboarding-recorder-key";
 import { OnboardingStage } from "./onboarding-stage";
 
 /**
  * Step 3 of 3 — the first event.
  *
- * This is the same `/install-status` poll the Install page runs, so the flow
- * ends on a fact rather than on the visitor asserting they pasted the snippet.
- * The check only draws once the project has actually received an event.
+ * This polls the exact Website created in step one, so another Website's old
+ * activity cannot complete this setup. The check only draws once this Website
+ * has actually sent an accepted event.
  */
 export function OnboardingVerifyPage() {
   const navigate = useNavigate();
-  const { previewProjectLabel, projectId, setIsRecording } = useOnboarding();
+  const queryClient = useQueryClient();
+  const { previewProjectLabel, projectId, setIsRecording, websiteId } = useOnboarding();
 
   const statusQuery = useQuery({
-    queryKey: ["install-status", projectId],
-    queryFn: () => fetchInstallStatus(projectId),
+    queryKey: ["website-install-status", projectId, websiteId],
+    queryFn: () => {
+      if (websiteId === null) throw new Error("Choose a Website before checking its connection.");
+      return fetchProjectWebsiteInstallStatus(projectId, websiteId);
+    },
+    enabled: websiteId !== null,
     refetchInterval: (query) => {
       if (query.state.data?.firstEventAt != null) return false;
       return shouldPollInstallStatus(document.visibilityState)
@@ -42,8 +48,20 @@ export function OnboardingVerifyPage() {
   // right pane lives in the shell. This is the only place that knows an event
   // arrived, so it reports it up rather than animating the preview itself.
   useEffect(() => {
-    if (isConnected) setIsRecording(true);
-  }, [isConnected, setIsRecording]);
+    if (!isConnected) return;
+    setIsRecording(true);
+    if (websiteId !== null) clearOnboardingRecorderKey(projectId, websiteId);
+    void queryClient.invalidateQueries({ queryKey: projectWebsitesQueryKey(projectId) });
+    void queryClient.invalidateQueries({ queryKey: ["install-status", projectId] });
+    const timeout = window.setTimeout(() => {
+      void navigate({
+        to: "/projects/$projectId/overview",
+        params: { projectId },
+        replace: true,
+      });
+    }, VERIFY.dashboardDelay);
+    return () => window.clearTimeout(timeout);
+  }, [isConnected, navigate, projectId, queryClient, setIsRecording, websiteId]);
   const statusError =
     statusQuery.error === null
       ? ""
@@ -71,7 +89,7 @@ export function OnboardingVerifyPage() {
           size="lg"
           type="submit"
         >
-          {isConnected ? "Open your dashboard" : "Check again"}
+          {isConnected ? "Go to dashboard" : "Check again"}
         </Button>
       }
       body={
@@ -82,21 +100,21 @@ export function OnboardingVerifyPage() {
           <VerifySignal isConnected={isConnected} />
           <div>
             <strong className="text-[13px] font-medium text-foreground">
-              {isConnected ? "Recorder connected" : "Waiting for the first event"}
+              {isConnected ? `${previewProjectLabel} is connected` : "Waiting for your website"}
             </strong>
             <p className="mt-1 text-[12px] leading-[17px] text-muted-foreground">
               {isConnected
-                ? `First event seen ${formatRelativeTime(firstEventAt)}.`
+                ? `Connected ${formatRelativeTime(firstEventAt)}.`
                 : statusError.length > 0
                   ? statusError
-                  : `Open ${previewProjectLabel} in another tab and click around.`}
+                  : `Open ${previewProjectLabel} in another tab and browse a page.`}
             </p>
           </div>
         </div>
       }
-      heading="Send your first recording"
+      heading="Check your connection"
       onSubmit={handleSubmit}
-      support="Visit your site once with the snippet in place. This updates the moment data arrives."
+      support="Open your website after adding the script. This page updates when Orange Replay connects."
     />
   );
 }

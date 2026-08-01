@@ -5,6 +5,10 @@ import {
   decodeAuthConfigResponse,
   decodeCreatedProjectKeyResponse,
   decodeProjectKeyResponse,
+  decodeProjectCreateResponse,
+  decodeEnsureProjectWebsiteResponse,
+  decodeProjectWebsiteInstallStatus,
+  decodeProjectWebsitesResponse,
   type AccountProject as SharedAccountProject,
   type AccountResponse as SharedAccountResponse,
   type AccountUser as SharedAccountUser,
@@ -12,6 +16,10 @@ import {
   type CreatedProjectKeyResponse as SharedCreatedProjectKeyResponse,
   type ProjectKeyAudit as SharedProjectKeyAudit,
   type ProjectKeysResponse as SharedProjectKeysResponse,
+  type ProjectCreateResponse as SharedProjectCreateResponse,
+  type EnsureProjectWebsiteResponse as SharedEnsureProjectWebsiteResponse,
+  type ProjectWebsiteInstallStatus as SharedProjectWebsiteInstallStatus,
+  type ProjectWebsitesResponse as SharedProjectWebsitesResponse,
 } from "@orange-replay/shared";
 import type { DashboardProjectRole, ServerAuthMode } from "../dashboard-access";
 import { encodePathPart, requestJson } from "./client";
@@ -27,6 +35,10 @@ export type AccountResponse = SharedAccountResponse;
 export type ProjectKeyAudit = SharedProjectKeyAudit;
 export type ProjectKeysResponse = SharedProjectKeysResponse;
 export type CreatedProjectKeyResponse = SharedCreatedProjectKeyResponse;
+export type ProjectCreateResponse = SharedProjectCreateResponse;
+export type EnsureProjectWebsiteResponse = SharedEnsureProjectWebsiteResponse;
+export type ProjectWebsiteInstallStatus = SharedProjectWebsiteInstallStatus;
+export type ProjectWebsitesResponse = SharedProjectWebsitesResponse;
 
 export interface AdminStatsResponse {
   users: number;
@@ -65,6 +77,10 @@ export interface AdminUserSearch {
 export const authConfigQueryKey = ["auth-config"] as const;
 export const accountQueryKey = ["account"] as const;
 
+export function projectWebsitesQueryKey(projectId: string) {
+  return ["project-websites", projectId] as const;
+}
+
 export async function fetchAuthConfig(): Promise<AuthConfigResponse> {
   return requestJson<AuthConfigResponse>("/api/v1/auth/config", {
     auth: false,
@@ -90,6 +106,15 @@ export async function bootstrapAccount(): Promise<AccountResponse> {
   });
 }
 
+export async function createProject(workspaceId: string): Promise<ProjectCreateResponse> {
+  return requestJson<ProjectCreateResponse>("/api/v1/projects", {
+    auth: true,
+    body: { workspaceId },
+    decode: decodeProjectCreateResponse,
+    method: "POST",
+  });
+}
+
 export async function createProjectKey(
   projectId: string,
   name: string,
@@ -103,6 +128,49 @@ export async function createProjectKey(
       decode: decodeCreatedProjectKeyResponse,
       method: "POST",
     },
+  );
+}
+
+export async function ensureProjectWebsite(
+  projectId: string,
+  website: string,
+  websiteId?: string,
+): Promise<EnsureProjectWebsiteResponse> {
+  return requestJson<EnsureProjectWebsiteResponse>(
+    `/api/v1/projects/${encodePathPart(projectId)}/websites`,
+    {
+      auth: true,
+      body: { website, ...(websiteId === undefined ? {} : { websiteId }) },
+      decode: decodeEnsureProjectWebsiteResponse,
+      method: "PUT",
+    },
+  );
+}
+
+export async function fetchProjectWebsites(projectId: string): Promise<ProjectWebsitesResponse> {
+  return requestJson<ProjectWebsitesResponse>(
+    `/api/v1/projects/${encodePathPart(projectId)}/websites`,
+    { auth: true, decode: decodeProjectWebsitesResponse },
+  );
+}
+
+export async function fetchProjectWebsiteSetup(
+  projectId: string,
+  websiteId: string,
+): Promise<EnsureProjectWebsiteResponse> {
+  return requestJson<EnsureProjectWebsiteResponse>(
+    `/api/v1/projects/${encodePathPart(projectId)}/websites/${encodePathPart(websiteId)}`,
+    { auth: true, decode: decodeEnsureProjectWebsiteResponse },
+  );
+}
+
+export async function fetchProjectWebsiteInstallStatus(
+  projectId: string,
+  websiteId: string,
+): Promise<ProjectWebsiteInstallStatus> {
+  return requestJson<ProjectWebsiteInstallStatus>(
+    `/api/v1/projects/${encodePathPart(projectId)}/websites/${encodePathPart(websiteId)}/install-status`,
+    { auth: true, decode: decodeProjectWebsiteInstallStatus },
   );
 }
 

@@ -26,6 +26,7 @@ import {
 } from "./helpers.ts";
 import { gzipPayload, indexMismatchError, validatePayloadSize } from "./payload.ts";
 import { lookupProjectConfig } from "./project-config-lookup.ts";
+import { markProjectWebsiteConnected } from "../api/project-websites.ts";
 import { ingestRateLimitAllows } from "./rate-limit.ts";
 import { ingestAckForAppendResult, jsonResponse } from "./response.ts";
 
@@ -235,6 +236,7 @@ async function handleIngestPost(request: Request, env: Env): Promise<Response> {
       requestId,
       projectId: config.projectId,
       orgId: config.orgId,
+      ...(config.websiteId === undefined ? {} : { websiteId: config.websiteId }),
       shard: config.shard,
       retentionDays: config.retentionDays,
       sessionId,
@@ -256,6 +258,23 @@ async function handleIngestPost(request: Request, env: Env): Promise<Response> {
     if (result.drop === true) {
       event.set({ flags: cleanedFlags, live: result.live, drop_reason: "session_cap" });
       return finish(ack, 202, "dropped");
+    }
+
+    if (config.websiteId !== undefined && config.websitePending === true) {
+      try {
+        await markProjectWebsiteConnected(
+          env,
+          config.projectId,
+          config.websiteId,
+          keyHash,
+          Date.now(),
+        );
+        event.set({ website_id: config.websiteId, website_connected: true });
+      } catch {
+        // The recording was accepted. Keep the Website pending so the next
+        // accepted batch can retry this small activation write.
+        event.set({ website_id: config.websiteId, website_activation_pending: true });
+      }
     }
 
     event.set({ flags: cleanedFlags, live: result.live });

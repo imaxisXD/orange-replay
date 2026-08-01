@@ -44,8 +44,34 @@ export const projects = sqliteTable(
     quotaState: text("quota_state").notNull().default("ok"),
     configVersion: integer("config_version").notNull().default(1),
     createdAt: integer("created_at").notNull(),
+    sessionCookieDomain: text("session_cookie_domain"),
   },
   (table) => [index("idx_projects_org_id").on(table.orgId)],
+);
+
+export const projectWebsites = sqliteTable(
+  "project_websites",
+  {
+    id: text("id").notNull(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    origin: text("origin").notNull(),
+    allowedOrigins: text("allowed_origins").notNull(),
+    firstEventAt: integer("first_event_at"),
+    recorderKeyId: text("recorder_key_id"),
+    recorderSecretCiphertext: text("recorder_secret_ciphertext"),
+    recorderSecretIv: text("recorder_secret_iv"),
+    createdBy: text("created_by"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id] }),
+    uniqueIndex("idx_project_websites_origin").on(table.projectId, table.origin),
+    index("idx_project_websites_project_created").on(table.projectId, table.createdAt, table.id),
+  ],
 );
 
 export const keys = sqliteTable(
@@ -64,11 +90,16 @@ export const keys = sqliteTable(
     revokedBy: text("revoked_by"),
     cacheSynced: integer("cache_synced").notNull().default(1),
     cacheFinalCheckAt: integer("cache_final_check_at"),
+    websiteId: text("website_id"),
   },
   (table) => [
     primaryKey({ columns: [table.keyHash] }),
     uniqueIndex("idx_keys_id").on(table.id),
     index("idx_keys_project_active").on(table.projectId, table.active),
+    index("idx_keys_website_active").on(table.websiteId, table.active),
+    uniqueIndex("idx_keys_one_active_website_key")
+      .on(table.websiteId)
+      .where(sql`${table.websiteId} IS NOT NULL AND ${table.active} = 1`),
     index("idx_keys_cache_sync").on(table.active, table.cacheSynced, table.revokedAt),
     index("idx_keys_cache_final_check").on(table.active, table.cacheFinalCheckAt),
   ],

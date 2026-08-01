@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LazyMotion, domMax } from "framer-motion";
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { BrandMark } from "@/components/brand-mark";
@@ -14,7 +14,7 @@ import {
   SelectLabel,
   SelectTrigger,
 } from "@/components/ui/select";
-import { accountQueryKey, fetchAccount } from "@/lib/api";
+import { ApiError, accountQueryKey, createProject, fetchAccount } from "@/lib/api";
 import {
   canManageProject,
   findAccountProject,
@@ -24,7 +24,7 @@ import {
 } from "@/lib/dashboard-access";
 import { DashboardDockHost } from "@/lib/dashboard-dock";
 import { getDashboardEnvironmentLabel } from "@/lib/dashboard-environment";
-import { ShieldUser } from "@/lib/icon-map";
+import { Plus, ShieldUser } from "@/lib/icon-map";
 import { dashboardNavItems, type DashboardNavItem } from "@/lib/dashboard-navigation";
 import { useDashboardWorkspace } from "@/lib/dashboard-workspace";
 import { m, type HTMLMotionProps } from "@/lib/motion";
@@ -71,6 +71,7 @@ export function AppShell({
     import.meta.env.VITE_DASHBOARD_ENVIRONMENT,
   );
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState("");
   const activeAccess = readDashboardAccess(isDemo ? "demo" : "private");
@@ -97,6 +98,30 @@ export function AppShell({
           project.id === projectId ? { ...project, label: projectLabel } : project,
         );
   const activeProject = findAccountProject(account, projectId);
+  const activeWorkspace = account?.workspaces.find((workspace) =>
+    workspace.projects.some((project) => project.id === projectId),
+  );
+  const canCreateProject =
+    !isDemo &&
+    projectLabel === undefined &&
+    (activeWorkspace?.role === "owner" || activeWorkspace?.role === "admin");
+  const createProjectMutation = useMutation({
+    mutationFn: async () => {
+      if (activeWorkspace === undefined) {
+        throw new Error("Could not find this project's workspace.");
+      }
+      return createProject(activeWorkspace.id);
+    },
+    onSuccess: (created) => {
+      queryClient.setQueryData(accountQueryKey, created.account);
+      void navigate({
+        to: "/onboarding/$projectId/website",
+        params: { projectId: created.project.id },
+      });
+    },
+  });
+  const createProjectError =
+    createProjectMutation.error === null ? "" : readCreateProjectError(createProjectMutation.error);
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const selectedSession = useRouterState({
     select: (state) => (state.location.search as { selected?: string }).selected,
@@ -176,14 +201,14 @@ export function AppShell({
               value={projectId}
             >
               <SelectTrigger
-                aria-label="Project"
+                aria-label="Workspace"
                 className="h-7.5 min-w-33 bg-transparent rounded-lg border-none hover:bg-secondary px-2.75 py-1.25 text-[12.5px] hover:text-foreground text-muted-foreground"
                 leadingContent={projectLeadingContent}
-                placeholder="Project"
+                placeholder="Workspace"
               />
               <SelectContent className="rounded-lg border border-border bg-popover">
                 <SelectGroup>
-                  <SelectLabel>Projects</SelectLabel>
+                  <SelectLabel>Workspaces</SelectLabel>
                   {projectOptions.map((project, index) => (
                     <SelectItem index={index} key={project.id} value={project.id}>
                       {project.label}
@@ -193,9 +218,47 @@ export function AppShell({
               </SelectContent>
             </Select>
 
+            {canCreateProject && (
+              <Button
+                className="h-7.5 px-2.5 text-[12.5px]"
+                leadingIcon={Plus}
+                onClick={() =>
+                  void navigate({
+                    to: "/onboarding/$projectId/website",
+                    params: { projectId },
+                  })
+                }
+                size="sm"
+                type="button"
+                variant="ghost"
+              >
+                Add website
+              </Button>
+            )}
+
+            {canCreateProject && (
+              <Button
+                className="h-7.5 px-2.5 text-[12.5px]"
+                leadingIcon={Plus}
+                loading={createProjectMutation.isPending}
+                onClick={() => createProjectMutation.mutate()}
+                size="sm"
+                type="button"
+                variant="ghost"
+              >
+                Add workspace
+              </Button>
+            )}
+
             <Badge color="amber" size="sm">
               {environmentLabel}
             </Badge>
+
+            {createProjectError.length > 0 && (
+              <p className="max-w-52 text-[11.5px] text-danger" role="alert">
+                {createProjectError}
+              </p>
+            )}
 
             <div className="ml-auto flex items-center gap-4">
               {!isDemo && account?.isAdmin === true && (
@@ -267,6 +330,15 @@ export function AppShell({
       </div>
     </div>
   );
+}
+
+function readCreateProjectError(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.status === 403) return "Only a workspace owner or admin can add a workspace.";
+    if (error.code === "network_error") return error.message;
+    return "Could not add the workspace. Try again.";
+  }
+  return readDashboardAccessError(error, "Could not add the workspace. Try again.");
 }
 
 function AccountAvatar({ image, name }: { image?: string | null; name?: string }) {

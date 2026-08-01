@@ -5,7 +5,9 @@ import {
   buildSessionHeadsUrl,
   buildSessionListUrl,
   buildStatsUrl,
+  createProject,
   createProjectKey,
+  ensureProjectWebsite,
   fetchAccount,
   fetchAdminStats,
   fetchAdminUsers,
@@ -13,6 +15,7 @@ import {
   fetchLiveSessions,
   fetchProjectKeys,
   fetchProjectStats,
+  fetchProjectWebsites,
   fetchSessionHeads,
   fetchSessionState,
   health,
@@ -224,6 +227,47 @@ describe("api client", () => {
     expect(window.localStorage.length).toBe(0);
   });
 
+  it("loads Website setup state with an encoded project id", async () => {
+    const websites = [
+      {
+        id: "website_one",
+        name: "ndle.app",
+        origin: "https://ndle.app",
+        firstEventAt: null,
+      },
+    ];
+    fetchMock.mockResolvedValue(jsonResponse({ websites }));
+
+    await expect(fetchProjectWebsites("project one")).resolves.toEqual({ websites });
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/projects/project%20one/websites", {
+      headers: expect.any(Headers),
+    });
+  });
+
+  it("sends the unfinished Website id when saving an edit", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        website: {
+          id: "website_one",
+          name: "next.example",
+          origin: "https://next.example",
+          firstEventAt: null,
+        },
+        key: validProjectKey(),
+        secret: "or_live_secret",
+        alreadyConnected: false,
+      }),
+    );
+
+    await ensureProjectWebsite("project one", "next.example", "website_one");
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/projects/project%20one/websites", {
+      headers: expect.any(Headers),
+      method: "PUT",
+      body: JSON.stringify({ website: "next.example", websiteId: "website_one" }),
+    });
+  });
+
   it("loads operator totals and an encoded user page", async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ users: 1, newUsers: 1 }))
@@ -260,6 +304,42 @@ describe("api client", () => {
       code: "invalid_response",
       message: "The server returned data in an unexpected format.",
     } satisfies Partial<ApiError>);
+  });
+
+  it("creates a project in the selected workspace and validates the response", async () => {
+    const created = {
+      project: { id: "project_two", name: "Default project", role: "owner" as const },
+      account: {
+        user: {
+          id: "user_one",
+          name: "Sunny",
+          email: "sunny@example.com",
+          emailVerified: true,
+          image: null,
+          role: "user",
+        },
+        workspaces: [
+          {
+            id: "workspace_one",
+            name: "Sunny's workspace",
+            slug: "sunny-workspace",
+            role: "owner" as const,
+            projects: [{ id: "project_one", name: "First project", role: "owner" as const }],
+          },
+        ],
+        activeWorkspaceId: "workspace_one",
+        isAdmin: false,
+      },
+    };
+    created.account.workspaces[0]?.projects.push(created.project);
+    fetchMock.mockResolvedValue(jsonResponse(created, 201));
+
+    await expect(createProject("workspace_one")).resolves.toEqual(created);
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/projects", {
+      body: JSON.stringify({ workspaceId: "workspace_one" }),
+      headers: expect.any(Headers),
+      method: "POST",
+    });
   });
 
   it("reports a clear invalid response when project key data is incomplete", async () => {
