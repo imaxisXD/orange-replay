@@ -1,3 +1,4 @@
+import { adminUsersQuerySchema } from "@orange-replay/shared";
 import type { Env } from "../env.ts";
 import { jsonError, jsonResponse } from "../http.ts";
 
@@ -128,30 +129,30 @@ function parseAdminUsersQuery(
 ):
   | { ok: true; limit: number; offset: number; search: string | null }
   | { ok: false; error: string } {
-  const limit = readWholeNumber(params.get("limit"), 25);
-  if (limit === null || limit < 1 || limit > 100) {
-    return { ok: false, error: "invalid_limit" };
+  const parsed = adminUsersQuerySchema.safeParse({
+    limit: params.get("limit"),
+    offset: params.get("offset"),
+    search: params.get("search"),
+  });
+  if (!parsed.success) {
+    const field = parsed.error.issues[0]?.path[0];
+    return {
+      ok: false,
+      error:
+        field === "limit"
+          ? "invalid_limit"
+          : field === "offset"
+            ? "invalid_offset"
+            : "invalid_search",
+    };
   }
 
-  const offset = readWholeNumber(params.get("offset"), 0);
-  if (offset === null || offset < 0 || offset > 100_000) {
-    return { ok: false, error: "invalid_offset" };
-  }
-
-  const rawSearch = params.get("search");
-  const search = rawSearch?.trim() || null;
-  if (search !== null && search.length > 100) {
-    return { ok: false, error: "invalid_search" };
-  }
-
-  return { ok: true, limit, offset, search };
-}
-
-function readWholeNumber(value: string | null, fallback: number): number | null {
-  if (value === null) return fallback;
-  if (!/^\d+$/.test(value)) return null;
-  const parsed = Number(value);
-  return Number.isSafeInteger(parsed) ? parsed : null;
+  return {
+    ok: true,
+    limit: parsed.data.limit,
+    offset: parsed.data.offset,
+    search: parsed.data.search.length === 0 ? null : parsed.data.search,
+  };
 }
 
 function escapeLike(value: string): string {

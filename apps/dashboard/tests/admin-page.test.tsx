@@ -112,7 +112,7 @@ describe("operator user actions", () => {
 
     const selfRow = findRow("sunny@example.com");
     expect(findButtonIn(selfRow, "Ban").disabled).toBe(true);
-    expect(findButtonIn(selfRow, "Revoke sessions").disabled).toBe(true);
+    expect(findButtonIn(selfRow, "Sign out everywhere").disabled).toBe(true);
     expect(
       selfRow.querySelector<HTMLButtonElement>('button[aria-label="Role for Sunny"]')?.disabled,
     ).toBe(true);
@@ -132,6 +132,42 @@ describe("operator user actions", () => {
       expect(adminMocks.banUser).toHaveBeenCalledWith({
         userId: "user_other",
         banReason: "Banned by an Orange Replay operator.",
+      }),
+    );
+  });
+
+  it("shows an inline search error, then submits the corrected search with Enter", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
+    });
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <AdminPage />
+        </QueryClientProvider>,
+      );
+    });
+    await waitForUi(() => expect(apiMocks.fetchAdminUsers).toHaveBeenCalledTimes(1));
+
+    const input = container.querySelector<HTMLInputElement>('input[placeholder="Search users"]')!;
+    const form = input.form!;
+    await act(async () => {
+      setInputValue(input, "x".repeat(101));
+      form.requestSubmit();
+    });
+    expect(container.textContent).toContain("Keep the search under 101 characters.");
+    expect(apiMocks.fetchAdminUsers).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      setInputValue(input, "  Sunny  ");
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      form.requestSubmit();
+    });
+    await waitForUi(() =>
+      expect(apiMocks.fetchAdminUsers).toHaveBeenLastCalledWith({
+        limit: 25,
+        offset: 0,
+        search: "Sunny",
       }),
     );
   });
@@ -177,4 +213,10 @@ async function waitForUi(assertion: () => void): Promise<void> {
     await act(async () => Promise.resolve());
     assertion();
   });
+}
+
+function setInputValue(input: HTMLInputElement, value: string): void {
+  const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
+  descriptor?.set?.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
 }

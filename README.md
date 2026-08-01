@@ -36,7 +36,7 @@ cd fixtures/demo-site
 vp dev
 ```
 
-Private dashboard routes use Better Auth with GitHub in every environment. Copy `apps/worker/.env.example` to the ignored `apps/worker/.env`, create a local GitHub OAuth App, then uncomment and fill the five auth values before signing in. A missing or partial setup fails closed; the anonymous `/demo` remains available. Follow [Hosted accounts and project keys](./docs/hosted-auth.md) for the exact callback and local setup.
+Private dashboard routes use Better Auth with GitHub in every environment. Copy `apps/worker/.env.example` to the ignored `apps/worker/.env`, create a local GitHub OAuth App, then uncomment and fill the five auth values before signing in. A missing or partial setup fails closed; the anonymous `/demo` remains available. Follow [Hosted accounts and recorder keys](./docs/hosted-auth.md) for the exact callback and local setup.
 
 ## Repo Map
 
@@ -58,7 +58,7 @@ Private dashboard routes use Better Auth with GitHub in every environment. Copy 
 - [Plan](./PLAN.md)
 - [Handoff](./HANDOFF.md)
 - [Production deployment](./docs/deployment.md)
-- [Hosted accounts and project keys](./docs/hosted-auth.md)
+- [Hosted accounts and recorder keys](./docs/hosted-auth.md)
 - [Self-host guide](./docs/self-host.md)
 - [SDK install guide](./docs/install-sdk.md)
 - [Design language](./docs/design-language.md)

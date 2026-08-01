@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { projectKeyNameSchema } from "@orange-replay/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Badge } from "@/components/ui/badge";
@@ -81,17 +82,13 @@ export function KeysCard({ projectId }: { projectId: string }) {
   const revokeError = readKeyError(revokeKeyMutation.error, "Could not revoke the recorder key.");
 
   function submitNewKey(): void {
-    const cleanName = name.trim();
-    if (cleanName.length === 0) {
-      setNameError("Enter a name for this key.");
-      return;
-    }
-    if (cleanName.length > 64) {
-      setNameError("Keep the key name under 65 characters.");
+    const parsed = projectKeyNameSchema.safeParse(name);
+    if (!parsed.success) {
+      setNameError(parsed.error.issues[0]?.message ?? "Enter a valid key name.");
       return;
     }
     setNameError("");
-    createKeyMutation.mutate(cleanName);
+    createKeyMutation.mutate(parsed.data);
   }
 
   async function copySecret(): Promise<boolean> {
@@ -302,7 +299,9 @@ export function KeysCard({ projectId }: { projectId: string }) {
           <DialogHeader>
             <DialogTitle>Revoke {keyToRevoke?.name}?</DialogTitle>
             <DialogDescription>
-              The recorder will stop accepting this key. This cannot be undone.
+              Website installs that use this key will stop sending new recording data. Existing
+              sessions will remain available. The change may take a short time to reach every
+              location. You cannot restore this key.
             </DialogDescription>
           </DialogHeader>
           {revokeError.length > 0 && (
@@ -332,7 +331,7 @@ export function KeysCard({ projectId }: { projectId: string }) {
 
 function readKeyError(error: unknown, fallback: string): string {
   if (error === null || error === undefined) return "";
-  if (!(error instanceof ApiError)) return error instanceof Error ? error.message : fallback;
+  if (!(error instanceof ApiError)) return fallback;
 
   switch (error.code) {
     case "active_key_limit_reached":

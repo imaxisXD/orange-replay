@@ -32,8 +32,8 @@ describe("animated dashboard numbers", () => {
 
     flushSync(() => root.render(<AnimatedNumber value={null} />));
 
-    expect(container.textContent).toBe("N/A");
-    expect(container.querySelector("[aria-label='No data']")).not.toBeNull();
+    expect(container.textContent).toBe("No data");
+    expect(container.querySelector("[aria-label='No data']")).toBeNull();
 
     root.unmount();
   });

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { buildLoaderScriptTag } from "@orange-replay/sdk/loader";
+import { deploymentHttpOriginSchema, generatedRecorderKeySchema } from "@orange-replay/shared";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { IconSwap } from "@/components/ui/icon-swap";
@@ -40,8 +41,12 @@ function ProjectInstallSnippetBuilder({ projectId }: { projectId: string }) {
     recorderKey: "",
     status: "idle",
   });
-  const normalizedOrigin = normalizeOrigin(originInput);
-  const cleanRecorderKey = recorderKeyInput.trim();
+  const parsedOrigin = deploymentHttpOriginSchema.safeParse(originInput);
+  const normalizedOrigin = parsedOrigin.success ? parsedOrigin.data : null;
+  const parsedRecorderKey = generatedRecorderKeySchema.safeParse(recorderKeyInput);
+  const cleanRecorderKey = parsedRecorderKey.success
+    ? parsedRecorderKey.data
+    : recorderKeyInput.trim();
   const keysQuery = useQuery({
     queryKey: ["project-keys", projectId],
     queryFn: () => fetchProjectKeys(projectId),
@@ -58,7 +63,7 @@ function ProjectInstallSnippetBuilder({ projectId }: { projectId: string }) {
       : normalizedOrigin === null
         ? "Use a valid http or https URL."
         : "";
-  const recorderKeyReady = isGeneratedRecorderKey(cleanRecorderKey);
+  const recorderKeyReady = parsedRecorderKey.success;
   const keyMatchStatus =
     keyMatch.projectId === projectId &&
     keyMatch.recorderKey === cleanRecorderKey &&
@@ -92,7 +97,10 @@ function ProjectInstallSnippetBuilder({ projectId }: { projectId: string }) {
       : "";
   const shownSnippet =
     snippet.length === 0 ? blockedSnippetPreview : showFullCode ? snippet : shortSnippetPreview;
-  const keysError = keysQuery.error === null ? "" : readInstallErrorMessage(keysQuery.error);
+  const keysError =
+    keysQuery.error === null
+      ? ""
+      : readInstallErrorMessage(keysQuery.error, "Could not load recorder keys. Try again.");
   const snippetError = copyError || keysError;
   const copyBlockedReason = readCopyBlockedReason({
     cleanRecorderKey,
@@ -161,8 +169,8 @@ function ProjectInstallSnippetBuilder({ projectId }: { projectId: string }) {
       await window.navigator.clipboard.writeText(snippet);
       setCopyError("");
       setCopied(true);
-    } catch (caughtError) {
-      setCopyError(readInstallErrorMessage(caughtError));
+    } catch {
+      setCopyError("Could not copy the snippet. Select the code and copy it manually.");
     }
   }
 
@@ -170,7 +178,7 @@ function ProjectInstallSnippetBuilder({ projectId }: { projectId: string }) {
     <section className="lit rounded-lg p-5">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-[15px] font-medium leading-tight">Loader snippet</h2>
-        {keysQuery.isPending && <LoadingIndicator label="Checking project keys" />}
+        {keysQuery.isPending && <LoadingIndicator label="Checking recorder keys" />}
       </div>
       <p className="mt-1 text-[13px] text-muted-foreground">
         Paste before <code className="font-mono text-foreground">&lt;/head&gt;</code>. Raw keys are
@@ -314,19 +322,6 @@ function readDefaultOrigin(): string {
   return window.location.origin;
 }
 
-function normalizeOrigin(value: string): string | null {
-  const trimmedValue = value.trim();
-  if (trimmedValue.length === 0) return null;
-
-  try {
-    const url = new URL(trimmedValue);
-    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
-    return url.origin;
-  } catch {
-    return null;
-  }
-}
-
 function readCopyBlockedReason({
   cleanRecorderKey,
   hasActiveRecorderKey,
@@ -344,7 +339,7 @@ function readCopyBlockedReason({
   originInput: string;
   recorderKeyReady: boolean;
 }): string | null {
-  if (keysLoading) return "Checking project keys.";
+  if (keysLoading) return "Checking recorder keys.";
   if (!hasActiveRecorderKey) return "Create an active recorder key first.";
   if (cleanRecorderKey.length === 0) return "Paste the raw recorder key first.";
   if (!recorderKeyReady) return "Use a generated recorder key that starts with or_live_.";
@@ -354,8 +349,4 @@ function readCopyBlockedReason({
   if (originInput.trim().length === 0) return "Enter your Orange Replay URL.";
   if (normalizedOrigin === null) return "Use a valid http or https URL.";
   return null;
-}
-
-function isGeneratedRecorderKey(value: string): boolean {
-  return /^or_live_[A-Za-z0-9_-]{32}$/.test(value);
 }

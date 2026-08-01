@@ -2,7 +2,7 @@
 
 This guide is for running the canonical combined Worker from this repo in your own Cloudflare account. It is manual today: no real resources are created by this repo, and the Deploy button is deferred until the public template repo is published.
 
-## What You Get
+## What you get
 
 | Area                     | Status   |
 | ------------------------ | -------- |
@@ -30,7 +30,7 @@ node scripts/mirror-template.mjs
 
 The local `infra/template` config points back to `apps/worker`, which is the canonical Worker source in this monorepo. The later public template repo will be the standalone copy.
 
-## 1. Create Resources
+## 1. Create resources
 
 Run these from `infra/template`:
 
@@ -60,7 +60,7 @@ The template expects these bindings:
 
 Durable Object classes are declared in `wrangler.jsonc`; Wrangler creates their namespaces during deploy.
 
-## 2. Fill Placeholder IDs
+## 2. Fill placeholder IDs
 
 Open `infra/template/wrangler.jsonc`.
 
@@ -69,7 +69,7 @@ Open `infra/template/wrangler.jsonc`.
 
 R2 buckets, queues, and rate-limit bindings use the names and namespace IDs in the template directly, so there is no id to paste for them.
 
-## 3. Apply D1 Migrations
+## 3. Apply D1 migrations
 
 From `infra/template`:
 
@@ -79,7 +79,7 @@ wrangler d1 migrations apply orange-replay-idx-00
 
 The mirror script copies `apps/worker/migrations` into `infra/template/migrations` verbatim.
 
-## 4. Configure Better Auth And GitHub
+## 4. Configure Better Auth and GitHub
 
 Better Auth with GitHub is the only private dashboard sign-in path. Create a GitHub OAuth App for the exact public Worker origin you will deploy:
 
@@ -104,7 +104,7 @@ Generate separate random values of at least 32 characters for `BETTER_AUTH_SECRE
 
 A missing or partial Better Auth setup fails closed. It does not enable a shared-token fallback. Cloudflare Access can be added around `/_admin*` as an optional second gate, but the Worker still checks the Better Auth account and admin role itself.
 
-## 5. Build The Dashboard Assets
+## 5. Build the dashboard assets
 
 The self-host Worker serves the dashboard and player through its `ASSETS` binding. Build those files from the repo root before deploying:
 
@@ -124,7 +124,7 @@ wrangler deploy
 
 For playback caching, use a custom domain. Workers served only on `workers.dev` still play sessions, but Cache API is a no-op there, so repeated playback is uncached.
 
-## 7. Connect The SDK
+## 7. Connect the SDK
 
 Use the install guide: [Install the SDK](./install-sdk.md).
 

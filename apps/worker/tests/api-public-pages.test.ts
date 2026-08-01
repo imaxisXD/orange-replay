@@ -202,7 +202,7 @@ describe.sequential("public project pages", () => {
     const removedHtml = await worker.fetch(`/p/${publicId}`);
     expect(removedHtml.status).toBe(200);
     const removedHtmlText = await removedHtml.text();
-    expect(removedHtmlText).toContain("No session recordings are shared on this page.");
+    expect(removedHtmlText).toContain("No sessions are shared on this page.");
     expect(removedHtmlText).not.toContain(publicReplayId);
     expect(
       (await worker.fetch(`/api/v1/public-pages/${publicId}/replays/${publicReplayId}/manifest`))

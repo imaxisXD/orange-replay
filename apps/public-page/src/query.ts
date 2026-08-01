@@ -24,10 +24,28 @@ export function publicPageQueryOptions(publicId: string) {
 }
 
 async function fetchPublicPage(publicId: string, signal: AbortSignal): Promise<PublicPageData> {
-  const response = await fetch(`/api/v1/public-pages/${encodeURIComponent(publicId)}`, {
-    cache: "no-store",
-    signal,
-  });
-  if (!response.ok) throw new Error("This public page is no longer available.");
-  return (await response.json()) as PublicPageData;
+  let response: Response;
+  try {
+    response = await fetch(`/api/v1/public-pages/${encodeURIComponent(publicId)}`, {
+      cache: "no-store",
+      signal,
+    });
+  } catch (error) {
+    if (signal.aborted) throw error;
+    throw new Error(
+      "This public page is temporarily unavailable. Check your connection and try again.",
+    );
+  }
+  if (!response.ok) throw new Error(publicPageErrorMessage(response.status));
+  try {
+    return (await response.json()) as PublicPageData;
+  } catch {
+    throw new Error("This public page is temporarily unavailable. Refresh the page and try again.");
+  }
+}
+
+export function publicPageErrorMessage(status: number): string {
+  if (status === 404) return "This public page is no longer available. Check the address.";
+  if (status === 429) return "Too many requests. Wait, then refresh the page.";
+  return "This public page is temporarily unavailable. Refresh the page and try again.";
 }

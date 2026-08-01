@@ -31,24 +31,38 @@ const captureRows: {
   label: string;
   description: string;
 }[] = [
-  { key: "heatmaps", label: "Heatmaps", description: "Record cursor and click heat cells." },
-  { key: "console", label: "Console", description: "Capture browser console events." },
-  { key: "network", label: "Network", description: "Capture request timing and status." },
+  {
+    key: "heatmaps",
+    label: "Record heatmap data",
+    description: "Capture cursor and click locations.",
+  },
+  {
+    key: "console",
+    label: "Capture console events",
+    description: "Capture browser console events.",
+  },
+  {
+    key: "network",
+    label: "Capture network details",
+    description: "Capture request timing and status.",
+  },
   {
     key: "canvas",
-    label: "Canvas",
+    label: "Capture canvas pixels",
     description: "Capture canvas pixels at 2 frames per second. Canvas content cannot be masked.",
   },
 ];
 
 export function CaptureCard({
   capture,
+  error,
   onToggle,
   retentionDays,
   sampleRate,
   updateDraft,
 }: {
   capture: CaptureToggles;
+  error: string;
   onToggle: (key: keyof CaptureToggles) => void;
   retentionDays: number;
   sampleRate: number;
@@ -71,7 +85,7 @@ export function CaptureCard({
             value={Number(sampleRateToPercentInput(sampleRate))}
           />
         </SettingRow>
-        <SettingRow description="Days before recordings expire." label="Retention">
+        <SettingRow description="Days before sessions expire." label="Retention">
           <NumberStepper
             ariaLabel="Retention days"
             max={365}
@@ -79,7 +93,7 @@ export function CaptureCard({
             onChange={(retentionDays) =>
               updateDraft((currentDraft) => ({ ...currentDraft, retentionDays }))
             }
-            suffix="days"
+            suffix={retentionDays === 1 ? "day" : "days"}
             value={retentionDays}
           />
         </SettingRow>
@@ -97,6 +111,7 @@ export function CaptureCard({
             onToggle={() => onToggle(row.key)}
           />
         ))}
+        {error.length > 0 && <div className="px-4 py-3 text-[12px] text-danger">{error}</div>}
       </>
     </SettingsCard>
   );
@@ -253,10 +268,12 @@ function MaskRuleRow({
 }
 
 export function OriginsCard({
+  error: saveError,
   origins,
   onRemoveOrigin,
   updateDraft,
 }: {
+  error: string;
   origins: readonly string[];
   onRemoveOrigin: (origin: string) => void;
   updateDraft: (updater: (currentDraft: ProjectSettingsDraft) => ProjectSettingsDraft) => void;
@@ -340,7 +357,9 @@ export function OriginsCard({
             Add origin
           </Button>
         </div>
-        {error.length > 0 && <div className="text-[12px] text-danger">{error}</div>}
+        {(error || saveError).length > 0 && (
+          <div className="text-[12px] text-danger">{error || saveError}</div>
+        )}
         <p className="text-[11.5px] text-muted-foreground">
           Requests from other origins are rejected at ingest.
         </p>

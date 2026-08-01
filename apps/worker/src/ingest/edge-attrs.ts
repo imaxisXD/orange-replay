@@ -9,7 +9,37 @@ export function browserOriginIsAllowed(
   }
 
   const origin = request.headers.get("origin");
-  return origin !== null && allowedOrigins.includes(origin);
+  if (origin !== null) {
+    return allowedOrigins.includes(origin);
+  }
+
+  // Browsers omit Origin on same-origin GET requests. Fetch Metadata is a
+  // browser-controlled signal, so use the request URL only for that exact
+  // case. Older browsers may omit Fetch Metadata too; their referrer remains
+  // constrained to the same exact-origin allowlist. Never use either fallback
+  // for ingest POSTs or a request the browser marked cross-site.
+  if (request.method !== "GET") {
+    return false;
+  }
+
+  const fetchSite = request.headers.get("sec-fetch-site");
+  if (fetchSite === "same-origin") {
+    return allowedOrigins.includes(new URL(request.url).origin);
+  }
+  if (fetchSite !== null) {
+    return false;
+  }
+
+  const referrer = request.headers.get("referer");
+  if (referrer === null) {
+    return false;
+  }
+
+  try {
+    return allowedOrigins.includes(new URL(referrer).origin);
+  } catch {
+    return false;
+  }
 }
 
 export function attrsFromRequest(request: Request): EdgeAttrs {

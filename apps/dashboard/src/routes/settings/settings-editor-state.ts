@@ -3,14 +3,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { CaptureToggles, ProjectConfigUpdate } from "@orange-replay/shared/types";
 import { ApiError, fetchProjectConfig, saveProjectConfig } from "@/lib/api";
 import {
-  cleanMaskRules,
   makeProjectSettingsDraft,
+  parseProjectSettingsDraft,
   projectSettingsAreDirty,
   removeAllowedOrigin,
   updateMaskRules,
   validateMaskRules,
   type MaskRuleActionValue,
   type ProjectSettingsDraft,
+  type ProjectSettingsValidationErrors,
 } from "@/lib/project-settings";
 
 export type SaveState = "idle" | "saving";
@@ -25,6 +26,11 @@ export function useProjectSettingsEditor(projectId: string) {
   const [draftState, setDraftState] = useState<DraftState | null>(null);
   const [saveError, setSaveError] = useState("");
   const [savedVisible, setSavedVisible] = useState(false);
+  const [validationErrors, setValidationErrors] = useState<ProjectSettingsValidationErrors>({
+    capture: "",
+    masking: "",
+    origins: "",
+  });
   const configQuery = useQuery({
     queryKey: ["project-config", projectId],
     queryFn: () => fetchProjectConfig(projectId),
@@ -70,6 +76,7 @@ export function useProjectSettingsEditor(projectId: string) {
     updater: (currentDraft: ProjectSettingsDraft) => ProjectSettingsDraft,
   ): void {
     setSaveError("");
+    setValidationErrors({ capture: "", masking: "", origins: "" });
     setSavedVisible(false);
     saveMutation.reset();
     setDraftState((currentState) => {
@@ -130,27 +137,21 @@ export function useProjectSettingsEditor(projectId: string) {
   function discardChanges(): void {
     setDraftState(null);
     setSaveError("");
+    setValidationErrors({ capture: "", masking: "", origins: "" });
   }
 
   function saveChanges(): void {
     if (draft === null || config === null) return;
 
-    const nextMaskRulesError = validateMaskRules(draft.maskRules);
-    if (nextMaskRulesError !== null) {
-      setSaveError(nextMaskRulesError);
-      return;
-    }
-    if (draft.allowedOrigins.length === 0) {
-      setSaveError("Add at least one allowed origin or use * for wildcard access.");
+    const parsed = parseProjectSettingsDraft(draft, config.version);
+    setValidationErrors(parsed.errors);
+    if (!parsed.ok) {
+      setSaveError(parsed.errors.capture || parsed.errors.masking || parsed.errors.origins);
       return;
     }
 
     setSaveError("");
-    saveMutation.mutate({
-      expectedVersion: config.version,
-      ...draft,
-      maskRules: cleanMaskRules(draft.maskRules),
-    });
+    saveMutation.mutate(parsed.update);
   }
 
   return {
@@ -176,12 +177,18 @@ export function useProjectSettingsEditor(projectId: string) {
       saveError,
       savedVisible,
       saveState,
+      validationErrors,
     },
   };
 }
 
 function readErrorMessage(error: unknown): string {
-  if (error instanceof ApiError) return error.code ?? error.message;
-  if (error instanceof Error) return error.message;
-  return "The request failed. Try again in a moment.";
+  if (!(error instanceof ApiError)) return "The project settings request failed. Try again.";
+  if (error.code === "network_error") return error.message;
+  if (error.status === 429) return "Too many requests. Wait a moment and try again.";
+  if (error.code === "invalid_response") {
+    return "Project settings returned unexpected data. Reload and try again.";
+  }
+  if (error.status >= 500) return "Project settings are temporarily unavailable. Try again.";
+  return "The project settings request failed. Try again.";
 }

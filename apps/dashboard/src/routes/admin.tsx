@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { adminUserSearchSchema } from "@orange-replay/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { AnimatedNumber } from "@/components/animated-number";
@@ -69,6 +70,7 @@ export function AdminPage() {
   const cache = useQueryClient();
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
+  const [searchError, setSearchError] = useState("");
   const [offset, setOffset] = useState(0);
   const [actionToConfirm, setActionToConfirm] = useState<AdminAction | null>(null);
   const [isSigningOut, setIsSigningOut] = useState(false);
@@ -103,8 +105,14 @@ export function AdminPage() {
 
   function submitSearch(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
+    const parsed = adminUserSearchSchema.safeParse(searchInput);
+    if (!parsed.success) {
+      setSearchError(parsed.error.issues[0]?.message ?? "Enter a valid search.");
+      return;
+    }
+    setSearchError("");
     setOffset(0);
-    setSearch(searchInput.trim());
+    setSearch(parsed.data);
   }
 
   async function signOut(): Promise<void> {
@@ -145,7 +153,7 @@ export function AdminPage() {
               size="sm"
               variant="ghost"
             >
-              Log out
+              Sign out
             </Button>
           </div>
         </div>
@@ -183,7 +191,11 @@ export function AdminPage() {
                   icon={Search}
                   index={0}
                   label="Search users"
-                  onChange={setSearchInput}
+                  error={searchError}
+                  onChange={(value) => {
+                    setSearchInput(value);
+                    setSearchError("");
+                  }}
                   placeholder="Search users"
                   value={searchInput}
                 />
@@ -302,7 +314,7 @@ export function AdminPage() {
               <DialogTitle>
                 {actionToConfirm?.type === "ban"
                   ? `Ban ${confirmationUser?.name ?? "this user"}?`
-                  : `Revoke all sessions for ${confirmationUser?.name ?? "this user"}?`}
+                  : `Sign out ${confirmationUser?.name ?? "this user"} on every device?`}
               </DialogTitle>
               <DialogDescription>
                 {actionToConfirm?.type === "ban"
@@ -333,7 +345,7 @@ export function AdminPage() {
                   if (actionToConfirm !== null) actionMutation.mutate(actionToConfirm);
                 }}
               >
-                {actionToConfirm?.type === "ban" ? "Ban user" : "Revoke sessions"}
+                {actionToConfirm?.type === "ban" ? "Ban user" : "Sign out on every device"}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -509,7 +521,7 @@ function AdminUserRow({
               size="sm"
               variant="ghost"
             >
-              Revoke sessions
+              Sign out everywhere
             </Button>
           </div>
         )}

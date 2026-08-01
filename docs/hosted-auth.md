@@ -1,10 +1,10 @@
-# Hosted Accounts And Project Keys
+# Hosted accounts and recorder keys
 
 Orange Replay uses Better Auth for its hosted dashboard. People sign in with GitHub. There is no password database and no Google sign-in.
 
 The public `/demo` route stays anonymous. A guest can watch the demo, but cannot change settings, create projects, or manage keys.
 
-## Local GitHub Setup
+## Local GitHub setup
 
 Create a GitHub OAuth App just for local development:
 
@@ -35,7 +35,7 @@ vp run auth:promote-admin -- --email you@example.com --local
 
 Better Auth is the only private dashboard sign-in path. If any required Better Auth or GitHub value is missing, private account and project routes fail closed and the login page explains that sign-in is unavailable. The anonymous read-only `/demo` route keeps working when its own demo values are configured.
 
-## Account And Key Boundary
+## Account and key boundary
 
 ```text
 GitHub user -> team membership -> Workspace -> Websites -> Website recorder keys
@@ -49,9 +49,9 @@ GitHub user -> team membership -> Workspace -> Websites -> Website recorder keys
 - Revocation is durable in D1 first, then the central KV entry is removed. If cache work fails, D1 keeps a pending marker and a scheduled repair retries within five minutes; the key list also repairs pending revoked entries before it loads. Every active cache writer registers a D1 job before it can write. A final check is not cleared while any older writer is unfinished, so a stopped or out-of-order request stays visible to the repair loop. After each check, that key moves to a later check time so it cannot keep newer repairs out of the fixed-size queue. Cloudflare KV may still keep an older edge copy for a short propagation window, so this is not an instant global kill switch.
 - Key changes are limited to 30 per minute for each user and project. A project keeps at most 100 key audit rows, and revoked rows plus their KV entries are removed after 90 days.
 
-## Operator Dashboard
+## Operator dashboard
 
-The first-party operator console is at `/_admin`. It uses Better Auth's Admin plugin for user roles, bans, and session revocation, and Orange Replay summary APIs for counts.
+The first-party operator console is at `/_admin`. It uses Better Auth's Admin plugin for user roles, bans, and signing users out on every device. It uses Orange Replay summary APIs for counts.
 
 Better Auth also offers a managed Infrastructure dashboard, but it is not self-hosted. The available community Better Auth admin projects were not strong enough to make part of the production security boundary. Keeping this small console in the canonical combined Worker gives Orange Replay one deployment and same-origin cookies. A separate static Worker would not add a security boundary.
 

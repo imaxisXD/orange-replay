@@ -100,11 +100,7 @@ export async function signOutDashboardAccess(
 }
 
 export function readDashboardAccessError(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message.length > 0) return error.message;
-  if (typeof error === "object" && error !== null && "message" in error) {
-    const message = error.message;
-    if (typeof message === "string" && message.length > 0) return message;
-  }
+  void error;
   return fallback;
 }
 

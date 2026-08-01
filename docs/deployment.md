@@ -249,7 +249,7 @@ The physical-deletion workflow needs the same `ANALYTICS_PURGE_RUNNER_TOKEN` as 
 
 ## 9. SDK Snippet Values
 
-Use one SDK package for both dev and prod. Only the values change. The hosted production origin is the Worker Custom Domain; `workers.dev` is only a temporary fallback for old snippets.
+Use one SDK package for both dev and prod. Only the values change. The hosted production origin is the Worker Custom Domain. Its production checks have passed, so `workers_dev` is `false` and the fallback address stays retired on later deploys.
 
 - Dev `ingestUrl`: `http://localhost:8787`
 - Hosted prod `ingestUrl`: `https://orangereplay.app`

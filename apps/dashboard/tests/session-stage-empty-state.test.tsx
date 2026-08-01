@@ -21,7 +21,7 @@ describe("session stage empty states", () => {
     });
     expect(findMainArtwork(container).src).toContain("select-session-reader");
     expect(container.querySelectorAll("[data-parallax-movement]").length).toBeGreaterThan(0);
-    expect(container.textContent).toContain("The rooster has the reel");
+    expect(container.textContent).toContain("Choose a session to watch");
     expect(container.textContent).not.toContain("Nothing to watch yet");
 
     await act(async () => root.unmount());

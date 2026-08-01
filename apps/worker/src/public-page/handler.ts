@@ -43,7 +43,10 @@ export async function handlePublicPage(
 
     const publicId = publicPageIdFromPath(url.pathname);
     if (publicId === null || !isValidPathId(publicId)) {
-      const response = publicHtmlError("Public page not found.", 404);
+      const response = publicHtmlError(
+        "This public page is no longer available. Check the address.",
+        404,
+      );
       statusCode = response.status;
       return response;
     }
@@ -51,7 +54,7 @@ export async function handlePublicPage(
 
     if (!(await publicPageRateLimitAllows(env, request))) {
       wideEvent.set({ rate_limit: "public_page" });
-      const response = publicHtmlError("Please wait before trying again.", 429);
+      const response = publicHtmlError("Too many requests. Wait, then refresh the page.", 429);
       statusCode = response.status;
       return response;
     }
@@ -61,8 +64,8 @@ export async function handlePublicPage(
       await result.response.body?.cancel();
       const response = publicHtmlError(
         result.response.status === 404
-          ? "Public page not found."
-          : "This public page is temporarily unavailable.",
+          ? "This public page is no longer available. Check the address."
+          : "This public page is temporarily unavailable. Refresh the page and try again.",
         result.response.status,
       );
       statusCode = response.status;
@@ -78,7 +81,10 @@ export async function handlePublicPage(
     return response;
   } catch (error) {
     wideEvent.fail(error);
-    const response = publicHtmlError("This public page is temporarily unavailable.", 500);
+    const response = publicHtmlError(
+      "This public page is temporarily unavailable. Refresh the page and try again.",
+      500,
+    );
     statusCode = response.status;
     return response;
   } finally {

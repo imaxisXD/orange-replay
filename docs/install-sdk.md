@@ -1,4 +1,4 @@
-# Install The SDK
+# Install the SDK
 
 Paste the loader snippet before `</head>`. The dashboard Install page is the source of truth; it calls `buildLoaderScriptTag` from `@orange-replay/sdk/loader` with your project values.
 
@@ -18,7 +18,7 @@ const snippet = buildLoaderScriptTag({
 });
 ```
 
-## Init Options
+## Init options
 
 | Option          | Required           | Default     | What it does                                                                                   |
 | --------------- | ------------------ | ----------- | ---------------------------------------------------------------------------------------------- |
@@ -31,7 +31,7 @@ const snippet = buildLoaderScriptTag({
 
 The SDK also supports `transport: "inline"` for sites that cannot allow Blob workers.
 
-## Masking Defaults
+## Masking defaults
 
 - Any element inside `[data-orange-block]` is blocked.
 - All input values are masked by default.
@@ -53,7 +53,7 @@ worker-src blob:
 
 If that is not allowed, set `transport: "inline"`. Capture still works, but more work happens on the main thread. The SDK does not switch to inline mode automatically because a surprise main-thread snapshot can slow the customer page.
 
-## Bundle Budgets
+## Bundle budgets
 
 - Core recorder bundle: <=35KB gzip hard limit.
 - Loader snippet: <2KB.

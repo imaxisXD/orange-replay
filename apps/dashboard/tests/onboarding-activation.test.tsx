@@ -452,7 +452,7 @@ describe("activation step 1: website", () => {
     });
 
     await vi.waitFor(() => {
-      expect(container.textContent).toContain("Network is unreachable.");
+      expect(container.textContent).toContain("Could not add this website. Try again.");
     });
     expect(navigate).not.toHaveBeenCalled();
     expect(apiMocks.ensureProjectWebsite).toHaveBeenCalledTimes(1);
@@ -553,7 +553,9 @@ describe("activation step 2: install", () => {
     await render(<OnboardingInstallPage />);
 
     await vi.waitFor(() => {
-      expect(container.textContent).toContain("Website setup is unavailable.");
+      expect(container.textContent).toContain(
+        "Could not prepare the installation script. Try again.",
+      );
     });
     await act(async () => {
       findButton("Try again").click();

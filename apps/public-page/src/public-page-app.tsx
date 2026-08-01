@@ -31,7 +31,13 @@ export function PublicPageApp({ publicId, replayPlayer: ReplayPlayer }: PublicPa
   if (page.isError || page.data === undefined) {
     return (
       <main className="public-shell public-state" id="main-content">
-        <p>{page.isError ? "This public page is no longer available." : "Loading public page…"}</p>
+        <p>
+          {page.isError
+            ? page.error instanceof Error
+              ? page.error.message
+              : "This public page is temporarily unavailable. Refresh the page and try again."
+            : "Loading public page…"}
+        </p>
       </main>
     );
   }
@@ -50,7 +56,7 @@ export function PublicPageApp({ publicId, replayPlayer: ReplayPlayer }: PublicPa
         <p className="eyebrow">PUBLIC PROJECT OVERVIEW</p>
         <h1 id="page-title">{page.data.projectName}</h1>
         <p className="hero-copy">
-          A live view of product usage, with session recordings chosen by the project owner.
+          A live view of product usage, with sessions chosen by the project owner.
         </p>
         <p className="updated">Updated {formatDateTime(page.data.generatedAt)}</p>
       </section>
@@ -62,13 +68,15 @@ export function PublicPageApp({ publicId, replayPlayer: ReplayPlayer }: PublicPa
         <div className="section-heading">
           <div>
             <p className="eyebrow">SELECTED BY THE OWNER</p>
-            <h2 id="recordings-title">Session recordings</h2>
+            <h2 id="recordings-title">Shared sessions</h2>
           </div>
-          <span className="count-pill">{page.data.recordings.length} shared</span>
+          <span className="count-pill">
+            {formatCount(page.data.recordings.length, "session")} shared
+          </span>
         </div>
 
         {page.data.recordings.length === 0 ? (
-          <div className="empty-card">No session recordings are shared on this page.</div>
+          <div className="empty-card">No sessions are shared on this page.</div>
         ) : (
           <div className="recording-list">
             {page.data.recordings.map((recording) => (
@@ -82,19 +90,21 @@ export function PublicPageApp({ publicId, replayPlayer: ReplayPlayer }: PublicPa
                     {recording.country ? ` · ${recording.country}` : ""}
                   </p>
                 </div>
-                <div className="recording-numbers" aria-label="Recording summary">
-                  <span>{recording.clicks} clicks</span>
+                <div className="recording-numbers" aria-label="Session summary">
+                  <span>{formatCount(recording.clicks, "click")}</span>
                   <span>
-                    {recording.pages === null ? "Pages unavailable" : `${recording.pages} pages`}
+                    {recording.pages === null
+                      ? "Pages unavailable"
+                      : formatCount(recording.pages, "page")}
                   </span>
-                  <span>{recording.rages} rage clicks</span>
+                  <span>{formatCount(recording.rages, "rage click")}</span>
                 </div>
                 <button
                   className="watch-button"
                   type="button"
                   onClick={() => setSelectedRecording(recording)}
                 >
-                  Watch recording
+                  Watch session
                 </button>
               </article>
             ))}
@@ -103,7 +113,7 @@ export function PublicPageApp({ publicId, replayPlayer: ReplayPlayer }: PublicPa
       </section>
 
       {selectedRecording !== null && ReplayPlayer !== undefined ? (
-        <section className="player-panel" aria-label="Selected session recording">
+        <section className="player-panel" aria-label="Selected session">
           <div className="player-heading">
             <div>
               <p className="eyebrow">SESSION REPLAY</p>
@@ -210,11 +220,15 @@ function formatNumber(value: number): string {
 }
 
 function formatOptionalDecimal(value: number | null): string {
-  return value === null ? "N/A" : value.toFixed(1);
+  return value === null ? "No data" : value.toFixed(1);
 }
 
 function formatPercent(value: number | null): string {
-  return value === null ? "N/A" : `${Math.round(value * 100)}%`;
+  return value === null ? "No data" : `${Math.round(value * 100)}%`;
+}
+
+function formatCount(value: number, singular: string): string {
+  return `${numberFormatter.format(value)} ${value === 1 ? singular : `${singular}s`}`;
 }
 
 function formatDuration(milliseconds: number): string {

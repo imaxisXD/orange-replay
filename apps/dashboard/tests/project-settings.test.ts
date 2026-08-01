@@ -2,10 +2,10 @@ import { describe, expect, it } from "vite-plus/test";
 import type { StoredProjectConfig } from "@orange-replay/shared/types";
 import {
   addAllowedOrigin,
-  cleanMaskRules,
   makeProjectSettingsDraft,
   maxMaskRules,
   normalizeOriginInput,
+  parseProjectSettingsDraft,
   percentInputToSampleRate,
   projectSettingsAreDirty,
   removeAllowedOrigin,
@@ -72,7 +72,19 @@ describe("masking rule editor", () => {
     });
 
     expect(updated[0]?.uiId).toBe(draft.maskRules[0]?.uiId);
-    expect(cleanMaskRules(updated)).toEqual([{ selector: ".updated", action: "mask" }]);
+    const parsed = parseProjectSettingsDraft(
+      { ...draft, allowedOrigins: [" https://app.example/ "], maskRules: updated },
+      4,
+    );
+    expect(parsed).toMatchObject({
+      ok: true,
+      update: {
+        expectedVersion: 4,
+        allowedOrigins: ["https://app.example"],
+        maskRules: [{ selector: ".updated", action: "mask" }],
+      },
+    });
+    expect(JSON.stringify(parsed)).not.toContain("uiId");
   });
 });
 
