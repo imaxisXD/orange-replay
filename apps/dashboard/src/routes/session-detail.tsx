@@ -360,7 +360,12 @@ function DetailLoading() {
 }
 
 function readErrorMessage(error: unknown): string {
-  if (error instanceof ApiError) return error.code ?? error.message;
-  if (error instanceof Error) return error.message;
-  return "The request failed. Try again in a moment.";
+  if (!(error instanceof ApiError)) return "Could not load this session. Reload and try again.";
+  if (error.code === "network_error") return error.message;
+  if (error.status === 429) return "Too many requests. Wait a moment, then reload the session.";
+  if (error.code === "invalid_response") {
+    return "The session returned unexpected data. Reload the session and try again.";
+  }
+  if (error.status >= 500) return "This session is temporarily unavailable. Reload and try again.";
+  return "Could not load this session. Reload and try again.";
 }

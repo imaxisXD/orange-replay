@@ -243,6 +243,28 @@ ${secretBlock}      "vars": { "ANALYTICS_READ_BACKEND": "d1" }
     const rollbackConfig = withoutAnalyticsSecretRequirement(config);
     expect(rollbackConfig).not.toContain('"secrets"');
     expect(rollbackConfig).toContain('"ANALYTICS_READ_BACKEND": "d1"');
+
+    const authAndAnalyticsConfig = `{
+  "env": {
+    "production": {
+      "secrets": {
+        "required": [
+          "BETTER_AUTH_SECRET",
+          "GITHUB_CLIENT_SECRET",
+          "R2_SQL_TOKEN",
+          "ANALYTICS_PURGE_RUNNER_TOKEN",
+        ],
+      },
+      "vars": { "ANALYTICS_READ_BACKEND": "d1" }
+    }
+  }
+}`;
+    const authRollbackConfig = withoutAnalyticsSecretRequirement(authAndAnalyticsConfig);
+    expect(authRollbackConfig).toContain('"BETTER_AUTH_SECRET"');
+    expect(authRollbackConfig).toContain('"GITHUB_CLIENT_SECRET"');
+    expect(authRollbackConfig).not.toContain('"R2_SQL_TOKEN"');
+    expect(authRollbackConfig).not.toContain('"ANALYTICS_PURGE_RUNNER_TOKEN"');
+
     expect(() =>
       withoutAnalyticsSecretRequirement(
         config.replace('"ANALYTICS_READ_BACKEND": "d1"', '"ANALYTICS_READ_BACKEND": "r2_sql"'),

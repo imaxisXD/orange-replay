@@ -1,10 +1,16 @@
 import { ApiError } from "@/lib/api";
 import type { ProjectKeyAudit } from "@orange-replay/shared";
 
-export function readInstallErrorMessage(error: unknown): string {
-  if (error instanceof ApiError) return error.code ?? error.message;
-  if (error instanceof Error) return error.message;
-  return "The request failed. Try again in a moment.";
+export function readInstallErrorMessage(error: unknown, fallback: string): string {
+  if (!(error instanceof ApiError)) return fallback;
+  if (error.code === "network_error") {
+    return "Could not reach Orange Replay. Check your connection and try again.";
+  }
+  if (error.status === 429) return "Too many requests. Wait a moment and try again.";
+  if (error.code === "invalid_response") {
+    return "Orange Replay returned unexpected data. Refresh the page and try again.";
+  }
+  return fallback;
 }
 
 export async function matchesActiveProjectRecorderKey(

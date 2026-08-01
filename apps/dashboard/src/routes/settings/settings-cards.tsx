@@ -31,12 +31,24 @@ const captureRows: {
   label: string;
   description: string;
 }[] = [
-  { key: "heatmaps", label: "Heatmaps", description: "Record cursor and click heat cells." },
-  { key: "console", label: "Console", description: "Capture browser console events." },
-  { key: "network", label: "Network", description: "Capture request timing and status." },
+  {
+    key: "heatmaps",
+    label: "Record heatmap data",
+    description: "Capture cursor and click locations.",
+  },
+  {
+    key: "console",
+    label: "Capture console events",
+    description: "Capture browser console events.",
+  },
+  {
+    key: "network",
+    label: "Capture network details",
+    description: "Capture request timing and status.",
+  },
   {
     key: "canvas",
-    label: "Canvas",
+    label: "Capture canvas pixels",
     description: "Capture canvas pixels at 2 frames per second. Canvas content cannot be masked.",
   },
 ];
@@ -73,7 +85,7 @@ export function CaptureCard({
             value={Number(sampleRateToPercentInput(sampleRate))}
           />
         </SettingRow>
-        <SettingRow description="Days before recordings expire." label="Retention">
+        <SettingRow description="Days before sessions expire." label="Retention">
           <NumberStepper
             ariaLabel="Retention days"
             max={365}
@@ -81,7 +93,7 @@ export function CaptureCard({
             onChange={(retentionDays) =>
               updateDraft((currentDraft) => ({ ...currentDraft, retentionDays }))
             }
-            suffix="days"
+            suffix={retentionDays === 1 ? "day" : "days"}
             value={retentionDays}
           />
         </SettingRow>

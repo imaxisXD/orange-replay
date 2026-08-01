@@ -245,7 +245,7 @@ The physical-deletion workflow needs the same `ANALYTICS_PURGE_RUNNER_TOKEN` as 
 
 ## 9. SDK Snippet Values
 
-Use one SDK package for both dev and prod. Only the values change. Production keeps `workers.dev` enabled until a custom domain is attached.
+Use one SDK package for both dev and prod. Only the values change. Keep `workers.dev` enabled only until the custom domain, GitHub login and logout, health endpoint, demo, and recorder SDK have passed their production checks. Then set `workers_dev` to `false` in the production Wrangler config so later deploys do not reopen the fallback address.
 
 - Dev `ingestUrl`: `http://localhost:8787`
 - Prod `ingestUrl`: your Worker URL or custom domain

@@ -28,7 +28,12 @@ export function InstallStatus({ projectId }: { projectId: string }) {
   const firstEventAt = installStatusQuery.data?.firstEventAt ?? null;
   const loading = installStatusQuery.isPending;
   const verifyError =
-    installStatusQuery.error === null ? "" : readInstallErrorMessage(installStatusQuery.error);
+    installStatusQuery.error === null
+      ? ""
+      : readInstallErrorMessage(
+          installStatusQuery.error,
+          "Could not check the installation. Try again.",
+        );
 
   return (
     <section className="lit rounded-lg p-5">

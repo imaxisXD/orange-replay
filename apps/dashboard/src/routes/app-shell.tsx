@@ -216,7 +216,7 @@ export function AppShell({
                     onClick={() => void handleLogout()}
                     variant="ghost"
                   >
-                    Log out
+                    Sign out
                   </Button>
                 </div>
               )}

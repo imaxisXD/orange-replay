@@ -299,7 +299,9 @@ export function KeysCard({ projectId }: { projectId: string }) {
           <DialogHeader>
             <DialogTitle>Revoke {keyToRevoke?.name}?</DialogTitle>
             <DialogDescription>
-              The recorder will stop accepting this key. This cannot be undone.
+              Website installs that use this key will stop sending new recording data. Existing
+              sessions will remain available. The change may take a short time to reach every
+              location. You cannot restore this key.
             </DialogDescription>
           </DialogHeader>
           {revokeError.length > 0 && (
@@ -329,7 +331,7 @@ export function KeysCard({ projectId }: { projectId: string }) {
 
 function readKeyError(error: unknown, fallback: string): string {
   if (error === null || error === undefined) return "";
-  if (!(error instanceof ApiError)) return error instanceof Error ? error.message : fallback;
+  if (!(error instanceof ApiError)) return fallback;
 
   switch (error.code) {
     case "active_key_limit_reached":

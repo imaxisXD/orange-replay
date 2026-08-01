@@ -8,6 +8,7 @@ interface ReplayPlayerProperties {
 }
 
 type ReplayState = "loading" | "paused" | "playing" | "buffering" | "ended" | "error";
+const replayErrorMessage = "Unable to play this session. Refresh the page and try again.";
 
 export default function ReplayPlayer({ publicId, recording }: ReplayPlayerProperties) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -59,7 +60,7 @@ export default function ReplayPlayer({ publicId, recording }: ReplayPlayerProper
       player.on("error", (error) => {
         if (error.severity === "warning" || error.severity === "recovering") return;
         setReplayState("error");
-        setErrorMessage(error.message || "This recording could not be played.");
+        setErrorMessage(replayErrorMessage);
       }),
     ];
 
@@ -81,11 +82,9 @@ export default function ReplayPlayer({ publicId, recording }: ReplayPlayerProper
     setReplayState("playing");
     try {
       await player.play();
-    } catch (error) {
+    } catch {
       setReplayState("error");
-      setErrorMessage(
-        error instanceof Error ? error.message : "This recording could not be played.",
-      );
+      setErrorMessage(replayErrorMessage);
     }
   };
 
@@ -95,11 +94,9 @@ export default function ReplayPlayer({ publicId, recording }: ReplayPlayerProper
     setCurrentMs(nextMs);
     try {
       await player.seek(nextMs);
-    } catch (error) {
+    } catch {
       setReplayState("error");
-      setErrorMessage(
-        error instanceof Error ? error.message : "This recording could not be played.",
-      );
+      setErrorMessage(replayErrorMessage);
     }
   };
 

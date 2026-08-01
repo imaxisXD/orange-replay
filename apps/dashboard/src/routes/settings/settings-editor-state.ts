@@ -183,7 +183,12 @@ export function useProjectSettingsEditor(projectId: string) {
 }
 
 function readErrorMessage(error: unknown): string {
-  if (error instanceof ApiError) return error.code ?? error.message;
-  if (error instanceof Error) return error.message;
-  return "The request failed. Try again in a moment.";
+  if (!(error instanceof ApiError)) return "The project settings request failed. Try again.";
+  if (error.code === "network_error") return error.message;
+  if (error.status === 429) return "Too many requests. Wait a moment and try again.";
+  if (error.code === "invalid_response") {
+    return "Project settings returned unexpected data. Reload and try again.";
+  }
+  if (error.status >= 500) return "Project settings are temporarily unavailable. Try again.";
+  return "The project settings request failed. Try again.";
 }

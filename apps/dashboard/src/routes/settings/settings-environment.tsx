@@ -22,9 +22,7 @@ function useWorkerHealth() {
   const error =
     healthQuery.error === null
       ? ""
-      : healthQuery.error instanceof Error
-        ? healthQuery.error.message
-        : "Health check failed.";
+      : "Could not reach the Worker. Check your connection and try again.";
 
   return { error, healthQuery, healthState };
 }
@@ -51,7 +49,7 @@ export function SettingsEnvironmentCards() {
         body="Protected by your signed-in account."
         className="p-4"
         right={<KeyRound aria-hidden className="size-5 text-muted-foreground" />}
-        title="Account session"
+        title="Signed-in account"
       >
         <Badge color="green" size="sm" variant="dot">
           Signed in

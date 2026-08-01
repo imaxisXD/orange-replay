@@ -1,7 +1,7 @@
 import type { PublicPageData } from "@orange-replay/shared";
 import { describe, expect, it } from "vite-plus/test";
 import { escapeJsonForHtml } from "../src/document.tsx";
-import { makePublicPageQueryClient } from "../src/query.ts";
+import { makePublicPageQueryClient, publicPageErrorMessage } from "../src/query.ts";
 import { renderPublicPage } from "../src/server.tsx";
 
 describe("public page server rendering", () => {
@@ -23,6 +23,16 @@ describe("public page server rendering", () => {
 
   it("escapes every character that can leave a JSON script element", () => {
     expect(escapeJsonForHtml("<&>\u2028\u2029")).toBe("\\u003c\\u0026\\u003e\\u2028\\u2029");
+  });
+
+  it("gives a clear recovery step for public page errors", () => {
+    expect(publicPageErrorMessage(404)).toBe(
+      "This public page is no longer available. Check the address.",
+    );
+    expect(publicPageErrorMessage(429)).toBe("Too many requests. Wait, then refresh the page.");
+    expect(publicPageErrorMessage(503)).toBe(
+      "This public page is temporarily unavailable. Refresh the page and try again.",
+    );
   });
 });
 

@@ -309,7 +309,7 @@ describe("activation step 1: website", () => {
     });
 
     await vi.waitFor(() => {
-      expect(container.textContent).toContain("Network is unreachable.");
+      expect(container.textContent).toContain("Could not save your website. Try again.");
     });
     expect(navigate).not.toHaveBeenCalled();
     // Nothing was renamed, so a failure before the allowlist lands leaves the
