@@ -1,10 +1,13 @@
 import {
   MAX_CONFIG_UPDATE_BODY_BYTES,
+  MAX_PROJECT_UPDATE_BODY_BYTES,
+  projectNameUpdateSchema,
   startWideEvent,
   type FinalizedProjectStatsResponse,
   type LiveSessionsResponse,
   type ProjectStatsResponse,
   type ProjectKeysResponse,
+  type ProjectSummary,
 } from "@orange-replay/shared";
 import { projectConfigUpdateSchema } from "@orange-replay/shared/project-config-update";
 import { readFinalizedStats } from "../analytics/finalized-read.ts";
@@ -77,6 +80,34 @@ export async function putProjectConfig(
 
   wideEvent.set({ config_version: result.config.version });
   return jsonResponse(result.config);
+}
+
+/**
+ * Renames a project. Activation names the project after the website it
+ * records, so the first onboarding step owns the only write path for
+ * `projects.name`. The name is display-only: it feeds no key, no R2 path and
+ * no query, so a rename never invalidates recorder config or stored replays.
+ */
+export async function patchProjectName(
+  request: Request,
+  env: Env,
+  projectId: string,
+  wideEvent: ReturnType<typeof startWideEvent>,
+): Promise<Response> {
+  const body = await readJsonBodyCapped(request, MAX_PROJECT_UPDATE_BODY_BYTES);
+  if (!body.ok) return jsonError(body.error, body.status);
+
+  const parsed = projectNameUpdateSchema.safeParse(body.value);
+  if (!parsed.success) return jsonError("invalid_project_name", 400);
+
+  const result = await env.IDX_00.prepare("UPDATE projects SET name = ? WHERE id = ?")
+    .bind(parsed.data.name, projectId)
+    .run();
+  if ((result.meta.changes ?? 0) === 0) return jsonError("not_found", 404);
+
+  wideEvent.set({ project_name_chars: parsed.data.name.length });
+  const response = { id: projectId, name: parsed.data.name } satisfies ProjectSummary;
+  return jsonResponse(response, { headers: { "cache-control": "private, no-store" } });
 }
 
 export async function getInstallStatus(

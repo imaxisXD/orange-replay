@@ -4,7 +4,13 @@ import type {
   PublicPageSettingsUpdate,
   StoredProjectConfig,
 } from "@orange-replay/shared/types";
-import { decodeProjectKeysResponse, type ProjectKeysResponse } from "@orange-replay/shared";
+import {
+  decodeProjectKeysResponse,
+  decodeProjectSummary,
+  type ProjectKeysResponse,
+  type ProjectSummary,
+} from "@orange-replay/shared";
+import { projectConfigUpdateSchema } from "@orange-replay/shared/project-config-update";
 import type { DemoWorkspaceResponse } from "../demo-mode";
 import { requestJson, encodePathPart } from "./client";
 
@@ -40,10 +46,20 @@ export async function saveProjectConfig(
   projectId: string,
   update: ProjectConfigUpdate,
 ): Promise<StoredProjectConfig> {
+  const body = projectConfigUpdateSchema.parse(update);
   return requestJson<StoredProjectConfig>(`/api/v1/projects/${encodePathPart(projectId)}/config`, {
     auth: true,
     method: "PUT",
-    body: update,
+    body,
+  });
+}
+
+export async function renameProject(projectId: string, name: string): Promise<ProjectSummary> {
+  return requestJson<ProjectSummary>(`/api/v1/projects/${encodePathPart(projectId)}`, {
+    auth: true,
+    body: { name },
+    decode: decodeProjectSummary,
+    method: "PATCH",
   });
 }
 

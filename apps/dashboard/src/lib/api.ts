@@ -32,6 +32,7 @@ export {
   fetchProjectKeys,
   fetchPublicPageSettings,
   health,
+  renameProject,
   savePublicPageSettings,
   saveProjectConfig,
 } from "./api/projects";

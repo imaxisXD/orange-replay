@@ -26,6 +26,7 @@ import {
   mintTicket,
   presencePing,
   readConfigCache,
+  renameProjectId,
   seedIngestKey,
   seedSession,
   segmentBytes,
@@ -283,11 +284,28 @@ describe("dashboard api", () => {
     expect(await unstableSelector.json()).toEqual({ error: "invalid_project_config" });
     expect((await getProjectConfig(configProjectId)).version).toBe(1);
 
+    const originWithPath = await worker.fetch(`/api/v1/projects/${configProjectId}/config`, {
+      method: "PUT",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({
+        expectedVersion: before.version,
+        sampleRate: 1,
+        retentionDays: 30,
+        allowedOrigins: ["https://app.example/path"],
+        maskPolicyVersion: 1,
+        maskRules: [],
+        capture: before.capture,
+      }),
+    });
+    expect(originWithPath.status).toBe(400);
+    expect(await originWithPath.json()).toEqual({ error: "invalid_project_config" });
+    expect((await getProjectConfig(configProjectId)).version).toBe(1);
+
     const update = {
       expectedVersion: before.version,
       sampleRate: 0.25,
       retentionDays: 45,
-      allowedOrigins: ["https://app.example"],
+      allowedOrigins: [" https://app.example/ "],
       maskPolicyVersion: 2,
       maskRules: [{ selector: ".secret", action: "block" as const }],
       capture: {
@@ -373,6 +391,60 @@ describe("dashboard api", () => {
     expect(await stale.json()).toEqual({ error: "config_version_conflict" });
   });
 
+  it("renames a project without disturbing its recorder config", async () => {
+    const keyHash = await seedIngestKey(
+      testRecorderKey("api_rename"),
+      makeProjectConfig({ projectId: renameProjectId }),
+      true,
+    );
+    const before = await getProjectConfig(renameProjectId);
+    const cachedBefore = await readConfigCache(keyHash);
+
+    const blank = await worker.fetch(`/api/v1/projects/${renameProjectId}`, {
+      method: "PATCH",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({ name: "   " }),
+    });
+    expect(blank.status).toBe(400);
+    expect(await blank.json()).toEqual({ error: "invalid_project_name" });
+
+    const extraFields = await worker.fetch(`/api/v1/projects/${renameProjectId}`, {
+      method: "PATCH",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({ name: "acme.com", retentionDays: 3650 }),
+    });
+    expect(extraFields.status).toBe(400);
+    expect(await extraFields.json()).toEqual({ error: "invalid_project_name" });
+
+    const tooLong = await worker.fetch(`/api/v1/projects/${renameProjectId}`, {
+      method: "PATCH",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({ name: "a".repeat(101) }),
+    });
+    expect(tooLong.status).toBe(400);
+
+    const renamed = await worker.fetch(`/api/v1/projects/${renameProjectId}`, {
+      method: "PATCH",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({ name: "  acme.com  " }),
+    });
+    expect(renamed.status).toBe(200);
+    expect(renamed.headers.get("cache-control")).toBe("private, no-store");
+    expect(await renamed.json()).toEqual({ id: renameProjectId, name: "acme.com" });
+
+    // A name is display-only: it must not bump the config version or touch the
+    // recorder's cached config, or every rename would reissue project config.
+    expect(await getProjectConfig(renameProjectId)).toEqual(before);
+    expect(await readConfigCache(keyHash)).toEqual(cachedBefore);
+
+    const missing = await worker.fetch("/api/v1/projects/api_absent_project", {
+      method: "PATCH",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({ name: "acme.com" }),
+    });
+    expect(missing.status).toBe(403);
+  });
+
   it("converges a key create racing a project config change to the latest D1 version", async () => {
     await seedIngestKey(
       testRecorderKey("api_config_race"),
@@ -454,10 +526,20 @@ describe("dashboard api", () => {
       false,
     );
 
+    for (const name of ["", "bad\u0000name", "x".repeat(65)]) {
+      const invalid = await worker.fetch(`/api/v1/projects/${keysProjectId}/keys`, {
+        method: "POST",
+        headers: { ...authHeaders(), "content-type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      expect(invalid.status).toBe(400);
+      expect(await invalid.json()).toEqual({ error: "invalid_key_name" });
+    }
+
     const created = await worker.fetch(`/api/v1/projects/${keysProjectId}/keys`, {
       method: "POST",
       headers: { ...authHeaders(), "content-type": "application/json" },
-      body: JSON.stringify({ name: "Production website" }),
+      body: JSON.stringify({ name: "  Production website  " }),
     });
     expect(created.status).toBe(200);
     expect(created.headers.get("cache-control")).toBe("private, no-store");

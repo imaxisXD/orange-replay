@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { SessionFilter } from "@orange-replay/shared";
+import { countryCodeSchema, type SessionFilter } from "@orange-replay/shared";
 import { InputField, InputGroup } from "@/components/ui/input-group";
 import {
   Select,
@@ -92,9 +92,14 @@ export function SessionsToolbar({
 
       <CountryPicker
         countries={countries}
-        onCommit={(country) =>
-          onFilterChange({ ...filter, country: country.length === 0 ? undefined : country })
-        }
+        onCommit={(country) => {
+          if (country.length === 0) {
+            onFilterChange({ ...filter, country: undefined });
+            return;
+          }
+          const parsed = countryCodeSchema.safeParse(country);
+          if (parsed.success) onFilterChange({ ...filter, country: parsed.data });
+        }}
         queryFailed={countryQueryFailed}
         queryPending={countryQueryPending}
         value={filter.country ?? ""}
@@ -243,12 +248,22 @@ function CountryFilter({
   value: string;
 }) {
   const [input, setInput] = useState(value);
+  const [error, setError] = useState("");
 
   function commitCountry(nextValue: string): void {
     const cleanValue = nextValue.trim();
-    if (cleanValue.length === 0 || cleanValue.length === 2) {
-      onCommit(cleanValue);
+    if (cleanValue.length === 0) {
+      setError("");
+      onCommit("");
+      return;
     }
+    const parsed = countryCodeSchema.safeParse(cleanValue);
+    if (!parsed.success) {
+      setError(parsed.error.issues[0]?.message ?? "Use a valid country code.");
+      return;
+    }
+    setError("");
+    onCommit(parsed.data);
   }
 
   // Same width as the CountryPicker select it stands in for, so losing the
@@ -256,6 +271,7 @@ function CountryFilter({
   return (
     <InputGroup className="w-full gap-0 sm:w-44">
       <InputField
+        error={error}
         hideLabel
         icon={Global}
         index={0}
@@ -268,7 +284,10 @@ function CountryFilter({
           commitCountry(upperValue);
         }}
         onKeyDown={(event) => {
-          if (event.key === "Enter") commitCountry(input);
+          if (event.key === "Enter") {
+            event.preventDefault();
+            commitCountry(input);
+          }
         }}
         placeholder="Country code"
         value={input}

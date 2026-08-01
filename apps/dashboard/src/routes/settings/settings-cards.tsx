@@ -55,12 +55,14 @@ const captureRows: {
 
 export function CaptureCard({
   capture,
+  error,
   onToggle,
   retentionDays,
   sampleRate,
   updateDraft,
 }: {
   capture: CaptureToggles;
+  error: string;
   onToggle: (key: keyof CaptureToggles) => void;
   retentionDays: number;
   sampleRate: number;
@@ -109,6 +111,7 @@ export function CaptureCard({
             onToggle={() => onToggle(row.key)}
           />
         ))}
+        {error.length > 0 && <div className="px-4 py-3 text-[12px] text-danger">{error}</div>}
       </>
     </SettingsCard>
   );
@@ -265,10 +268,12 @@ function MaskRuleRow({
 }
 
 export function OriginsCard({
+  error: saveError,
   origins,
   onRemoveOrigin,
   updateDraft,
 }: {
+  error: string;
   origins: readonly string[];
   onRemoveOrigin: (origin: string) => void;
   updateDraft: (updater: (currentDraft: ProjectSettingsDraft) => ProjectSettingsDraft) => void;
@@ -352,7 +357,9 @@ export function OriginsCard({
             Add origin
           </Button>
         </div>
-        {error.length > 0 && <div className="text-[12px] text-danger">{error}</div>}
+        {(error || saveError).length > 0 && (
+          <div className="text-[12px] text-danger">{error || saveError}</div>
+        )}
         <p className="text-[11.5px] text-muted-foreground">
           Requests from other origins are rejected at ingest.
         </p>

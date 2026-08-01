@@ -1,0 +1,336 @@
+/* Activation surfaces that Tailwind cannot express: the preview frame's own
+ * canvas, and the three staged keyframe sequences (skeleton pulse, waiting
+ * signal, invalid-URL shake). Interactive state changes stay as transitions in
+ * the components; keyframes are only used for motion that runs on its own. */
+
+/* The preview frame clips the dashboard, so it has to paint the app canvas
+   itself — the body's dotted grid cannot show through an opaque child. The
+   inset hairlines are structure, not fake elevation: they are the only thing
+   separating the frame's canvas from the pane's identical canvas behind it. */
+.onboarding-canvas {
+  background-color: var(--background);
+  box-shadow:
+    inset 1px 0 0 color-mix(in oklab, var(--border) 70%, transparent),
+    inset 0 1px 0 color-mix(in oklab, var(--border) 70%, transparent),
+    0 22px 64px oklch(0 0 0 / 0.35);
+  /* Delay matches PREVIEW_FRAME.liveDelay so the deepening shadow travels with
+     the lift rather than ahead of it. */
+  transition: box-shadow 620ms ease-out 180ms;
+}
+
+/* The dotted canvas as its own depth plane, so the camera can move it at a
+   fraction of the dashboard's rate. It lives on a transformed layer rather than
+   the frame's background-size because transforms are GPU-composited; the frame
+   itself never scales, which is why the grid used to ignore the camera
+   completely and the dashboard appeared to slide over glass.
+
+   Inset past the frame on all sides so scaling up cannot expose an edge.
+
+   The origin has to land on the frame's top-left corner, which is where the
+   stage scales from: both planes must share one vanishing point or the
+   background drifts diagonally instead of receding. A -12.5% inset makes the
+   layer 125% of the frame, so the frame's corner sits at 12.5/125 = 10% of the
+   layer. Change one number and the other has to follow. */
+.onboarding-canvas-grid {
+  position: absolute;
+  inset: -12.5%;
+  background-image: url("../../assets/dashboard-grid.svg?opacity=5");
+  background-size: 48px 48px;
+  transform-origin: 10% 10%;
+  pointer-events: none;
+}
+
+/* Act 2: the recorder is connected. The frame lifts (transform, owned by the
+   component) and its shadow deepens to match the new height. The inset
+   hairlines are restated because a box-shadow replaces the whole property. */
+.onboarding-canvas[data-live="true"] {
+  box-shadow:
+    inset 1px 0 0 color-mix(in oklab, var(--border) 70%, transparent),
+    inset 0 1px 0 color-mix(in oklab, var(--border) 70%, transparent),
+    0 34px 84px oklch(0 0 0 / 0.5);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-canvas {
+    transition: none;
+  }
+}
+
+/* While the website field is being typed, the camera is zoomed on the project
+   switcher. Lifting the switcher onto its own surface is what makes the zoom
+   read as "this control is about to say your website's name" instead of a
+   plain magnification. The trigger's aria-label is the shell's stable hook. */
+.onboarding-canvas [aria-label="Project"] {
+  transition:
+    background-color 180ms ease,
+    box-shadow 180ms ease,
+    color 180ms ease;
+}
+
+/* The lattice behind the highlighted switcher. `EmberField` already fades
+   upward from its bottom edge; this masks it horizontally too, so it reads as a
+   halo around the chip rather than a rectangle behind it. Same device as
+   `.live-dot__light`, which masks its own pixel grid with a radial gradient. */
+.onboarding-switcher-field {
+  -webkit-mask-image: radial-gradient(
+    ellipse 60% 100% at 50% 100%,
+    oklch(0 0 0) 0%,
+    oklch(0 0 0 / 0.55) 52%,
+    transparent 88%
+  );
+  mask-image: radial-gradient(
+    ellipse 60% 100% at 50% 100%,
+    oklch(0 0 0) 0%,
+    oklch(0 0 0 / 0.55) 52%,
+    transparent 88%
+  );
+}
+
+/* The highlight is the design system's own attention signal, not a new one. A
+   1px amber ring is exactly what `InputField` shows on focus and what
+   `NumberStepper` shows on focus-within, and `--ring` / `--focus-ring` both
+   resolve to amber — so amber at 1px means "this control has attention"
+   everywhere in the product.
+
+   Using it here links the two halves of the screen: the website field the
+   visitor is typing into wears this ring, and so does the switcher that is about
+   to say what they typed. The bloom is `.demo-scan-dot`'s
+   `0 0 8px var(--amber-shadow)`, opened up because this control is far larger
+   than a 5px dot and has to read across the pane. */
+/* Both amber layers are held below full strength. `ring-amber` is sized for a
+   control at 1:1, but the camera views this one at 1.18x and the lattice is
+   already carrying amber underneath, so full `--amber` on the border and a
+   0.7-alpha bloom read as a hot rim rather than a highlight. The ring keeps its
+   1px so the shape still matches the field the visitor is typing into.
+
+   The border is a solid colour, not translucent amber: it is mixed toward
+   `--surface-4`, the control's own background, so it lands on the same tone a
+   55% alpha would have composited to while staying opaque. A translucent border
+   would take its value from whatever the shimmering lattice happened to be
+   doing underneath, so the rim would flicker with the field behind it. The
+   bloom stays translucent because a glow that is not is just a rectangle. */
+.onboarding-canvas[data-camera="project"] [aria-label="Project"] {
+  /* Fully opaque, not the 88% this started as. The lattice sits directly behind
+     the switcher, so any transparency lets the shimmer show through the chip
+     and the label appears to sit on flickering dots instead of on a surface. */
+  background: var(--surface-4);
+  color: var(--foreground);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--amber) 72%, var(--surface-4)),
+    0 0 14px color-mix(in oklab, var(--amber) 50%, transparent),
+    0 10px 28px oklch(0 0 0 / 0.22);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-canvas [aria-label="Project"] {
+    transition: none;
+  }
+}
+
+/* Loading placeholders inside the preview. The preview shows the real shell with
+   nothing behind it, so the whole page body is placeholders: showing no copy
+   claims nothing, where earlier versions rendered real Overview labels and had
+   to be policed against drifting from the product.
+
+   Deliberately static. A perpetual pulse competed with the camera move for
+   attention, and the "still waiting" read is carried in words by the verify
+   step's status card, which is where it belongs.
+
+   `--surface-8` is the lightest surface step in the theme, so the blocks read as
+   a loader against the `--card` they sit on without inventing a colour.
+
+   3px, not a pill. A pill needs radius >= half the height, so the thin bars are
+   10px rather than 8 — at 8px tall a 3px radius is only 1px off a pill and the
+   flat sides never show. */
+.onboarding-skeleton {
+  display: block;
+  border-radius: 3px;
+  background: var(--surface-8);
+}
+
+/* Waiting signal on the verification step. The pulse is the only thing moving
+   while the poll runs, so it carries the "still working" read; the label and
+   colour carry it statically. */
+.onboarding-signal {
+  animation: onboarding-signal 900ms ease-in-out infinite alternate;
+}
+
+@keyframes onboarding-signal {
+  to {
+    opacity: 0.45;
+    scale: 0.8;
+  }
+}
+
+/* transitions.dev: error-state-shake + skeleton-reveal. These values stay with
+   the snippets so their CSS and React replay timers share one source. */
+.onboarding-shell {
+  --shake-distance: 6px;
+  --shake-overshoot: 4px;
+  --shake-dur-a: 80ms;
+  --shake-dur-b: 60ms;
+  --shake-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --revert-hold: 3000ms;
+  --revert-dur: 280ms;
+  --pulse-dur: 1000ms;
+  --pulse-count: 1;
+  --pulse-min: 0.5;
+  --reveal-dur: 400ms;
+  --reveal-blur: 2px;
+  --reveal-ease: ease-in-out;
+}
+
+.t-input {
+  transition: border-color 150ms ease-out;
+  will-change: transform;
+}
+.t-input.is-error {
+  transition: border-color var(--revert-dur, 280ms) ease-out;
+}
+
+.t-error-msg {
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity var(--revert-dur, 280ms) ease-out,
+    visibility 0s linear var(--revert-dur, 280ms);
+}
+.t-input-wrap.is-error .t-error-msg {
+  opacity: 1;
+  visibility: visible;
+  transition:
+    opacity var(--revert-dur, 280ms) ease-out,
+    visibility 0s linear 0s;
+}
+
+.t-input.is-shaking {
+  animation: t-input-shake calc(var(--shake-dur-a) * 2 + var(--shake-dur-b) * 2) linear;
+}
+@keyframes t-input-shake {
+  0% {
+    transform: translateX(0);
+    animation-timing-function: var(--shake-ease);
+  }
+  28.57% {
+    transform: translateX(var(--shake-distance));
+    animation-timing-function: var(--shake-ease);
+  }
+  57.14% {
+    transform: translateX(calc(var(--shake-distance) * -1));
+    animation-timing-function: var(--shake-ease);
+  }
+  78.57% {
+    transform: translateX(var(--shake-overshoot));
+    animation-timing-function: var(--shake-ease);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
+/* The shared field and Select each own an 8px flex gap. Stage 0 cancels that
+   gap as well as collapsing the icon, so an empty favicon does not leave a
+   dark dot or push the label. Stages 1 and 2 reveal the slot left-to-right. */
+.t-favicon-slot {
+  display: block;
+  flex: none;
+  width: 0;
+  height: var(--favicon-size);
+  margin-inline-end: calc(var(--favicon-parent-gap) * -1);
+  overflow: hidden;
+  opacity: 0;
+  filter: blur(var(--favicon-enter-blur));
+  transform: translateX(calc(var(--favicon-enter-x) * -1));
+  transition:
+    width var(--favicon-enter-duration) var(--favicon-enter-ease),
+    margin-inline-end var(--favicon-enter-duration) var(--favicon-enter-ease),
+    opacity var(--favicon-enter-duration) var(--favicon-enter-ease),
+    filter var(--favicon-enter-duration) var(--favicon-enter-ease),
+    transform var(--favicon-enter-duration) var(--favicon-enter-ease);
+}
+
+.t-favicon-slot[data-stage="1"],
+.t-favicon-slot[data-stage="2"] {
+  width: var(--favicon-size);
+  margin-inline-end: 0;
+  opacity: 1;
+  filter: blur(0);
+  transform: translateX(0);
+}
+
+.t-favicon-frame {
+  display: block;
+  width: var(--favicon-size);
+  height: var(--favicon-size);
+  overflow: hidden;
+  border-radius: 4px;
+}
+
+.t-skel {
+  position: relative;
+}
+.t-skel-skeleton,
+.t-skel-content {
+  position: absolute;
+  inset: 0;
+}
+
+.t-skel-skeleton {
+  z-index: 1;
+  opacity: 1;
+  filter: blur(0);
+  transition:
+    opacity var(--reveal-dur) var(--reveal-ease),
+    filter var(--reveal-dur) var(--reveal-ease);
+}
+.t-skel-content {
+  z-index: 2;
+  opacity: 0;
+  filter: blur(var(--reveal-blur));
+  transition:
+    opacity var(--reveal-dur) var(--reveal-ease),
+    filter var(--reveal-dur) var(--reveal-ease);
+}
+.t-skel.is-revealed .t-skel-skeleton {
+  opacity: 0;
+  filter: blur(var(--reveal-blur));
+}
+.t-skel.is-revealed .t-skel-content {
+  opacity: 1;
+  filter: blur(0);
+}
+.t-skel.is-resetting .t-skel-skeleton,
+.t-skel.is-resetting .t-skel-content {
+  transition: none !important;
+}
+
+.t-skel-skeleton.is-pulsing > * {
+  animation: t-skel-pulse var(--pulse-dur) ease-in-out var(--pulse-count);
+}
+@keyframes t-skel-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: var(--pulse-min);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-signal,
+  .t-input,
+  .t-favicon-slot {
+    animation: none !important;
+    transition: none !important;
+    filter: none !important;
+    transform: none !important;
+  }
+  .t-skel-skeleton,
+  .t-skel-content {
+    transition: none !important;
+  }
+  .t-skel-skeleton.is-pulsing > * {
+    animation: none !important;
+  }
+}

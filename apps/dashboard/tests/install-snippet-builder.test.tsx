@@ -85,6 +85,16 @@ describe("install recorder key verification", () => {
     });
     expect(findCopyButton().disabled).toBe(true);
   });
+
+  it("rejects a deployment URL with a path", async () => {
+    apiMocks.fetchProjectKeys.mockResolvedValue({ keys: [] });
+    await renderBuilder("project-one");
+    const inputs = container.querySelectorAll<HTMLInputElement>("input");
+    const originInput = inputs.item(1);
+    await setInputValue(originInput, "https://replay.example.com/path");
+    expect(container.textContent).toContain("Use a valid http or https URL.");
+    expect(findCopyButton().disabled).toBe(true);
+  });
 });
 
 async function renderBuilder(projectId: string): Promise<void> {

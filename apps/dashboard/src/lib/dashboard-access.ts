@@ -175,17 +175,41 @@ export function decideProjectRoute<TProject extends AccessProject>(options: {
 export type ProjectsHomeDecision =
   | { action: "load-account" }
   | { action: "bootstrap-account" }
+  | { action: "check-activation"; projectId: string }
+  | { action: "activate-project"; projectId: string }
   | { action: "open-project"; projectId: string }
   | { action: "show-empty" };
 
+/**
+ * Where a signed-in visitor lands. A project that has never received an event
+ * has nothing to show on Overview, so it needs activation first — but whether
+ * an event arrived is a separate request, so this returns `check-activation`
+ * and lets the caller decide once it knows.
+ *
+ * Two rules keep this from stranding anyone. Activation writes the project's
+ * name, origin allowlist and a recorder key, so only a project the visitor can
+ * *manage* is ever sent there; a member-only project opens instead, because
+ * sending it to a flow that rejects it is an infinite redirect. And the caller
+ * passes `hasFirstEvent: undefined` when the check failed, which means open the
+ * project rather than risk walking a live install into activation.
+ */
 export function decideProjectsHome<TProject extends AccessProject>(options: {
   account?: AccessAccount<TProject>;
+  /** `undefined` means "not known" — from an unset argument or a failed check. */
+  hasFirstEvent?: boolean;
+  /** True once the caller has actually run the activation check. */
+  checkedActivation?: boolean;
 }): ProjectsHomeDecision {
   if (options.account === undefined) return { action: "load-account" };
   if (options.account.workspaces.length === 0) return { action: "bootstrap-account" };
   const project = accountProjects(options.account)[0];
-  return project === undefined
-    ? { action: "show-empty" }
+  if (project === undefined) return { action: "show-empty" };
+  if (!canManageProject(project)) return { action: "open-project", projectId: project.id };
+  if (options.checkedActivation !== true) {
+    return { action: "check-activation", projectId: project.id };
+  }
+  return options.hasFirstEvent === false
+    ? { action: "activate-project", projectId: project.id }
     : { action: "open-project", projectId: project.id };
 }
 

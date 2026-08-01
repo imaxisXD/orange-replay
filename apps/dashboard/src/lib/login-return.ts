@@ -22,6 +22,10 @@ export function safeReturnPath(value: string | undefined): string {
   if (url.origin !== window.location.origin) return defaultReturnTo;
   const isProjectPath = url.pathname === "/projects" || url.pathname.startsWith("/projects/");
   const isAdminPath = url.pathname === "/_admin";
-  if (!isProjectPath && !isAdminPath) return defaultReturnTo;
+  // Activation is a signed-in destination too, so a visitor who was bounced to
+  // login from a step comes back to that step instead of restarting the flow.
+  const isOnboardingPath =
+    url.pathname === "/onboarding" || url.pathname.startsWith("/onboarding/");
+  if (!isProjectPath && !isAdminPath && !isOnboardingPath) return defaultReturnTo;
   return `${url.pathname}${url.search}${url.hash}`;
 }

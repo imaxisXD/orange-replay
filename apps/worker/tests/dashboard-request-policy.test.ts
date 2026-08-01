@@ -58,6 +58,7 @@ function fakeExecutors() {
     liveProxy: vi.fn(async () => new Response("live")),
     account: vi.fn(async () => jsonResponse({ ok: true })),
     accountBootstrap: vi.fn(async () => jsonResponse({ ok: true })),
+    favicon: vi.fn(async () => new Response("icon", { headers: { "content-type": "image/png" } })),
     adminStats: vi.fn(async () => jsonResponse({ ok: true })),
     adminUsers: vi.fn(async () => jsonResponse({ ok: true })),
     project: vi.fn(
@@ -163,6 +164,12 @@ describe("dashboard request plans", () => {
       projectIdForAuth: null,
       route: { access: "session", action: "account_bootstrap", mutationOrigin: true },
     });
+    expect(matchDashboardRequest("GET", "/api/v1/favicon")).toEqual({
+      kind: "authed",
+      routeName: "favicon",
+      projectIdForAuth: null,
+      route: { access: "session", action: "favicon", mutationOrigin: false },
+    });
     expect(matchDashboardRequest("GET", "/api/v1/admin/stats")).toEqual({
       kind: "authed",
       routeName: "admin_stats",
@@ -186,6 +193,12 @@ describe("dashboard request plans", () => {
         plannedProject("sessions_list", "sessions_list", { analyticsReadLimit: true }),
       ],
       ["GET", "/session-heads", "session_heads", plannedProject("session_heads", "session_heads")],
+      [
+        "PATCH",
+        "",
+        "project",
+        plannedProject("project_rename", "project_rename", { mutationOrigin: true }),
+      ],
       [
         "GET",
         "/stats",
@@ -315,6 +328,8 @@ describe("dashboard request plans", () => {
       ["POST", "/api/v1/projects/project_1/sessions", "sessions_list"],
       ["POST", "/api/v1/projects/project_1/sessions/session_1/live", "live"],
       ["PUT", "/api/v1/projects/project_1/keys/key_1", "project_key"],
+      ["GET", "/api/v1/projects/project_1", "project"],
+      ["DELETE", "/api/v1/projects/project_1", "project"],
       ["HEAD", "/api/v1/projects/project_1/sessions/session_1/manifest", "manifest"],
     ] as const;
 
@@ -390,6 +405,7 @@ describe("dashboard request plans", () => {
       sessions_list: { demoReadable: true, minimumRole: "member" },
       session_heads: { demoReadable: true, minimumRole: "member" },
       session_state: { demoReadable: true, minimumRole: "member" },
+      project_rename: { demoReadable: false, minimumRole: "manager" },
       project_stats: { demoReadable: true, minimumRole: "member" },
       project_live: { demoReadable: true, minimumRole: "member" },
       project_config_read: { demoReadable: false, minimumRole: "member" },
@@ -410,6 +426,17 @@ describe("dashboard request plans", () => {
 });
 
 describe("dashboard request policy handler order", () => {
+  it("requires a signed-in session before fetching a favicon", async () => {
+    const response = await apiRequest("/api/v1/favicon?website=acme.com");
+    expect(response.status).toBe(200);
+    expect(executors.favicon).toHaveBeenCalledOnce();
+
+    mocks.checkAuth.mockResolvedValue(demoAuth("demo_project"));
+    const demo = await apiRequest("/api/v1/favicon?website=acme.com");
+    expect(demo.status).toBe(401);
+    expect(executors.favicon).toHaveBeenCalledOnce();
+  });
+
   it("rate limits a public request before rejecting its invalid id", async () => {
     mocks.publicPageRateLimitAllows.mockResolvedValue(false);
     const limited = await apiRequest("/api/v1/public-pages/bad%2Fid");

@@ -3,7 +3,12 @@ import type {
   ProjectConfigUpdate,
   StoredProjectConfig,
 } from "@orange-replay/shared/types";
-import { readStablePrivacySelectorError } from "@orange-replay/shared/privacy-selector";
+import {
+  allowedOriginSchema,
+  projectConfigUpdateMaskRulesSchema,
+  projectConfigUpdateSchema,
+  projectSampleRateSchema,
+} from "@orange-replay/shared/project-config-update";
 
 export interface DraftMaskRule extends MaskRule {
   uiId: string;
@@ -13,6 +18,16 @@ export type ProjectSettingsDraft = Omit<ProjectConfigUpdate, "expectedVersion" |
   maskRules: DraftMaskRule[];
 };
 export type MaskRuleActionValue = MaskRule["action"];
+
+export interface ProjectSettingsValidationErrors {
+  capture: string;
+  masking: string;
+  origins: string;
+}
+
+export type ParsedProjectSettingsDraft =
+  | { ok: true; update: ProjectConfigUpdate; errors: ProjectSettingsValidationErrors }
+  | { ok: false; errors: ProjectSettingsValidationErrors };
 
 export const maxMaskRules = 200;
 export const installStatusPollIntervalMs = 3_000;
@@ -59,27 +74,10 @@ export function updateMaskRules(
 }
 
 export function validateMaskRules(rules: readonly MaskRule[]): string | null {
-  if (rules.length > maxMaskRules) {
-    return "You can add up to 200 masking rules.";
-  }
-
-  if (rules.some((rule) => rule.selector.trim().length === 0)) {
-    return "Each masking rule needs a selector.";
-  }
-
-  for (const rule of rules) {
-    const error = readStablePrivacySelectorError(rule.selector.trim());
-    if (error !== null) return error;
-  }
-
-  return null;
-}
-
-export function cleanMaskRules(rules: readonly MaskRule[]): MaskRule[] {
-  return rules.map((rule) => ({
-    selector: rule.selector.trim(),
-    action: rule.action,
-  }));
+  const parsed = projectConfigUpdateMaskRulesSchema.safeParse(
+    rules.map(({ selector, action }) => ({ selector, action })),
+  );
+  return parsed.success ? null : (parsed.error.issues[0]?.message ?? "Check the masking rules.");
 }
 
 export function sampleRateToPercentInput(sampleRate: number): string {
@@ -89,34 +87,38 @@ export function sampleRateToPercentInput(sampleRate: number): string {
 
 export function percentInputToSampleRate(value: string): number | null {
   const percent = Number(value);
-  if (!Number.isFinite(percent) || percent < 0 || percent > 100) return null;
-  return percent / 100;
-}
-
-export function retentionInputToDays(value: string): number | null {
-  const days = Number(value);
-  if (!Number.isInteger(days) || days < 1 || days > 365) return null;
-  return days;
+  const parsed = projectSampleRateSchema.safeParse(percent / 100);
+  return parsed.success ? parsed.data : null;
 }
 
 export function normalizeOriginInput(value: string): string | null {
-  const trimmed = value.trim();
-  if (trimmed === "*") return "*";
+  const parsed = allowedOriginSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
 
-  try {
-    const url = new URL(trimmed);
-    const isHttpOrigin = url.protocol === "http:" || url.protocol === "https:";
-    const hasOnlyOrigin =
-      url.username.length === 0 &&
-      url.password.length === 0 &&
-      (url.pathname === "" || url.pathname === "/") &&
-      url.search.length === 0 &&
-      url.hash.length === 0;
+export function parseProjectSettingsDraft(
+  draft: ProjectSettingsDraft,
+  expectedVersion: number,
+): ParsedProjectSettingsDraft {
+  const parsed = projectConfigUpdateSchema.safeParse({
+    expectedVersion,
+    sampleRate: draft.sampleRate,
+    retentionDays: draft.retentionDays,
+    allowedOrigins: draft.allowedOrigins,
+    maskPolicyVersion: draft.maskPolicyVersion,
+    maskRules: draft.maskRules.map(({ selector, action }) => ({ selector, action })),
+    capture: draft.capture,
+  });
+  const errors: ProjectSettingsValidationErrors = { capture: "", masking: "", origins: "" };
+  if (parsed.success) return { ok: true, update: parsed.data, errors };
 
-    return isHttpOrigin && hasOnlyOrigin ? url.origin : null;
-  } catch {
-    return null;
+  for (const issue of parsed.error.issues) {
+    const field = issue.path[0];
+    if (field === "allowedOrigins" && errors.origins.length === 0) errors.origins = issue.message;
+    else if (field === "maskRules" && errors.masking.length === 0) errors.masking = issue.message;
+    else if (errors.capture.length === 0) errors.capture = issue.message;
   }
+  return { ok: false, errors };
 }
 
 export function addAllowedOrigin(

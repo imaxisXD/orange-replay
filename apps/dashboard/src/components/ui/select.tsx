@@ -169,6 +169,7 @@ interface SelectTriggerProps
   icon?: IconComponent;
   placeholder?: string;
   error?: string;
+  leadingContent?: ReactNode;
 }
 
 interface SelectChevronProps extends HTMLAttributes<HTMLSpanElement> {
@@ -233,6 +234,7 @@ const SelectTrigger = forwardRef<HTMLButtonElement, SelectTriggerProps>(
       icon: Icon,
       placeholder = "Select…",
       error,
+      leadingContent,
       onMouseEnter,
       onMouseLeave,
       ...props
@@ -265,6 +267,7 @@ const SelectTrigger = forwardRef<HTMLButtonElement, SelectTriggerProps>(
           }}
         >
           <span className="flex items-center gap-2 min-w-0 flex-1">
+            {leadingContent}
             {Icon && (
               <Icon
                 aria-hidden

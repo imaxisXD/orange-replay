@@ -93,6 +93,22 @@ describe("hosted account bootstrap", () => {
       limit: 10,
       offset: 0,
     });
+
+    const normalized = await worker.fetch(
+      "/__test/api/hosted/admin/users?search=%20%20sunny%20%20&limit=10&offset=0",
+    );
+    expect(normalized.status).toBe(200);
+    expect(await normalized.json()).toMatchObject({ total: 1, limit: 10, offset: 0 });
+
+    for (const [query, error] of [
+      ["search=" + "x".repeat(101), "invalid_search"],
+      ["limit=0", "invalid_limit"],
+      ["offset=100001", "invalid_offset"],
+    ]) {
+      const invalid = await worker.fetch(`/__test/api/hosted/admin/users?${query}`);
+      expect(invalid.status).toBe(400);
+      expect(await invalid.json()).toEqual({ error });
+    }
   });
 
   it("does not give a completion receipt to a project that already existed", async () => {

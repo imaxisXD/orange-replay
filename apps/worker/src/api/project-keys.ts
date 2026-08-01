@@ -1,4 +1,8 @@
-import type { CreatedProjectKeyResponse, ProjectKeyResponse } from "@orange-replay/shared";
+import {
+  createProjectKeyRequestSchema,
+  type CreatedProjectKeyResponse,
+  type ProjectKeyResponse,
+} from "@orange-replay/shared";
 import { type Env } from "../env.ts";
 import { sha256Hex } from "../ingest/hash.ts";
 import {
@@ -11,7 +15,6 @@ import type { SessionAuthContext } from "./auth.ts";
 import { jsonError, jsonResponse, readJsonBodyCapped } from "../http.ts";
 
 const KEY_BODY_LIMIT_BYTES = 2 * 1024;
-const KEY_NAME_MAX_LENGTH = 64;
 
 export async function getProjectKeys(env: Env, projectId: string) {
   return listProjectRecorderKeys(env, projectId);
@@ -26,8 +29,9 @@ export async function createProjectKey(
   const body = await readJsonBodyCapped(request, KEY_BODY_LIMIT_BYTES);
   if (!body.ok) return jsonError(body.error, body.status);
 
-  const name = readKeyName(body.value);
-  if (name === null) return jsonError("invalid_key_name", 400);
+  const parsed = createProjectKeyRequestSchema.safeParse(body.value);
+  if (!parsed.success) return jsonError("invalid_key_name", 400);
+  const { name } = parsed.data;
 
   if (!(await keyManagementRateLimitAllows(env, projectId, auth))) {
     return jsonError("rate_limited", 429);
@@ -95,16 +99,4 @@ async function keyManagementRateLimitAllows(
   } catch {
     return false;
   }
-}
-
-function readKeyName(value: unknown): string | null {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
-  const name = (value as { name?: unknown }).name;
-  if (typeof name !== "string" || name.trim() !== name) return null;
-  if (name.length < 1 || name.length > KEY_NAME_MAX_LENGTH) return null;
-  for (const character of name) {
-    const code = character.codePointAt(0) ?? 0;
-    if (code <= 31 || code === 127) return null;
-  }
-  return name;
 }

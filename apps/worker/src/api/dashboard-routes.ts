@@ -14,6 +14,7 @@ import type {
   SessionIds,
 } from "./dashboard-request-policy.ts";
 import { jsonError } from "../http.ts";
+import { getFavicon } from "./favicon.ts";
 import { mintLiveTicket, proxyLiveSession } from "./live-ticket.ts";
 import { getSessionState, listSessionHeads } from "./session-head-routes.ts";
 import { createProjectKey, revokeProjectKey } from "./project-keys.ts";
@@ -25,6 +26,7 @@ import {
   getProjectKeys,
   getProjectStats,
   listLiveSessions,
+  patchProjectName,
   putProjectConfig,
 } from "./project-routes.ts";
 import { getManifest, getSegment, listSessions } from "./session-routes.ts";
@@ -56,6 +58,7 @@ export interface DashboardExecutors {
   liveProxy(rctx: DashboardRouteContext, ids: SessionIds): Promise<Response>;
   account(rctx: DashboardRouteContext, auth: SessionAuthContext): Promise<Response>;
   accountBootstrap(rctx: DashboardRouteContext, auth: SessionAuthContext): Promise<Response>;
+  favicon(rctx: DashboardRouteContext, auth: SessionAuthContext): Promise<Response>;
   adminStats(rctx: DashboardRouteContext): Promise<Response>;
   adminUsers(rctx: DashboardRouteContext): Promise<Response>;
   project(
@@ -73,6 +76,8 @@ export const DASHBOARD_EXECUTORS: DashboardExecutors = {
     proxyLiveSession(request, url, env, ids.projectId, ids.sessionId, requestId),
   account: ({ env }, auth) => getAccount(env, auth),
   accountBootstrap: ({ env }, auth) => bootstrapAccount(env, auth),
+  favicon: ({ request, env, ctx, wideEvent }, auth) =>
+    getFavicon(request, env, ctx, auth.hostedSession.user.id, wideEvent),
   adminStats: ({ env }) => getAdminStats(env),
   adminUsers: ({ url, env }) => getAdminUsers(url, env),
   project: executeProjectRoute,
@@ -133,6 +138,10 @@ async function executeProjectRoute(
     case "project_config_write": {
       const { projectId } = grantedIds(route.params);
       return putProjectConfig(request, env, projectId, wideEvent);
+    }
+    case "project_rename": {
+      const { projectId } = grantedIds(route.params);
+      return patchProjectName(request, env, projectId, wideEvent);
     }
     case "install_status": {
       const { projectId } = grantedIds(route.params);

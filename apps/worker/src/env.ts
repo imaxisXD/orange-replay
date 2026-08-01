@@ -41,6 +41,8 @@ export interface Env {
   ANALYTICS_PROJECT_RATE_LIMITER?: RateLimitBinding;
   ANALYTICS_GLOBAL_RATE_LIMITER?: RateLimitBinding;
   LIVE_TICKET_RATE_LIMITER?: RateLimitBinding;
+  /** Limits cache-miss favicon fetches per signed-in user. */
+  FAVICON_RATE_LIMITER?: RateLimitBinding;
   CF_VERSION_METADATA?: WorkerVersionMetadata;
   /** Deployment environment name. Production disables all dev-only test gates. */
   WORKER_ENV?: string;

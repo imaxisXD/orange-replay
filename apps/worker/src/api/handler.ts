@@ -151,9 +151,9 @@ async function handleAuthedRequest(
       const originError = mutationOriginError(request, env, auth);
       if (originError !== null) return originError;
     }
-    return route.action === "account"
-      ? executors.account(rctx, auth)
-      : executors.accountBootstrap(rctx, auth);
+    if (route.action === "account") return executors.account(rctx, auth);
+    if (route.action === "favicon") return executors.favicon(rctx, auth);
+    return executors.accountBootstrap(rctx, auth);
   }
 
   if (route.access === "global_admin") {
