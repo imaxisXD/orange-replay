@@ -1,12 +1,19 @@
 import type { IndexEvent } from "@orange-replay/shared/types";
 import type { DeadClick } from "@orange-replay/player";
 
-const displayableKinds = new Set<SidebarEventKind>(["click", "error", "rage", "nav", "scroll"]);
+const displayableKinds = new Set<SidebarEventKind>([
+  "click",
+  "error",
+  "rage",
+  "nav",
+  "scroll",
+  "custom",
+]);
 
 export type SidebarEventKind =
-  | Extract<IndexEvent["k"], "click" | "error" | "rage" | "nav" | "scroll">
+  | Extract<IndexEvent["k"], "click" | "error" | "rage" | "nav" | "scroll" | "custom">
   | "dead-click";
-export type TimelineDot = "blue" | "danger" | "amber" | "teal" | "hollow" | "dim";
+export type TimelineDot = "blue" | "danger" | "amber" | "teal" | "hollow" | "dim" | "success";
 
 export interface TimelineSidebarOptions {
   startedAt: number;
@@ -275,6 +282,17 @@ function eventRowContent(event: IndexEvent & { k: SidebarEventKind }): {
     };
   }
 
+  if (event.k === "custom") {
+    // The developer-chosen event name is the headline; its metadata is
+    // supporting detail, same shape as a click's selector line.
+    const name = event.d?.trim();
+    const detail = customMetaSummary(event);
+    return {
+      label: name === undefined || name.length === 0 ? "Custom event" : truncateText(name, 56),
+      ...(detail !== undefined ? { detail } : {}),
+    };
+  }
+
   const target = event.d ?? firstMetaText(event, ["url", "href", "to", "path"]) ?? "/";
   const detail = firstMetaText(event, ["title", "from", "referrer"]);
   return {
@@ -287,7 +305,25 @@ function dotForEvent(kind: SidebarEventKind): TimelineDot {
   if (kind === "click") return "blue";
   if (kind === "error") return "danger";
   if (kind === "rage") return "amber";
+  if (kind === "custom") return "success";
   return "teal";
+}
+
+function customMetaSummary(event: IndexEvent): string | undefined {
+  const entries = Object.entries(event.m ?? {})
+    .filter(
+      ([key, value]) =>
+        key.trim().length > 0 &&
+        (typeof value === "number" || (typeof value === "string" && value.trim().length > 0)),
+    )
+    .slice(0, 2)
+    .map(([key, value]) => `${key.trim()}: ${String(value).trim()}`);
+
+  if (entries.length === 0) {
+    return undefined;
+  }
+
+  return truncateText(entries.join(" · "), 42);
 }
 
 function firstMetaText(event: IndexEvent, keys: readonly string[]): string | undefined {

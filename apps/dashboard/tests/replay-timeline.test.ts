@@ -77,6 +77,36 @@ describe("event sidebar rows", () => {
     ]);
   });
 
+  it("maps custom events with their name and a compact meta summary", () => {
+    const rows = mapTimelineSidebarRows(
+      [
+        { t: 2_000, k: "custom", d: "checkout_completed", m: { plan: "pro", seats: 4, extra: 1 } },
+        { t: 3_000, k: "custom" },
+      ],
+      { startedAt: 1_000, durationMs: 8_000 },
+    );
+
+    expect(rows).toEqual([
+      {
+        id: "custom-2000-0",
+        type: "custom",
+        dot: "success",
+        label: "checkout_completed",
+        detail: "plan: pro · seats: 4",
+        offsetMs: 1_000,
+        offsetLabel: "0:01",
+      },
+      {
+        id: "custom-3000-1",
+        type: "custom",
+        dot: "success",
+        label: "Custom event",
+        offsetMs: 2_000,
+        offsetLabel: "0:02",
+      },
+    ]);
+  });
+
   it("collapses an uninterrupted scroll run into one row with the deepest point", () => {
     const rows = mapTimelineSidebarRows(
       [

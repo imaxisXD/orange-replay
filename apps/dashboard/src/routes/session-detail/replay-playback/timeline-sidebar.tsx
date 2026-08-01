@@ -7,6 +7,7 @@ import {
   ArrowUpRight,
   MousePointer,
   MouseScroll,
+  Tag,
   type IconComponent,
 } from "../../../lib/icon-map";
 
@@ -71,6 +72,7 @@ function iconFor(type: SidebarEventKind): IconComponent {
   if (type === "rage") return Angry;
   if (type === "nav") return ArrowUpRight;
   if (type === "scroll") return MouseScroll;
+  if (type === "custom") return Tag;
   return MousePointer;
 }
 
@@ -78,6 +80,7 @@ function colorFor(dot: TimelineDot): string {
   if (dot === "blue") return "text-player-blue";
   if (dot === "danger") return "text-danger";
   if (dot === "amber") return "text-amber";
+  if (dot === "success") return "text-success";
   if (dot === "hollow" || dot === "dim") return "text-dim";
   return "text-teal";
 }
