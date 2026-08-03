@@ -267,6 +267,7 @@ async function handleIngestPost(request: Request, env: Env): Promise<Response> {
           config.projectId,
           config.websiteId,
           keyHash,
+          sessionId,
           Date.now(),
         );
         event.set({ website_id: config.websiteId, website_connected: true });

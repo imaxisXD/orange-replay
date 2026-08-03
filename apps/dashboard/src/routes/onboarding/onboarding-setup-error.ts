@@ -33,6 +33,9 @@ export function readWebsiteSetupError(
     if (error.code === "website_not_found") {
       return "This Website is no longer available. Go back and choose another one.";
     }
+    if (error.code === "untrusted_origin") {
+      return "This dashboard address cannot save changes. Open Orange Replay from its normal address and try again.";
+    }
     if (error.code === "not_found") return "This Workspace is no longer available.";
     if (error.code !== "network_error") return fallback;
   }

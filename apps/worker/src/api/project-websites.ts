@@ -7,6 +7,7 @@ import {
   type EnsureProjectWebsiteResponse,
   type ProjectKeyAudit,
   type ProjectWebsite,
+  type ProjectWebsiteInstallStatus,
   type ProjectWebsitesResponse,
   type WideEventLogger,
 } from "@orange-replay/shared";
@@ -340,14 +341,17 @@ export async function getProjectWebsiteInstallStatus(
   websiteId: string,
 ): Promise<Response> {
   const row = await shardDb(env, 0)
-    .prepare("SELECT first_event_at FROM project_websites WHERE id = ? AND project_id = ?")
+    .prepare(
+      "SELECT first_event_at, first_session_id FROM project_websites WHERE id = ? AND project_id = ?",
+    )
     .bind(websiteId, projectId)
-    .first<{ first_event_at: number | null }>();
+    .first<{ first_event_at: number | null; first_session_id: string | null }>();
   if (row === null) return jsonError("not_found", 404);
-  return jsonResponse(
-    { firstEventAt: row.first_event_at },
-    { headers: { "cache-control": "private, no-store" } },
-  );
+  const status = {
+    firstEventAt: row.first_event_at,
+    firstSessionId: row.first_session_id,
+  } satisfies ProjectWebsiteInstallStatus;
+  return jsonResponse(status, { headers: { "cache-control": "private, no-store" } });
 }
 
 export async function listProjectWebsites(
@@ -399,6 +403,7 @@ export async function markProjectWebsiteConnected(
   projectId: string,
   websiteId: string,
   keyHash: string,
+  firstSessionId: string,
   firstEventAt: number,
 ): Promise<void> {
   const database = shardDb(env, 0);
@@ -407,6 +412,7 @@ export async function markProjectWebsiteConnected(
       .prepare(
         `UPDATE project_websites
         SET first_event_at = COALESCE(first_event_at, ?),
+          first_session_id = COALESCE(first_session_id, ?),
           recorder_secret_ciphertext = NULL,
           recorder_secret_iv = NULL,
           updated_at = ?
@@ -416,7 +422,16 @@ export async function markProjectWebsiteConnected(
             WHERE key_hash = ? AND website_id = ? AND project_id = ? AND active = 1
           )`,
       )
-      .bind(firstEventAt, firstEventAt, websiteId, projectId, keyHash, websiteId, projectId),
+      .bind(
+        firstEventAt,
+        firstSessionId,
+        firstEventAt,
+        websiteId,
+        projectId,
+        keyHash,
+        websiteId,
+        projectId,
+      ),
     database
       .prepare(
         "UPDATE keys SET cache_synced = 0 WHERE key_hash = ? AND website_id = ? AND active = 1",

@@ -271,12 +271,20 @@ function ProjectInstallSnippetBuilder({ projectId }: { projectId: string }) {
             </IconSwap>
           </Button>
         </Tooltip>
-        <m.div
-          className={showFullCode ? "h-105" : "h-24"}
-          layout="size"
-          transition={reduceMotion ? { duration: 0 } : spring.moderate}
-        >
-          <ScrollArea className="h-full" viewportClassName="scroll-fade">
+        {/* `t-resize`, not `layout="size"`. The layout animation fakes the size
+            with a transform, and measured mid-flight it held this card at
+            `scaleY(0.80)` with its children uncorrected, so the snippet was
+            squashed by a fifth while the card grew. */}
+        <div className={`t-resize ${showFullCode ? "h-105" : "h-24"}`}>
+          <ScrollArea
+            className="h-full"
+            // Base UI puts `min-width: fit-content` inline on its content
+            // wrapper to measure horizontal overflow. The loader is one minified
+            // line, so that sized the content past the card and, with no
+            // horizontal scrollbar on a vertical scroller, most of the snippet
+            // could not be reached. Auto width lets `whitespace-pre-wrap` work.
+            viewportClassName="scroll-fade [&>[role=presentation]]:!min-w-0"
+          >
             <AnimatePresence initial={false} mode="wait">
               <m.pre
                 animate={{ opacity: 1, transform: "translateY(0px)" }}
@@ -290,7 +298,7 @@ function ProjectInstallSnippetBuilder({ projectId }: { projectId: string }) {
               </m.pre>
             </AnimatePresence>
           </ScrollArea>
-        </m.div>
+        </div>
       </div>
       <div className="mt-3 flex justify-end">
         <Button

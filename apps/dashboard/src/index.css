@@ -325,6 +325,32 @@
   --scroll-fade-size: 48px;
 }
 
+/* transitions.dev — Card resize. Tweens an element between two set sizes; used by
+   both code cards (onboarding step two and the Install page) for their collapsed
+   and expanded heights.
+
+   This animates a layout property deliberately. The alternative, framer-motion's
+   `layout="size"`, fakes the size with a transform: measured mid-flight it held
+   the card at `scaleY(0.80)` with its children uncorrected, squashing the code
+   text by a fifth as it grew. One card between two known heights is a cheap
+   reflow; distorted code is not a cheap defect.
+
+   `will-change` is left off the recipe on purpose. It only helps properties the
+   compositor can handle alone, and height is not one of them. */
+.t-resize {
+  --resize-dur: 300ms;
+  --resize-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  transition:
+    width var(--resize-dur) var(--resize-ease),
+    height var(--resize-dur) var(--resize-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-resize {
+    transition: none;
+  }
+}
+
 .scroll-fade {
   -webkit-mask-image: linear-gradient(
     to bottom,

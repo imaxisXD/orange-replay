@@ -27,7 +27,7 @@ import { getDashboardEnvironmentLabel } from "@/lib/dashboard-environment";
 import { Plus, ShieldUser } from "@/lib/icon-map";
 import { dashboardNavItems, type DashboardNavItem } from "@/lib/dashboard-navigation";
 import { useDashboardWorkspace } from "@/lib/dashboard-workspace";
-import { m, type HTMLMotionProps } from "@/lib/motion";
+import { m, useReducedMotion, type HTMLMotionProps } from "@/lib/motion";
 import { carriedDateRangeSearch } from "@/lib/session-filters";
 import { surfaceClasses } from "@/lib/surface-classes";
 import { SurfaceProvider } from "@/lib/surface-context";
@@ -203,6 +203,11 @@ export function AppShell({
               <SelectTrigger
                 aria-label="Workspace"
                 className="h-7.5 min-w-33 bg-transparent rounded-lg border-none hover:bg-secondary px-2.75 py-1.25 text-[12.5px] hover:text-foreground text-muted-foreground"
+                /* The onboarding camera rings this control in amber when it is
+                   about to say the visitor's website name. Renaming the
+                   aria-label already broke that once, so the hook is an
+                   attribute nothing else has a reason to touch. */
+                data-shell-switcher=""
                 leadingContent={projectLeadingContent}
                 placeholder="Workspace"
               />
@@ -438,6 +443,11 @@ function TopNavTab({
 }) {
   const demoTo = isDemo ? item.demoTo : undefined;
   const Icon = item.icon;
+  // The notch travels the whole row between two tabs. A click is its own
+  // confirmation, so reduced motion gets the destination and not the journey —
+  // and onboarding drives this same notch across five tabs without a click at
+  // all, which is a long unrequested flight to hand someone who asked for none.
+  const reduceMotion = useReducedMotion() === true;
 
   const className = cn(
     "relative -mb-px flex w-28 items-center justify-center gap-2 rounded-t-md py-2.75 text-[13px] text-muted-foreground transition-[color,background-color,gap,font-weight] duration-200 sm:py-2.25",
@@ -453,7 +463,7 @@ function TopNavTab({
           aria-hidden
           className="absolute inset-x-0 -bottom-px top-0 rounded-t-md border border-b-0 border-border bg-surface-4"
           layoutId="top-nav-notch"
-          transition={notchTransition}
+          transition={reduceMotion ? { duration: 0 } : notchTransition}
         />
       )}
       {/* Active icon sits on an app-icon plate: deep teal rounded square

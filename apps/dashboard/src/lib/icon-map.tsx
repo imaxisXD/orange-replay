@@ -10,7 +10,8 @@ import ChevronDownIcon from "@hugeicons/core-free-icons/ChevronDownIcon";
 import ChevronRightIcon from "@hugeicons/core-free-icons/ChevronRightIcon";
 import ChevronUpIcon from "@hugeicons/core-free-icons/ChevronUpIcon";
 import CodeIcon from "@hugeicons/core-free-icons/CodeIcon";
-import Copy01Icon from "@hugeicons/core-free-icons/Copy01Icon";
+import CopyIcon from "@hugeicons/core-free-icons/CopyIcon";
+import CopyCheckIcon from "@hugeicons/core-free-icons/CopyCheckIcon";
 import Delete02Icon from "@hugeicons/core-free-icons/Delete02Icon";
 import Alert01Icon from "@hugeicons/core-free-icons/Alert01Icon";
 import MinusSignIcon from "@hugeicons/core-free-icons/MinusSignIcon";
@@ -49,6 +50,8 @@ import SmartPhone01Icon from "@hugeicons/core-free-icons/SmartPhone01Icon";
 import WindowsOldIcon from "@hugeicons/core-free-icons/WindowsOldIcon";
 import Building02Icon from "@hugeicons/core-free-icons/Building02Icon";
 import GithubIcon from "@hugeicons/core-free-icons/GithubIcon";
+import HtmlFile01Icon from "@hugeicons/core-free-icons/HtmlFile01Icon";
+import Typescript03Icon from "@hugeicons/core-free-icons/Typescript03Icon";
 import LogoutCircle01Icon from "@hugeicons/core-free-icons/LogoutCircle01Icon";
 import ShieldUserIcon from "@hugeicons/core-free-icons/ShieldUserIcon";
 import UserBlock02Icon from "@hugeicons/core-free-icons/UserBlock02Icon";
@@ -121,7 +124,14 @@ export const ChevronRight = createHugeIcon(ChevronRightIcon);
 export const ChevronUp = createHugeIcon(ChevronUpIcon);
 export const Clock = createHugeIcon(Clock01Icon);
 export const Code2 = createHugeIcon(CodeIcon);
-export const Copy = createHugeIcon(Copy01Icon);
+/**
+ * The copy → copied pair. `CopyCheck` is `Copy` with one extra path, the tick, so
+ * a copy control can add the check without its frame shifting or flickering
+ * underneath. That shared geometry is why `Copy` is `CopyIcon` and not the
+ * `Copy01` squares it used to be: one copy glyph app-wide, and its checked twin.
+ */
+export const Copy = createHugeIcon(CopyIcon);
+export const CopyCheck = createHugeIcon(CopyCheckIcon);
 export const Download = createHugeIcon(Download01Icon);
 export const LayoutDashboard = createHugeIcon(DashboardSquare01Icon);
 export const LiveStreaming = createHugeIcon(LiveStreaming02Icon);
@@ -146,6 +156,13 @@ export const Trash2 = createHugeIcon(Delete02Icon);
 export const X = createHugeIcon(Cancel01Icon);
 export const Building = createHugeIcon(Building02Icon);
 export const Github = createHugeIcon(GithubIcon);
+/**
+ * File-type marks for the install step's paste target. Same family as every
+ * other glyph; the brand colour is applied by the caller through `currentColor`
+ * (see docs/design-language.md), so these stay one SVG recoloured per context.
+ */
+export const HtmlFile = createHugeIcon(HtmlFile01Icon);
+export const TypescriptFile = createHugeIcon(Typescript03Icon);
 export const LogOut = createHugeIcon(LogoutCircle01Icon);
 export const ShieldUser = createHugeIcon(ShieldUserIcon);
 export const UserBlock = createHugeIcon(UserBlock02Icon);

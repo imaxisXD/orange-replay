@@ -1,15 +1,21 @@
-import { useEffect, type FormEvent } from "react";
+import { useEffect, useRef, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
-import { fetchProjectWebsiteInstallStatus, projectWebsitesQueryKey } from "@/lib/api";
+import {
+  fetchLiveSessions,
+  fetchProjectWebsiteInstallStatus,
+  liveSessionsQueryKey,
+  projectWebsitesQueryKey,
+} from "@/lib/api";
 import { readDashboardAccessError } from "@/lib/dashboard-access";
 import { formatRelativeTime } from "@/lib/format";
+import { markLiveHandoffConnecting } from "@/lib/live-sessions";
 import { m, useReducedMotion } from "@/lib/motion";
 import { installStatusPollIntervalMs, shouldPollInstallStatus } from "@/lib/project-settings";
 import { cn } from "@/lib/utils";
 import { useOnboarding } from "./onboarding-context";
-import { VERIFY } from "./onboarding-motion";
+import { PREVIEW_EXIT, VERIFY } from "./onboarding-motion";
 import { clearOnboardingRecorderKey } from "./onboarding-recorder-key";
 import { OnboardingStage } from "./onboarding-stage";
 
@@ -17,19 +23,27 @@ import { OnboardingStage } from "./onboarding-stage";
  * Step 3 of 3 — the first event.
  *
  * This polls the exact Website created in step one, so another Website's old
- * activity cannot complete this setup. The check only draws once this Website
- * has actually sent an accepted event.
+ * activity cannot complete this setup. After its accepted event, the handoff
+ * waits for that Website's exact first session rather than any project-wide row.
  */
 export function OnboardingVerifyPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { previewProjectLabel, projectId, setIsRecording, websiteId } = useOnboarding();
+  const reduceMotion = useReducedMotion() === true;
+  const {
+    beginPreviewCut,
+    previewProjectLabel,
+    projectId,
+    setIsLiveConfirmed,
+    setIsRecording,
+    websiteId,
+  } = useOnboarding();
 
   const statusQuery = useQuery({
     queryKey: ["website-install-status", projectId, websiteId],
-    queryFn: () => {
+    queryFn: ({ signal }) => {
       if (websiteId === null) throw new Error("Choose a Website before checking its connection.");
-      return fetchProjectWebsiteInstallStatus(projectId, websiteId);
+      return fetchProjectWebsiteInstallStatus(projectId, websiteId, { signal });
     },
     enabled: websiteId !== null,
     refetchInterval: (query) => {
@@ -42,26 +56,111 @@ export function OnboardingVerifyPage() {
     refetchOnWindowFocus: true,
   });
   const firstEventAt = statusQuery.data?.firstEventAt ?? null;
+  const firstSessionId = statusQuery.data?.firstSessionId ?? null;
   const isConnected = firstEventAt !== null;
 
   // The steps are routes and cannot see each other, so the act that drives the
   // right pane lives in the shell. This is the only place that knows an event
   // arrived, so it reports it up rather than animating the preview itself.
+  const hasHandedOver = useRef(false);
   useEffect(() => {
-    if (!isConnected) return;
+    if (!isConnected || hasHandedOver.current) return;
     setIsRecording(true);
     if (websiteId !== null) clearOnboardingRecorderKey(projectId, websiteId);
     void queryClient.invalidateQueries({ queryKey: projectWebsitesQueryKey(projectId) });
     void queryClient.invalidateQueries({ queryKey: ["install-status", projectId] });
-    const timeout = window.setTimeout(() => {
-      void navigate({
-        to: "/projects/$projectId/overview",
-        params: { projectId },
-        replace: true,
-      });
-    }, VERIFY.dashboardDelay);
-    return () => window.clearTimeout(timeout);
-  }, [isConnected, navigate, projectId, queryClient, setIsRecording, websiteId]);
+
+    let attempt: number | undefined;
+    let hold: number | undefined;
+    let cut: number | undefined;
+    let sessionConfirmed = false;
+    let stopped = false;
+    const requestController = new AbortController();
+    function goToLive(): void {
+      // Live, not Overview: every Overview metric needs a finalised session, so
+      // it is the one page guaranteed to be empty right now, while the session
+      // this flow just proved exists is sitting on Live.
+      void navigate({ to: "/projects/$projectId/live", params: { projectId }, replace: true });
+    }
+    function openLive(isConnecting = false): void {
+      if (hasHandedOver.current || stopped) return;
+      hasHandedOver.current = true;
+      if (isConnecting) markLiveHandoffConnecting(queryClient, projectId);
+      if (reduceMotion) {
+        goToLive();
+        return;
+      }
+      // The frame grows to cover the viewport first, and the route changes
+      // behind it. Navigating on the same tick would swap the DOM out from
+      // under a move that has not started.
+      beginPreviewCut();
+      cut = window.setTimeout(goToLive, PREVIEW_EXIT.duration);
+    }
+    function confirmSession(live: Awaited<ReturnType<typeof fetchLiveSessions>>): void {
+      if (sessionConfirmed || hasHandedOver.current) return;
+      sessionConfirmed = true;
+      // The confirmed answer becomes the Live page's own cache entry, so the
+      // page the cut lands on renders with this session already in place
+      // instead of asking the same question again on arrival.
+      queryClient.setQueryData(liveSessionsQueryKey(projectId), live);
+      // The payoff beat: the preview's Live card fills, and the cut waits long
+      // enough for "Live now" to be read before it is taken away. The cap comes
+      // off — the handoff has its answer, and cutting mid-payoff would undo
+      // the reason the card filled at all.
+      window.clearTimeout(cap);
+      setIsLiveConfirmed(true);
+      if (reduceMotion) {
+        openLive();
+        return;
+      }
+      hold = window.setTimeout(() => openLive(), VERIFY.payoffHold);
+    }
+
+    // The wait is a real one. The event has landed, but the live query has not
+    // necessarily caught up with the session it started, and arriving on Live a
+    // second before it fills is worse than the preview's own handoff state
+    // holding for that second. A failed or empty answer is not an error here —
+    // it just means the cap decides instead.
+    function askForTheSession(): void {
+      void fetchLiveSessions(projectId, { signal: requestController.signal })
+        .then((live) => {
+          if (
+            !stopped &&
+            firstSessionId !== null &&
+            live.sessions.some((session) => session.session_id === firstSessionId)
+          ) {
+            confirmSession(live);
+          }
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          if (!stopped && !hasHandedOver.current && !sessionConfirmed)
+            attempt = window.setTimeout(askForTheSession, VERIFY.handoffPoll);
+        });
+    }
+
+    const cap = window.setTimeout(() => openLive(true), VERIFY.handoffCap);
+    askForTheSession();
+    return () => {
+      stopped = true;
+      requestController.abort();
+      window.clearTimeout(cap);
+      if (attempt !== undefined) window.clearTimeout(attempt);
+      if (hold !== undefined) window.clearTimeout(hold);
+      if (cut !== undefined) window.clearTimeout(cut);
+    };
+  }, [
+    beginPreviewCut,
+    isConnected,
+    firstSessionId,
+    navigate,
+    projectId,
+    queryClient,
+    reduceMotion,
+    setIsLiveConfirmed,
+    setIsRecording,
+    websiteId,
+  ]);
   const statusError =
     statusQuery.error === null
       ? ""
@@ -73,11 +172,8 @@ export function OnboardingVerifyPage() {
       void statusQuery.refetch();
       return;
     }
-    void navigate({
-      to: "/projects/$projectId/overview",
-      params: { projectId },
-      replace: true,
-    });
+    hasHandedOver.current = true;
+    void navigate({ to: "/projects/$projectId/live", params: { projectId }, replace: true });
   }
 
   return (

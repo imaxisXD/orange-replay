@@ -60,6 +60,7 @@ export const projectWebsites = sqliteTable(
     origin: text("origin").notNull(),
     allowedOrigins: text("allowed_origins").notNull(),
     firstEventAt: integer("first_event_at"),
+    firstSessionId: text("first_session_id"),
     recorderKeyId: text("recorder_key_id"),
     recorderSecretCiphertext: text("recorder_secret_ciphertext"),
     recorderSecretIv: text("recorder_secret_iv"),

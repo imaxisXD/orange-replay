@@ -1,9 +1,36 @@
+import type { QueryClient } from "@tanstack/react-query";
 import type { SessionHead } from "@/lib/api";
 import { cleanCountryCode, formatLocationName } from "./country";
 import { entryPath } from "./entry-path";
 import { formatDuration } from "./format";
 
 export const livePollIntervalMs = 5_000;
+export const liveHandoffConnectingMs = 20_000;
+
+export interface LiveHandoffState {
+  connectingUntil: number;
+}
+
+export function liveHandoffQueryKey(projectId: string) {
+  return ["live-handoff", projectId] as const;
+}
+
+export function markLiveHandoffConnecting(
+  queryClient: QueryClient,
+  projectId: string,
+  now = Date.now(),
+): void {
+  queryClient.setQueryData<LiveHandoffState>(liveHandoffQueryKey(projectId), {
+    connectingUntil: now + liveHandoffConnectingMs,
+  });
+}
+
+export function isLiveHandoffConnecting(
+  handoff: LiveHandoffState | undefined,
+  now = Date.now(),
+): boolean {
+  return handoff !== undefined && handoff.connectingUntil > now;
+}
 
 export interface LiveSessionRow {
   sessionId: string;

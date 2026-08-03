@@ -77,6 +77,15 @@ export async function fetchSessionState(
   });
 }
 
+/**
+ * The Live page's query key, shared so activation's handoff can seed the cache
+ * with the exact Website session it just confirmed, so the page renders filled
+ * on arrival instead of asking the same question again.
+ */
+export function liveSessionsQueryKey(projectId: string, isDemo = false) {
+  return ["live-sessions", isDemo ? "demo" : "private", projectId] as const;
+}
+
 export async function fetchLiveSessions(
   projectId: string,
   options: { signal?: AbortSignal } = {},

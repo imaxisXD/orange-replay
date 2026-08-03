@@ -1,5 +1,5 @@
-import { type KeyboardEvent } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState, type KeyboardEvent } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import liveSignalWatchSrc from "@/assets/empty-states/signal-watch-winged-receiver.webp";
 import liveBrowserBeetleSrc from "@/assets/empty-states/layers/live-browser-beetle.webp";
@@ -29,6 +29,7 @@ import {
   fetchAccount,
   fetchInstallStatus,
   fetchLiveSessions,
+  liveSessionsQueryKey,
   type LiveSessionItem,
 } from "@/lib/api";
 import { canManageProject, findAccountProject, readDashboardAccess } from "@/lib/dashboard-access";
@@ -36,8 +37,11 @@ import { useDashboardWorkspace } from "@/lib/dashboard-workspace";
 import { AlertCircle, RotateCcw } from "@/lib/icon-map";
 import {
   formatLiveSessionRow,
+  isLiveHandoffConnecting,
+  liveHandoffQueryKey,
   livePollIntervalMs,
   shouldPollLiveSessions,
+  type LiveHandoffState,
   type LiveSessionRow,
 } from "@/lib/live-sessions";
 import { carriedDateRangeSearch } from "@/lib/session-filters";
@@ -45,8 +49,22 @@ import { cn } from "@/lib/utils";
 
 export function LivePage() {
   const { projectId, isDemo } = useDashboardWorkspace();
+  const queryClient = useQueryClient();
+  const handoff = isDemo
+    ? undefined
+    : queryClient.getQueryData<LiveHandoffState>(liveHandoffQueryKey(projectId));
+  const [handoffClock, setHandoffClock] = useState(() => Date.now());
+  const connectingFromOnboarding = isLiveHandoffConnecting(handoff, handoffClock);
+  useEffect(() => {
+    if (!connectingFromOnboarding || handoff === undefined) return;
+    const timeout = window.setTimeout(
+      () => setHandoffClock(Date.now()),
+      Math.max(0, handoff.connectingUntil - Date.now()),
+    );
+    return () => window.clearTimeout(timeout);
+  }, [connectingFromOnboarding, handoff]);
   const liveQuery = useQuery({
-    queryKey: ["live-sessions", isDemo ? "demo" : "private", projectId],
+    queryKey: liveSessionsQueryKey(projectId, isDemo),
     queryFn: ({ signal }) => fetchLiveSessions(projectId, { signal }),
     refetchInterval: () =>
       shouldPollLiveSessions(document.visibilityState) ? livePollIntervalMs : false,
@@ -99,7 +117,7 @@ export function LivePage() {
           </Alert>
         )}
 
-        {loading ? (
+        {loading && !connectingFromOnboarding ? (
           <LiveLoadingRows />
         ) : rows.length > 0 ? (
           <div>
@@ -108,7 +126,13 @@ export function LivePage() {
             ))}
           </div>
         ) : (
-          error.length === 0 && <LiveEmptyState isDemo={isDemo} projectId={projectId} />
+          error.length === 0 && (
+            <LiveEmptyState
+              isConnecting={connectingFromOnboarding}
+              isDemo={isDemo}
+              projectId={projectId}
+            />
+          )
         )}
       </section>
     </div>
@@ -186,12 +210,20 @@ function LiveLoadingRows() {
   );
 }
 
-function LiveEmptyState({ isDemo, projectId }: { isDemo: boolean; projectId: string }) {
+function LiveEmptyState({
+  isConnecting,
+  isDemo,
+  projectId,
+}: {
+  isConnecting: boolean;
+  isDemo: boolean;
+  projectId: string;
+}) {
   const access = readDashboardAccess(isDemo ? "demo" : "private");
   const accountQuery = useQuery({
     queryKey: accountQueryKey,
     queryFn: fetchAccount,
-    enabled: access.needsAccount,
+    enabled: access.needsAccount && !isConnecting,
     staleTime: 30_000,
   });
   // Only owners and admins can reach the install page, and only they may read
@@ -200,7 +232,7 @@ function LiveEmptyState({ isDemo, projectId }: { isDemo: boolean; projectId: str
   const installStatusQuery = useQuery({
     queryKey: ["install-status", projectId],
     queryFn: () => fetchInstallStatus(projectId),
-    enabled: canInstall,
+    enabled: canInstall && !isConnecting,
     staleTime: 30_000,
   });
   // "Install the snippet" is only honest once the API confirms no event has ever
@@ -228,38 +260,46 @@ function LiveEmptyState({ isDemo, projectId }: { isDemo: boolean; projectId: str
               </div>
             </div>
           </EmptyMedia>
-          <EmptyTitle>
-            {awaitingFirstEvent ? "No events from your site yet" : "No one is browsing right now"}
+          <EmptyTitle aria-live={isConnecting ? "polite" : undefined}>
+            {isConnecting
+              ? "Connecting to your live session…"
+              : awaitingFirstEvent
+                ? "No events from your site yet"
+                : "No one is browsing right now"}
           </EmptyTitle>
           <EmptyDescription>
-            {awaitingFirstEvent
-              ? "Add the snippet to your site and visitors show up here within seconds of landing."
-              : "Visitors show up here within seconds of landing. This list refreshes every 5 seconds, so you can leave it open."}
+            {isConnecting
+              ? "Orange Replay received your first event. This page will update as soon as the session appears."
+              : awaitingFirstEvent
+                ? "Add the snippet to your site and visitors show up here within seconds of landing."
+                : "Visitors show up here within seconds of landing. This list refreshes every 5 seconds, so you can leave it open."}
           </EmptyDescription>
         </EmptyHeader>
-        <EmptyContent>
-          {/* Installing is the only thing that fills this page, so it carries the
+        {!isConnecting && (
+          <EmptyContent>
+            {/* Installing is the only thing that fills this page, so it carries the
               primary plate. Browsing recordings is a sideways move: secondary. */}
-          <Button asChild size="sm" variant={awaitingFirstEvent ? "primary" : "secondary"}>
-            {awaitingFirstEvent ? (
-              <Link params={{ projectId }} to="/projects/$projectId/install">
-                Install the snippet
-              </Link>
-            ) : isDemo ? (
-              <Link search={carriedDateRangeSearch} to="/demo/sessions">
-                Browse recorded sessions
-              </Link>
-            ) : (
-              <Link
-                params={{ projectId }}
-                search={carriedDateRangeSearch}
-                to="/projects/$projectId/sessions"
-              >
-                Browse recorded sessions
-              </Link>
-            )}
-          </Button>
-        </EmptyContent>
+            <Button asChild size="sm" variant={awaitingFirstEvent ? "primary" : "secondary"}>
+              {awaitingFirstEvent ? (
+                <Link params={{ projectId }} to="/projects/$projectId/install">
+                  Install the snippet
+                </Link>
+              ) : isDemo ? (
+                <Link search={carriedDateRangeSearch} to="/demo/sessions">
+                  Browse recorded sessions
+                </Link>
+              ) : (
+                <Link
+                  params={{ projectId }}
+                  search={carriedDateRangeSearch}
+                  to="/projects/$projectId/sessions"
+                >
+                  Browse recorded sessions
+                </Link>
+              )}
+            </Button>
+          </EmptyContent>
+        )}
       </ParallaxEmptyStateField>
     </div>
   );

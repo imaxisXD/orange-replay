@@ -14,7 +14,7 @@ import {
   type ReactNode,
 } from "react";
 import { Tabs as TabsPrimitive } from "@base-ui/react/tabs";
-import { AnimatePresence, m } from "framer-motion";
+import { AnimatePresence, m, useReducedMotion } from "framer-motion";
 import { useProximityHover } from "@/hooks/use-proximity-hover";
 import { fontWeights } from "@/lib/font-weight";
 import type { IconComponent } from "@/lib/icon-map";
@@ -132,6 +132,11 @@ interface TabsListProps extends ComponentPropsWithoutRef<typeof TabsPrimitive.Li
 const TabsList = forwardRef<HTMLDivElement, TabsListProps>(
   ({ children, className, surfaceLevel, ...props }, ref) => {
     const containerRef = useRef<HTMLDivElement>(null);
+    // The indicator, the hover wash and the focus ring all travel between tabs.
+    // Reduced motion asks for the destination without the journey, so each of
+    // them lands instantly rather than sliding.
+    const reduceMotion = useReducedMotion() === true;
+    const travel = (transition: object) => (reduceMotion ? { duration: 0 } : transition);
     const [isMouseInside, setIsMouseInside] = useState(false);
     const shape = useShape();
     const substrate = useSurface();
@@ -254,10 +259,10 @@ const TabsList = forwardRef<HTMLDivElement, TabsListProps>(
               )}
               initial={false}
               style={{ height: selectedRect.height, width: selectedRect.width }}
-              transition={{
+              transition={travel({
                 ...spring.moderate,
                 opacity: { duration: 0.08 },
-              }}
+              })}
             />
           )}
 
@@ -276,12 +281,12 @@ const TabsList = forwardRef<HTMLDivElement, TabsListProps>(
                         left: selectedRect.left,
                         top: selectedRect.top,
                         opacity: 0,
-                        transition: {
+                        transition: travel({
                           ...spring.moderate,
                           opacity: { duration: 0.06 },
-                        },
+                        }),
                       }
-                    : { opacity: 0, transition: spring.fast.exit }
+                    : { opacity: 0, transition: travel(spring.fast.exit) }
                 }
                 initial={{
                   left: selectedRect.left,
@@ -289,10 +294,10 @@ const TabsList = forwardRef<HTMLDivElement, TabsListProps>(
                   opacity: 0,
                 }}
                 style={{ height: hoverRect.height, width: hoverRect.width }}
-                transition={{
+                transition={travel({
                   ...spring.fast,
                   opacity: { duration: 0.08 },
-                }}
+                })}
               />
             )}
           </AnimatePresence>
@@ -308,13 +313,13 @@ const TabsList = forwardRef<HTMLDivElement, TabsListProps>(
                   "pointer-events-none absolute z-20 border border-[color:var(--focus-ring,#6B97FF)]",
                   shape.focusRing,
                 )}
-                exit={{ opacity: 0, transition: spring.fast.exit }}
+                exit={{ opacity: 0, transition: travel(spring.fast.exit) }}
                 initial={false}
                 style={{ height: focusRect.height + 4, width: focusRect.width + 4 }}
-                transition={{
+                transition={travel({
                   ...spring.fast,
                   opacity: { duration: 0.08 },
-                }}
+                })}
               />
             )}
           </AnimatePresence>

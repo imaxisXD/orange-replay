@@ -20,11 +20,22 @@ export function OnboardingStage({
   onSubmit,
   support,
 }: {
+  /**
+   * Optional, and null on step 2: that step has no Continue, because it waits
+   * for the event itself. Its status card takes this slot instead, so the last
+   * chunk of the reveal still lands on whatever moves the step on.
+   */
   action: ReactNode;
   body: ReactNode;
   heading: string;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  support: ReactNode;
+  /**
+   * Optional. A step whose body already says what to do goes without one rather
+   * than restating it: step 2's stack picker names the file and the placement,
+   * so a supporting line there spent a whole chunk of the column agreeing with
+   * the instruction underneath it.
+   */
+  support?: ReactNode;
 }) {
   const reduceMotion = useReducedMotion() === true;
   const { direction, isFirstPaint } = useOnboarding();
@@ -48,21 +59,25 @@ export function OnboardingStage({
         </h1>
       </Chunk>
 
-      <Chunk
-        className="mt-2 text-[14px] leading-5 text-muted-foreground"
-        delay={lead + REVEAL.delays.support}
-        reduceMotion={reduceMotion}
-      >
-        {support}
-      </Chunk>
+      {support !== undefined && (
+        <Chunk
+          className="mt-2 text-[14px] leading-5 text-muted-foreground"
+          delay={lead + REVEAL.delays.support}
+          reduceMotion={reduceMotion}
+        >
+          {support}
+        </Chunk>
+      )}
 
       <Chunk className="mt-4.5" delay={lead + REVEAL.delays.body} reduceMotion={reduceMotion}>
         {body}
       </Chunk>
 
-      <Chunk className="mt-6" delay={lead + REVEAL.delays.action} reduceMotion={reduceMotion}>
-        {action}
-      </Chunk>
+      {action !== null && action !== undefined && (
+        <Chunk className="mt-6" delay={lead + REVEAL.delays.action} reduceMotion={reduceMotion}>
+          {action}
+        </Chunk>
+      )}
     </m.form>
   );
 }
