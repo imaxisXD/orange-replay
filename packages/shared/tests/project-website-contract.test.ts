@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   ensureProjectWebsiteRequestSchema,
   ensureProjectWebsiteResponseSchema,
+  projectWebsiteInstallStatusSchema,
   projectWebsitesResponseSchema,
 } from "../src/project-website-contract.ts";
 
@@ -81,6 +82,25 @@ describe("project Website contract", () => {
         websites: [
           { id: "website_1", name: "example.com", origin: "not a URL", firstEventAt: null },
         ],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("keeps the exact first session in Website install status", () => {
+    expect(
+      projectWebsiteInstallStatusSchema.parse({
+        firstEventAt: 1,
+        firstSessionId: "website-session-0001",
+      }),
+    ).toEqual({ firstEventAt: 1, firstSessionId: "website-session-0001" });
+    expect(projectWebsiteInstallStatusSchema.parse({ firstEventAt: null })).toEqual({
+      firstEventAt: null,
+      firstSessionId: null,
+    });
+    expect(
+      projectWebsiteInstallStatusSchema.safeParse({
+        firstEventAt: 1,
+        firstSessionId: "too-short",
       }).success,
     ).toBe(false);
   });

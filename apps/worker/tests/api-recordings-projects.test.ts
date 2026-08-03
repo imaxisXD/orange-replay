@@ -64,7 +64,10 @@ async function websiteInstallStatus(projectId: string, websiteId: string) {
     { headers: authHeaders() },
   );
   expect(response.status).toBe(200);
-  return (await response.json()) as { firstEventAt: number | null };
+  return (await response.json()) as {
+    firstEventAt: number | null;
+    firstSessionId: string | null;
+  };
 }
 
 function postWebsiteIngest(
@@ -710,6 +713,8 @@ describe("dashboard api", () => {
     const appStatus = await websiteInstallStatus(websiteProjectId, app.website.id);
     expect(landingStatus.firstEventAt).toEqual(expect.any(Number));
     expect(appStatus.firstEventAt).toEqual(expect.any(Number));
+    expect(landingStatus.firstSessionId).toBe(sessionId);
+    expect(appStatus.firstSessionId).toBe(sessionId);
 
     const listed = await worker.fetch(`/api/v1/projects/${websiteProjectId}/websites`, {
       headers: authHeaders(),

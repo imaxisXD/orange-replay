@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { projectKeyAuditSchema } from "./project-key-contract.ts";
+import { SESSION_ID_PATTERN } from "./session-id.ts";
 import { websiteUrlSchema } from "./website-url.ts";
 
 export const MAX_PROJECT_WEBSITE_BODY_BYTES = 4 * 1024;
@@ -41,6 +42,10 @@ export const projectWebsitesResponseSchema = z.object({
 
 export const projectWebsiteInstallStatusSchema = z.object({
   firstEventAt: z.number().int().safe().nonnegative().nullable(),
+  // Older Workers can briefly overlap a newer dashboard during a rollout.
+  // Defaulting a missing id to null keeps that handoff safe: onboarding waits
+  // for its cap instead of accepting an unrelated live session.
+  firstSessionId: z.string().regex(SESSION_ID_PATTERN).nullable().default(null),
 });
 
 export type ProjectWebsite = z.output<typeof projectWebsiteSchema>;

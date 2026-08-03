@@ -43,7 +43,8 @@ export async function requestJson<T>(path: string, options: RequestOptions<T>): 
   let response: Response;
   try {
     response = await fetch(path, init);
-  } catch {
+  } catch (error) {
+    if (options.signal?.aborted === true) throw error;
     throw new ApiError(
       "Could not reach the API. Check your connection and try again.",
       0,

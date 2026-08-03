@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LazyMotion, domMax } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { Outlet, useNavigate, useParams, useRouterState } from "@tanstack/react-router";
@@ -19,7 +19,8 @@ import {
   onboardingProgress,
   onboardingStepIndex,
 } from "./onboarding-context";
-import { FRAME, RAIL, REVEAL, onboardingAct } from "./onboarding-motion";
+import { DEFAULT_INSTALL_TARGET, type InstallTargetId } from "./install-targets";
+import { FRAME, PREVIEW_EXIT, RAIL, REVEAL, onboardingAct } from "./onboarding-motion";
 import { OnboardingPreview } from "./onboarding-preview";
 import {
   isWebsiteProjectName,
@@ -60,7 +61,13 @@ export function OnboardingShell() {
   const [recorderKey, setRecorderKey] = useState<string | null>(null);
   const [isNamingProject, setIsNamingProject] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [isLiveConfirmed, setIsLiveConfirmed] = useState(false);
   const [faviconUrl, setFaviconUrl] = useState<string | null>(null);
+  const [pollTick, setPollTick] = useState(0);
+  // Step two's stack choice lives here, not in the step: the preview mirrors it,
+  // and the two are on opposite sides of a route boundary.
+  const [installTargetId, setInstallTargetId] = useState<InstallTargetId>(DEFAULT_INSTALL_TARGET);
+  const [isLeaving, setIsLeaving] = useState(false);
   const seededEditWebsiteId = useRef<string | null>(null);
 
   const accountQuery = useQuery({
@@ -81,6 +88,7 @@ export function OnboardingShell() {
   );
   const editingWebsiteId =
     stepIndex === 0 && searchedWebsite?.firstEventAt === null ? searchedWebsite.id : null;
+  const editingWebsiteOrigin = editingWebsiteId === null ? null : (searchedWebsite?.origin ?? null);
   const activeWebsiteDraft =
     editingWebsiteId !== null &&
     searchedWebsite !== undefined &&
@@ -158,20 +166,37 @@ export function OnboardingShell() {
 
   const act = onboardingAct(stepIndex, isRecording);
 
+  // Step two owns the poll and the preview owns the ring it fires; neither can
+  // reach the other. Same reason the verify step reports the first event up.
+  const registerStatusPoll = useCallback(() => setPollTick((tick) => tick + 1), []);
+  // Variant B's cut has to outlive the step that started it — the route changes
+  // while it is still running — so the shell holds it and takes the form column
+  // with it.
+  const beginPreviewCut = useCallback(() => setIsLeaving(true), []);
+
   const onboarding = useMemo(
     () => ({
       act,
+      beginPreviewCut,
       direction,
       editingWebsiteId,
+      editingWebsiteOrigin,
       faviconUrl: visibleFaviconUrl,
       isFirstPaint,
       isFirstWebsite,
+      isLeaving,
       isNamingProject: isCameraOnProject,
       isRecording,
+      isLiveConfirmed,
+      installTargetId,
+      pollTick,
+      registerStatusPoll,
+      setInstallTargetId,
       previewProjectLabel,
       projectId,
       recorderKey,
       savedWebsiteName,
+      setIsLiveConfirmed,
       setIsNamingProject,
       setIsRecording,
       setRecorderKey,
@@ -184,13 +209,21 @@ export function OnboardingShell() {
     }),
     [
       act,
+      beginPreviewCut,
       direction,
       editingWebsiteId,
+      editingWebsiteOrigin,
       visibleFaviconUrl,
       isFirstPaint,
       isFirstWebsite,
       isCameraOnProject,
+      isLeaving,
       isRecording,
+      isLiveConfirmed,
+      installTargetId,
+      pollTick,
+      registerStatusPoll,
+      setInstallTargetId,
       previewProjectLabel,
       projectId,
       recorderKey,
@@ -215,8 +248,20 @@ export function OnboardingShell() {
 
   return (
     <OnboardingProvider value={onboarding}>
-      <main className="onboarding-shell grid min-h-svh grid-cols-1 overflow-hidden bg-background text-foreground lg:grid-cols-[51.9%_48.1%]">
-        <section className="relative min-h-svh bg-card lg:border-r lg:border-border">
+      <main
+        className="onboarding-shell grid min-h-svh grid-cols-1 overflow-hidden bg-background text-foreground lg:grid-cols-[51.9%_48.1%]"
+        data-leaving={isLeaving ? "true" : "false"}
+      >
+        <m.section
+          animate={{ opacity: isLeaving ? 0 : 1, x: isLeaving ? PREVIEW_EXIT.columnX : 0 }}
+          className="relative min-h-svh bg-card lg:border-r lg:border-border"
+          initial={false}
+          transition={
+            reduceMotion
+              ? { duration: 0 }
+              : { duration: PREVIEW_EXIT.columnDuration / 1_000, ease: PREVIEW_EXIT.ease }
+          }
+        >
           <div className="absolute top-6 left-6 flex items-center gap-2.5 text-[13px] font-medium">
             <BrandMark className="size-6" />
             <span>Orange Replay</span>
@@ -263,11 +308,19 @@ export function OnboardingShell() {
                 A size layout animation needs the projection features, which the
                 app-wide MotionProvider does not load (it ships `domAnimation`),
                 so this subtree loads `domMax` the same way the top nav does for
-                its notch. Without it the prop is silently inert. */}
+                its notch. Without it the prop is silently inert.
+
+                `layoutDependency` pins the re-measure to step changes. Without
+                it every commit inside a step re-ran the projection — switching
+                stack tabs on the install step swaps a TabPanel mid-commit, and
+                the frame answered a same-height swap with a visible scale
+                bounce. In-step growth is CSS-driven (the code card's t-resize),
+                which never re-renders, so it never needed this animation. */}
             <LazyMotion features={domMax}>
               <m.div
                 className="pt-7"
                 layout={reduceMotion ? false : "size"}
+                layoutDependency={stepIndex}
                 transition={reduceMotion ? { duration: 0 } : FRAME.spring}
               >
                 <Outlet />
@@ -276,11 +329,14 @@ export function OnboardingShell() {
           </div>
 
           <p className="absolute bottom-5 left-6 text-[12px] text-dim">© Orange Replay 2026</p>
-        </section>
+        </m.section>
 
+        {/* The pane clips the frame at rest. Variant B's cut has the frame grow
+            past every edge of it, so the clip is lifted for the duration and the
+            pane is raised over the form column it is covering. */}
         <section
           aria-label="Your dashboard"
-          className="relative min-h-svh min-w-0 overflow-hidden max-lg:hidden"
+          className="onboarding-pane relative min-h-svh min-w-0 overflow-hidden max-lg:hidden"
         >
           <OnboardingPreview />
         </section>

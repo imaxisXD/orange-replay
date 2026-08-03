@@ -27,6 +27,7 @@ Website inside an existing Workspace.
 - `onboarding-verify-step.tsx` — step 3
 - `onboarding-stage.tsx` — the per-step frame (slide + staggered reveal)
 - `onboarding-preview.tsx` — the dashboard preview and its camera
+- `install-targets.ts` — step 2's stack table: file, placement, and snippet shape
 - `onboarding-motion.ts` — the storyboard; every timing and value lives here
 - `onboarding-website.ts` — dashboard helpers around the shared website schema
 - `onboarding.css` — the three keyframe sequences and the preview canvas
@@ -43,6 +44,63 @@ first website**. The first valid Website gives that Workspace its default
 hostname name. For an existing Workspace, step one names the destination, such
 as **Add a website to Noodle**, and explains that related subdomains remain in
 one visitor journey.
+
+### Step two names the file, per stack
+
+The loader is one inline tag, so the only thing a visitor is really asking on
+step two is where it goes in _their_ project. So the step opens with a stack
+picker (`install-targets.ts`), and the answer follows the selection:
+
+| Stack   | File             | Placement                                    |
+| ------- | ---------------- | -------------------------------------------- |
+| HTML    | every page       | before `</head>`                             |
+| React   | `index.html`     | before `</head>` (Vite and Create React App) |
+| Next.js | `app/layout.tsx` | `next/script` at `beforeInteractive`         |
+| Vue     | `index.html`     | before `</head>` (Vite)                      |
+| Svelte  | `src/app.html`   | before `%sveltekit.head%` (SvelteKit)        |
+
+HTML leads and is the default, because it is the only instruction true on every
+stack: a visitor on something we do not list still reads a correct one. The file
+titles the code card, carrying its file-type mark, which answers the question in
+the space a "Installation script" label used to occupy. Next.js is the one target
+whose **code** differs, not just its file: App Router owns script ordering, so
+Copy hands over the `next/script` form with the loader body inside a template
+literal.
+
+### Step two has no Continue
+
+There is nothing to confirm. Step two polls `/install-status` under the snippet
+— the same query, interval and "not while the tab is hidden" rule the verify
+step uses — and hands over to step three by itself the moment an event lands.
+`OnboardingStage` takes a null `action` for this and skips that chunk entirely,
+so the column ends at the Website note rather than at 24px of empty space.
+
+The waiting that used to justify a third screen is now shown in the preview, not
+restated in the form column. A visitor on this step sees the snippet on the
+left, and on the right the Install page's own verify card saying it is waiting
+for the first event.
+
+Step two has **no supporting line**. The picker already names the file and the
+placement, so a sentence under the heading only agreed with the instruction two
+rows below it and spent a chunk of a 394px column doing so. `OnboardingStage`
+takes `support` as optional for exactly this. Copy is `secondary`, not ghost:
+copying is the step's whole job, so it reads as a control. It stays off the
+light-filled primary plate, which belongs to Continue.
+
+The collapsed card states the exact byte count of what Copy will paste. It is a
+real number from the built snippet, not a rounded claim, and it is what lets the
+card stay collapsed on a step whose only job is "copy this". The card scrolls
+through the shared `ScrollArea` with `scroll-fade`, the same construction as the
+Install page's code card, and it overrides Base UI's inline
+`min-width: fit-content` on the content wrapper: this scroller is vertical only,
+so a minified one-line loader has to wrap rather than lay out sideways past a
+scrollbar that does not exist. The same override is missing on the Install page's
+card, where the loader overflows the same way.
+
+The picker renders outside the skeleton, so a visitor can find their stack while
+the installation script is still being prepared. Switching stacks clears any
+"Copied" badge, which would otherwise claim that a different snippet is on the
+clipboard.
 
 Repeating an unfinished Website returns the same installation script. Repeating
 an already-connected Website does not silently redirect and does not create a
@@ -103,6 +161,14 @@ unchanged origin keeps its current icon.
 | 1 Website | `PUT /api/v1/projects/:id/websites` — idempotently creates or reuses one Website and its key |
 | 2 Install | `GET /api/v1/projects/:id/websites/:websiteId` — restores the same unfinished setup          |
 | 3 Verify  | `GET /api/v1/projects/:id/websites/:websiteId/install-status`, polled every 3s               |
+
+The first accepted ingest batch writes `first_event_at` and `first_session_id`
+to the exact `project_websites` row attached to its key. Both use `COALESCE`, so
+retries or concurrent batches cannot replace the first truth. Install status
+returns both values; an older Worker response without the id safely decodes it
+as `null`, which means the dashboard uses the cap instead of accepting an
+unrelated session. Migration `0024_project_website_first_session.sql` adds the
+column and is mirrored byte-for-byte into the self-host template.
 
 ### Why step 1 is not cosmetic
 
@@ -176,10 +242,14 @@ knows no event has ever arrived. Two rules keep the guard from stranding anyone:
 `requireActivationAccess` applies the same manageability rule, so the two cannot
 disagree. It deliberately allows an already-active Workspace to open
 onboarding because that is how an owner adds its second or later Website.
-Reaching step 3 and seeing this exact Website connect is the normal ending: the
-success state stays visible for 900ms and then opens
-`/projects/:id/overview` automatically; its button remains available to leave
-immediately.
+Reaching step 3 and seeing this exact Website connect starts the normal ending.
+The Worker stores the first accepted session id on that Website. The dashboard
+walks the preview to Live in its watching state and polls until that exact
+session appears. It then shows the **Live now** payoff for 900ms, runs the 560ms
+preview cut, and opens `/projects/:id/live`. A 4s cap prevents a stuck handoff;
+the real Live page then continues with **Connecting to your live session…** for
+the short handoff window while its normal query keeps polling. The button remains
+available to leave immediately.
 
 ### Adding another Workspace or Website
 
@@ -222,13 +292,16 @@ drives it, derived by `onboardingAct(stepIndex, isRecording)`:
 - **ACT 0 IDENTITY** — the project takes your site's name. Typing zooms the
   camera in; blurring releases it.
 - **ACT 1 PROMISE** — the camera rests wide: the whole dashboard, empty, held
-  across install and while waiting, so the left pane carries the step.
+  across install and while waiting, so the left pane carries the step. The
+  camera does not move again, but the preview walks the tab row to whichever
+  page the open step is about — see
+  [The preview changes page](#the-preview-changes-page).
 - **ACT 2 LIVE** — the first event lands. The frame lifts 10px and its shadow
-  deepens. That lift is the entire payoff, and it is deliberately all that
-  happens: no session has finalised yet, so any number the preview showed here
-  would be a lie, and the product ships no "recording" affordance on Overview to
-  borrow. Reaching this act outranks the step, so stepping Back does not take
-  the payoff away.
+  deepens while the preview walks to Live in its real signal-watch state. The
+  watch gives way to the **Live now** badge and one session row only after Live
+  returns the exact first session stored for this Website. Still no invented
+  numbers or visitor details. Reaching this act outranks the step, so stepping
+  Back does not take the state away.
 
 The steps are separate routes and cannot see each other, so the verify step
 reports the first event up into the shell rather than animating the preview
@@ -249,20 +322,180 @@ framer-motion rather than its CSS variables:
 - form frame — "card resize": the shell's persistent frame owns the height
   tween, because a routed step cannot keep a ghost copy mounted to cross-fade
   against.
-- copy control — the shared `IconSwap`.
+- copy control — transitions.dev's text-states swap for the label (the old word
+  leaves upward through a blur, the new one arrives from below) and its success
+  check for the glyph (fade, unrotate from 80deg, unblur, bob, and the tick draws
+  its own stroke). `CopyCheck` is `Copy` with the tick added in front, so only
+  that first path draws and the frame never redraws or shifts. The check's
+  entrance waits out the copy glyph rather than overlapping it: both carry the
+  same frame, and a cross-fade under the rotate showed it twice at two angles.
+  Green carries the state statically; the animation is only how it arrived.
 - first event — a stroke-drawn check clearing an 8px blur.
 - invalid URL — after one quiet second, transitions.dev's 280ms decaying shake
   and error-message fade; submit keeps the same immediate feedback.
 - favicon — a 250ms left-to-right slot entrance, followed by transitions.dev's
   skeleton reveal clearing a 2px blur over 400ms.
 - installation script — page two first paints a one-pulse skeleton shaped like
-  its label, code card, and Website note, then cross-fades and clears a 2px blur
+  its file title, code card, and Website note, then cross-fades and clears a 2px blur
   over 400ms when setup is ready. The skeleton and controls share one slot, so
   the persistent form frame does not jump.
+- code card resize — transitions.dev's card-resize recipe tweens the card between
+  its two fixed heights. This animates a layout property against the usual
+  advice, deliberately: framer-motion's `layout="size"` fakes the size with a
+  transform, and measuring it mid-flight caught the card at `scaleY(0.80)` with
+  its children uncorrected, squashing the code text by a fifth as it grew. One
+  card with two known heights is a cheap reflow; distorted code is not a cheap
+  defect. The Install page's card has the same tell.
+
+- preview page change — the product's own `top-nav-notch` layout animation,
+  driven from onboarding rather than re-tuned for it, and the arriving page body
+  cross-fading with a 6px rise. No blur: the left column's chunks clear one
+  because they are text being read, and blurring a picture of a page reads as
+  the camera losing focus.
+- Live page filling — the same card-resize recipe as step two's code card,
+  between two known heights, with the badge and row rising 8px as the signal
+  watch fades. The watch's own rings and beacon are the Live page's, unchanged.
 
 Reduced motion collapses every one of these: each component passes
-`initial={false}` and a zero-duration transition, and the three CSS keyframe
-sequences are disabled in a `prefers-reduced-motion` block.
+`initial={false}` and a zero-duration transition, and every CSS keyframe and
+transition sequence is disabled in a `prefers-reduced-motion` block. The tab
+notch is included — `AppShell` guards its own spring, which it did not before
+onboarding started driving that notch across five tabs without a click.
+
+### The preview changes page
+
+The camera holds still through acts 1 and 2, so what the right pane says on
+steps two and three is _which page it is parked on_. `previewPage(stepIndex,
+isRecording)` is that value, and one value drives both the tab row and the body
+for the same reason `ACT` is one integer: the steps are routes and cannot see
+each other, so anything derived per-step drifts.
+
+- **Step 2 → Install, and Install carries the wait.** 180ms after the step's
+  heading lands, the notch travels Overview → Install and the body cross-fades
+  in with a 6px rise. The page under it is not a picture of where the snippet
+  lives — it is that page in the state step two is actually in. The real Install
+  page pairs its snippet card with a **Live verify** card that polls for the
+  first event, so the waiting state this flow needs is already the product's
+  own: the spinner, "Waiting for the first event…", and "Open a page with the
+  snippet installed. This updates the moment data arrives."
+- **Those two sentences are borrowed, not written.** They are copied verbatim
+  rather than imported, because `InstallStatus` fetches, polls and renders
+  alerts, and mounting it would put a live query inside a picture.
+  `onboarding-preview-copy.test.ts` reads `install-status.tsx` and fails if the
+  product changes the words, which turns drift into a failing test instead of a
+  quiet lie. Everything else in the body stays placeholder geometry.
+- **The two cards are stacked, not side by side.** The real page uses that
+  arrangement below `lg` and a two-column grid above it. The preview frame crops
+  at about 78% of the stage, which would put the verify card — the card this
+  whole step is waiting on — mostly outside the frame, so the preview borrows
+  the product's own narrow arrangement rather than inventing a layout.
+- **The event, and only the event, moves it to Live.** Nothing else does: not
+  copying, not a step change. The page arrives in its signal-watch state. The
+  **Live now** badge and one session row replace it only when the exact first
+  session for this Website is present. The frame lifts before the page change.
+- **Why Live can show this when Overview cannot.** Every metric on Overview
+  needs a finalised session to be true, which is why the preview shows none of
+  them. A row on Live claims only that a session exists — which is exactly what
+  just became true. It is the one page in the product that can be honest seconds
+  after an install.
+- **The row still invents nobody.** Onboarding knows an event arrived, not who
+  sent it, so the path, place and elapsed time stay placeholder bars. The badge
+  is the product's own `LiveBadge` component rather than a retyped string.
+- **It is a real wait with exact identity.** The install-status response carries
+  the session id captured by the first accepted Website batch. The verify step
+  ignores every other project-wide Live row and fills the preview only when that
+  exact id appears. It seeds the same Live query cache, holds the payoff for
+  `VERIFY.payoffHold`, then cuts. Its request is aborted when the step unmounts.
+- **The cap stays honest.** `VERIFY.handoffCap` (4s) prevents a slow, empty or
+  failing query from stranding anyone. The cap marks a short handoff state before
+  the cut, so an empty real Live page says **Connecting to your live session…**
+  instead of claiming nobody is browsing. Reduced motion keeps the same
+  confirmed-or-cap rule but skips both presentation delays.
+- **A direct link parks, it does not travel.** The first value is adopted with
+  no delay, because a refresh or shared link straight to a later step has no
+  travel to show.
+
+### The wait rings, and the arrival is staged
+
+Two things the pane did not do before, both about the same problem: the wait was
+dead and the arrival was crowded.
+
+- **One ring per poll.** Step two can last minutes, and a spinner that never
+  stops stops being read after the first second. The verify card now sends a
+  single amber ring out from its spinner each time the poll actually completes —
+  fired by `dataUpdatedAt` moving, not by a loop — so it means "I just checked,
+  and I will check again in three seconds". The stillness between rings is what
+  makes each one land. Measured in Chromium at exactly 3.00s intervals, one ring
+  per request.
+- **The arrival has one subject per beat.** It used to change the tab, fill the
+  page and lift the frame at once, which meant none of the three was read. Now:
+  at 0ms the card the visitor is already watching takes the Install page's real
+  **Installed** state, green dot and all; at 260ms the frame lifts; at 420ms the
+  tab row travels to Live in its watching state. When the exact session appears,
+  the card fills. Cause and effect, left to right: it worked → the dashboard
+  reacts → the session is really here.
+
+### The exit: the picture becomes the thing
+
+After the exact session appears, the filled card holds for 900ms so the payoff
+can be read. The frame then grows to cover the viewport over 560ms while the form
+column slides 16px and fades out in 320ms. The route changes behind a frame that
+already fills the screen, so the last thing the flow does is an arrival rather
+than a page change.
+
+The transform is measured from the frame's own box against the window at the
+moment it starts: the frame is sized in svh and percentages against a pane that
+is a fraction of the grid, so there is no arithmetic that yields it. The lift is
+added back, or the corner lands 10px low. Both are applied about
+`transform-origin: 0 0`, the same corner the stage inside already scales from.
+Two things are dropped for the duration: the pane's clip, or the frame cannot
+grow past it, and the frame's bottom fade, which is a device for dissolving a
+cropped picture into a pane and is just a dark band once the picture covers the
+screen.
+
+An alternative was built and compared against it — a "Getting your dashboard
+ready" line rising out of the fade over an unmoved frame, then a plain route
+change. It was the safer of the two and read as a caption on a picture you were
+about to leave, which is the opposite of what the last beat is for. It is gone,
+along with the toggle that switched between them.
+
+What remains from that comparison is `OnboardingExitRehearsal`: a development-only
+**Play exit** control that plays the arrival and the exit against the current
+screen and puts everything back. The exit is 560ms at the end of something that
+happens once per website, so without it the only way to look at it is to install
+a snippet and catch it. It never navigates and is not rendered in a production
+build.
+
+### The preview's card follows the stack picker
+
+Step two's stack choice lives in the shell, not in the step, because the preview
+mirrors it across a route boundary. Selecting a stack fills the left field of
+the preview's snippet card with that stack's mark and name, and rewrites the code
+block under it with that stack's real snippet — built by the same functions the
+left column builds the real thing with, so Next.js differs in shape and not just
+in a filename.
+
+Two constraints on it:
+
+- **The key is masked.** Keeping the raw key off screen until asked for is a
+  decision step two already made — its card shows a byte count until **View full
+  code** is pressed — and a second surface printing it by default would quietly
+  undo that. Nothing else about the snippet is changed.
+- **The code is clamped to 104px and masked out at the bottom.** The loader is
+  about 1,900 characters; at 9px the whole thing is a wall of grey that stops
+  reading as code. The fade says there is more without pretending there is not.
+
+This is the one place the preview shows something the real Install page does not:
+that page's first field is the recorder key, not a stack. It earns the exception
+by being the thing the visitor is actively doing — a pane that does not move
+while someone clicks through five tabs reads as a screenshot.
+
+Copying reports up into the shell as a counter — step two owns the button and
+the preview owns the card, and neither can reach the other, the same reason the
+verify step reports the first event up. The preview answers with one sweep
+across its snippet card. It claims nothing that is not already true: the snippet
+really does live in that card on that page, and the sweep leaves the card
+exactly as it found it.
 
 ## The preview
 
@@ -299,6 +532,13 @@ what keeps the metric band from reading as four identical grey rectangles.
 While the website field is being named, the camera pushes in on the project
 switcher and the switcher lifts onto its own surface. The camera is gated to
 step 1, because submitting with the keyboard never blurs the field.
+
+The lift is a CSS rule in `onboarding.css`, and the control it styles belongs to
+`AppShell`, so the only thing joining them is a selector. That hook is
+`data-shell-switcher` on the shell's trigger — an attribute with no other
+purpose. It used to be the trigger's `aria-label`, and renaming that "Project" →
+"Workspace" took the whole highlight away with nothing failing;
+`onboarding-camera-hook.test.*` now guards both ends of the join.
 
 ### Depth: the camera moves, it does not magnify
 

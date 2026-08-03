@@ -11,13 +11,20 @@ Object.defineProperty(Element.prototype, "getAnimations", {
 });
 
 const navigate = vi.fn();
+const beginPreviewCut = vi.fn();
+const motionState = vi.hoisted(() => ({ reduceMotion: false }));
 vi.mock("@tanstack/react-router", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@tanstack/react-router")>()),
   useNavigate: () => navigate,
 }));
+vi.mock("@/lib/motion", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/motion")>()),
+  useReducedMotion: () => motionState.reduceMotion,
+}));
 
 const apiMocks = vi.hoisted(() => ({
   ensureProjectWebsite: vi.fn(),
+  fetchLiveSessions: vi.fn(),
   fetchProjectWebsiteInstallStatus: vi.fn(),
   fetchProjectWebsiteSetup: vi.fn(),
 }));
@@ -33,12 +40,16 @@ import {
   onboardingProgress,
   onboardingStepIndex,
 } from "../src/routes/onboarding/onboarding-context";
+import type { InstallTargetId } from "../src/routes/onboarding/install-targets";
 import { OnboardingInstallPage } from "../src/routes/onboarding/onboarding-install-step";
 import { readWebsiteSetupError } from "../src/routes/onboarding/onboarding-setup-error";
 import {
   ACT,
   CAMERA,
+  PREVIEW_EXIT,
+  PREVIEW_BODY,
   PREVIEW_FRAME,
+  PREVIEW_PAGE,
   STEP,
   SWITCHER_FIELD,
   TIMING,
@@ -46,6 +57,7 @@ import {
   cameraStop,
   canvasParallaxScale,
   onboardingAct,
+  previewPage,
 } from "../src/routes/onboarding/onboarding-motion";
 import { OnboardingVerifyPage } from "../src/routes/onboarding/onboarding-verify-step";
 import {
@@ -63,10 +75,12 @@ import {
   websiteUrlError,
 } from "../src/routes/onboarding/onboarding-website";
 import { OnboardingWebsitePage } from "../src/routes/onboarding/onboarding-website-step";
-import { ApiError } from "../src/lib/api";
+import { ApiError, liveSessionsQueryKey } from "../src/lib/api";
+import { liveHandoffQueryKey, type LiveHandoffState } from "../src/lib/live-sessions";
 
 const PROJECT_ID = "project_abc";
 const WEBSITE_ID = "website_abc";
+const FIRST_SESSION_ID = "website-session-0001";
 const RAW_KEY = `or_live_${"a".repeat(32)}`;
 const SAVED_WEBSITE = new URL("https://saved.example");
 
@@ -77,6 +91,8 @@ let queryClient: QueryClient;
 let namingProject: boolean;
 /** Mirrors the act flag the verify step reports up to the shell. */
 let isRecordingReported: boolean;
+/** Mirrors the confirmed-session flag the handoff reports up to the shell. */
+let isLiveConfirmedReported: boolean;
 let isFirstWebsite: boolean;
 let workspaceName: string | null;
 let editingWebsiteId: string | null;
@@ -90,12 +106,18 @@ beforeEach(() => {
   });
   namingProject = false;
   isRecordingReported = false;
+  isLiveConfirmedReported = false;
   isFirstWebsite = true;
   workspaceName = null;
   editingWebsiteId = null;
   window.sessionStorage.clear();
   navigate.mockReset();
+  beginPreviewCut.mockReset();
+  motionState.reduceMotion = false;
   for (const mock of Object.values(apiMocks)) mock.mockReset();
+  // The handoff asks Live for the session the first event started. Empty by
+  // default, so a test that does not care about it falls through to the cap.
+  apiMocks.fetchLiveSessions.mockResolvedValue({ sessions: [], truncated: false });
   window.matchMedia = vi.fn().mockReturnValue({
     addEventListener: vi.fn(),
     matches: false,
@@ -284,6 +306,9 @@ describe("activation step 1: website", () => {
     expect(readWebsiteSetupError(new ApiError("website_changed", 409, "website_changed"))).toBe(
       "This Website changed in another tab. Reload and try again.",
     );
+    expect(readWebsiteSetupError(new ApiError("untrusted_origin", 403, "untrusted_origin"))).toBe(
+      "This dashboard address cannot save changes. Open Orange Replay from its normal address and try again.",
+    );
   });
 
   it("reports an invalid address after one quiet second and clears it on correction", async () => {
@@ -401,6 +426,24 @@ describe("activation step 1: website", () => {
     });
   });
 
+  it("returns to the same installation without saving when the Website did not change", async () => {
+    editingWebsiteId = WEBSITE_ID;
+    isFirstWebsite = false;
+    workspaceName = "Noodle";
+    await render(<OnboardingWebsitePage />);
+
+    await act(async () => {
+      findButton("Save and continue").click();
+    });
+
+    expect(apiMocks.ensureProjectWebsite).not.toHaveBeenCalled();
+    expect(navigate).toHaveBeenCalledWith({
+      to: "/onboarding/$projectId/install",
+      params: { projectId: PROJECT_ID },
+      search: { website: WEBSITE_ID },
+    });
+  });
+
   it("names the Workspace when adding a later Website", async () => {
     isFirstWebsite = false;
     workspaceName = "Noodle";
@@ -435,6 +478,9 @@ describe("activation step 1: website", () => {
     await act(async () => {
       findButton("Go to dashboard").click();
     });
+    // This exit is not the activation payoff: the Website was already connected
+    // before this visit, so there is no session this flow just proved exists.
+    // Overview is the ordinary home, and stays the ordinary home.
     expect(navigate).toHaveBeenCalledWith({
       to: "/projects/$projectId/overview",
       params: { projectId: PROJECT_ID },
@@ -484,7 +530,9 @@ describe("activation step 2: install", () => {
     expect(reveal?.getAttribute("data-state")).toBe("loading");
     expect(reveal?.classList.contains("is-revealed")).toBe(false);
     expect(skeleton?.getAttribute("aria-hidden")).toBe("false");
-    expect(skeleton?.children).toHaveLength(3);
+    // File title, code card, expander, scope note: the skeleton mirrors the
+    // controls it stands in for, gaps included, so revealing them swaps in place.
+    expect(skeleton?.children).toHaveLength(4);
     expect(container.querySelector('.t-skel-content[aria-hidden="true"]')).not.toBeNull();
 
     await vi.waitFor(() => {
@@ -499,9 +547,7 @@ describe("activation step 2: install", () => {
     });
     expect(skeleton?.getAttribute("aria-hidden")).toBe("true");
     expect(container.querySelector('.t-skel-content[aria-hidden="true"]')).toBeNull();
-    expect(container.querySelector("pre")?.textContent).toContain(
-      "Orange Replay installation script",
-    );
+    expect(container.querySelector("pre")?.textContent).toContain("Orange Replay loader,");
     expect(container.textContent).not.toContain("recorder key");
   });
 
@@ -520,14 +566,17 @@ describe("activation step 2: install", () => {
       expect(apiMocks.fetchProjectWebsiteSetup).toHaveBeenCalledWith(PROJECT_ID, WEBSITE_ID);
     });
     await vi.waitFor(() => {
-      expect(findButton("Continue").disabled).toBe(false);
+      expect(copyLabel()).toBe("Copy");
     });
+    // No Continue: the step advances on the event, not on a click, and the
+    // waiting state it would have announced belongs to the preview.
+    expect(container.textContent).not.toContain("Continue");
 
     // The card summarises the loader by default, so a 1,800-character minified
     // line does not fill the column — and the raw key is not on screen until
     // asked for. What gets pasted is what must carry the key.
     const collapsed = container.querySelector("pre")?.textContent ?? "";
-    expect(collapsed).toContain("Orange Replay installation script");
+    expect(collapsed).toContain("Orange Replay loader,");
     expect(collapsed).not.toContain(RAW_KEY);
 
     await act(async () => {
@@ -540,10 +589,29 @@ describe("activation step 2: install", () => {
     expect(copied).toContain(RAW_KEY);
     expect(copied).toContain("or-recorder.js");
 
+    // Success turns the check green and plays transitions.dev's success check;
+    // the colour is the state, the animation is only how it arrived. The copy
+    // glyph leaves at the same time rather than being unmounted.
+    await vi.waitFor(() => {
+      expect(copyLabel()).toBe("Copied");
+    });
+    const check = container.querySelector(".t-success-check");
+    expect(check?.getAttribute("class")).toContain("text-success");
+    expect(check?.getAttribute("data-state")).toBe("in");
+    expect(container.querySelector(".t-copy-glyph")?.getAttribute("data-state")).toBe("out");
+
     await act(async () => {
       findButton("View full code").click();
     });
     expect(container.querySelector("pre")?.textContent).toContain(RAW_KEY);
+
+    // The code card scrolls through the shared ScrollArea, whose content wrapper
+    // carries `min-width: fit-content` inline. Without this override the
+    // minified loader laid out sideways to 1289px inside a 368px viewport and
+    // most of it could not be reached, because this scroller is vertical only.
+    // Layout is not measurable here, so the guard is the class that prevents it.
+    const viewport = container.querySelector('[data-slot="scroll-area-viewport"]');
+    expect(viewport?.getAttribute("class")).toContain("min-w-0");
   });
 
   it("retries automatic script preparation after a request failure", async () => {
@@ -562,7 +630,7 @@ describe("activation step 2: install", () => {
     });
     await vi.waitFor(() => {
       expect(apiMocks.fetchProjectWebsiteSetup).toHaveBeenCalledTimes(2);
-      expect(findButton("Continue").disabled).toBe(false);
+      expect(copyLabel()).toBe("Copy");
     });
   });
 
@@ -572,13 +640,61 @@ describe("activation step 2: install", () => {
     await render(<OnboardingInstallPage />);
 
     expect(container.textContent).not.toContain("This project already has a key");
-    expect(findButton("Continue").disabled).toBe(false);
-    expect(container.querySelector("pre")?.textContent).toContain(
-      "Orange Replay installation script",
-    );
+    expect(copyLabel()).toBe("Copy");
+    expect(container.querySelector("pre")?.textContent).toContain("Orange Replay loader,");
     await vi.waitFor(() => {
       expect(apiMocks.fetchProjectWebsiteSetup).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it("changes the file, the placement and the pasted code with the stack", async () => {
+    const writeText = vi.fn<(value: string) => Promise<void>>().mockResolvedValue();
+    Object.defineProperty(window.navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    saveOnboardingRecorderKey(PROJECT_ID, WEBSITE_ID, RAW_KEY);
+    apiMocks.fetchProjectWebsiteSetup.mockResolvedValue(websiteSetup());
+    await render(<OnboardingInstallPage />);
+
+    // The stack picker does not wait on the key: it is outside the reveal, so
+    // every framework is selectable while the script is still being prepared.
+    expect(findTab("Next.js").getAttribute("aria-selected")).toBe("false");
+    expect(visibleInstruction()).toContain("Every page you want to record needs the tag");
+
+    await act(async () => {
+      findTab("Next.js").click();
+    });
+
+    expect(findTab("Next.js").getAttribute("aria-selected")).toBe("true");
+    expect(container.textContent).toContain("app/layout.tsx");
+    expect(visibleInstruction()).toContain("Next.js runs it before hydration");
+    expect(visibleInstruction()).not.toContain("Every page you want to record needs the tag");
+
+    await act(async () => {
+      findButton("Copy").click();
+    });
+    await vi.waitFor(() => {
+      expect(writeText).toHaveBeenCalledTimes(1);
+    });
+    const copied = writeText.mock.calls[0]?.[0] ?? "";
+    expect(copied).toContain('import Script from "next/script"');
+    expect(copied).toContain(RAW_KEY);
+
+    // Switching away must drop the Copied badge: it would be claiming that a
+    // different snippet is on the clipboard. Read the swapping label, not
+    // `textContent`: an invisible copy of the longer word is always rendered to
+    // reserve the button's width.
+    await vi.waitFor(() => {
+      expect(copyLabel()).toBe("Copied");
+    });
+    await act(async () => {
+      findTab("Svelte").click();
+    });
+    await vi.waitFor(() => {
+      expect(copyLabel()).toBe("Copy");
+    });
+    expect(container.textContent).toContain("src/app.html");
   });
 
   it("shows the connected state when another tab finished setup", async () => {
@@ -607,7 +723,10 @@ describe("activation step 2: install", () => {
 
 describe("activation step 3: verify", () => {
   it("waits on the real install status and does not claim success early", async () => {
-    apiMocks.fetchProjectWebsiteInstallStatus.mockResolvedValue({ firstEventAt: null });
+    apiMocks.fetchProjectWebsiteInstallStatus.mockResolvedValue({
+      firstEventAt: null,
+      firstSessionId: null,
+    });
     await render(<OnboardingVerifyPage />);
 
     await vi.waitFor(() => {
@@ -626,6 +745,7 @@ describe("activation step 3: verify", () => {
     saveOnboardingRecorderKey(PROJECT_ID, WEBSITE_ID, RAW_KEY);
     apiMocks.fetchProjectWebsiteInstallStatus.mockResolvedValue({
       firstEventAt: Date.now() - 2_000,
+      firstSessionId: FIRST_SESSION_ID,
     });
     await render(<OnboardingVerifyPage />);
 
@@ -643,36 +763,169 @@ describe("activation step 3: verify", () => {
     await act(async () => {
       findButton("Go to dashboard").click();
     });
+    // Live, not Overview: Overview needs a finalised session and is guaranteed
+    // empty this early, while the session just proved to exist is on Live.
     expect(navigate).toHaveBeenCalledWith({
-      to: "/projects/$projectId/overview",
+      to: "/projects/$projectId/live",
       params: { projectId: PROJECT_ID },
       replace: true,
     });
   });
 
-  it("opens the exact project automatically after the connected state is readable", async () => {
+  it("confirms the session, seeds Live's cache, and holds the payoff before the cut", async () => {
     const setTimeoutSpy = vi.spyOn(window, "setTimeout");
     apiMocks.fetchProjectWebsiteInstallStatus.mockResolvedValue({
       firstEventAt: Date.now() - 2_000,
+      firstSessionId: FIRST_SESSION_ID,
+    });
+    const live = {
+      sessions: [liveSession()],
+      truncated: false,
+    };
+    apiMocks.fetchLiveSessions.mockResolvedValue(live);
+    await render(<OnboardingVerifyPage />);
+
+    // The confirmed answer fills the preview's Live card — the payoff — and
+    // becomes the Live page's own cache entry, so the page the cut lands on
+    // renders with the session already in place.
+    await vi.waitFor(() => {
+      expect(isLiveConfirmedReported).toBe(true);
+    });
+    expect(queryClient.getQueryData(liveSessionsQueryKey(PROJECT_ID))).toEqual(live);
+
+    // The cut waits out the payoff hold so "Live now" can be read before the
+    // frame starts moving; nothing navigates during the hold.
+    expect(setTimeoutSpy.mock.calls.some(([, delay]) => delay === PREVIEW_EXIT.duration)).toBe(
+      false,
+    );
+    const hold = setTimeoutSpy.mock.calls.find(([, delay]) => delay === VERIFY.payoffHold);
+    expect(hold).toBeDefined();
+    expect(navigate).not.toHaveBeenCalled();
+
+    await act(async () => {
+      const callback = hold?.[0];
+      if (typeof callback === "function") callback();
+    });
+    // The route then changes behind the preview's cut rather than on the same
+    // tick, so the grow has something to grow over.
+    await act(async () => {
+      const cut = setTimeoutSpy.mock.calls.find(([, delay]) => delay === PREVIEW_EXIT.duration);
+      const callback = cut?.[0];
+      if (typeof callback === "function") callback();
+    });
+    expect(navigate).toHaveBeenCalledWith({
+      to: "/projects/$projectId/live",
+      params: { projectId: PROJECT_ID },
+      replace: true,
+    });
+    setTimeoutSpy.mockRestore();
+  });
+
+  it("ignores another live session and waits for this Website's first session", async () => {
+    const setTimeoutSpy = vi.spyOn(window, "setTimeout");
+    apiMocks.fetchProjectWebsiteInstallStatus.mockResolvedValue({
+      firstEventAt: Date.now() - 2_000,
+      firstSessionId: FIRST_SESSION_ID,
+    });
+    apiMocks.fetchLiveSessions
+      .mockResolvedValueOnce({ sessions: [liveSession("another-session-0001")], truncated: false })
+      .mockResolvedValue({ sessions: [liveSession()], truncated: false });
+    await render(<OnboardingVerifyPage />);
+
+    await vi.waitFor(() => expect(apiMocks.fetchLiveSessions).toHaveBeenCalledTimes(1));
+    expect(isLiveConfirmedReported).toBe(false);
+    const retry = setTimeoutSpy.mock.calls.find(([, delay]) => delay === VERIFY.handoffPoll);
+    expect(retry).toBeDefined();
+
+    await act(async () => {
+      const callback = retry?.[0];
+      if (typeof callback === "function") callback();
+    });
+    await vi.waitFor(() => expect(isLiveConfirmedReported).toBe(true));
+    setTimeoutSpy.mockRestore();
+  });
+
+  it("aborts the live request and does not schedule another poll after leaving", async () => {
+    const setTimeoutSpy = vi.spyOn(window, "setTimeout");
+    const liveRequest = deferred<ReturnType<typeof liveResponse>>();
+    let requestSignal: AbortSignal | undefined;
+    apiMocks.fetchProjectWebsiteInstallStatus.mockResolvedValue({
+      firstEventAt: Date.now() - 2_000,
+      firstSessionId: FIRST_SESSION_ID,
+    });
+    apiMocks.fetchLiveSessions.mockImplementation(
+      (_projectId: string, options: { signal?: AbortSignal }) => {
+        requestSignal = options.signal;
+        return liveRequest.promise;
+      },
+    );
+    await render(<OnboardingVerifyPage />);
+    await vi.waitFor(() => expect(apiMocks.fetchLiveSessions).toHaveBeenCalledTimes(1));
+
+    await render(<div />);
+    expect(requestSignal?.aborted).toBe(true);
+    liveRequest.resolve(liveResponse());
+    await act(async () => Promise.resolve());
+    expect(setTimeoutSpy.mock.calls.some(([, delay]) => delay === VERIFY.handoffPoll)).toBe(false);
+    expect(isLiveConfirmedReported).toBe(false);
+    setTimeoutSpy.mockRestore();
+  });
+
+  it("skips presentation delays when reduced motion is requested", async () => {
+    const setTimeoutSpy = vi.spyOn(window, "setTimeout");
+    motionState.reduceMotion = true;
+    apiMocks.fetchProjectWebsiteInstallStatus.mockResolvedValue({
+      firstEventAt: Date.now() - 2_000,
+      firstSessionId: FIRST_SESSION_ID,
+    });
+    apiMocks.fetchLiveSessions.mockResolvedValue(liveResponse());
+    await render(<OnboardingVerifyPage />);
+
+    await vi.waitFor(() => expect(navigate).toHaveBeenCalledTimes(1));
+    expect(setTimeoutSpy.mock.calls.some(([, delay]) => delay === VERIFY.payoffHold)).toBe(false);
+    expect(setTimeoutSpy.mock.calls.some(([, delay]) => delay === PREVIEW_EXIT.duration)).toBe(
+      false,
+    );
+    setTimeoutSpy.mockRestore();
+  });
+
+  it("hands over anyway when the live query stays empty", async () => {
+    const setTimeoutSpy = vi.spyOn(window, "setTimeout");
+    apiMocks.fetchProjectWebsiteInstallStatus.mockResolvedValue({
+      firstEventAt: Date.now() - 2_000,
+      firstSessionId: FIRST_SESSION_ID,
     });
     await render(<OnboardingVerifyPage />);
 
     await vi.waitFor(() => {
       expect(container.textContent).toContain("acme.com is connected");
     });
-    const redirectTimer = setTimeoutSpy.mock.calls.find(
-      ([, delay]) => delay === VERIFY.dashboardDelay,
-    );
-    expect(redirectTimer).toBeDefined();
+    // A slow, empty or failing query must not strand anyone on a screen that
+    // has finished saying what it had to say.
+    const cap = [...setTimeoutSpy.mock.calls]
+      .reverse()
+      .find(([, delay]) => delay === VERIFY.handoffCap);
+    expect(cap).toBeDefined();
+    expect(navigate).not.toHaveBeenCalled();
     await act(async () => {
-      const callback = redirectTimer?.[0];
+      const callback = cap?.[0];
+      if (typeof callback === "function") callback();
+    });
+    expect(
+      queryClient.getQueryData<LiveHandoffState>(liveHandoffQueryKey(PROJECT_ID))?.connectingUntil,
+    ).toBeGreaterThan(Date.now());
+    // The cap decides when to leave; the cut still runs before the route does.
+    await act(async () => {
+      const cut = setTimeoutSpy.mock.calls.find(([, delay]) => delay === PREVIEW_EXIT.duration);
+      const callback = cut?.[0];
       if (typeof callback === "function") callback();
     });
     expect(navigate).toHaveBeenCalledWith({
-      to: "/projects/$projectId/overview",
+      to: "/projects/$projectId/live",
       params: { projectId: PROJECT_ID },
       replace: true,
     });
+    setTimeoutSpy.mockRestore();
   });
 });
 
@@ -695,30 +948,42 @@ function Harness({ children }: { children: ReactNode }) {
   const [draft, setDraft] = useState(editingWebsiteId === null ? "" : SAVED_WEBSITE.origin);
   const [key, setKey] = useState<string | null>(null);
   const [websiteId, setWebsiteId] = useState<string | null>(WEBSITE_ID);
+  const [installTargetId, setInstallTargetId] = useState<InstallTargetId>("html");
   const [isNaming, setIsNaming] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [liveConfirmed, setLiveConfirmed] = useState(false);
   namingProject = isNaming;
   isRecordingReported = recording;
+  isLiveConfirmedReported = liveConfirmed;
   const draftWebsite = readWebsiteUrl(draft);
 
   return (
     <OnboardingProvider
       value={{
         act: onboardingAct(0, recording),
+        beginPreviewCut,
+        isLeaving: false,
+        installTargetId,
+        setInstallTargetId,
+        pollTick: 0,
+        registerStatusPoll: () => undefined,
         direction: 1,
         editingWebsiteId,
+        editingWebsiteOrigin: editingWebsiteId === null ? null : SAVED_WEBSITE.origin,
         faviconUrl:
           draftWebsite === null
             ? websiteFaviconUrl(SAVED_WEBSITE)
             : websiteFaviconUrl(draftWebsite),
         isFirstPaint: true,
         isFirstWebsite,
+        isLiveConfirmed: liveConfirmed,
         isNamingProject: isNaming,
         isRecording: recording,
         previewProjectLabel: "acme.com",
         projectId: PROJECT_ID,
         recorderKey: key,
         savedWebsiteName: SAVED_WEBSITE.hostname,
+        setIsLiveConfirmed: setLiveConfirmed,
         setIsNamingProject: setIsNaming,
         setIsRecording: setRecording,
         setRecorderKey: setKey,
@@ -745,6 +1010,38 @@ async function setWebsiteInput(value: string): Promise<void> {
     valueDescriptor?.set?.call(input, value);
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
+}
+
+/**
+ * The copy button's visible label. `container.textContent` cannot answer this:
+ * the button always renders an invisible copy of the longer word to reserve its
+ * width, and the swap keeps the outgoing word mounted while it animates out.
+ */
+function copyLabel(): string | undefined {
+  return container.querySelector(".t-text-swap")?.textContent ?? undefined;
+}
+
+/**
+ * The stack picker's visible placement sentence. Same reason as `copyLabel`:
+ * every target's instruction is stacked invisibly inside the panel so the
+ * tallest one reserves the height, which puts all five sentences in
+ * `textContent` while only the selected tab's is shown.
+ */
+function visibleInstruction(): string {
+  const panel = container.querySelector('[role="tabpanel"]');
+  if (panel === null) return "";
+  return [...panel.querySelectorAll('span[class*="col-start-1"]')]
+    .filter((span) => span.getAttribute("aria-hidden") !== "true")
+    .map((span) => span.textContent ?? "")
+    .join("");
+}
+
+function findTab(label: string): HTMLElement {
+  const tab = [...container.querySelectorAll('[role="tab"]')].find((candidate) =>
+    candidate.textContent?.includes(label),
+  );
+  if (!(tab instanceof HTMLElement)) throw new Error(`No tab labelled ${label}.`);
+  return tab;
 }
 
 function findButton(label: string): HTMLButtonElement {
@@ -792,6 +1089,26 @@ function connectedWebsiteSetup() {
   };
 }
 
+function liveSession(sessionId = FIRST_SESSION_ID) {
+  const now = Date.now();
+  return {
+    session_id: sessionId,
+    started_at: now,
+    last_seen: now,
+    entry_url: "https://acme.com/",
+    country: null,
+    city: null,
+    browser: null,
+    os: null,
+    device: null,
+    duration_ms: 0,
+  };
+}
+
+function liveResponse() {
+  return { sessions: [liveSession()], truncated: false };
+}
+
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((done) => {
@@ -833,6 +1150,63 @@ describe("activation story acts", () => {
   it("lifts the frame only once the recorder is live", () => {
     expect(PREVIEW_FRAME.restY).toBe(0);
     expect(PREVIEW_FRAME.liveY).toBeLessThan(0);
+  });
+});
+
+describe("activation arrival and exits", () => {
+  it("stages the arrival so each beat has one subject", () => {
+    // The card already being watched answers first, then the frame responds,
+    // then the page changes. All three used to land in one frame.
+    expect(TIMING.arrivalInstalled).toBe(0);
+    expect(TIMING.arrivalLift).toBeGreaterThan(TIMING.arrivalInstalled);
+    expect(TIMING.arrivalLive).toBeGreaterThan(TIMING.arrivalLift);
+    expect(PREVIEW_FRAME.liveDelay * 1_000).toBe(TIMING.arrivalLift);
+  });
+
+  it("starts the exit only after the arrival has been read", () => {
+    // "Here is your visitor" and "taking you there" are two statements, and the
+    // first is unreadable if the frame starts growing over it. The payoff hold
+    // is what now separates them: the cut waits it out after the card fills.
+    expect(VERIFY.payoffHold).toBeGreaterThan(TIMING.arrivalLive);
+  });
+
+  it("lets the form column leave before the frame has finished covering it", () => {
+    // The column is what is being handed over from, so it goes first and
+    // faster; the frame is still growing when it is gone.
+    expect(PREVIEW_EXIT.columnDuration).toBeLessThan(PREVIEW_EXIT.duration);
+  });
+});
+
+describe("activation preview page", () => {
+  it("shows the page each step is actually about", () => {
+    expect(previewPage(0, false)).toBe(PREVIEW_PAGE.overview);
+    // Step two stays on Install, and that page carries the wait: the real
+    // Install page's verify card is already the product's waiting state.
+    expect(previewPage(1, false)).toBe(PREVIEW_PAGE.install);
+  });
+
+  it("moves to Live for the event, and for nothing else", () => {
+    expect(previewPage(1, true)).toBe(PREVIEW_PAGE.live);
+    expect(previewPage(2, false)).toBe(PREVIEW_PAGE.live);
+    // Connecting outranks the step, so stepping Back after the recorder is live
+    // does not walk the preview back to Install.
+    for (const step of [0, 1, 2]) {
+      expect(previewPage(step, true)).toBe(PREVIEW_PAGE.live);
+    }
+  });
+
+  it("leaves the cut time to run before the route changes", () => {
+    // The route change waits for the grow; the cap has to outlast a full
+    // payoff-and-cut so it can never fire mid-sequence on the boundary.
+    expect(VERIFY.handoffCap).toBeGreaterThan(VERIFY.payoffHold + PREVIEW_EXIT.duration);
+  });
+
+  it("does not blur the page it swaps in", () => {
+    // The left column's chunks clear a blur because they are text being read.
+    // The preview is a picture of a page, and blurring it reads as the camera
+    // losing focus rather than as a page arriving.
+    expect(PREVIEW_BODY.riseY).toBeGreaterThan(0);
+    expect(Object.keys(PREVIEW_BODY)).not.toContain("blur");
   });
 });
 

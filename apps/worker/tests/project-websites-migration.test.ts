@@ -27,4 +27,28 @@ describe("project Websites migration", () => {
     );
     expect(selfHosted).toBe(canonical);
   });
+
+  it("stores the exact first session that connected a Website", async () => {
+    const migration = await readFile(
+      new URL("../migrations/0024_project_website_first_session.sql", import.meta.url),
+      "utf8",
+    );
+
+    expect(migration).toContain("ALTER TABLE project_websites ADD COLUMN first_session_id TEXT");
+  });
+
+  it("keeps the first-session self-host migration byte-for-byte identical", async () => {
+    const canonical = await readFile(
+      new URL("../migrations/0024_project_website_first_session.sql", import.meta.url),
+      "utf8",
+    );
+    const selfHosted = await readFile(
+      new URL(
+        "../../../infra/template/migrations/0024_project_website_first_session.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    expect(selfHosted).toBe(canonical);
+  });
 });

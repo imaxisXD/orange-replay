@@ -167,10 +167,11 @@ export async function fetchProjectWebsiteSetup(
 export async function fetchProjectWebsiteInstallStatus(
   projectId: string,
   websiteId: string,
+  options: { signal?: AbortSignal } = {},
 ): Promise<ProjectWebsiteInstallStatus> {
   return requestJson<ProjectWebsiteInstallStatus>(
     `/api/v1/projects/${encodePathPart(projectId)}/websites/${encodePathPart(websiteId)}/install-status`,
-    { auth: true, decode: decodeProjectWebsiteInstallStatus },
+    { auth: true, decode: decodeProjectWebsiteInstallStatus, signal: options.signal },
   );
 }
 

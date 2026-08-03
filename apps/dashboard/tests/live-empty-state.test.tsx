@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { AccountProjectRole, AccountResponse } from "@orange-replay/shared";
 import { clearDashboardAccess } from "../src/lib/dashboard-access";
 import { DashboardWorkspaceProvider } from "../src/lib/dashboard-workspace";
+import { liveHandoffQueryKey } from "../src/lib/live-sessions";
 import { LivePage } from "../src/routes/live";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -96,10 +97,29 @@ describe("live empty state", () => {
 
     await teardown();
   });
+
+  it("continues the honest connecting state after onboarding reaches its cap", async () => {
+    const { container, teardown } = await renderLive({
+      firstEventAt: 1_700_000_000_000,
+      connectingUntil: Date.now() + 20_000,
+    });
+
+    expect(container.textContent).toContain("Connecting to your live session…");
+    expect(container.textContent).toContain("received your first event");
+    expect(container.textContent).not.toContain("No one is browsing right now");
+    expect(container.querySelector('[data-slot="empty-content"]')).toBeNull();
+
+    await teardown();
+  });
 });
 
 async function renderLive(
-  options: { firstEventAt?: number | null; isDemo?: boolean; role?: AccountProjectRole } = {},
+  options: {
+    connectingUntil?: number;
+    firstEventAt?: number | null;
+    isDemo?: boolean;
+    role?: AccountProjectRole;
+  } = {},
 ): Promise<{
   container: HTMLElement;
   fetchMock: ReturnType<typeof vi.fn>;
@@ -120,6 +140,11 @@ async function renderLive(
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
   });
+  if (options.connectingUntil !== undefined) {
+    queryClient.setQueryData(liveHandoffQueryKey("project-1"), {
+      connectingUntil: options.connectingUntil,
+    });
+  }
   const container = document.createElement("div");
   document.body.append(container);
   const root = createRoot(container);
@@ -138,7 +163,11 @@ async function renderLive(
   // Live sessions, then the account, then install status: each query only starts
   // once the previous render committed, so the empty state arrives over several
   // flushes rather than one.
-  await settleUntil(() => container.querySelector('[data-slot="empty-content"] a') !== null);
+  await settleUntil(() =>
+    options.connectingUntil === undefined
+      ? container.querySelector('[data-slot="empty-content"] a') !== null
+      : container.textContent?.includes("Connecting to your live session…") === true,
+  );
 
   return {
     container,

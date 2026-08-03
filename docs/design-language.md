@@ -50,6 +50,24 @@ Grain texture + long-dash 1px SVG border (`stroke-dasharray '12 4'`, `stroke-opa
 
 Event/signal glyphs are canonical app-wide; never substitute per-screen: **click = `MouseLeftClick06`** (player-blue in timelines, dim for dead clicks) · **rage = `Angry`** (ALWAYS amber — an emotion metric gets an emotion glyph; never a lightning bolt, which reads as "speed") · **error = `AlertCircle`** (danger) · **navigation = `ArrowUpRight`** (teal) · **handheld device = `Smartphone`** (exception signal: desktop shows no glyph). Icons must carry information text can't at scan speed; decorative icons are banned.
 
+**File-type marks** name the install step's paste target and stay in family:
+`Typescript03` for `.tsx`/`.ts` and `HtmlFile01` for HTML, both from `icon-map`,
+both file-shaped so they read as siblings. They are the one place a Hugeicons
+glyph is tinted off-palette: the caller applies the language's own colour through
+`currentColor` (TypeScript `#3178c6`, HTML5 `#e34c26`) because that colour is what
+makes the language recognizable at 17px. One SVG recoloured per context, never a
+second asset. `aria-hidden`, since the filename is beside them.
+
+**Framework brand marks** (`src/components/framework-mark.tsx`) extend the same
+rule to the install step's stack picker: React, Next.js, Vue, and Svelte, with
+`Code2` standing in for plain HTML because no HTML mark exists in the free set.
+They are copied from `landing/index.html`'s "Works with" row so the product and
+the marketing page show the same logos, and they are the deliberate exception to
+`currentColor` — a brand mark's colour is the identifying feature. They render at
+full colour in every tab state; the selected tab is already marked by the sliding
+indicator and a semibold label, and desaturating the rest destroyed the fast read
+that is the only reason the marks are there.
+
 **Brand entities (browser/OS) render as icons wherever they appear** (2026-07-11, via `src/components/client-label.tsx` — the single client renderer): users grasp a recognizable brand mark faster than its name. Coverage: Chrome = `Chrome`, Safari = `Safari`, Android = `Android`, Windows = `WindowsOld` (classic four-pane flag), macOS = `AppleFinder` (Finder face — the Apple logo isn't in the free set), Linux = custom penguin SVG in `icon-map` (user-approved 2026-07-11; the one sanctioned outside-family glyph). Brand rendering is **glyph + visible name** ("◉ Chrome · ⌘ macOS") — the mark is the fast read, the word removes doubt; glyphs render at 14px/stroke-2 (at 12px/1.5 they collapse into dots) and are `aria-hidden` since the name is visible text. **Where no relatable glyph exists (Firefox, Edge, iOS), the name renders alone — a generic stand-in carries less information than the word and is banned.** The hugeicons.com site mixes free and Pro tiers invisibly — the installed `@hugeicons/core-free-icons` package is ground truth.
 
 Contrast rule: `--muted-foreground` is the floor for body-adjacent text ≤12px (`--color-dim` measures ~3.2:1 on card surfaces, below WCAG AA); `dim` is reserved for tertiary LABELS — table headers, uppercase micro-labels, decorative icons — never sentence-level meta text.

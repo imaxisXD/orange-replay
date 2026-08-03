@@ -24,6 +24,7 @@ export function OnboardingWebsitePage() {
   const navigate = useNavigate();
   const {
     editingWebsiteId,
+    editingWebsiteOrigin,
     faviconUrl,
     isFirstWebsite,
     previewProjectLabel,
@@ -110,13 +111,8 @@ export function OnboardingWebsitePage() {
       }
       saveOnboardingRecorderKey(projectId, result.website.id, result.secret);
       setRecorderKey(result.secret);
-      setWebsiteId(result.website.id);
       void queryClient.invalidateQueries({ queryKey: accountQueryKey });
-      void navigate({
-        to: "/onboarding/$projectId/install",
-        params: { projectId },
-        search: { website: result.website.id },
-      });
+      continueToInstall(result.website.id);
     },
   });
 
@@ -126,7 +122,25 @@ export function OnboardingWebsitePage() {
       revealWebsiteError();
       return;
     }
+    if (
+      editingWebsiteId !== null &&
+      editingWebsiteOrigin !== null &&
+      websiteUrl.origin === editingWebsiteOrigin
+    ) {
+      activation.reset();
+      continueToInstall(editingWebsiteId);
+      return;
+    }
     activation.mutate(websiteUrl);
+  }
+
+  function continueToInstall(nextWebsiteId: string): void {
+    setWebsiteId(nextWebsiteId);
+    void navigate({
+      to: "/onboarding/$projectId/install",
+      params: { projectId },
+      search: { website: nextWebsiteId },
+    });
   }
 
   const fieldError = showError ? websiteUrlError(websiteDraft) : "";

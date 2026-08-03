@@ -1,7 +1,8 @@
 /* Activation surfaces that Tailwind cannot express: the preview frame's own
- * canvas, and the three staged keyframe sequences (skeleton pulse, waiting
- * signal, invalid-URL shake). Interactive state changes stay as transitions in
- * the components; keyframes are only used for motion that runs on its own. */
+ * canvas, and the staged sequences (skeleton pulse, waiting signal, invalid-URL
+ * shake, favicon slot, and the transitions.dev recipes on step two — text swap,
+ * success check, card resize). Interactive state changes stay as transitions;
+ * keyframes are only used for motion that runs on its own. */
 
 /* The preview frame clips the dashboard, so it has to paint the app canvas
    itself — the body's dotted grid cannot show through an opaque child. The
@@ -16,6 +17,21 @@
   /* Delay matches PREVIEW_FRAME.liveDelay so the deepening shadow travels with
      the lift rather than ahead of it. */
   transition: box-shadow 620ms ease-out 180ms;
+}
+
+/* Let the preview dissolve into the right pane instead of ending on a hard
+   viewport crop. This sits above the dashboard only at the bottom edge; the
+   pane and the final gradient stop share `--background`, so there is no seam. */
+.onboarding-canvas::after {
+  position: absolute;
+  z-index: 2;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: clamp(220px, 40svh, 420px);
+  background: linear-gradient(to bottom, transparent, var(--background));
+  content: "";
+  pointer-events: none;
 }
 
 /* The dotted canvas as its own depth plane, so the camera can move it at a
@@ -59,8 +75,10 @@
 /* While the website field is being typed, the camera is zoomed on the project
    switcher. Lifting the switcher onto its own surface is what makes the zoom
    read as "this control is about to say your website's name" instead of a
-   plain magnification. The trigger's aria-label is the shell's stable hook. */
-.onboarding-canvas [aria-label="Project"] {
+   plain magnification. `data-shell-switcher` on the shell's trigger is the hook:
+   this used to key off the trigger's aria-label, and renaming it "Project" →
+   "Workspace" silently took the whole highlight away. */
+.onboarding-canvas [data-shell-switcher] {
   transition:
     background-color 180ms ease,
     box-shadow 180ms ease,
@@ -97,32 +115,40 @@
    to say what they typed. The bloom is `.demo-scan-dot`'s
    `0 0 8px var(--amber-shadow)`, opened up because this control is far larger
    than a 5px dot and has to read across the pane. */
-/* Both amber layers are held below full strength. `ring-amber` is sized for a
-   control at 1:1, but the camera views this one at 1.18x and the lattice is
-   already carrying amber underneath, so full `--amber` on the border and a
-   0.7-alpha bloom read as a hot rim rather than a highlight. The ring keeps its
-   1px so the shape still matches the field the visitor is typing into.
+/* The chip goes to `--surface-1`, the canvas's own near-black, rather than the
+   `--surface-4` grey it started on. A grey chip is a third value competing with
+   the amber and the dark room around it; dropping it to black leaves the amber
+   as the only thing on this control that carries any chroma, which is what makes
+   the rim read as lit rather than as a border.
 
-   The border is a solid colour, not translucent amber: it is mixed toward
-   `--surface-4`, the control's own background, so it lands on the same tone a
-   55% alpha would have composited to while staying opaque. A translucent border
-   would take its value from whatever the shimmering lattice happened to be
-   doing underneath, so the rim would flicker with the field behind it. The
-   bloom stays translucent because a glow that is not is just a rectangle. */
-.onboarding-canvas[data-camera="project"] [aria-label="Project"] {
+   Both amber layers then run at full strength. They were held back while the
+   chip was grey — 72% on the rim, 50% on the bloom — because amber over grey at
+   1.18x smeared into a hot rectangle. Against black there is nothing to smear
+   into: the same values that were too much on grey are what the rim needs to
+   register at this scale. So the border is plain `--amber`, exactly `--ring`,
+   and the bloom is two stops instead of one — a tight hot ring at 8px and a wide
+   soft falloff at 22px. Two radii read as brighter than one bigger blur, which
+   just spreads the same light thinner.
+
+   The border stays opaque, mixed toward the chip's own background. A translucent
+   rim would take its value from whatever the shimmering lattice happened to be
+   doing underneath and would flicker with it. The bloom stays translucent
+   because a glow that is not is just a rectangle. */
+.onboarding-canvas[data-camera="project"] [data-shell-switcher] {
   /* Fully opaque, not the 88% this started as. The lattice sits directly behind
      the switcher, so any transparency lets the shimmer show through the chip
      and the label appears to sit on flickering dots instead of on a surface. */
-  background: var(--surface-4);
+  background: var(--surface-1);
   color: var(--foreground);
   box-shadow:
-    inset 0 0 0 1px color-mix(in oklab, var(--amber) 72%, var(--surface-4)),
-    0 0 14px color-mix(in oklab, var(--amber) 50%, transparent),
+    inset 0 0 0 1px var(--amber),
+    0 0 8px color-mix(in oklab, var(--amber) 65%, transparent),
+    0 0 22px color-mix(in oklab, var(--amber) 32%, transparent),
     0 10px 28px oklch(0 0 0 / 0.22);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .onboarding-canvas [aria-label="Project"] {
+  .onboarding-canvas [data-shell-switcher] {
     transition: none;
   }
 }
@@ -178,6 +204,148 @@
   --reveal-dur: 400ms;
   --reveal-blur: 2px;
   --reveal-ease: ease-in-out;
+
+  /* transitions.dev — Text states swap, for the Copy → Copied label. */
+  --text-swap-dur: 150ms;
+  --text-swap-translate-y: 4px;
+  --text-swap-blur: 2px;
+  --text-swap-ease: ease-in-out;
+
+  /* transitions.dev — Success check, for the copied glyph. The recipe is tuned
+     for a 48px icon; this one is 14px, so the travel and the blur are scaled to
+     it (40px → 5px, 10px → 4px) or the check would fly in from outside the
+     button and arrive as a smear. Rotation is scale-free and keeps its 80deg.
+     Duration comes down from 500ms too: the verify step's check is the payoff of
+     the whole flow and earns 500ms, while a copy button resets in 1.5s and has
+     to be finished being pleased with itself well before that. */
+  --check-dur: 320ms;
+  --check-rotate-from: 80deg;
+  --check-y-amount: 5px;
+  --check-blur-from: 4px;
+  --check-path-dur: 300ms;
+  --check-path-delay: 60ms;
+  /* The check waits out the copy glyph's exit instead of overlapping it: both
+     glyphs carry the same frame, so a cross-fade under the rotate drew that frame
+     twice at two angles. */
+  --check-delay: 100ms;
+  --copy-glyph-exit-dur: 100ms;
+  --check-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --check-ease-bob: cubic-bezier(0.34, 1.35, 0.64, 1);
+}
+
+/* transitions.dev — Text states swap.
+   Three phases, driven from React: `.is-exit` slides the old label up and blurs
+   it out, the text is replaced, `.is-enter-start` drops the new label below with
+   no transition, and removing that class animates it home. */
+.t-text-swap {
+  display: inline-block;
+  transform: translateY(0);
+  filter: blur(0);
+  opacity: 1;
+  transition:
+    transform var(--text-swap-dur) var(--text-swap-ease),
+    filter var(--text-swap-dur) var(--text-swap-ease),
+    opacity var(--text-swap-dur) var(--text-swap-ease);
+}
+.t-text-swap.is-exit {
+  transform: translateY(calc(var(--text-swap-translate-y) * -1));
+  filter: blur(var(--text-swap-blur));
+  opacity: 0;
+}
+.t-text-swap.is-enter-start {
+  transform: translateY(var(--text-swap-translate-y));
+  filter: blur(var(--text-swap-blur));
+  opacity: 0;
+  transition: none;
+}
+
+/* transitions.dev — Success check.
+   The wrapper fades, unrotates, unblurs and bobs up; the glyph draws its own
+   stroke. Only the first path draws: `CopyCheck` is `Copy` with the tick added in
+   front, so the frame behind it must not redraw itself. `stroke-dasharray` is
+   that tick's length in viewBox units (about 8.7 of 24), rounded up so the stroke
+   starts fully hidden; round caps hide the overshoot. */
+.t-success-check {
+  display: inline-block;
+  transform-origin: center;
+  opacity: 0;
+}
+.t-success-check svg {
+  display: block;
+  overflow: visible;
+}
+.t-success-check svg path:first-of-type {
+  stroke-dasharray: 9;
+  stroke-dashoffset: 9;
+}
+/* `both`, not `forwards`: the entrance waits out the copy glyph, and without a
+   backwards fill the check sat at its resting opacity through that delay and
+   flashed before it animated. The resting `opacity: 1` is what leaving has to
+   transition away from, since an animation's fill cannot be transitioned. */
+.t-success-check[data-state="in"] {
+  opacity: 1;
+  animation:
+    t-check-fade var(--check-dur) var(--check-ease-out) var(--check-delay) both,
+    t-check-rotate var(--check-dur) var(--check-ease-out) var(--check-delay) both,
+    t-check-blur var(--check-dur) var(--check-ease-out) var(--check-delay) both,
+    t-check-bob var(--check-dur) var(--check-ease-bob) var(--check-delay) both;
+}
+.t-success-check[data-state="in"] svg path:first-of-type {
+  animation: t-check-draw var(--check-path-dur) var(--check-ease-out)
+    calc(var(--check-delay) + var(--check-path-delay)) both;
+}
+/* The recipe covers the appear only. Leaving is a plain fade. */
+.t-success-check[data-state="out"] {
+  transition: opacity var(--text-swap-dur) var(--text-swap-ease);
+}
+@keyframes t-check-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes t-check-rotate {
+  from {
+    transform: rotate(var(--check-rotate-from));
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+@keyframes t-check-blur {
+  from {
+    filter: blur(var(--check-blur-from));
+  }
+  to {
+    filter: blur(0);
+  }
+}
+@keyframes t-check-bob {
+  from {
+    translate: 0 var(--check-y-amount);
+  }
+  to {
+    translate: 0 0;
+  }
+}
+@keyframes t-check-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* The copy glyph the check replaces. It leaves on the text swap's timing, so the
+   label and the icon are never mid-flight against each other. */
+.t-copy-glyph {
+  transition:
+    opacity var(--copy-glyph-exit-dur) var(--text-swap-ease),
+    filter var(--copy-glyph-exit-dur) var(--text-swap-ease);
+}
+.t-copy-glyph[data-state="out"] {
+  opacity: 0;
+  filter: blur(var(--text-swap-blur));
 }
 
 .t-input {
@@ -340,4 +508,90 @@
   .t-skel-skeleton.is-pulsing > * {
     animation: none !important;
   }
+  .t-text-swap,
+  .t-copy-glyph {
+    transition: none !important;
+    transform: none !important;
+    filter: none !important;
+  }
+  .t-success-check {
+    animation: none !important;
+    opacity: 1;
+  }
+  .t-success-check svg path:first-of-type {
+    animation: none !important;
+    stroke-dashoffset: 0 !important;
+  }
+}
+
+/* Variant B's cut. The pane clips the preview at rest — that crop is what makes
+   the frame read as a window onto a bigger dashboard — but the cut has the frame
+   grow past every edge of it, so the clip is lifted for the duration and the
+   pane is raised over the form column it is covering. */
+.onboarding-shell[data-leaving="true"] .onboarding-pane {
+  z-index: 20;
+  overflow: visible;
+}
+
+/* The bottom fade is a device for dissolving a cropped picture into the pane.
+   Once the frame is covering the viewport there is nothing to dissolve into, and
+   a dark band across the lower third of a screen you are arriving at is just a
+   dark band. */
+.onboarding-shell[data-leaving="true"] .onboarding-canvas::after {
+  opacity: 0;
+  transition: opacity 240ms ease-out;
+}
+
+/* The Install page's verify card while it is the one being watched. Act 1's
+   highlight vocabulary, re-used rather than reinvented: the same `EmberField`
+   lattice, shimmering *around* the card rather than inside it. The card keeps
+   its `.lit` dashed edge and its `.lit` shadow — the dashes just turn amber
+   for the wait, and the lattice carries the light. A held state gets a held
+   signal; the ripple this replaces fired per poll and read as an event. */
+
+/* The same dashes `.lit::after` always draws — geometry, corner-bloom mask
+   and opacity all untouched — restroked in the amber token (`#f5a622` is
+   oklch(0.784 0.159 72.991); a data URI cannot read the custom property). The
+   watched card's edge is the system's edge, only warmer. */
+.onboarding-watch-card.lit::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Crect x='0.5' y='0.5' width='100%25' height='100%25' fill='none' rx='7.5' ry='7.5' stroke='%23f5a622' stroke-opacity='0.55' stroke-width='1' stroke-dasharray='12 4'/%3E%3C/svg%3E");
+}
+
+/* The lattice as a frame: the span reaches `WATCH_FIELD.reach` past every card
+   edge, and the xor mask cuts the card's own footprint out of it, so the dots
+   shimmer around the card and never under its copy. The card paints over the
+   seam anyway — the mask is what keeps the dots from wastefully drawing there. */
+.onboarding-watch-field {
+  position: absolute;
+  inset: calc(-1 * var(--watch-reach)) calc(-1 * var(--watch-reach))
+    calc(-1 * var(--watch-reach-bottom));
+  padding: var(--watch-reach) var(--watch-reach) var(--watch-reach-bottom);
+  pointer-events: none;
+  -webkit-mask:
+    linear-gradient(oklch(0 0 0) 0 0) content-box,
+    linear-gradient(oklch(0 0 0) 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(oklch(0 0 0) 0 0) content-box exclude,
+    linear-gradient(oklch(0 0 0) 0 0);
+}
+
+/* The frame mask above cuts the card's footprint; this second mask, on the
+   canvas itself, dissolves the frame's bottom band the way the pane's own
+   bottom fade dissolves the preview — without it the lattice's brightest rows
+   stopped on a hard rectangle edge. The fade starts under the card's bottom
+   edge and spends the field's deeper bottom reach, so the band under the card
+   stays clearly lit before it trails off. Two elements because one element
+   cannot carry both masks. */
+.onboarding-watch-field canvas {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    oklch(0 0 0) calc(100% - var(--watch-reach-bottom)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    oklch(0 0 0) calc(100% - var(--watch-reach-bottom)),
+    transparent 100%
+  );
 }

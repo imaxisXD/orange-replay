@@ -19,14 +19,29 @@
  *                     switcher; blurring releases it.
  *   ACT 1  PROMISE    the camera pulls back to the whole
  *                     dashboard: empty, and yours to fill.
- *                     Held across install and while waiting.
- *   ACT 2  LIVE       the first event lands. The camera holds
- *                     and the frame lifts. Nothing else moves,
- *                     because nothing else can be said yet:
- *                     no session has finalised, so any number
- *                     the preview showed here would be a lie.
- *                     The lift is the whole payoff, and the
- *                     CTA takes it from there.
+ *                     Held across install and waiting. The
+ *                     camera stops moving; the preview changes
+ *                     page instead. On step two the tab row goes
+ *                     to Install and the page under it carries
+ *                     the product's own waiting state — the
+ *                     verify card that page really ships, spinner
+ *                     and all. That is where the wait is shown,
+ *                     and the only place it is: step two has no
+ *                     Continue to press, because there is nothing
+ *                     to confirm.
+ *   ACT 2  LIVE       the first event lands and step two hands
+ *                     over to step three by itself. The camera
+ *                     holds while the preview walks to Live in
+ *                     its real signal-watch state. The frame
+ *                     lifts, then the left pane waits on something
+ *                     stricter than "any live row": the Live query
+ *                     must return the exact session id stored when
+ *                     this Website first connected. Only then does
+ *                     the watch give way to "Live now" and one row.
+ *                     That payoff is held before the cut. If the
+ *                     session stays slow, the cut still runs at the
+ *                     cap and the real Live page continues with an
+ *                     explicit connecting state.
  *
  * ── BEATS ────────────────────────────────────────────────
  *
@@ -77,18 +92,51 @@
  *    loaded  stage 2 cross-fades skeleton → website icon
  *    400ms   the icon has cleared its final 2px reveal blur
  *
- * ACT 1 → PROMISE — install, and waiting on step 3
- *      0ms   camera rests wide and flush; nothing on the right
- *            moves, so the left pane carries the whole step
- *      0ms   signal pulses amber while the poll runs
+ * ACT 1 → PROMISE — the snippet, and the wait
+ *      0ms   camera rests wide and flush. It does not move again
+ *            until the flow ends: the push-in belongs to act 0,
+ *            and spending it twice would make neither land
+ *      0ms   step 2's heading lands in the left column
+ *    180ms   the preview answers it: the tab row travels
+ *            Overview → Install on the product's own notch spring
+ *            and the body cross-fades in, rising 6px. Under the
+ *            snippet card sits that page's real verify card, in
+ *            its real waiting state — the spinner and the words
+ *            the Install page itself uses. The form column says
+ *            what to do, this pane says what it is watching for
  *
- * ACT 2 → LIVE — the first event arrives
- *      0ms   signal turns green and the check strokes itself in
- *    180ms   the preview frame lifts 10px and its shadow deepens,
- *            held back so the eye is led left to right instead of
- *            being asked to watch two places at once
+ * THE WAIT — step 2, and it can last minutes
+ *  every 3s  the verify card rings once: a soft amber ripple
+ *            leaves the spinner and reaches 132px. It is fired by
+ *            the poll itself, not by a loop, so it means "I just
+ *            checked". The stillness between rings is the point —
+ *            a spinner that never stops stops being read
+ *
+ * ACT 2 → LIVE — the first event arrives, one subject per beat
+ *      0ms   step 2 hands over to step 3 on its own: the poll
+ *            that was running under the snippet saw the event, so
+ *            there is nothing left to confirm
+ *      0ms   the card already being watched answers first — the
+ *            verify card takes the Install page's real Installed
+ *            state, green dot and all. No page change, no camera
+ *            move, nothing to hunt for
+ *      0ms   on the left, the signal turns green and the check
+ *            strokes itself in
+ *    260ms   the frame lifts 10px and its shadow deepens
+ *    420ms   the tab row travels Install → Live and the page
+ *            arrives in its signal-watch state
  *    500ms   check finishes drawing
- *    800ms   frame settles at its lifted rest
+ *  session   Live opens the moment the live query returns the
+ *            exact session id stored by the Website activation
+ *            write. The preview fills, holds for 900ms, then the
+ *            frame grows over 560ms while the form column leaves
+ *            in 320ms. The route changes behind the full frame
+ *   4000ms   the cap. A slow or failing query must not strand
+ *            anyone on a finished screen, so the handoff goes
+ *            ahead and the real Live page says it is connecting.
+ *            The CTA is enabled throughout. Reduced motion keeps
+ *            the same exact-session-or-cap truth gate but skips
+ *            the payoff hold and cut delays
  * ───────────────────────────────────────────────────────── */
 
 /**
@@ -117,11 +165,109 @@ export const TIMING = {
   action: 220, // primary action lands last
   frame: 300, // form frame settles at the new step's height
   railTravel: 360, // rail reaches the next step
+  previewPage: 180, // preview's tab row answers the step it just entered
+  arrivalInstalled: 0, // the card being watched flips to Installed, first
+  arrivalLift: 260, // then the frame lifts under it
+  arrivalLive: 420, // then the tab row travels to Live in its watching state
   check: 500, // success check finishes drawing
   shake: 280, // transitions.dev error-state shake, matches onboarding.css
   websiteValidation: 1_000, // quiet window before an invalid typed URL is reported
 } as const;
 
+/**
+ * Which dashboard page the preview is parked on. The camera holds still through
+ * acts 1 and 2, so this — not a camera stop — is what the right pane says on
+ * steps two and three.
+ */
+export const PREVIEW_PAGE = { install: "install", live: "live", overview: "overview" } as const;
+
+export type OnboardingPreviewPage = (typeof PREVIEW_PAGE)[keyof typeof PREVIEW_PAGE];
+
+/**
+ * The page the preview is heading to. One value drives both the tab row and the
+ * body, for the same reason `ACT` is one integer: the steps are routes and
+ * cannot see each other, so anything derived per-step drifts.
+ *
+ * Step two is the Install page, and that page is where the waiting is shown —
+ * not because the snippet lives there, but because the real Install page's own
+ * verify card is already the product's "waiting for the first event" state. The
+ * event is what moves the preview to Live, and nothing else does.
+ */
+export function previewPage(stepIndex: number, isRecording: boolean): OnboardingPreviewPage {
+  if (isRecording || stepIndex >= 2) return PREVIEW_PAGE.live;
+  return stepIndex === 1 ? PREVIEW_PAGE.install : PREVIEW_PAGE.overview;
+}
+
+/* The preview's page change: the travelling tab notch, and the body under it.
+ *
+ * The notch itself has no spring here on purpose. It is the product's own
+ * `top-nav-notch` layout animation in `AppShell`, so the preview inherits
+ * whatever the real dashboard does; giving onboarding a second spring for the
+ * same control is how the preview would start drifting from the product.
+ *
+ * The body only cross-fades and rises. It does not clear a blur the way the
+ * left column's chunks do: those are text being read, this is a picture of a
+ * page, and blurring it reads as the camera losing focus. */
+export const PREVIEW_BODY = {
+  riseY: 6, // px the arriving page rises from
+  spring: { type: "spring" as const, duration: 0.38, bounce: 0 },
+} as const;
+
+/* The Live page filling, which is act 2's payoff inside the preview.
+ *
+ * The card carries two known heights — the signal watch, then the badge and one
+ * row — so it tweens on the same card-resize recipe step two's code card uses,
+ * for the same reason: framer-motion's `layout="size"` fakes the size with a
+ * transform and would squash whichever content is inside it mid-flight.
+ *
+ * Nothing here invents a visitor. The row appears only after the exact first
+ * session is present in Live, while its path, place and elapsed time remain
+ * placeholder bars. */
+export const PREVIEW_LIVE = {
+  watchHeight: 344, // px, the collage over its title, description and action
+  filledHeight: 108, // px, the "Live now" badge above one session row
+  rowRiseY: 8, // px the badge and row rise from as the watch leaves
+  spring: { type: "spring" as const, duration: 0.42, bounce: 0 },
+} as const;
+
+/* ── THE EXIT ─────────────────────────────────────────────
+ *
+ * The frame grows to fill the screen while the form column falls away, so the
+ * picture becomes the thing. The route changes behind a frame that already
+ * covers the viewport, which turns the swap from a page change into an arrival.
+ *
+ * The alternative that was built and compared against it — a line saying
+ * "Getting your dashboard ready" over an unmoved frame, then a plain route
+ * change — is gone. It was the safer of the two and it read as a caption on a
+ * picture you were about to leave, which is the opposite of what the last beat
+ * of this flow is for.
+ */
+
+/* The exit: the frame grows from its inset to cover the viewport.
+ *
+ * Scale and offset are measured at the moment it starts rather than derived
+ * from the stage's own numbers — the frame is sized in svh and percentages, so
+ * the only honest source is its own bounding box against the window.
+ *
+ * It runs long. A cut this size is the flow's last gesture and the thing it
+ * hands over to has to be ready underneath, so the route change waits for it. */
+export const PREVIEW_EXIT = {
+  /** ms the grow runs before the route changes under it. */
+  duration: 560,
+  /** The form column leaves first and faster: it is being handed over from. */
+  columnDuration: 320,
+  columnX: -16, // px it slides as it goes
+  ease: [0.22, 1, 0.36, 1] as const,
+} as const;
+
+/* The verify card's listening ripple during the wait, on the Install page.
+ *
+ * One ring per poll, fired by the request itself rather than by a loop. A
+ * spinner says "something is happening" for as long as it spins and means
+ * nothing after the first second; a ring every three seconds says "I just
+ * checked, and I will check again" — and the stillness between rings is what
+ * makes each one land. The duration is in `onboarding.css` with the keyframes;
+ * there is no JS timer to keep it in step with. */
 /** One integer drives the favicon's empty, loading, and revealed sequence. */
 export const FAVICON_STAGE = { empty: 0, loading: 1, revealed: 2 } as const;
 
@@ -308,6 +454,38 @@ export const SWITCHER_FIELD = {
   spring: { type: "spring" as const, duration: 0.32, bounce: 0 },
 } as const;
 
+/**
+ * The lattice around the verify card while step two waits — act 1's highlight
+ * vocabulary (see `SWITCHER_FIELD`, whose tuning notes explain `intensity` and
+ * `pulse`; those are shared so the two moments read as one signal). The
+ * geometry differs: this field is a frame, reaching `reach` px past every card
+ * edge with the card's own footprint masked out, so the dots surround the card
+ * instead of lying under its copy. `fadePerRow` is a fifth of the switcher's:
+ * the fade has to survive the full card height to reach the top edge, not just
+ * a 56px halo, and the slight bottom-heavy falloff it keeps reads as the card
+ * being lit from below.
+ */
+export const WATCH_FIELD = {
+  reach: 22,
+  /**
+   * Deeper below the card than beside it: the bottom band carries the fade
+   * that dissolves the frame into the canvas, and at the shared 22px the
+   * dissolve consumed the band — the dots under the card were gone before
+   * they read as lit. The fade begins at the card's bottom edge and spends
+   * exactly this reach.
+   */
+  reachBottom: 52,
+  fadePerRow: 0.02,
+  /**
+   * Half again the switcher's 2.2. That value was tuned for a lattice sitting
+   * directly under an amber-ringed control; this one carries the highlight
+   * alone — no glow — and loses its lower rows to the bottom-fade mask, so at
+   * 2.2 it read as background texture rather than a signal.
+   */
+  intensity: 3.4,
+  pulse: SWITCHER_FIELD.pulse,
+} as const;
+
 /* The preview frame itself. Act 2's only move: a lift, because the frame is the
  * one thing on the right that can change without asserting something untrue.
  *
@@ -319,11 +497,13 @@ export const PREVIEW_FRAME = {
   restY: 0, // px, the frame sits where its inset puts it
   liveY: -10, // px, lifted once the recorder is connected
   /**
-   * s. The lift waits for the check to start drawing on the left, because two
-   * moves running at once in two places give the eye nothing to follow. This
-   * leads it left to right: the fact lands, then the dashboard responds to it.
+   * s. Second beat of the staged arrival, not the first. The card the visitor is
+   * already watching answers before anything moves — see `TIMING.arrival*` — and
+   * only then does the frame respond. Three facts (it worked, you are live,
+   * taking you there) used to land in one frame, which meant none of them was
+   * read.
    */
-  liveDelay: 0.18,
+  liveDelay: TIMING.arrivalLift / 1_000,
   spring: { type: "spring" as const, duration: 0.62, bounce: 0 },
 } as const;
 
@@ -349,7 +529,31 @@ export function cameraStop(isNaming: boolean): { scale: number; x: number; y: nu
 export const VERIFY = {
   checkBlur: 8, // px the check clears as it appears
   checkSpring: { type: "spring" as const, duration: TIMING.check / 1_000, bounce: 0 },
-  dashboardDelay: 900, // ms to read the connected state before opening Overview
+  /**
+   * ms before the handoff goes ahead regardless. This replaced a flat 900ms
+   * hold, which was a number chosen to feel right and nothing more.
+   *
+   * The screen now waits on something real: the live query returning the session
+   * the first event started, so the Live page it opens has that session on it
+   * rather than an empty list a second before the poll catches up. This is only
+   * the ceiling on that wait — a slow, empty or failing query must not strand
+   * anyone on a screen that has finished saying what it had to say.
+   */
+  handoffCap: 4_000,
+  /**
+   * ms between live-query attempts while waiting for that session to surface.
+   * Faster than the page's own 5s poll, because this is a handoff someone is
+   * watching, not a background refresh.
+   */
+  handoffPoll: 700,
+  /**
+   * ms the preview's filled Live card is held before the cut starts. The card
+   * flipping to "Live now" is the flow's payoff, and it lands at an unplanned
+   * moment — whenever the poll returns — so without a floor the cut could start
+   * on the same frame and the one thing the whole wait was for would never be
+   * read. The button skips this along with everything else.
+   */
+  payoffHold: 900,
   strokeSpring: { type: "spring" as const, duration: 0.42, bounce: 0 },
 } as const;
 
