@@ -35,6 +35,8 @@ vp run auth:promote-admin -- --email you@example.com --local
 
 Better Auth is the only private dashboard sign-in path. If any required Better Auth or GitHub value is missing, private account and project routes fail closed and the login page explains that sign-in is unavailable. The anonymous read-only `/demo` route keeps working when its own demo values are configured.
 
+When the signed-in user belongs to the configured demo project, private project routes use that session membership. Demo-readable routes keep their anonymous read-only behavior, including for signed-in visitors.
+
 ## Account and key boundary
 
 ```text

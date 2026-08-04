@@ -17,6 +17,7 @@ import {
 } from "./auth.ts";
 import {
   matchDashboardRequest,
+  projectRouteAccess,
   type AuthedPlan,
   type DashboardRequestPlan,
   type KeyIds,
@@ -130,16 +131,18 @@ async function handleAuthedRequest(
   executors: DashboardExecutors,
 ): Promise<Response> {
   const { request, env, ctx, wideEvent } = rctx;
-  const auth = await checkAuth(request, env, plan.projectIdForAuth, ctx);
+  const route = plan.route;
+  const preferSignedInAccess =
+    route.access === "project" && !projectRouteAccess(route.route).demoReadable;
+  const auth = await checkAuth(request, env, plan.projectIdForAuth, ctx, {
+    preferSignedInAccess,
+  });
   if (!auth.ok) return jsonError(auth.error, auth.status);
   wideEvent.set({ auth_mode: auth.mode });
   if (auth.mode === "demo" && !(await demoRateLimitAllows(env, request))) {
     wideEvent.set({ rate_limit: "demo" });
     return jsonError("rate_limited", 429);
   }
-
-  const route = plan.route;
-
   if (route.access === "authenticated") {
     return finalDashboardRouteError(auth);
   }

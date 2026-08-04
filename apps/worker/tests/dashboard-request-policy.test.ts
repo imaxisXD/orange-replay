@@ -473,6 +473,26 @@ describe("dashboard request plans", () => {
 });
 
 describe("dashboard request policy handler order", () => {
+  it("prefers signed-in access only for project routes the demo cannot read", async () => {
+    await apiRequest("/api/v1/projects/project_1/sessions");
+    expect(mocks.checkAuth).toHaveBeenLastCalledWith(
+      expect.any(Request),
+      testEnv,
+      "project_1",
+      executionContext,
+      { preferSignedInAccess: false },
+    );
+
+    await apiRequest("/api/v1/projects/project_1/install-status");
+    expect(mocks.checkAuth).toHaveBeenLastCalledWith(
+      expect.any(Request),
+      testEnv,
+      "project_1",
+      executionContext,
+      { preferSignedInAccess: true },
+    );
+  });
+
   it("requires a signed-in session and trusted origin before creating a project", async () => {
     const created = await apiRequest("/api/v1/projects", { method: "POST", body: "{}" });
     expect(created.status).toBe(201);

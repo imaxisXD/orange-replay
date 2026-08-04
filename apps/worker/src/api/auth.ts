@@ -29,6 +29,10 @@ export type ApiAuthContext = DemoAuthContext | SessionAuthContext;
 
 export type ApiRouteName = DashboardProjectRouteName;
 
+interface CheckAuthOptions {
+  preferSignedInAccess?: boolean;
+}
+
 interface ProjectMembershipRow {
   [key: string]: unknown;
   project_id: string;
@@ -54,6 +58,7 @@ export async function checkAuth(
   env: Env,
   routeProjectId: string | null,
   executionContext?: ExecutionContext,
+  options: CheckAuthOptions = {},
 ): Promise<ApiAuthContext | { ok: false; status: 401 | 503; error: string }> {
   const header = request.headers.get("authorization");
   const authMode = getAuthMode(env);
@@ -65,16 +70,23 @@ export async function checkAuth(
   }
 
   const demo = readDemoConfig(env);
-  if (demo !== null && routeProjectId === demo.projectId) {
+  const matchesDemoProject = demo !== null && routeProjectId === demo.projectId;
+  if (matchesDemoProject && !options.preferSignedInAccess) {
     return { ok: true, projects: new Set([demo.projectId]), mode: "demo" };
   }
 
   if (authMode === "unavailable") {
+    if (matchesDemoProject) {
+      return { ok: true, projects: new Set([demo.projectId]), mode: "demo" };
+    }
     return { ok: false, status: 503, error: "auth_not_configured" };
   }
 
   const hostedSession = await getHostedSession(request, env, executionContext);
   if (hostedSession === null || hostedSession.user.banned) {
+    if (matchesDemoProject) {
+      return { ok: true, projects: new Set([demo.projectId]), mode: "demo" };
+    }
     return { ok: false, status: 401, error: "unauthorized" };
   }
 

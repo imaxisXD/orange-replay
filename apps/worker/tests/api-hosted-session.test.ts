@@ -58,6 +58,58 @@ describe("hosted session project lookup", () => {
     expect(auth).toEqual({ ok: false, status: 401, error: "unauthorized" });
     expect(authMocks.getHostedSession).not.toHaveBeenCalled();
   });
+
+  it("keeps public demo reads anonymous even when a session cookie is present", async () => {
+    const env = hostedEnv({} as TestDatabase, true);
+    const auth = await checkAuth(
+      new Request("https://replay.example/api/v1/projects/project_demo/sessions", {
+        headers: { cookie: "orange-replay.session_token=test" },
+      }),
+      env,
+      "project_demo",
+    );
+
+    expect(auth).toEqual({ ok: true, projects: new Set(["project_demo"]), mode: "demo" });
+    expect(authMocks.getHostedSession).not.toHaveBeenCalled();
+  });
+
+  it("uses a signed-in membership before demo access for private project routes", async () => {
+    const all = vi.fn(async () => ({
+      results: [{ project_id: "project_demo", role: "owner" }],
+      success: true,
+      meta: {},
+    }));
+    const bind = vi.fn(() => ({ all }));
+    const prepare = vi.fn(() => ({ bind }));
+    const env = hostedEnv({ prepare } as TestDatabase, true);
+
+    const auth = await checkAuth(
+      new Request("https://replay.example/api/v1/projects/project_demo/install-status", {
+        headers: { cookie: "orange-replay.session_token=test" },
+      }),
+      env,
+      "project_demo",
+      undefined,
+      { preferSignedInAccess: true },
+    );
+
+    expect(auth).toMatchObject({ ok: true, mode: "session" });
+    if (!auth.ok || auth.mode !== "session") return;
+    expect(auth.projects).toEqual(new Set(["project_demo"]));
+  });
+
+  it("falls back to anonymous demo access when a private request has no session", async () => {
+    authMocks.getHostedSession.mockResolvedValueOnce(null);
+    const auth = await checkAuth(
+      new Request("https://replay.example/api/v1/projects/project_demo/install-status"),
+      hostedEnv({} as TestDatabase, true),
+      "project_demo",
+      undefined,
+      { preferSignedInAccess: true },
+    );
+
+    expect(auth).toEqual({ ok: true, projects: new Set(["project_demo"]), mode: "demo" });
+  });
 });
 
 function hostedSession(): HostedSession {
@@ -83,8 +135,8 @@ function hostedSession(): HostedSession {
   };
 }
 
-function hostedEnv(database: TestDatabase): Env {
-  return {
+function hostedEnv(database: TestDatabase, withDemo = false): Env {
+  const env = {
     IDX_00: database,
     WORKER_ENV: "production",
     BETTER_AUTH_URL: "https://replay.example",
@@ -93,4 +145,11 @@ function hostedEnv(database: TestDatabase): Env {
     GITHUB_CLIENT_ID: "github-client-id",
     GITHUB_CLIENT_SECRET: "github-client-secret",
   } as Env;
+
+  if (withDemo) {
+    env.DEMO_PROJECT_ID = "project_demo";
+    env.DEMO_RECORDER_KEY = "or_recorder_test_demo_key";
+  }
+
+  return env;
 }
