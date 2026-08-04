@@ -1,5 +1,6 @@
 import {
   encodeSessionFilter,
+  finalizedProjectStatsSchema,
   startWideEvent,
   withDefaultAnalyticsDateRange,
   type AnalyticsState,
@@ -351,10 +352,13 @@ async function readR2Stats(input: {
     cacheRequests.current,
     snapshot.version,
   );
-  let finalized = currentCache?.value ?? null;
-  let responseWarehouseVersion = currentCache?.warehouseVersion ?? snapshot.version;
+  // Both cache reads validate like the session-page path: an entry written by
+  // an older FinalizedProjectStats shape reads as a miss, never as a response.
+  let finalized = currentCache === null ? null : safeCachedStats(currentCache.value);
+  let responseWarehouseVersion =
+    finalized === null || currentCache === null ? snapshot.version : currentCache.warehouseVersion;
   let analyticsState: "fresh" | "stale" = "fresh";
-  const cacheHit = currentCache !== null;
+  const cacheHit = finalized !== null;
   wideEvent.set({
     cache_hit: cacheHit,
     analytics_cache_state: cacheHit ? "current" : "miss",
@@ -381,8 +385,9 @@ async function readR2Stats(input: {
     if (!(error instanceof AnalyticsReadError)) throw error;
 
     const lastGood = await readAnalyticsCache<FinalizedProjectStats>(cacheRequests.lastGood);
-    if (lastGood === null) return analyticsUnavailable();
-    finalized = lastGood.value;
+    const lastGoodStats = lastGood === null ? null : safeCachedStats(lastGood.value);
+    if (lastGood === null || lastGoodStats === null) return analyticsUnavailable();
+    finalized = lastGoodStats;
     responseWarehouseVersion = lastGood.warehouseVersion;
     analyticsState = "stale";
     wideEvent.set({
@@ -651,6 +656,11 @@ function successfulRead<Value>(
 
 function analyticsUnavailable(): FinalizedAnalyticsRead<never> {
   return { ok: false, error: "analytics_unavailable", status: 503 };
+}
+
+function safeCachedStats(value: unknown): FinalizedProjectStats | null {
+  const parsed = finalizedProjectStatsSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
 }
 
 function safeCachedPage(value: unknown, projectId: string): value is FinalizedSessionPage {

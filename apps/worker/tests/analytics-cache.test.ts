@@ -301,6 +301,63 @@ describe("analytics last-good cache", () => {
     expect(await afterDeletion.json()).toEqual({ error: "analytics_unavailable" });
   });
 
+  it("treats malformed cached stats as a miss, never as a response", async () => {
+    const cache = installCache();
+    const state = warehouseState();
+    const env = warehouseEnv(state);
+    const ctx = testContext();
+    let r2IsDown = false;
+    const r2Fetch = vi.fn(async () => {
+      if (r2IsDown) throw new Error("R2 SQL is unavailable");
+      return r2SqlResponse([statsRow("project_1")]);
+    });
+    vi.stubGlobal("fetch", r2Fetch);
+    const statsUrl = new URL("https://replay.test/api/v1/projects/project_1/stats");
+    const readStats = (requestId: string) =>
+      getProjectStats(
+        statsUrl,
+        env,
+        ctx.value,
+        "project_1",
+        requestId,
+        startWideEvent("test", "stats"),
+      );
+    const corruptSavedEntries = () => {
+      for (const url of cache.saved.keys()) {
+        cache.saved.set(
+          url,
+          Response.json({ cacheFormat: 1, warehouseVersion: 12, value: { sessions: 4 } }),
+        );
+      }
+    };
+
+    const fresh = await readStats("request_seed");
+    expect(fresh.status).toBe(200);
+    await ctx.finish();
+    expect(r2Fetch).toHaveBeenCalledTimes(1);
+
+    // An entry written by an older stats shape is a miss: the read goes back
+    // to the warehouse instead of serving the unvalidated body.
+    corruptSavedEntries();
+    const revalidated = await readStats("request_revalidated");
+    expect(revalidated.status).toBe(200);
+    expect(projectStatsResponseSchema.parse(await revalidated.json())).toMatchObject({
+      analyticsState: "fresh",
+      warehouseVersion: 12,
+      sessions: { value: 5 },
+    });
+    expect(r2Fetch).toHaveBeenCalledTimes(2);
+    await ctx.finish();
+
+    // With the warehouse down too, a malformed last-good is unavailable, not
+    // a stale response.
+    corruptSavedEntries();
+    r2IsDown = true;
+    const unavailable = await readStats("request_unavailable");
+    expect(unavailable.status).toBe(503);
+    expect(await unavailable.json()).toEqual({ error: "analytics_unavailable" });
+  });
+
   it("uses prior unpinned session pages but isolates pins, deletion, privacy, and project", async () => {
     const cache = installCache();
     vi.spyOn(Date, "now").mockReturnValue(100_001_000);
