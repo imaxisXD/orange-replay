@@ -178,6 +178,9 @@ describe("SessionRecorder Durable Object", () => {
     const finalizedDebug = await readDebug(projectId, sessionId);
     expect(finalizedDebug.finalized).toBe(true);
     expect(finalizedDebug.tombstonePurgeAt).toBeGreaterThan(Date.now() + 86_400_000);
+    // The purge is the pending alarm, and it went through the gate: the
+    // stored alarm must match the tombstone exactly.
+    expect(finalizedDebug.alarmAt).toBe(finalizedDebug.tombstonePurgeAt);
 
     const lateResult = await append({
       projectId,

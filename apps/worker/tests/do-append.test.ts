@@ -110,6 +110,7 @@ describe("SessionRecorder Durable Object", () => {
       pendingBatches: 3,
       segmentCount: 0,
       stateBytes: expect.any(Number),
+      alarmAt: expect.any(Number),
     });
   });
 

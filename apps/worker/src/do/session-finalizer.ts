@@ -21,6 +21,8 @@ import {
   manifestHasCheckpoint,
   sessionServerBounds,
 } from "./session-manifest.ts";
+import type { SessionAlarms } from "./session-alarms.ts";
+import { requireFinalizingAt } from "./session-lifecycle.ts";
 import { rebuildFinalPageAnalytics } from "./session-page-tracking.ts";
 import type { FinalizedTombstone, SessionRecorderStore } from "./session-recorder-store.ts";
 import type { SessionSegmentWriter } from "./session-segment-writer.ts";
@@ -62,7 +64,7 @@ export interface SessionFinalizerDependencies {
   ) => Promise<string | undefined>;
   finalizeViewers: (manifest: SessionManifest) => void;
   rememberTombstone: (tombstone: FinalizedTombstone) => void;
-  scheduleTombstonePurge: (purgeAt: number) => Promise<void>;
+  alarms: Pick<SessionAlarms, "schedulePurge">;
 }
 
 export function createSessionFinalizeMetrics(): SessionFinalizeMetrics {
@@ -228,7 +230,7 @@ export class SessionFinalizer {
       state.projectId,
       state.sessionId,
       state.firstRequestId,
-      state.finalizingAt ?? Date.now(),
+      requireFinalizingAt(state),
     );
 
     if (sidecarKey !== undefined) {
@@ -252,7 +254,7 @@ export class SessionFinalizer {
     };
     this.dependencies.store.replaceStateWithTombstone(tombstone);
     this.dependencies.rememberTombstone(tombstone);
-    await this.dependencies.scheduleTombstonePurge(purgeAt);
+    await this.dependencies.alarms.schedulePurge(purgeAt);
   }
 
   private async readExistingManifest(

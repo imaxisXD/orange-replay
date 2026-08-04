@@ -17,6 +17,7 @@ describe("session final handoff", () => {
     let queueStarted = false;
     let handoffCount = 0;
     let tombstoneWritten = false;
+    let scheduledPurgeAt: number | undefined;
     let queuedMessage: FinalizeMessage | undefined;
     const heldQueue = new Promise<void>((resolve) => {
       releaseQueue = resolve;
@@ -84,7 +85,11 @@ describe("session final handoff", () => {
         handoffCount += 1;
       },
       rememberTombstone: () => undefined,
-      scheduleTombstonePurge: async () => undefined,
+      alarms: {
+        schedulePurge: async (purgeAt: number) => {
+          scheduledPurgeAt = purgeAt;
+        },
+      },
     } as unknown as SessionFinalizerDependencies;
     const finalizer = new SessionFinalizer(dependencies);
 
@@ -101,6 +106,7 @@ describe("session final handoff", () => {
     await completion;
     expect(handoffCount).toBe(2);
     expect(tombstoneWritten).toBe(true);
+    expect(scheduledPurgeAt).toBeGreaterThan(Date.now());
     expect(queuedMessage?.attrs).toMatchObject({ entryUrl: "/a", urlCount: 3, pageCount: 3 });
     expect(queuedMessage?.insights?.quickBacks).toBe(1);
     expect(queuedMessage?.bytes).toBe(0);
@@ -151,7 +157,7 @@ describe("session final handoff", () => {
       markPresenceFinalizing: async () => undefined,
       finalizeViewers: () => undefined,
       rememberTombstone: () => undefined,
-      scheduleTombstonePurge: async () => undefined,
+      alarms: { schedulePurge: async () => undefined },
     } as unknown as SessionFinalizerDependencies;
 
     await new SessionFinalizer(dependencies).finalize(createSessionFinalizeMetrics());
@@ -194,7 +200,7 @@ describe("session final handoff", () => {
       markPresenceFinalizing: async () => undefined,
       finalizeViewers: () => undefined,
       rememberTombstone: () => undefined,
-      scheduleTombstonePurge: async () => undefined,
+      alarms: { schedulePurge: async () => undefined },
     } as unknown as SessionFinalizerDependencies;
 
     await new SessionFinalizer(dependencies).finalize(createSessionFinalizeMetrics());
@@ -270,7 +276,7 @@ describe("session final handoff", () => {
       markPresenceFinalizing: async () => undefined,
       finalizeViewers: () => undefined,
       rememberTombstone: () => undefined,
-      scheduleTombstonePurge: async () => undefined,
+      alarms: { schedulePurge: async () => undefined },
     } as unknown as SessionFinalizerDependencies;
 
     await new SessionFinalizer(dependencies).finalize(createSessionFinalizeMetrics());
@@ -338,7 +344,7 @@ describe("session final handoff", () => {
       markPresenceFinalizing: async () => undefined,
       finalizeViewers: () => undefined,
       rememberTombstone: () => undefined,
-      scheduleTombstonePurge: async () => undefined,
+      alarms: { schedulePurge: async () => undefined },
     } as unknown as SessionFinalizerDependencies;
 
     await new SessionFinalizer(dependencies).finalize(createSessionFinalizeMetrics());
@@ -348,6 +354,43 @@ describe("session final handoff", () => {
     expect(queuedMessage?.analyticsVersion).toBe(0);
     expect(queuedMessage?.analyticsSidecarKey).toBeUndefined();
     expect(writtenKeys).toEqual([queuedMessage?.manifestKey]);
+  });
+
+  it("fails loudly when finalize runs without the finalizing transition", async () => {
+    const state = finalizingState();
+    delete state.finalizingAt;
+    const dependencies = {
+      recordings: {
+        get: async () => null,
+        put: async () => ({ etag: "written" }),
+        head: async () => ({ etag: "sidecar-exists" }),
+      },
+      finalizeQueue: {
+        send: async () => undefined,
+      },
+      store: {
+        finalPageBatches: () => [],
+        segmentRowsForManifest: () => [],
+        storedEventRows: () => [],
+        replaceStateWithTombstone: () => undefined,
+      },
+      segmentWriter: {
+        assertRecordingMatches: async () => undefined,
+        assertRecordingStreamMatches: async () => undefined,
+      },
+      getSessionState: () => state,
+      flushPendingBatches: async () => undefined,
+      acceptedUsageReservationsEnabled: false,
+      reserveAcceptedUsage: async () => undefined,
+      markPresenceFinalizing: async () => undefined,
+      finalizeViewers: () => undefined,
+      rememberTombstone: () => undefined,
+      alarms: { schedulePurge: async () => undefined },
+    } as unknown as SessionFinalizerDependencies;
+
+    await expect(
+      new SessionFinalizer(dependencies).finalize(createSessionFinalizeMetrics()),
+    ).rejects.toThrow("never began finalizing");
   });
 
   it("rejects a late live viewer after finalizing starts", async () => {

@@ -23,6 +23,14 @@ Load-bearing terms in this codebase. Architecture authority: ARCHITECTURE.md.
   remains; the tombstone wins over any lingering state. `beginFinalizing` is the single
   idempotent transition. The append gate, alarm, live hub, and the ack's `closed` flag all
   consume this module; the SDK reacts to `ack.closed` and never re-derives the state.
+- **Alarm schedule** — the one owner of a session Durable Object's alarm, in
+  `apps/worker/src/do/session-alarms.ts`. Every billed `storage.setAlarm` write goes through
+  its gate (`shouldSetAlarm` stays pure in `session-timing.ts`; the module is its only caller)
+  and the in-memory mirror of the pending alarm lives inside it — no caller maintains the
+  mirror by hand or reaches storage around the gate. Session alarms (`schedule`) keep a useful
+  pending alarm; the tombstone purge (`schedulePurge`) replaces whatever is pending, because
+  finalizing makes prior alarms stale and a stale wake-up bills for nothing. The finalizer
+  consumes the module through a `Pick`, which is what lets tests hand it an in-memory fake.
 - **Pipeline** — the fixed dashboard request ordering the handler owns: authenticate → demo
   limit → access (path ids, role matrix, session auth) → analytics limit → mutation origin →
   execute → response policy. Precedence quirks are contract: auth errors before

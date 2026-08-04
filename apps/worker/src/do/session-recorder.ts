@@ -25,11 +25,11 @@ import {
 } from "./session-lifecycle.ts";
 import { clampIndexForStorage, shouldDropForSessionCap } from "./session-budgets.ts";
 import { createFreshState, encodedTextBytes, updateStateWithBatch } from "./session-state.ts";
+import { SessionAlarms } from "./session-alarms.ts";
 import {
   decideSegmentFlush,
   nextAlarmAfterAlarm,
   resolveSessionTiming,
-  shouldSetAlarm,
   sdkFlushMs,
   trackAppendRateLimit,
 } from "./session-timing.ts";
@@ -57,6 +57,7 @@ interface DebugState {
   pendingBatches: number;
   segmentCount: number;
   stateBytes: number;
+  alarmAt: number | null;
   firstRequestId?: string;
   websiteIds?: string[];
   tombstonePurgeAt?: number;
@@ -69,9 +70,9 @@ export class SessionRecorder extends DurableObject<Env> {
   private readonly segmentWriter: SessionSegmentWriter;
   private readonly liveHub: SessionLiveHub;
   private readonly finalizer: SessionFinalizer;
+  private readonly alarms: SessionAlarms;
   private sessionState: SessionState | null = null;
   private finalizedTombstone: FinalizedTombstone | null = null;
-  private alarmAt: number | null = null;
   private activeFlush: Promise<SegmentFlushResult | null> | null = null;
   private activeFinalize: Promise<void> | null = null;
   private readonly appendRateLimit: AppendRateLimitState = { windowStartedAt: 0, count: 0 };
@@ -81,6 +82,7 @@ export class SessionRecorder extends DurableObject<Env> {
     super(ctx, env);
     setWorkerLoggerVersion(env);
     this.store = new SessionRecorderStore(ctx.storage.sql);
+    this.alarms = new SessionAlarms(ctx.storage);
     this.segmentWriter = new SessionSegmentWriter(this.store, env.RECORDINGS);
     this.liveHub = new SessionLiveHub({
       ctx,
@@ -111,10 +113,7 @@ export class SessionRecorder extends DurableObject<Env> {
         this.sessionState = null;
         this.finalizedTombstone = tombstone;
       },
-      scheduleTombstonePurge: async (purgeAt) => {
-        await ctx.storage.setAlarm(purgeAt);
-        this.alarmAt = purgeAt;
-      },
+      alarms: this.alarms,
     });
     void ctx.blockConcurrencyWhile(async () => {
       if (this.store.hasSchema()) {
@@ -124,7 +123,7 @@ export class SessionRecorder extends DurableObject<Env> {
         this.sessionState = stored.state;
         this.finalizedTombstone = stored.tombstone;
       }
-      this.alarmAt = await ctx.storage.getAlarm();
+      await this.alarms.load();
       if (this.sessionState !== null && this.finalizedTombstone === null) {
         const timing = resolveSessionTiming(devTestRoutesFlag(this.env), this.env.TEST_TIMINGS);
         const desiredAt = nextAlarmAfterAlarm({
@@ -132,7 +131,7 @@ export class SessionRecorder extends DurableObject<Env> {
           pendingBatches: this.store.pendingBatchCount(),
           timing,
         });
-        await this.setAlarmIfUseful(desiredAt, timing.flushTailMs);
+        await this.alarms.schedule(desiredAt, timing.flushTailMs);
       }
     });
   }
@@ -419,6 +418,8 @@ export class SessionRecorder extends DurableObject<Env> {
       segmentCount:
         this.sessionState?.segmentCount ?? (this.schemaReady ? this.store.segmentRows().length : 0),
       stateBytes,
+      // Storage is the ground truth so tests catch a drifting mirror.
+      alarmAt: await this.ctx.storage.getAlarm(),
       firstRequestId: this.sessionState?.firstRequestId ?? this.finalizedTombstone?.firstRequestId,
       ...(this.sessionState?.websiteIds === undefined
         ? {}
@@ -479,7 +480,7 @@ export class SessionRecorder extends DurableObject<Env> {
     let sessionId = this.sessionState?.sessionId ?? this.finalizedTombstone?.sessionId;
 
     try {
-      this.alarmAt = null;
+      this.alarms.onAlarmFired();
       const lifecycle = this.lifecycle();
       if (lifecycle.status === "finalized") {
         const purgeAt = lifecycle.tombstone.purgeAt;
@@ -488,12 +489,11 @@ export class SessionRecorder extends DurableObject<Env> {
           await this.ctx.storage.deleteAll();
           this.sessionState = null;
           this.finalizedTombstone = null;
-          this.alarmAt = null;
           this.schemaReady = false;
           return;
         }
 
-        await this.setAlarmIfUseful(purgeAt, timing.flushTailMs);
+        await this.alarms.schedulePurge(purgeAt);
         return;
       }
 
@@ -543,7 +543,7 @@ export class SessionRecorder extends DurableObject<Env> {
           pendingBatches: this.store.pendingBatchCount(),
           timing,
         });
-        await this.setAlarmIfUseful(desiredAt, timing.flushTailMs);
+        await this.alarms.schedule(desiredAt, timing.flushTailMs);
       }
     } catch (err) {
       event.fail(err);
@@ -642,21 +642,13 @@ export class SessionRecorder extends DurableObject<Env> {
     return await this.segmentWriter.flushSegment(state, reason);
   }
 
-  private async setAlarmIfUseful(desiredAt: number, flushTailMs: number): Promise<void> {
-    const now = Date.now();
-    if (shouldSetAlarm({ alarmAt: this.alarmAt, now, desiredAt, flushTailMs })) {
-      await this.ctx.storage.setAlarm(desiredAt);
-      this.alarmAt = desiredAt;
-    }
-  }
-
   private async ensureAcceptedUsageAndAlarm(
     state: SessionState,
     flushTailMs: number,
     verifyStoredBytes = false,
   ): Promise<void> {
     const operations: Promise<unknown>[] = [
-      this.setAlarmIfUseful(state.lastActivity + flushTailMs, flushTailMs),
+      this.alarms.schedule(state.lastActivity + flushTailMs, flushTailMs),
     ];
     if (acceptedUsageReservationsEnabled(this.env)) {
       operations.push(this.reserveCurrentAcceptedUsage(state, "append", verifyStoredBytes));

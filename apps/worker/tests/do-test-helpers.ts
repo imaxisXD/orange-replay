@@ -60,6 +60,7 @@ export interface DebugBody {
   pendingBatches: number;
   segmentCount: number;
   stateBytes: number;
+  alarmAt: number | null;
   tombstonePurgeAt?: number;
 }
 

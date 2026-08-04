@@ -56,3 +56,15 @@ export function beginFinalizing(
   }
   return state.finalizingAt;
 }
+
+/**
+ * The finalizingAt that beginFinalizing persisted. Finalization only runs
+ * after that transition, so a missing value is a broken invariant and must
+ * fail loudly instead of minting a substitute timestamp.
+ */
+export function requireFinalizingAt(state: SessionState): number {
+  if (state.finalizingAt === undefined) {
+    throw new Error("finalize ran on a session that never began finalizing");
+  }
+  return state.finalizingAt;
+}
