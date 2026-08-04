@@ -23,6 +23,10 @@ import { describe, expect, it } from "vite-plus/test";
 // URLs, so the URL form throws ERR_INVALID_URL_SCHEME inside `readFileSync`.
 const testDir = dirname(fileURLToPath(import.meta.url));
 const shellSource = readFileSync(join(testDir, "../src/routes/app-shell.tsx"), "utf8");
+const onboardingShellSource = readFileSync(
+  join(testDir, "../src/routes/onboarding/onboarding-shell.tsx"),
+  "utf8",
+);
 const onboardingCss = readFileSync(
   join(testDir, "../src/routes/onboarding/onboarding.css"),
   "utf8",
@@ -58,5 +62,17 @@ describe("the activation camera's highlight stays attached to the shell", () => 
 
   it("still drives the rule from the preview's camera attribute", () => {
     expect(previewSource).toContain('data-camera={isNamingProject ? "project" : "overview"}');
+  });
+});
+
+describe("the onboarding steps stay aligned with the dashboard preview", () => {
+  it("anchors the shared desktop step frame to the dashboard header line", () => {
+    // This wrapper owns every route's progress rail and Outlet, so one anchor
+    // keeps Website, Install and Verify on the same line. The preview begins at
+    // 17.6svh and its real AppShell header content lands at about 20svh.
+    expect(onboardingShellSource).toContain("top-[20svh]");
+    expect(onboardingShellSource).toContain("max-lg:top-[19svh]");
+    expect(onboardingShellSource).not.toContain("top-[27.2svh]");
+    expect(previewSource).toContain("top-[17.6svh]");
   });
 });

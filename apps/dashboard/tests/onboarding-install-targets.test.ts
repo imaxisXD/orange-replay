@@ -4,6 +4,8 @@ import { HtmlFile, TypescriptFile } from "../src/lib/icon-map";
 import {
   DEFAULT_INSTALL_TARGET,
   INSTALL_TARGETS,
+  buildAgentInstallPrompt,
+  buildAgentPromptSummary,
   buildInstallPreviewSummary,
   buildInstallSnippet,
   buildInstallSummary,
@@ -90,8 +92,46 @@ describe("install targets", () => {
     expect(snippet).toContain("a\\`b\\${c}d\\\\e");
   });
 
+  it("builds a coding-agent prompt around the real script tag", () => {
+    for (const target of INSTALL_TARGETS) {
+      const prompt = buildAgentInstallPrompt(target.id, loader);
+
+      expect(prompt).toContain("Install Orange Replay in this codebase.");
+      expect(prompt).toContain(`selected setup is ${target.label}`);
+      expect(prompt).toContain(`Suggested file: ${target.site}`);
+      expect(prompt).toContain(target.instruction);
+      expect(prompt).toContain(loader.tag);
+      expect(prompt).toContain("Do not change unrelated files.");
+      expect(prompt).toContain("appears once in the rendered page");
+      expect(prompt).toContain("Do not repeat the recorder key in your reply.");
+      expect(prompt, `${target.id} uses an em dash`).not.toContain("—");
+    }
+  });
+
+  it("gives a Next.js agent both the source tag and framework-safe code", () => {
+    const prompt = buildAgentInstallPrompt("next", loader);
+
+    expect(prompt).toContain("Use this exact script tag:");
+    expect(prompt).toContain(loader.tag);
+    expect(prompt).toContain('import Script from "next/script"');
+    expect(prompt).toContain('strategy="beforeInteractive"');
+  });
+
+  it("previews the agent request without exposing its recorder key", () => {
+    for (const target of INSTALL_TARGETS) {
+      const summary = buildAgentPromptSummary(target.id);
+
+      expect(summary).toContain("Install Orange Replay in this codebase.");
+      expect(summary).toContain(`Stack: ${target.label}`);
+      expect(summary).toContain(target.site.replaceAll("`", ""));
+      expect(summary).toContain("Script tag and exact steps included.");
+      expect(summary).not.toContain(loaderConfig.init.key);
+    }
+  });
+
   it("builds nothing before the key exists", () => {
     expect(buildInstallSnippet("react", { body: "", tag: "" })).toBe("");
+    expect(buildAgentInstallPrompt("react", { body: "", tag: "" })).toBe("");
     expect(buildInstallSummary("react", 0)).toContain("Your loader tag appears here.");
   });
 

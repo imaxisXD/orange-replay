@@ -14,11 +14,6 @@ export function onboardingStepIndex(pathname: string): number {
   return index === -1 ? 0 : index;
 }
 
-/** Fraction of the flow completed once a step is on screen. */
-export function onboardingProgress(stepIndex: number): number {
-  return (stepIndex + 1) / ONBOARDING_STEPS.length;
-}
-
 interface OnboardingState {
   /** Signed-in project being activated. */
   projectId: string;

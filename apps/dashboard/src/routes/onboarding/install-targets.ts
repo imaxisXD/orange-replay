@@ -155,6 +155,81 @@ export function buildInstallSnippet(
 }
 
 /**
+ * A ready-to-paste request for a coding agent.
+ *
+ * The UI never renders this full text because the loader and its recorder key
+ * would turn a short onboarding step into a wall of code. The compact agent row
+ * says what is included, while Copy prompt hands this exact text to the user's
+ * clipboard. The raw script tag is always present as the source of truth. A
+ * Next.js selection also gets the exact framework-safe form so an agent does
+ * not put a raw inline script inside JSX.
+ */
+export function buildAgentInstallPrompt(
+  id: InstallTargetId,
+  loader: { body: string; tag: string },
+): string {
+  if (loader.tag.length === 0) return "";
+
+  const target = findInstallTarget(id);
+  const lines = [
+    "Install Orange Replay in this codebase.",
+    "",
+    "Inspect the existing app structure before editing. The selected setup is " +
+      target.label +
+      ".",
+    `Suggested file: ${target.site}`,
+    `Placement: ${target.instruction}`,
+    "",
+    "Use this exact script tag:",
+    "```html",
+    loader.tag,
+    "```",
+  ];
+
+  if (id === "next") {
+    lines.push(
+      "",
+      "For this Next.js setup, use this framework-safe version instead of putting a raw script tag inside JSX:",
+      "```tsx",
+      buildInstallSnippet(id, loader),
+      "```",
+    );
+  }
+
+  lines.push(
+    "",
+    "Requirements:",
+    "- Load Orange Replay on every page.",
+    "- Keep the loader code and recorder key exactly as provided.",
+    "- If Orange Replay is already installed, update the existing install instead of adding a second copy.",
+    "- Do not change unrelated files.",
+    "- Run the smallest relevant check or build after editing.",
+    "- Confirm the installed script appears once in the rendered page and does not add a browser error.",
+    "",
+    "When you finish, tell me which file you changed and what you verified. Do not repeat the recorder key in your reply.",
+  );
+
+  return lines.join("\n");
+}
+
+/**
+ * Key-safe first view of the coding-agent request.
+ *
+ * It mirrors the collapsed loader card: enough real structure to identify what
+ * Copy contains, without rendering the recorder key before the visitor asks to
+ * inspect the full prompt.
+ */
+export function buildAgentPromptSummary(id: InstallTargetId): string {
+  const target = findInstallTarget(id);
+  const site = target.site.replaceAll("`", "");
+  return [
+    "Install Orange Replay in this codebase.",
+    `Stack: ${target.label} · ${site}`,
+    "Script tag and exact steps included.",
+  ].join("\n");
+}
+
+/**
  * The collapsed card. The loader is one minified line around 1,800 characters
  * long: shown in full by default it fills the column with noise on a step whose
  * only job is "copy this". So the card states the shape and the real size, and

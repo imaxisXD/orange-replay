@@ -37,7 +37,6 @@ import { decideProjectsHome, decideWorkspaceStart } from "../src/lib/dashboard-a
 import {
   ONBOARDING_STEPS,
   OnboardingProvider,
-  onboardingProgress,
   onboardingStepIndex,
 } from "../src/routes/onboarding/onboarding-context";
 import type { InstallTargetId } from "../src/routes/onboarding/install-targets";
@@ -118,6 +117,10 @@ beforeEach(() => {
   // The handoff asks Live for the session the first event started. Empty by
   // default, so a test that does not care about it falls through to the cap.
   apiMocks.fetchLiveSessions.mockResolvedValue({ sessions: [], truncated: false });
+  apiMocks.fetchProjectWebsiteInstallStatus.mockResolvedValue({
+    firstEventAt: null,
+    firstSessionId: null,
+  });
   window.matchMedia = vi.fn().mockReturnValue({
     addEventListener: vi.fn(),
     matches: false,
@@ -202,11 +205,6 @@ describe("activation step model", () => {
     expect(onboardingStepIndex(`/onboarding/${PROJECT_ID}/verify`)).toBe(2);
     expect(onboardingStepIndex("/onboarding")).toBe(0);
     expect(ONBOARDING_STEPS).toHaveLength(3);
-  });
-
-  it("reports progress as a fraction of the whole flow", () => {
-    expect(onboardingProgress(0)).toBeCloseTo(1 / 3);
-    expect(onboardingProgress(2)).toBe(1);
   });
 });
 
@@ -530,9 +528,10 @@ describe("activation step 2: install", () => {
     expect(reveal?.getAttribute("data-state")).toBe("loading");
     expect(reveal?.classList.contains("is-revealed")).toBe(false);
     expect(skeleton?.getAttribute("aria-hidden")).toBe("false");
-    // File title, code card, expander, scope note: the skeleton mirrors the
-    // controls it stands in for, gaps included, so revealing them swaps in place.
-    expect(skeleton?.children).toHaveLength(4);
+    // Both the manual script and agent prompt have a title, preview card and
+    // expander, with a choice divider. The skeleton mirrors all seven controls
+    // so revealing them swaps in place.
+    expect(skeleton?.children).toHaveLength(7);
     expect(container.querySelector('.t-skel-content[aria-hidden="true"]')).not.toBeNull();
 
     await vi.waitFor(() => {
@@ -612,6 +611,77 @@ describe("activation step 2: install", () => {
     // Layout is not measurable here, so the guard is the class that prevents it.
     const viewport = container.querySelector('[data-slot="scroll-area-viewport"]');
     expect(viewport?.getAttribute("class")).toContain("min-w-0");
+  });
+
+  it("previews, reveals and copies the coding-agent prompt for the selected stack", async () => {
+    const writeText = vi.fn<(value: string) => Promise<void>>().mockResolvedValue();
+    Object.defineProperty(window.navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    apiMocks.fetchProjectWebsiteSetup.mockResolvedValue(websiteSetup());
+    await render(<OnboardingInstallPage />);
+
+    await vi.waitFor(() => {
+      expect(findButtonByLabel("Copy agent prompt")).toBeDefined();
+    });
+
+    // The collapsed card shows a real prompt summary without exposing the key.
+    expect(container.textContent).toContain("Use your coding agent");
+    const methodDivider = container.querySelector("[data-install-method-divider]");
+    expect(methodDivider?.textContent?.trim()).toBe("or");
+    expect(methodDivider?.querySelectorAll('[role="separator"]')).toHaveLength(2);
+    expect(container.textContent).toContain("Stack: HTML · Every page");
+    expect(container.querySelector(".text-agent-purple")).not.toBeNull();
+    expect(container.textContent).not.toContain("Requirements:");
+    expect(container.textContent).not.toContain(RAW_KEY);
+
+    await act(async () => {
+      findButton("View full prompt").click();
+    });
+    expect(container.textContent).toContain("Requirements:");
+    expect(container.textContent).toContain(RAW_KEY);
+    expect(findButton("Hide full prompt").getAttribute("aria-expanded")).toBe("true");
+
+    // Opening the full script collapses the prompt, so the fixed-height
+    // onboarding column never holds two expanded code surfaces at once.
+    await act(async () => {
+      findButton("View full code").click();
+    });
+    expect(container.textContent).not.toContain("Requirements:");
+    expect(findButton("View full prompt").getAttribute("aria-expanded")).toBe("false");
+
+    await act(async () => {
+      findButtonByLabel("Copy agent prompt").click();
+    });
+    await vi.waitFor(() => {
+      expect(writeText).toHaveBeenCalledTimes(1);
+      expect(findButtonByLabel("Agent prompt copied")).toBeDefined();
+    });
+    const htmlPrompt = writeText.mock.calls[0]?.[0] ?? "";
+    expect(htmlPrompt).toContain("Use this exact script tag:");
+    expect(htmlPrompt).toContain("<script>");
+    expect(htmlPrompt).toContain(RAW_KEY);
+    expect(htmlPrompt).toContain("Suggested file: Every page");
+
+    // The prompt follows the current stack. Changing it clears the copied state
+    // because the clipboard still contains the previous framework's request.
+    await act(async () => {
+      findTab("Next.js").click();
+    });
+    expect(findButtonByLabel("Copy agent prompt")).toBeDefined();
+    expect(container.textContent).toContain("Stack: Next.js · app/layout.tsx");
+
+    await act(async () => {
+      findButtonByLabel("Copy agent prompt").click();
+    });
+    await vi.waitFor(() => {
+      expect(writeText).toHaveBeenCalledTimes(2);
+    });
+    const nextPrompt = writeText.mock.calls[1]?.[0] ?? "";
+    expect(nextPrompt).toContain("Suggested file: `app/layout.tsx`");
+    expect(nextPrompt).toContain('import Script from "next/script"');
+    expect(nextPrompt).toContain(RAW_KEY);
   });
 
   it("retries automatic script preparation after a request failure", async () => {
@@ -1049,6 +1119,12 @@ function findButton(label: string): HTMLButtonElement {
     candidate.textContent?.includes(label),
   );
   if (button === undefined) throw new Error(`No button labelled ${label}.`);
+  return button;
+}
+
+function findButtonByLabel(label: string): HTMLButtonElement {
+  const button = container.querySelector(`button[aria-label="${label}"]`);
+  if (!(button instanceof HTMLButtonElement)) throw new Error(`No button labelled ${label}.`);
   return button;
 }
 

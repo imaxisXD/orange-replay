@@ -2,6 +2,7 @@ import type { ComponentType, SVGProps } from "react";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import Add01Icon from "@hugeicons/core-free-icons/Add01Icon";
 import AlertCircleIcon from "@hugeicons/core-free-icons/AlertCircleIcon";
+import AiProgrammingIcon from "@hugeicons/core-free-icons/AiProgrammingIcon";
 import ArrowLeft01Icon from "@hugeicons/core-free-icons/ArrowLeft01Icon";
 import Cancel01Icon from "@hugeicons/core-free-icons/Cancel01Icon";
 import CheckIcon from "@hugeicons/core-free-icons/CheckIcon";
@@ -51,7 +52,7 @@ import WindowsOldIcon from "@hugeicons/core-free-icons/WindowsOldIcon";
 import Building02Icon from "@hugeicons/core-free-icons/Building02Icon";
 import GithubIcon from "@hugeicons/core-free-icons/GithubIcon";
 import HtmlFile01Icon from "@hugeicons/core-free-icons/HtmlFile01Icon";
-import Typescript03Icon from "@hugeicons/core-free-icons/Typescript03Icon";
+import Typescript02Icon from "@hugeicons/core-free-icons/Typescript02Icon";
 import LogoutCircle01Icon from "@hugeicons/core-free-icons/LogoutCircle01Icon";
 import ShieldUserIcon from "@hugeicons/core-free-icons/ShieldUserIcon";
 import UserBlock02Icon from "@hugeicons/core-free-icons/UserBlock02Icon";
@@ -86,6 +87,8 @@ function createHugeIcon(icon: IconSvgElement): IconComponent {
 }
 
 export const AlertCircle = createHugeIcon(AlertCircleIcon);
+/** A coding agent that can make the installation change on the user's behalf. */
+export const CodingAgent = createHugeIcon(AiProgrammingIcon);
 export const Android = createHugeIcon(AndroidIcon);
 /** THE rage-click glyph, app-wide, always amber (see docs/design-language.md). */
 export const Angry = createHugeIcon(AngryIcon);
@@ -162,7 +165,7 @@ export const Github = createHugeIcon(GithubIcon);
  * (see docs/design-language.md), so these stay one SVG recoloured per context.
  */
 export const HtmlFile = createHugeIcon(HtmlFile01Icon);
-export const TypescriptFile = createHugeIcon(Typescript03Icon);
+export const TypescriptFile = createHugeIcon(Typescript02Icon);
 export const LogOut = createHugeIcon(LogoutCircle01Icon);
 export const ShieldUser = createHugeIcon(ShieldUserIcon);
 export const UserBlock = createHugeIcon(UserBlock02Icon);

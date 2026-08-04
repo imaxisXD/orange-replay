@@ -82,6 +82,7 @@
     --dim: oklch(0.5 0.016 285.816);
     --amber: oklch(0.784 0.159 72.991);
     --teal: oklch(0.785 0.133 181.912);
+    --agent-purple: oklch(0.702 0.183 293.541);
     --danger: var(--destructive);
     --success: oklch(0.773 0.153 163.223);
     --chrome-background: oklch(0.146 0.004 285.857 / 0.85);
@@ -464,6 +465,7 @@
   --color-dim: var(--dim);
   --color-amber: var(--amber);
   --color-teal: var(--teal);
+  --color-agent-purple: var(--agent-purple);
   --color-danger: var(--danger);
   --color-success: var(--success);
   --color-chrome: var(--chrome-background);

@@ -595,3 +595,578 @@
     transparent 100%
   );
 }
+
+/* ─────────────────────────────────────────────────────────
+ * THE "OR" DIVIDER, STEP TWO
+ *
+ * Two complete install paths, one choice marker between them. The dashed rules
+ * this replaces stated the structure and nothing else; the canvas behind them
+ * is a dot grid, so the divider is drawn in the same material — 2px cells on a
+ * 5px pitch, two rows deep, exactly `EmberField`'s lattice laid out as a rule.
+ *
+ *   rest         →  a dim two-row lattice reaching from the chip to each edge
+ *   every 6.5s   →  a lit cell cluster leaves the chip and travels out both
+ *                   rails at once, with a trailing tail behind its leading edge
+ *   continuous   →  smoke drifts inside the chip, clipped by it
+ *
+ * The two rows are not the same rule twice. The near row is the bright one and
+ * carries the long cluster; the far row is dimmer and its cluster is little
+ * over half as long. Both fronts travel in lockstep, so what moves reads as one
+ * body of light with depth to it, rather than as two equal lines sliding.
+ *
+ * Nothing here is amber: amber means focus and active navigation, and this is
+ * decoration. The light is plain `--foreground`.
+ * ───────────────────────────────────────────────────────── */
+
+/* The lattice is tighter than `EmberField`'s 5px pitch: 2px cells, 2px apart,
+   with 1px between the rows. At the field's spacing the rule read as two sparse
+   dotted lines with air around every cell; closed up, the two rows read as one
+   body of cells that happens to be built from a grid — which is what a divider
+   between two options should be. */
+.onboarding-or-rail {
+  --or-pitch: 4px;
+  --or-cell: 2px;
+  --or-cycle: 6.5s;
+  position: relative;
+  height: 5px;
+  flex: 1;
+  /* Two lattice rows in one element's two background layers: the near row in
+     `--dash`, the far row dimmed by the token rather than by an opacity on a
+     second element. `right` alignment puts a whole cell against the chip, and
+     the left rail is mirrored, so the lattice stays symmetric about it.
+
+     The far row is held at a third of the near row — enough to read as a second
+     row of cells at rest, not enough to be a second rule. At the 58% it started
+     on the two rows measured as one band. */
+  background-image:
+    linear-gradient(90deg, var(--dash) 0 var(--or-cell), transparent var(--or-cell) 100%),
+    linear-gradient(
+      90deg,
+      color-mix(in oklab, var(--dash) 34%, transparent) 0 var(--or-cell),
+      transparent var(--or-cell) 100%
+    );
+  background-position:
+    right bottom,
+    right top;
+  background-size: var(--or-pitch) var(--or-cell);
+  background-repeat: repeat-x;
+}
+
+/* The left rail is the right rail flipped: one keyframe set, and the two
+   sweeps leave the chip together instead of chasing each other. */
+.onboarding-or-rail[data-side="start"] {
+  transform: scaleX(-1);
+}
+
+/* The travelling light: the same lattice in `--foreground`, shown through a
+   window that moves along the rail. The window's stops are asymmetric — a
+   long dim tail behind a hard leading edge — so the cluster reads as moving
+   rather than as a glow that happens to be somewhere.
+
+   One row per pseudo-element, because a mask covers a whole element: two
+   background layers cannot be windowed to two different lengths. The near row
+   is `::after`, the far row `::before`. */
+.onboarding-or-rail::before,
+.onboarding-or-rail::after {
+  position: absolute;
+  right: 0;
+  left: 0;
+  height: var(--or-cell);
+  background-position: right center;
+  background-size: var(--or-pitch) var(--or-cell);
+  background-repeat: repeat-x;
+  content: "";
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent 0,
+    oklch(0 0 0 / 0.3) 34%,
+    oklch(0 0 0) 78%,
+    oklch(0 0 0) 88%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    90deg,
+    transparent 0,
+    oklch(0 0 0 / 0.3) 34%,
+    oklch(0 0 0) 78%,
+    oklch(0 0 0) 88%,
+    transparent 100%
+  );
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+
+/* The near row: the bright one, and the long cluster. */
+.onboarding-or-rail::after {
+  bottom: 0;
+  background-image: linear-gradient(
+    90deg,
+    var(--foreground) 0 var(--or-cell),
+    transparent var(--or-cell) 100%
+  );
+  filter: drop-shadow(0 0 3px oklch(1 0 0 / 0.4));
+  -webkit-mask-size: 46% 100%;
+  mask-size: 46% 100%;
+  animation: or-rail-sweep-near var(--or-cycle) linear infinite;
+}
+
+/* The far row: dimmer, a shorter cluster, a tighter glow. Both rows are lit by
+   the same front, so the light has a bright long base and a thin high edge
+   instead of two rules of equal length sliding side by side. */
+.onboarding-or-rail::before {
+  top: 0;
+  background-image: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--foreground) 40%, transparent) 0 var(--or-cell),
+    transparent var(--or-cell) 100%
+  );
+  filter: drop-shadow(0 0 2px oklch(1 0 0 / 0.2));
+  -webkit-mask-size: 26% 100%;
+  mask-size: 26% 100%;
+  animation: or-rail-sweep-far var(--or-cycle) linear infinite;
+}
+
+/* Two keyframe sets for one movement. `mask-position` is resolved against the
+   space the window does not fill, so the same percentages move two windows of
+   different widths at different speeds — a 26% window would outrun a 46% one and
+   the two rows would come apart. These endpoints are solved per width instead:
+   both start with the window's leading edge on the chip-side end and finish with
+   its trailing edge past the outer end, having covered the same distance.
+   Changing a `mask-size` above means re-solving the pair.
+     start = -w / (100 - w) · 100      end = 100 / (100 - w) · 100
+   The travel spends the first quarter of the cycle; the rest is the pause that
+   keeps a decorative loop from reading as a progress indicator. */
+@keyframes or-rail-sweep-near {
+  0% {
+    -webkit-mask-position: -85% center;
+    mask-position: -85% center;
+  }
+  24% {
+    -webkit-mask-position: 185% center;
+    mask-position: 185% center;
+  }
+  100% {
+    -webkit-mask-position: 185% center;
+    mask-position: 185% center;
+  }
+}
+
+@keyframes or-rail-sweep-far {
+  0% {
+    -webkit-mask-position: -35% center;
+    mask-position: -35% center;
+  }
+  24% {
+    -webkit-mask-position: 162% center;
+    mask-position: 162% center;
+  }
+  100% {
+    -webkit-mask-position: 162% center;
+    mask-position: 162% center;
+  }
+}
+
+/* The chip sits on `--surface-1`, the canvas's own near-black, not the
+   `--card` grey it started on: the smoke inside it is white at 16%, and on a
+   grey chip that reads as a smudge instead of as light. Same reasoning as the
+   highlighted project switcher above. */
+.onboarding-or-chip {
+  position: relative;
+  display: inline-flex;
+  height: 22px;
+  align-items: center;
+  padding-inline: 10px;
+  /* The rim is the near row's own colour, not `--border`: the light the rails
+     carry is `--foreground`, and the chip is where it comes from, so the two
+     read as the same material. Held at 72%, though — at full strength a 1px
+     ring around a 22px chip out-measured the lit cells it is quoting, and the
+     eye went to the chip's outline instead of to the light leaving it. */
+  border: 1px solid color-mix(in oklab, var(--foreground) 72%, transparent);
+  border-radius: 999px;
+  background: var(--surface-1);
+  box-shadow: var(--shadow-1);
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 16px;
+  /* Both the clip for the smoke and the reason it can overflow its own blobs. */
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.onboarding-or-chip > span {
+  position: relative;
+  z-index: 1;
+}
+
+/* Two soft clouds on their own slow loops, reaching past the chip so the wisps
+   pass through it rather than circling inside it — a band hugging the inside
+   edge read as a halo, which is a different (and louder) idea than smoke.
+   Durations are deliberately not multiples of each other, so the pair never
+   resolves into one repeating shape.
+
+   The reach is -25%, not the -40% this started on: past a quarter the blobs
+   spend most of their travel outside the chip's 22px and the interior is lit by
+   their flat tails, which is a glow rather than something moving through.
+
+   The mask is what keeps the smoke off the middle of the chip. Blobs crossing a
+   22px chip are over its centre for most of their loop, which lit the glyph's
+   own ground and read as one soft lamp behind "or"; cleared out, the same two
+   blobs only register as they pass an edge. It is not the rim band this
+   replaced: the mask says where smoke may show, the drift still decides which
+   part of the edge is lit, so it is never the whole outline at once. */
+.onboarding-or-smoke {
+  position: absolute;
+  inset: -25%;
+  /* 5px, about a quarter of the chip's height: enough that no edge of a blob is
+     legible, little enough that the cloud keeps a shape to move. */
+  filter: blur(5px);
+  -webkit-mask-image: radial-gradient(
+    ellipse 58% 62% at 50% 50%,
+    transparent 0%,
+    oklch(0 0 0 / 0.45) 62%,
+    oklch(0 0 0) 100%
+  );
+  mask-image: radial-gradient(
+    ellipse 58% 62% at 50% 50%,
+    transparent 0%,
+    oklch(0 0 0 / 0.45) 62%,
+    oklch(0 0 0) 100%
+  );
+  pointer-events: none;
+}
+
+.onboarding-or-smoke::before,
+.onboarding-or-smoke::after {
+  position: absolute;
+  border-radius: 50%;
+  content: "";
+}
+
+.onboarding-or-smoke::before {
+  top: 18%;
+  left: 6%;
+  width: 58%;
+  height: 74%;
+  background: radial-gradient(closest-side, oklch(1 0 0 / 0.16), oklch(1 0 0 / 0) 100%);
+  animation: or-smoke-drift-a 17s ease-in-out infinite;
+}
+
+.onboarding-or-smoke::after {
+  top: 8%;
+  left: 44%;
+  width: 46%;
+  height: 82%;
+  background: radial-gradient(closest-side, oklch(1 0 0 / 0.11), oklch(1 0 0 / 0) 100%);
+  animation: or-smoke-drift-b 24.5s ease-in-out infinite;
+}
+
+@keyframes or-smoke-drift-a {
+  0% {
+    transform: translate(-14%, 8%) scale(1);
+  }
+  34% {
+    transform: translate(16%, -10%) scale(1.18);
+  }
+  67% {
+    transform: translate(30%, 12%) scale(0.94);
+  }
+  100% {
+    transform: translate(-14%, 8%) scale(1);
+  }
+}
+
+@keyframes or-smoke-drift-b {
+  0% {
+    transform: translate(18%, -6%) scale(1.1);
+  }
+  40% {
+    transform: translate(-12%, 12%) scale(0.9);
+  }
+  72% {
+    transform: translate(-26%, -8%) scale(1.16);
+  }
+  100% {
+    transform: translate(18%, -6%) scale(1.1);
+  }
+}
+
+/* Reduced motion keeps the structure and drops every loop: the lattice and one
+   held position of the smoke are the divider, the travel was only how it read. */
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-or-rail::before,
+  .onboarding-or-rail::after {
+    display: none;
+  }
+
+  .onboarding-or-smoke::before,
+  .onboarding-or-smoke::after {
+    animation: none;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────
+ * THE STEP RAIL, ABOVE THE FORM COLUMN
+ *
+ * One unbroken rule in the divider's own material: 2px cells on a 3px pitch, two
+ * rows deep, the near row bright and the far row held back. Tighter than the
+ * divider's 4px because a rail is read at a glance across the whole column, where
+ * the divider is read up close between two cards.
+ *
+ * It was three parts with a break between them for a while. The breaks are gone:
+ * one continuous lattice, and how far along the amber reaches is the whole
+ * statement. The step count is in the label, where a screen reader can also get
+ * at it; the rail says distance.
+ *
+ * The motion is the divider's light, spent once instead of looping. The lit
+ * cluster crosses left to right exactly once and the amber lattice is revealed
+ * behind its leading edge as it goes: the sweep is the fill. Where the divider's
+ * light passes and leaves the rule as it found it, this one paints. It runs from
+ * where the fill already stood to where it now stands — at first paint from
+ * nothing to the opened step, and on a step change over the new stretch only.
+ *
+ * The light crosses both rows, as it does on the divider — a long bright cluster
+ * on the near row, a shorter dimmer one above it, both led by the same edge. Only
+ * the near row glows, and it glows for its whole reached length rather than at the
+ * head: the rail is lit where the flow has been, so the glow is the run. Two rows
+ * glowing 1px apart would be one thick smear, not two rows, which is why the far
+ * row stays flat.
+ *
+ * Amber earns its place here — this is the flow's active state, which is what
+ * DESIGN.md reserves it for — but it stays dotted and under full strength. A solid
+ * amber bar two thirds across the column is the large decorative fill the palette
+ * rules out.
+ * ───────────────────────────────────────────────────────── */
+
+.onboarding-step-rail {
+  --step-pitch: 3px;
+  --step-cell: 2px;
+  /* What a crossing of the whole rail costs. Every run is a share of it, so the
+     edge travels at one speed whether it is covering a third or all of it. */
+  --step-speed: 900ms;
+  --step-duration: calc(var(--step-span) * var(--step-speed));
+  position: relative;
+  width: 100%;
+  /* The unreached lattice, painted once across the whole rail: two rows in two
+     background layers, the far row dimmed by the colour rather than by an opacity
+     on a second element — the same construction as the divider's rails. */
+  background-image:
+    linear-gradient(90deg, var(--dash) 0 var(--step-cell), transparent var(--step-cell) 100%),
+    linear-gradient(
+      90deg,
+      color-mix(in oklab, var(--dash) 34%, transparent) 0 var(--step-cell),
+      transparent var(--step-cell) 100%
+    );
+  background-position:
+    left bottom,
+    left top;
+  background-size: var(--step-pitch) var(--step-cell);
+  background-repeat: repeat-x;
+}
+
+/* What the light leaves behind: the same cells in amber, clipped to where the
+   flow has reached. Amber only ever replaces a cell that already existed, so
+   filling adds light without moving anything.
+
+   Two elements, near row and far row, because a filter covers a whole element and
+   only the near row glows. The clip is the same on both, so they end together. */
+.onboarding-step-rail-fill,
+.onboarding-step-rail-fill-far {
+  position: absolute;
+  inset: 0;
+  background-size: var(--step-pitch) var(--step-cell);
+  background-repeat: repeat-x;
+  /* The resting state is where the run ends, so the rail is correct even if the
+     animation never plays. The vertical insets are negative because a clip cuts
+     the glow too: at 0 the bloom would stop dead at the rule's own edge, which is
+     where a bloom is supposed to begin. */
+  clip-path: inset(-900% calc(100% - var(--step-to) * 100%) -900% 0);
+  animation: step-rail-fill var(--step-duration) linear 60ms both;
+}
+
+/* The near row: lit cells and the glow that makes them read as lit. It runs the
+   whole reached length — the rail's light is the run behind it, not a point on
+   it. Two radii, a tight hot ring and a wide soft falloff, the device the
+   highlighted switcher uses; two radii read as brighter than one larger blur,
+   which only spreads the same light thinner. */
+.onboarding-step-rail-fill {
+  /* Indirected through custom properties so `/local-labs/step-rail` can tune the
+     shipping element rather than a copy of it; the fallbacks are what ships, and
+     they are `STEP_RAIL_FILL` in onboarding-motion.ts restated — a stylesheet
+     cannot read a TS constant, so the two move together or not at all. */
+  background-image: linear-gradient(
+    90deg,
+    var(--step-fill-near, var(--amber)) 0 var(--step-cell),
+    transparent var(--step-cell) 100%
+  );
+  background-position: left bottom;
+  filter: var(
+    --step-glow,
+    drop-shadow(0 0 2px var(--amber))
+      drop-shadow(0 0 9px color-mix(in oklab, var(--amber) 37%, transparent))
+  );
+}
+
+/* The far row: the same cells at a third of that and no glow at all. The glow is
+   what says which row is the near one. */
+.onboarding-step-rail-fill-far {
+  background-image: linear-gradient(
+    90deg,
+    var(--step-fill-far, color-mix(in oklab, var(--amber) 58%, transparent)) 0 var(--step-cell),
+    transparent var(--step-cell) 100%
+  );
+  background-position: left top;
+}
+
+/* The light itself: the divider's cluster, in the divider's window — a long dim
+   tail behind a hard leading edge — and its bloom in amber rather than white,
+   because on this surface the light is the flow's active state.
+
+   Two elements because a filter covers a whole element, and only the near row is
+   meant to bloom. Everything they share is here; each takes its own row, window
+   and brightness below. */
+.onboarding-step-rail-light,
+.onboarding-step-rail-light-far {
+  position: absolute;
+  inset: 0;
+  background-size: var(--step-pitch) var(--step-cell);
+  background-repeat: repeat-x;
+  opacity: 0;
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent 0,
+    oklch(0 0 0 / 0.3) 34%,
+    oklch(0 0 0) 78%,
+    oklch(0 0 0) 88%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    90deg,
+    transparent 0,
+    oklch(0 0 0 / 0.3) 34%,
+    oklch(0 0 0) 78%,
+    oklch(0 0 0) 88%,
+    transparent 100%
+  );
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  pointer-events: none;
+}
+
+/* The near row: the long cluster, and the only bloom on the rail. Two radii — a
+   tight hot ring and a wide soft falloff — the device the highlighted switcher
+   uses; two radii read as brighter than one larger blur, which only spreads the
+   same light thinner. */
+.onboarding-step-rail-light {
+  background-image: linear-gradient(
+    90deg,
+    oklch(0.98 0.035 92) 0 var(--step-cell),
+    transparent var(--step-cell) 100%
+  );
+  background-position: left bottom;
+  filter: drop-shadow(0 0 2px oklch(0.92 0.1 84 / 0.95)) drop-shadow(0 0 8px var(--amber-shadow));
+  /* Six times the rail's height, because a mask is applied after the filter and a
+     mask the size of the box crops the bloom off at the box's edge — which is
+     exactly where a bloom is supposed to start. Only the vertical size matters
+     here; the window's width is still 46%. */
+  -webkit-mask-size: 46% 600%;
+  mask-size: 46% 600%;
+  animation: step-rail-light-near var(--step-duration) linear 60ms both;
+}
+
+/* The far row: a shorter cluster at half the brightness and no bloom at all, the
+   same relationship the divider's far row has to its near one. */
+.onboarding-step-rail-light-far {
+  background-image: linear-gradient(
+    90deg,
+    color-mix(in oklab, oklch(0.98 0.035 92) 50%, transparent) 0 var(--step-cell),
+    transparent var(--step-cell) 100%
+  );
+  background-position: left top;
+  -webkit-mask-size: 26% 100%;
+  mask-size: 26% 100%;
+  animation: step-rail-light-far var(--step-duration) linear 60ms both;
+}
+
+/* The twinkle's canvas. It reaches past the rail top and bottom (the component
+   sets the offsets) so a flash's bloom is not cut off at the rule's edge, and it
+   sits above the fill because a lit cell is the fill's own cell, lit. */
+.onboarding-step-rail-twinkle {
+  position: absolute;
+  right: 0;
+  left: 0;
+  width: 100%;
+  pointer-events: none;
+}
+
+/* Going back retracts the fill; no light runs, because a light travelling right
+   while the flow moves left would be describing something that is not happening. */
+.onboarding-step-rail[data-direction="back"] .onboarding-step-rail-light,
+.onboarding-step-rail[data-direction="back"] .onboarding-step-rail-light-far {
+  display: none;
+}
+
+/* All three run on one clock, all linear, because they have to agree on where the
+   edge is at every frame: both rows' leading edges and the fill's edge are the
+   same edge.
+
+   `mask-position` is resolved against the space the window does not fill, so a
+   26% window would outrun a 46% one on shared endpoints. Each is solved for its
+   own width, which is what puts a window's leading edge on the fill's edge:
+     position = (edge - w) / (1 - w)
+   with `edge` the fraction of the rail the fill has reached. The component hands
+   in where the run starts and ends; everything else here is that one line. */
+@keyframes step-rail-fill {
+  from {
+    clip-path: inset(-900% calc(100% - var(--step-from) * 100%) -900% 0);
+  }
+  to {
+    clip-path: inset(-900% calc(100% - var(--step-to) * 100%) -900% 0);
+  }
+}
+
+@keyframes step-rail-light-near {
+  0% {
+    opacity: 1;
+    -webkit-mask-position: calc((var(--step-from) - 0.46) / 0.54 * 100%) center;
+    mask-position: calc((var(--step-from) - 0.46) / 0.54 * 100%) center;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    -webkit-mask-position: calc((var(--step-to) - 0.46) / 0.54 * 100%) center;
+    mask-position: calc((var(--step-to) - 0.46) / 0.54 * 100%) center;
+  }
+}
+
+@keyframes step-rail-light-far {
+  0% {
+    opacity: 1;
+    -webkit-mask-position: calc((var(--step-from) - 0.26) / 0.74 * 100%) center;
+    mask-position: calc((var(--step-from) - 0.26) / 0.74 * 100%) center;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    -webkit-mask-position: calc((var(--step-to) - 0.26) / 0.74 * 100%) center;
+    mask-position: calc((var(--step-to) - 0.26) / 0.74 * 100%) center;
+  }
+}
+
+/* Reduced motion keeps the state and drops the crossing: the amber reaches where
+   it should, and no light ever runs. */
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-step-rail-fill,
+  .onboarding-step-rail-fill-far {
+    animation: none;
+  }
+
+  .onboarding-step-rail-light,
+  .onboarding-step-rail-light-far {
+    display: none;
+  }
+}

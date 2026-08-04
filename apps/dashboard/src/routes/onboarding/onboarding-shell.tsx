@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { LazyMotion, domMax } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { Outlet, useNavigate, useParams, useRouterState } from "@tanstack/react-router";
@@ -13,15 +13,11 @@ import {
 import { findAccountProject } from "@/lib/dashboard-access";
 import { ArrowLeft } from "@/lib/icon-map";
 import { m, useReducedMotion } from "@/lib/motion";
-import {
-  ONBOARDING_STEPS,
-  OnboardingProvider,
-  onboardingProgress,
-  onboardingStepIndex,
-} from "./onboarding-context";
+import { ONBOARDING_STEPS, OnboardingProvider, onboardingStepIndex } from "./onboarding-context";
 import { DEFAULT_INSTALL_TARGET, type InstallTargetId } from "./install-targets";
-import { FRAME, PREVIEW_EXIT, RAIL, REVEAL, onboardingAct } from "./onboarding-motion";
+import { FRAME, PREVIEW_EXIT, RAIL, onboardingAct } from "./onboarding-motion";
 import { OnboardingPreview } from "./onboarding-preview";
+import { StepRailTwinkle } from "./step-rail-twinkle";
 import {
   isWebsiteProjectName,
   readWebsiteUrl,
@@ -116,6 +112,16 @@ export function OnboardingShell() {
   const hasChangedStep = useRef(false);
   const direction: 1 | -1 = stepIndex >= committedStep.current ? 1 : -1;
   const isFirstPaint = !hasChangedStep.current && committedStep.current === stepIndex;
+
+  // Where the rail's light runs, as fractions of the whole rule. It covers the
+  // ground this navigation added and no more: from nothing at first paint, and
+  // from the step left behind on every move after it. The span is what the run
+  // is paid for, so the edge keeps one speed whether it crosses a third or all
+  // of it. Same ref as `direction`, and for the same reason — it holds the step
+  // this render arrived from until the commit below advances it.
+  const railTo = (stepIndex + 1) / ONBOARDING_STEPS.length;
+  const railFrom = isFirstPaint ? 0 : (committedStep.current + 1) / ONBOARDING_STEPS.length;
+  const railSpan = Math.abs(railTo - railFrom);
 
   useEffect(() => {
     if (committedStep.current === stepIndex) return;
@@ -267,7 +273,7 @@ export function OnboardingShell() {
             <span>Orange Replay</span>
           </div>
 
-          <div className="absolute top-[27.2svh] left-1/2 w-[min(394px,calc(100%-3rem))] -translate-x-1/2 max-lg:top-[19svh]">
+          <div className="absolute top-[20svh] left-1/2 w-[min(394px,calc(100%-3rem))] -translate-x-1/2 max-lg:top-[19svh]">
             {/* Back sits on the form column's own leading edge, directly above
                 the rail: a backwards move belongs at the start of the reading
                 direction, next to the content it moves, not in the far corner
@@ -284,22 +290,59 @@ export function OnboardingShell() {
               </Button>
             )}
 
+            {/* One unbroken lattice; how far the amber reaches is the whole
+                statement, and the step count is in the label. Geometry and the
+                travelling light live in `onboarding.css` under THE STEP RAIL —
+                all it needs from here is where this run starts and ends.
+
+                The run covers new ground only: nothing to the opened step at
+                first paint, and the new stretch on a step change. `railSpan` is
+                what the light is paid for, so the edge travels at one speed
+                however far it has to go. Keys restart the animations; a finished
+                one holds its end frame and would otherwise jump. */}
             <div
               aria-label={`Step ${stepIndex + 1} of ${ONBOARDING_STEPS.length}`}
               aria-valuemax={ONBOARDING_STEPS.length}
               aria-valuemin={1}
               aria-valuenow={stepIndex + 1}
-              className="relative w-full overflow-hidden rounded-full bg-surface-6"
+              className="onboarding-step-rail"
+              data-direction={railTo < railFrom ? "back" : "forward"}
               role="progressbar"
-              style={{ height: RAIL.height }}
+              style={
+                {
+                  height: RAIL.height,
+                  "--step-from": railFrom,
+                  "--step-to": railTo,
+                  "--step-span": railSpan,
+                } as CSSProperties
+              }
             >
-              <m.span
-                animate={{ scaleX: onboardingProgress(stepIndex) }}
-                className="block h-full origin-left rounded-full bg-amber"
-                initial={reduceMotion ? false : { scaleX: 0 }}
-                transition={
-                  reduceMotion ? { duration: 0 } : { ...RAIL.spring, delay: REVEAL.firstPaintDelay }
-                }
+              {/* Near row and far row are separate because only the near row
+                  glows, and a filter covers a whole element. */}
+              <span aria-hidden className="onboarding-step-rail-fill" key={`fill-${stepIndex}`} />
+              <span
+                aria-hidden
+                className="onboarding-step-rail-fill-far"
+                key={`fill-far-${stepIndex}`}
+              />
+              {/* The light crosses both lattice rows and only the near one
+                  blooms — a filter covers a whole element, so the far row needs
+                  one of its own. */}
+              <i aria-hidden className="onboarding-step-rail-light" key={`near-${stepIndex}`} />
+              <i aria-hidden className="onboarding-step-rail-light-far" key={`far-${stepIndex}`} />
+              {/* Individual cells inside the reached part, lighting on their own
+                  timing. Canvas, because a repeating background has no cell to
+                  select — see step-rail-twinkle.tsx. */}
+              <StepRailTwinkle
+                geometry={{
+                  cell: RAIL.cell,
+                  delay: RAIL.delay,
+                  duration: railSpan * RAIL.speed,
+                  from: railFrom,
+                  pitch: RAIL.pitch,
+                  to: railTo,
+                }}
+                key={`twinkle-${stepIndex}`}
               />
             </div>
 

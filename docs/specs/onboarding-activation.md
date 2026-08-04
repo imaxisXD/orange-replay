@@ -16,6 +16,11 @@ that must survive a step change: the website draft, its internal installation
 key, the camera's focus, the progress rail, and the frame that tweens between
 screens of different heights.
 
+On desktop, the shared left step frame starts at `20svh`, aligned with the real
+dashboard header line inside the preview. Because the shell owns this frame,
+Website, Install and Verify keep the same vertical start. Below `lg`, the preview
+is hidden and the step frame keeps its compact `19svh` position.
+
 Every route carries the project id. The shell and its access guard resolve that
 exact project instead of selecting the first project in the account. This is
 what makes the same flow safe for a new account, a later Workspace, and another
@@ -67,18 +72,49 @@ whose **code** differs, not just its file: App Router owns script ordering, so
 Copy hands over the `next/script` form with the loader body inside a template
 literal.
 
+### Step two can hand the install to a coding agent
+
+The manual snippet stays the first artifact. Directly under its expander, **Use
+your coding agent** repeats the same visual grammar: artifact name and Copy in
+one row, a collapsed prompt preview, and a **View full prompt** disclosure. The
+in-family `CodingAgent` glyph is purple so the agent handoff is distinguishable
+from the selected stack's file mark; Copy keeps the same Copy to Copied treatment
+as the snippet button. This is not another top-level card and does not add an
+onboarding step.
+
+A centred **or** pill with paired dashed rules separates the manual script from
+the agent handoff. It makes the relationship explicit: these are two complete
+ways to perform the same installation, not two tasks the visitor must finish.
+
+The collapsed prompt is key-safe. It shows the task, selected stack and file,
+then confirms that the script tag and exact steps are included. **View full
+prompt** explicitly reveals the complete loader, framework instructions and
+verification checklist, just as **View full code** reveals the complete script.
+Opening either full view closes the other so the fixed onboarding column never
+holds two expanded code surfaces. Copy always puts the full prompt on the
+clipboard, whether its preview is collapsed or expanded.
+
+`buildAgentInstallPrompt` owns that clipboard contract. Every prompt includes
+the exact raw `<script>` tag, the selected stack, suggested file, placement,
+duplicate-install guard, unrelated-file boundary, focused verification, and a
+request to report the changed file without repeating the recorder key. Next.js
+also receives the exact `next/script` form at `beforeInteractive`, so an agent
+does not paste a raw inline tag into JSX. Switching stacks clears both copy
+success states because both clipboard values have changed. A failed agent copy
+says **Could not copy the agent prompt. Try again.** rather than asking the
+visitor to select text that is deliberately hidden.
+
 ### Step two has no Continue
 
 There is nothing to confirm. Step two polls `/install-status` under the snippet
 — the same query, interval and "not while the tab is hidden" rule the verify
 step uses — and hands over to step three by itself the moment an event lands.
 `OnboardingStage` takes a null `action` for this and skips that chunk entirely,
-so the column ends at the Website note rather than at 24px of empty space.
-
-The waiting that used to justify a third screen is now shown in the preview, not
-restated in the form column. A visitor on this step sees the snippet on the
-left, and on the right the Install page's own verify card saying it is waiting
-for the first event.
+so the column ends after the two installation choices rather than at 24px of
+empty space. The waiting that used to justify a third screen is shown in the
+preview, not restated in the form column. A visitor on this step sees the snippet
+on the left, and on the right the Install page's own verify card saying it is
+waiting for the first event.
 
 Step two has **no supporting line**. The picker already names the file and the
 placement, so a sentence under the heading only agreed with the instruction two

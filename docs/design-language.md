@@ -23,6 +23,7 @@ Codified from `design-final.html` (the UI visual authority — a static mock at 
 | `--color-dim`                       | `#62626c`                                                                                 | tertiary text, table headers, icons                                                  |
 | `--color-amber`                     | `#f5a623`                                                                                 | THE accent: active tab underline, env badge, warm stat values, playhead, focus rings |
 | `--color-teal`                      | `#2dd4bf`                                                                                 | calm/positive data (heat low end, live accents)                                      |
+| `--color-agent-purple`              | `#a78bfa`                                                                                 | coding-agent identity glyph only                                                     |
 | `--color-danger`                    | `#f4534e`                                                                                 | errors                                                                               |
 | `--color-success`                   | `#34d399`                                                                                 | ok dots, live pulse                                                                  |
 | `--radius`                          | 8px                                                                                       | cards/panels                                                                         |
@@ -67,6 +68,12 @@ the marketing page show the same logos, and they are the deliberate exception to
 full colour in every tab state; the selected tab is already marked by the sliding
 indicator and a semibold label, and desaturating the rest destroyed the fast read
 that is the only reason the marks are there.
+
+**Coding agent handoff** uses Hugeicons `AiProgramming` through the app-facing
+`CodingAgent` export. It appears only beside the onboarding install prompt action,
+where the glyph distinguishes "copy code" from "ask an agent to change code" at
+scan speed. Its purple identity tint is deliberately limited to the glyph; amber
+still owns focus and active navigation, while green owns the copied state.
 
 **Brand entities (browser/OS) render as icons wherever they appear** (2026-07-11, via `src/components/client-label.tsx` — the single client renderer): users grasp a recognizable brand mark faster than its name. Coverage: Chrome = `Chrome`, Safari = `Safari`, Android = `Android`, Windows = `WindowsOld` (classic four-pane flag), macOS = `AppleFinder` (Finder face — the Apple logo isn't in the free set), Linux = custom penguin SVG in `icon-map` (user-approved 2026-07-11; the one sanctioned outside-family glyph). Brand rendering is **glyph + visible name** ("◉ Chrome · ⌘ macOS") — the mark is the fast read, the word removes doubt; glyphs render at 14px/stroke-2 (at 12px/1.5 they collapse into dots) and are `aria-hidden` since the name is visible text. **Where no relatable glyph exists (Firefox, Edge, iOS), the name renders alone — a generic stand-in carries less information than the word and is banned.** The hugeicons.com site mixes free and Pro tiers invisibly — the installed `@hugeicons/core-free-icons` package is ground truth.
 

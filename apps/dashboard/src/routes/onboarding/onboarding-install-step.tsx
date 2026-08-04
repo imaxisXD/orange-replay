@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "re
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { buildLoaderScriptTag, buildLoaderSnippet } from "@orange-replay/sdk/loader";
+import { Separator } from "@base-ui/react/separator";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -13,11 +14,13 @@ import {
   projectWebsitesQueryKey,
 } from "@/lib/api";
 import { readDashboardAccessError } from "@/lib/dashboard-access";
-import { AlertCircle, Code2, Copy, CopyCheck, Global } from "@/lib/icon-map";
+import { AlertCircle, Code2, CodingAgent, Copy, CopyCheck } from "@/lib/icon-map";
 import { useReducedMotion } from "@/lib/motion";
 import { installStatusPollIntervalMs, shouldPollInstallStatus } from "@/lib/project-settings";
 import {
   INSTALL_TARGETS,
+  buildAgentInstallPrompt,
+  buildAgentPromptSummary,
   buildInstallSnippet,
   buildInstallSummary,
   findInstallTarget,
@@ -34,6 +37,7 @@ import { readWebsiteSetupError } from "./onboarding-setup-error";
 import { OnboardingStage } from "./onboarding-stage";
 
 const COPIED_RESET_MS = 1_500;
+type CopiedInstallItem = "snippet" | "agent-prompt";
 
 /**
  * Step 2 of 3 — the loader snippet.
@@ -45,7 +49,6 @@ export function OnboardingInstallPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const {
-    previewProjectLabel,
     projectId,
     recorderKey,
     installTargetId,
@@ -56,10 +59,11 @@ export function OnboardingInstallPage() {
     setWebsiteDraft,
     websiteId,
   } = useOnboarding();
-  const [copied, setCopied] = useState(false);
+  const [copiedItem, setCopiedItem] = useState<CopiedInstallItem | null>(null);
   const [copyError, setCopyError] = useState("");
   const [connectedWebsite, setConnectedWebsite] = useState<ProjectWebsite | null>(null);
   const [showFullCode, setShowFullCode] = useState(false);
+  const [showFullPrompt, setShowFullPrompt] = useState(false);
   const target = findInstallTarget(installTargetId);
 
   const availableRecorderKey =
@@ -126,10 +130,10 @@ export function OnboardingInstallPage() {
   }, [isPreparingKey]);
 
   useEffect(() => {
-    if (!copied) return;
-    const timeoutId = window.setTimeout(() => setCopied(false), COPIED_RESET_MS);
+    if (copiedItem === null) return;
+    const timeoutId = window.setTimeout(() => setCopiedItem(null), COPIED_RESET_MS);
     return () => window.clearTimeout(timeoutId);
-  }, [copied]);
+  }, [copiedItem]);
 
   // This step waits for the event itself, which is why it has no Continue
   // button: there is nothing for the visitor to confirm. The poll is the same
@@ -188,13 +192,16 @@ export function OnboardingInstallPage() {
           bundleUrl: `${readRecorderOrigin()}/or-recorder.js`,
           init: { ingestUrl: readRecorderOrigin(), key: availableRecorderKey },
         };
-  const snippet =
+  const loader =
     loaderConfig === null
-      ? ""
-      : buildInstallSnippet(installTargetId, {
+      ? null
+      : {
           body: buildLoaderSnippet(loaderConfig),
           tag: buildLoaderScriptTag(loaderConfig),
-        });
+        };
+  const snippet = loader === null ? "" : buildInstallSnippet(installTargetId, loader);
+  const agentPrompt = loader === null ? "" : buildAgentInstallPrompt(installTargetId, loader);
+  const agentPromptSummary = buildAgentPromptSummary(installTargetId);
 
   const keyError =
     websiteId === null
@@ -223,9 +230,20 @@ export function OnboardingInstallPage() {
     try {
       await window.navigator.clipboard.writeText(snippet);
       setCopyError("");
-      setCopied(true);
+      setCopiedItem("snippet");
     } catch (error) {
       setCopyError(readDashboardAccessError(error, "Select the snippet and copy it manually."));
+    }
+  }
+
+  async function copyAgentPrompt(): Promise<void> {
+    if (agentPrompt.length === 0) return;
+    try {
+      await window.navigator.clipboard.writeText(agentPrompt);
+      setCopyError("");
+      setCopiedItem("agent-prompt");
+    } catch (error) {
+      setCopyError(readDashboardAccessError(error, "Could not copy the agent prompt. Try again."));
     }
   }
 
@@ -233,8 +251,20 @@ export function OnboardingInstallPage() {
   // over from the previous target would be claiming something untrue.
   function handleTargetChange(nextTargetId: string): void {
     setInstallTargetId(findInstallTarget(nextTargetId).id);
-    setCopied(false);
+    setCopiedItem(null);
     setCopyError("");
+  }
+
+  function toggleFullCode(): void {
+    const nextShowFullCode = !showFullCode;
+    setShowFullCode(nextShowFullCode);
+    if (nextShowFullCode) setShowFullPrompt(false);
+  }
+
+  function toggleFullPrompt(): void {
+    const nextShowFullPrompt = !showFullPrompt;
+    setShowFullPrompt(nextShowFullPrompt);
+    if (nextShowFullPrompt) setShowFullCode(false);
   }
 
   // Nothing to submit: the step advances on the event, not on a click. Enter in
@@ -327,11 +357,12 @@ export function OnboardingInstallPage() {
           {/* 20px, twice the picker's internal 10px, because the artifact is a
               different group from the instructions that describe it. The
               min-height reserves the collapsed content's exact height so the
-              skeleton and the controls can share one slot: 28 header + 8 + 80
-              card + 8 + 28 expander + 20 + 34 note. */}
+              skeleton and the controls can share one slot: the script and
+              agent prompt each have a 28px header, 80px preview and 28px
+              expander, with the choice divider between them. */}
           <div
             aria-busy={isPreparingKey}
-            className="t-skel onboarding-install-reveal mt-5 min-h-[206px]"
+            className="t-skel onboarding-install-reveal mt-5 min-h-[360px]"
             data-state={isPreparingKey ? "loading" : "ready"}
             ref={revealRef}
           >
@@ -358,14 +389,29 @@ export function OnboardingInstallPage() {
               <div className="flex h-7 justify-end">
                 <span className="onboarding-skeleton h-7 w-26 rounded-[7px]" />
               </div>
-              {/* The same 20px the real note gets, so the skeleton carries the
-                  grouping too rather than an even stack of four blocks. */}
-              <div className="mt-3 flex h-[34px] items-start gap-2 pt-0.5">
-                <span className="onboarding-skeleton size-[15px] shrink-0" />
-                <span className="flex flex-1 flex-col gap-2 pt-0.5">
-                  <span className="onboarding-skeleton h-2 w-full" />
-                  <span className="onboarding-skeleton h-2 w-[76%]" />
+              {/* The 40px method divider replaces the old 12px gap, adding
+                  exactly 28px to both the skeleton and the real controls. */}
+              <div className="my-2.5 flex h-5 items-center gap-2.5">
+                <span className="onboarding-skeleton h-px flex-1 rounded-none" />
+                <span className="onboarding-skeleton h-5 w-8 rounded-full" />
+                <span className="onboarding-skeleton h-px flex-1 rounded-none" />
+              </div>
+              <div className="flex h-7 items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <span className="onboarding-skeleton size-[17px] shrink-0" />
+                  <span className="onboarding-skeleton h-3 w-32" />
                 </span>
+                <span className="onboarding-skeleton h-7 w-16 shrink-0 rounded-[7px]" />
+              </div>
+              <div className="h-20 rounded-lg border border-border bg-secondary p-3">
+                <div className="flex flex-col gap-2">
+                  <span className="onboarding-skeleton h-2 w-[78%]" />
+                  <span className="onboarding-skeleton h-2 w-[64%]" />
+                  <span className="onboarding-skeleton h-2 w-[72%]" />
+                </div>
+              </div>
+              <div className="flex h-7 justify-end">
+                <span className="onboarding-skeleton h-7 w-28 rounded-[7px]" />
               </div>
             </div>
 
@@ -418,8 +464,11 @@ export function OnboardingInstallPage() {
                           span where it belongs and both sit on one centred
                           line. */}
                       <span className="flex items-center gap-1.5">
-                        <CopyStateGlyph copied={copied} />
-                        <SwapText value={copied ? "Copied" : "Copy"} widest="Copied" />
+                        <CopyStateGlyph copied={copiedItem === "snippet"} />
+                        <SwapText
+                          value={copiedItem === "snippet" ? "Copied" : "Copy"}
+                          widest="Copied"
+                        />
                       </span>
                     </Button>
                   )}
@@ -442,7 +491,7 @@ export function OnboardingInstallPage() {
                   text was squashed by a fifth while it grew. The Install page's
                   card has the same tell. */}
                 <div
-                  className={`t-resize ${showFullCode ? "h-64" : "h-20"} rounded-lg border border-border bg-secondary p-3`}
+                  className={`t-resize ${showFullCode ? "h-40" : "h-20"} rounded-lg border border-border bg-secondary p-3`}
                 >
                   <ScrollArea
                     className="h-full"
@@ -473,7 +522,7 @@ export function OnboardingInstallPage() {
                       aria-expanded={showFullCode}
                       className="h-7 px-2 text-[12px]"
                       leadingIcon={Code2}
-                      onClick={() => setShowFullCode((isShowing) => !isShowing)}
+                      onClick={toggleFullCode}
                       type="button"
                       variant="ghost"
                     >
@@ -482,23 +531,74 @@ export function OnboardingInstallPage() {
                   </div>
                 )}
 
-                {/* The Website note uses items-start, not items-center: it wraps to two
-                  lines, and a centred icon would float between them instead of
-                  leading the first. mt-px lands it on the first line's cap height. */}
-                {/* 20px above, not the group's 8px: the file title, the code and
-                    the expander are one artifact, and this is a fact about which
-                    website that artifact belongs to. At 8px all four read as one
-                    even stack. The icon holds the column's leading edge and the
-                    text hangs off it, so the paragraph still aligns with the
-                    instruction above. */}
-                {snippet.length > 0 && (
-                  <p className="mt-3 flex items-start gap-2 text-[12px] leading-[17px] text-muted-foreground">
-                    <Global aria-hidden className="mt-px shrink-0" size={15} strokeWidth={1.5} />
-                    <span>
-                      This tag records {previewProjectLabel}. Another domain, like a staging copy,
-                      needs its own website.
-                    </span>
-                  </p>
+                {agentPrompt.length > 0 && <InstallMethodDivider />}
+
+                {/* The coding-agent handoff uses the same visual grammar as the
+                    manual script: named artifact and Copy in one row, a key-safe
+                    three-line preview, then an explicit full-text disclosure.
+                    Purple identifies the agent artifact; amber remains reserved
+                    for focus and active navigation, and green still means copied. */}
+                {agentPrompt.length > 0 && (
+                  <div className="flex flex-col gap-2">
+                    <div className="flex h-7 items-center justify-between gap-2">
+                      <span className="flex min-w-0 items-center gap-2 text-[13px] font-medium text-foreground">
+                        <CodingAgent
+                          aria-hidden
+                          className="shrink-0 text-agent-purple"
+                          size={17}
+                          strokeWidth={1.5}
+                        />
+                        <span className="truncate">Use your coding agent</span>
+                      </span>
+                      <Button
+                        aria-label={
+                          copiedItem === "agent-prompt"
+                            ? "Agent prompt copied"
+                            : "Copy agent prompt"
+                        }
+                        className="h-7 shrink-0 px-2.5 text-[12px]"
+                        onClick={() => void copyAgentPrompt()}
+                        size="sm"
+                        type="button"
+                        variant="secondary"
+                      >
+                        <span className="flex items-center gap-1.5">
+                          <CopyStateGlyph copied={copiedItem === "agent-prompt"} />
+                          <SwapText
+                            value={copiedItem === "agent-prompt" ? "Copied" : "Copy"}
+                            widest="Copied"
+                          />
+                        </span>
+                      </Button>
+                    </div>
+
+                    <div
+                      className={`t-resize ${showFullPrompt ? "h-40" : "h-20"} rounded-lg border border-border bg-secondary p-3`}
+                    >
+                      <ScrollArea
+                        className="h-full"
+                        viewportClassName="scroll-fade [&>[role=presentation]]:!min-w-0"
+                      >
+                        <pre className="font-mono text-[10.5px] leading-[17px] break-words whitespace-pre-wrap text-muted-foreground">
+                          <code>{showFullPrompt ? agentPrompt : agentPromptSummary}</code>
+                        </pre>
+                      </ScrollArea>
+                    </div>
+
+                    <div className="flex justify-end">
+                      <Button
+                        active={showFullPrompt}
+                        aria-expanded={showFullPrompt}
+                        className="h-7 px-2 text-[12px]"
+                        leadingIcon={Code2}
+                        onClick={toggleFullPrompt}
+                        type="button"
+                        variant="ghost"
+                      >
+                        {showFullPrompt ? "Hide full prompt" : "View full prompt"}
+                      </Button>
+                    </div>
+                  </div>
                 )}
 
                 {keyError.length > 0 && (
@@ -537,6 +637,28 @@ export function OnboardingInstallPage() {
       // placement, so a sentence here only agreed with the instruction two rows
       // under it, and it cost a chunk of a 394px column to do that.
     />
+  );
+}
+
+/**
+ * A quiet choice marker between the two complete install paths, drawn in the
+ * canvas's own material: the rules are the dot lattice, not dashes, and every
+ * 6.5s a lit cluster of cells leaves the chip along both of them at once. The
+ * chip carries slow smoke inside it so the marker is never fully at rest.
+ *
+ * Geometry, timings and the reduced-motion fallback live in `onboarding.css`
+ * under THE "OR" DIVIDER — this is two rails and a chip.
+ */
+function InstallMethodDivider() {
+  return (
+    <div className="my-2.5 flex h-6 items-center gap-2.5" data-install-method-divider="">
+      <Separator aria-hidden className="onboarding-or-rail" data-side="start" />
+      <span className="onboarding-or-chip">
+        <i aria-hidden className="onboarding-or-smoke" />
+        <span>or</span>
+      </span>
+      <Separator aria-hidden className="onboarding-or-rail" data-side="end" />
+    </div>
   );
 }
 

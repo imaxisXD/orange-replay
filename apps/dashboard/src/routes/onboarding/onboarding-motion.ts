@@ -47,7 +47,10 @@
  *
  * FIRST PAINT — once per visit
  *      0ms   canvas, rail and dashboard preview hold at rest
- *     60ms   progress rail fills to the opened step
+ *     60ms   the rail fills up to the opened step: each part's
+ *            amber lattice is revealed left to right over 420ms,
+ *            the parts running 90ms apart. It is the rail's only
+ *            motion — nothing on it loops
  *     60ms   heading rises 12px, blur 3px → 0
  *    120ms   supporting line follows
  *    180ms   field / code card / status card follows
@@ -60,9 +63,10 @@
  *            travel and clears a 3px blur; Back travels the
  *            other way, so the flow reads as a position
  *      0ms   chunks re-stagger in reading order
+ *    420ms   the part just reached has finished filling, left to
+ *            right; the one behind it settles to its done tone
  *    300ms   the persistent form frame finishes tweening to the
  *            new step's height
- *    360ms   progress rail reaches its new position
  *
  * ACT 0 → IDENTITY — typing on step 1
  *      0ms   first character pushes the camera in toward the
@@ -164,7 +168,6 @@ export const TIMING = {
   body: 180, // field / code card / status card follows
   action: 220, // primary action lands last
   frame: 300, // form frame settles at the new step's height
-  railTravel: 360, // rail reaches the next step
   previewPage: 180, // preview's tab row answers the step it just entered
   arrivalInstalled: 0, // the card being watched flips to Installed, first
   arrivalLift: 260, // then the frame lifts under it
@@ -281,10 +284,33 @@ export const FAVICON_SLOT = {
   enterEase: "cubic-bezier(0.22, 1, 0.36, 1)",
 } as const;
 
-/* Progress rail above the form column */
+/* Progress rail above the form column. One part per step, each drawn in the
+   divider's own two-row lattice; the parts fill in CSS (see onboarding.css, THE
+   STEP RAIL), so the only value the component needs from here is the height. */
 export const RAIL = {
-  height: 3, // px, a thin line rather than a bar
-  spring: { type: "spring" as const, duration: TIMING.railTravel / 1_000, bounce: 0 },
+  /* 5px: two 2px lattice rows and the 1px between them, the same rule the
+     divider on step two draws. */
+  height: 5,
+  /* Geometry and timing the twinkle canvas has to agree with, because it draws
+     into the same lattice the CSS does and must not light a cell the fill has
+     not reached. All four are restated in onboarding.css under THE STEP RAIL;
+     change one and the other has to follow. */
+  pitch: 3, // px between cells
+  cell: 2, // px of one cell
+  speed: 900, // ms for the light to cross the whole rail
+  delay: 60, // ms before it starts, the heading's own lead
+} as const;
+
+/* The step rail's fill, as percentages of `--amber` and one blur radius. These
+   are what onboarding.css falls back to (THE STEP RAIL) and what
+   `/local-labs/step-rail` starts its dials at — the stylesheet cannot read a TS
+   constant, so the two are restated and have to be changed together. */
+export const STEP_RAIL_FILL = {
+  near: 100, // % amber on the near row
+  far: 58, // % amber on the far row
+  glowTight: 100, // % amber in the tight ring
+  glowWide: 37, // % amber in the wide falloff
+  glowRadius: 9, // px of the wide falloff
 } as const;
 
 /* Step forms entering the 394px column.
