@@ -150,6 +150,19 @@ export function sdkFlushMs(live: boolean, timing: SessionTiming = defaultSession
   return live ? timing.sdkFlushLiveMs : timing.sdkFlushMs;
 }
 
+/**
+ * The pair every append ack carries. live and flushMs are both functions of
+ * viewer presence and must never disagree, so every ack builds them here
+ * instead of by hand.
+ */
+export function liveAck(
+  viewerCount: number,
+  timing: SessionTiming,
+): { live: boolean; flushMs: number } {
+  const live = viewerCount > 0;
+  return { live, flushMs: sdkFlushMs(live, timing) };
+}
+
 function readPositiveNumber(value: unknown, fallback: number): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
     return fallback;

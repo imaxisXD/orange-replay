@@ -155,6 +155,14 @@ export function sessionActivity(
   return row.last_seen >= now - ttlMs ? "live" : "idle";
 }
 
+/**
+ * The replay a viewer opens for a presence-reported session: a finalizing
+ * session already has its recording; anything else still streams live.
+ */
+export function replaySourceForActivity(activity: SessionActivity): "live" | "recorded" {
+  return activity === "finalizing" ? "recorded" : "live";
+}
+
 function readPositiveNumber(value: unknown, fallback: number): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
     return fallback;

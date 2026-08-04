@@ -14,6 +14,7 @@ import {
 } from "@orange-replay/shared";
 import {
   decideSegmentFlush,
+  liveAck,
   nextAlarmAfterAlarm,
   resolveSessionTiming,
   sdkFlushMs,
@@ -25,6 +26,7 @@ import {
   liveSessionsFromPresenceRows,
   presenceShardIndex,
   presenceShardNames,
+  replaySourceForActivity,
   resolvePresenceTiming,
   shouldSendPresencePing,
 } from "../src/do/presence-logic.ts";
@@ -78,6 +80,22 @@ describe("SessionRecorder pure logic", () => {
     );
     expect(sdkFlushMs(false, timing)).toBe(900);
     expect(sdkFlushMs(true, timing)).toBe(450);
+  });
+
+  it("answers live and flushMs together from viewer presence", () => {
+    const timing = resolveSessionTiming(
+      "1",
+      JSON.stringify({ sdkFlushMs: 900, sdkFlushLiveMs: 450 }),
+    );
+    expect(liveAck(0, timing)).toEqual({ live: false, flushMs: 900 });
+    expect(liveAck(1, timing)).toEqual({ live: true, flushMs: 450 });
+    expect(liveAck(3, timing)).toEqual({ live: true, flushMs: 450 });
+  });
+
+  it("routes a viewer to the recording once a session is finalizing", () => {
+    expect(replaySourceForActivity("finalizing")).toBe("recorded");
+    expect(replaySourceForActivity("live")).toBe("live");
+    expect(replaySourceForActivity("idle")).toBe("live");
   });
 
   it("decides when buffered batches should flush", () => {

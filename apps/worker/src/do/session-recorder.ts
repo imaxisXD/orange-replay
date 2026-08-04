@@ -28,9 +28,9 @@ import { createFreshState, encodedTextBytes, updateStateWithBatch } from "./sess
 import { SessionAlarms } from "./session-alarms.ts";
 import {
   decideSegmentFlush,
+  liveAck,
   nextAlarmAfterAlarm,
   resolveSessionTiming,
-  sdkFlushMs,
   trackAppendRateLimit,
 } from "./session-timing.ts";
 import type { SessionState } from "./session-state.ts";
@@ -190,7 +190,7 @@ export class SessionRecorder extends DurableObject<Env> {
   async appendBatch(args: AppendArgs): Promise<AppendResult> {
     const event = startWideEvent("worker", "do.append", args.requestId);
     const timing = resolveSessionTiming(devTestRoutesFlag(this.env), this.env.TEST_TIMINGS);
-    let result: AppendResult = { live: false, closed: false, flushMs: sdkFlushMs(false, timing) };
+    let result: AppendResult = { ...liveAck(0, timing), closed: false };
     let outcome: WideEventOutcome = "success";
     let dropReason: "session_closed" | "session_cap" | undefined;
     let rateLimited = false;
@@ -205,19 +205,15 @@ export class SessionRecorder extends DurableObject<Env> {
       if (trackAppendRateLimit(this.appendRateLimit, args.receivedAt, timing)) {
         outcome = "rate_limited";
         rateLimited = true;
-        result = {
-          live: this.liveHub.viewerCount() > 0,
-          closed: false,
-          flushMs: sdkFlushMs(this.liveHub.viewerCount() > 0, timing),
-          rateLimited: true,
-        };
+        viewerCount = this.liveHub.viewerCount();
+        result = { ...liveAck(viewerCount, timing), closed: false, rateLimited: true };
         return result;
       }
 
       const closedResult = (): AppendResult => {
         outcome = "dropped";
         dropReason = "session_closed";
-        return { live: false, closed: true, flushMs: sdkFlushMs(false, timing) };
+        return { ...liveAck(0, timing), closed: true };
       };
 
       const lifecycle = this.lifecycle();
@@ -253,11 +249,7 @@ export class SessionRecorder extends DurableObject<Env> {
 
       if (duplicate) {
         await this.ensureAcceptedUsageAndAlarm(state, timing.flushTailMs, true);
-        result = {
-          live: viewerCount > 0,
-          closed: false,
-          flushMs: sdkFlushMs(viewerCount > 0, timing),
-        };
+        result = { ...liveAck(viewerCount, timing), closed: false };
         return result;
       }
 
@@ -283,12 +275,7 @@ export class SessionRecorder extends DurableObject<Env> {
       ) {
         outcome = "dropped";
         dropReason = "session_cap";
-        result = {
-          live: viewerCount > 0,
-          closed: false,
-          flushMs: sdkFlushMs(viewerCount > 0, timing),
-          drop: true,
-        };
+        result = { ...liveAck(viewerCount, timing), closed: false, drop: true };
         return result;
       }
 
@@ -305,11 +292,7 @@ export class SessionRecorder extends DurableObject<Env> {
 
       if (duplicate) {
         await this.ensureAcceptedUsageAndAlarm(state, timing.flushTailMs, true);
-        result = {
-          live: viewerCount > 0,
-          closed: false,
-          flushMs: sdkFlushMs(viewerCount > 0, timing),
-        };
+        result = { ...liveAck(viewerCount, timing), closed: false };
         return result;
       }
 
@@ -368,9 +351,8 @@ export class SessionRecorder extends DurableObject<Env> {
 
       viewerCount = this.liveHub.viewerCount();
       result = {
-        live: viewerCount > 0,
+        ...liveAck(viewerCount, timing),
         closed: false,
-        flushMs: sdkFlushMs(viewerCount > 0, timing),
         ...(checkpoint ? { checkpoint: true } : {}),
       };
       return result;

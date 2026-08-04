@@ -10,9 +10,11 @@ import {
 import { shardDb, type Env } from "../env.ts";
 import { listProjectSessionHeads, readProjectSessionHead } from "../do/presence-client.ts";
 import {
+  replaySourceForActivity,
   SESSION_HEAD_HANDOFF_GRACE_MS,
   type PresenceHeadQuery,
   type PresenceSessionHead,
+  type SessionActivity,
 } from "../do/presence-logic.ts";
 import {
   buildSessionWhere,
@@ -169,7 +171,7 @@ export async function getSessionState(
       head.activity !== "live" &&
       (await env.RECORDINGS.head(manifestKey(projectId, sessionId))) !== null
     ) {
-      head = { ...head, activity: "finalizing", replay_source: "recorded" };
+      head = provisionalHead(projectId, presence, orgId, "finalizing");
     }
     return jsonResponse(head, { headers: NO_STORE_HEADERS });
   }
@@ -181,7 +183,12 @@ export async function getSessionState(
   return jsonResponse(manifestHead(manifest.data), { headers: NO_STORE_HEADERS });
 }
 
-function provisionalHead(projectId: string, row: PresenceSessionHead, orgId: string): SessionHead {
+function provisionalHead(
+  projectId: string,
+  row: PresenceSessionHead,
+  orgId: string,
+  activity: SessionActivity = row.activity,
+): SessionHead {
   return {
     session_id: row.session_id,
     project_id: projectId,
@@ -213,9 +220,9 @@ function provisionalHead(projectId: string, row: PresenceSessionHead, orgId: str
     manifest_key: manifestKey(projectId, row.session_id),
     expires_at: row.last_seen + CLOSE_SESSION_AFTER_IDLE_MS + SESSION_HEAD_HANDOFF_GRACE_MS,
     has_checkpoint: null,
-    activity: row.activity,
+    activity,
     details_state: "provisional",
-    replay_source: row.activity === "finalizing" ? "recorded" : "live",
+    replay_source: replaySourceForActivity(activity),
   };
 }
 
