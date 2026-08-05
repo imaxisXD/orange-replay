@@ -97,7 +97,7 @@ export async function maintainAnalyticsDeletionV2(
   let visible = 0;
   let missing = 0;
 
-  const unsent = await listUnsentAnalyticsDeletionV2Jobs(db, batchSize);
+  const unsent = await listUnsentAnalyticsDeletionV2Jobs(db, now, batchSize);
   selected = unsent.length;
 
   const validUnsent: DeletionV2JobRow[] = [];
@@ -120,7 +120,7 @@ export async function maintainAnalyticsDeletionV2(
     } catch (error) {
       const message = storedError(error);
       await markAnalyticsDeletionV2Failed(db, validUnsent, message);
-      const counts = await readAnalyticsDeletionV2Counts(db);
+      const counts = await readAnalyticsDeletionV2Counts(db, now);
       await saveAnalyticsDeletionV2State(db, counts, now, message, false);
       throw new Error(`Analytics deletion v2 delivery failed: ${message}`, { cause: error });
     }
@@ -129,6 +129,7 @@ export async function maintainAnalyticsDeletionV2(
   const visibilityCutoff = Math.max(0, now - visibilityDelayMs);
   const waiting = await listAnalyticsDeletionV2JobsAwaitingVisibility(
     db,
+    now,
     visibilityCutoff,
     batchSize,
   );
@@ -158,7 +159,7 @@ export async function maintainAnalyticsDeletionV2(
       visibleIds = answer instanceof Set ? answer : new Set(answer);
     } catch (error) {
       const message = storedError(error);
-      const counts = await readAnalyticsDeletionV2Counts(db);
+      const counts = await readAnalyticsDeletionV2Counts(db, now);
       await saveAnalyticsDeletionV2State(db, counts, now, message, false);
       throw new Error(`Analytics deletion v2 visibility failed: ${message}`, { cause: error });
     }
@@ -166,8 +167,9 @@ export async function maintainAnalyticsDeletionV2(
     const found: DeletionV2JobRow[] = [];
     const notFound: DeletionV2JobRow[] = [];
     for (const job of validWaiting) {
-      if (visibleIds.has(deletionV2ExportId(job.projectId, job.sessionId))) found.push(job);
-      else notFound.push(job);
+      if (visibleIds.has(deletionV2ExportId(job.projectId, job.sessionId, job.requestedAt))) {
+        found.push(job);
+      } else notFound.push(job);
     }
     await markAnalyticsDeletionV2Visible(db, found, now);
     await resetAnalyticsDeletionV2ForRetry(db, notFound);
@@ -175,7 +177,7 @@ export async function maintainAnalyticsDeletionV2(
     missing += notFound.length;
   }
 
-  const counts = await readAnalyticsDeletionV2Counts(db);
+  const counts = await readAnalyticsDeletionV2Counts(db, now);
   const ready = counts.requiredJobs === counts.visibleJobs;
   let stateError = deletionV2StateError(failed, missing, counts);
 
@@ -230,7 +232,7 @@ export function buildAnalyticsDeletionV2Record(job: DeletionV2JobRow): Analytics
   return {
     schema_version: ANALYTICS_DELETION_V2_SCHEMA_VERSION,
     record_kind: "deletion",
-    export_id: deletionV2ExportId(job.projectId, job.sessionId),
+    export_id: deletionV2ExportId(job.projectId, job.sessionId, job.requestedAt),
     export_sequence: job.exportSequence,
     project_id: job.projectId,
     session_id: job.sessionId,
@@ -241,8 +243,12 @@ export function buildAnalyticsDeletionV2Record(job: DeletionV2JobRow): Analytics
   };
 }
 
-export function deletionV2ExportId(projectId: string, sessionId: string): string {
-  return `deletion-v2:${projectId}:${sessionId}`;
+export function deletionV2ExportId(
+  projectId: string,
+  sessionId: string,
+  requestedAt: number,
+): string {
+  return `deletion-v2:${projectId}:${sessionId}:${String(requestedAt)}`;
 }
 
 export function buildAnalyticsDeletionV2VisibilityQuery(input: {

@@ -69,7 +69,7 @@ export function CaptureCard({
   updateDraft: (updater: (currentDraft: ProjectSettingsDraft) => ProjectSettingsDraft) => void;
 }) {
   return (
-    <SettingsCard body="Control how much session detail the recorder keeps." title="Capture">
+    <SettingsCard body="Control recording detail. Analytics are kept for 2 years." title="Capture">
       <>
         <SettingRow description="Percent of sessions to record." label="Sampling rate">
           <NumberStepper
@@ -85,7 +85,7 @@ export function CaptureCard({
             value={Number(sampleRateToPercentInput(sampleRate))}
           />
         </SettingRow>
-        <SettingRow description="Days before sessions expire." label="Retention">
+        <SettingRow description="Days recordings remain playable." label="Recording retention">
           <NumberStepper
             ariaLabel="Retention days"
             max={365}

@@ -79,5 +79,8 @@ export async function createPurgeTestDatabase(): Promise<PurgeTestDatabase> {
     "utf8",
   );
   database.sqlite.exec(migration);
+  database.sqlite.exec(`
+    ALTER TABLE analytics_deletion_jobs ADD COLUMN deletion_v2_visible_at INTEGER;
+  `);
   return database;
 }

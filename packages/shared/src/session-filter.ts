@@ -4,7 +4,7 @@ import { schemaCheck, sharedSchema } from "./validation.ts";
 const MAX_FILTER_VALUE_CHARS = 200;
 const MAX_ENTRY_URL_PREFIX_CHARS = 2048;
 const DEFAULT_ANALYTICS_DATE_RANGE_MS = 24 * 60 * 60 * 1000;
-export const MAX_ANALYTICS_DATE_RANGE_MS = 31 * 24 * 60 * 60 * 1000;
+export const MAX_ANALYTICS_DATE_RANGE_MS = 730 * 24 * 60 * 60 * 1000;
 const ONE_MINUTE_MS = 60 * 1000;
 
 export const sessionFilterQueryKeys = [
@@ -251,7 +251,7 @@ function checkDateRange<Input extends { from?: number; to?: number }>(): v.RawCh
     }
     if (!dateRangeFitsLimit(filter)) {
       context.addIssue({
-        message: "date range must be 31 days or less",
+        message: "date range must be 730 days or less",
         path: ["to"],
       });
     }

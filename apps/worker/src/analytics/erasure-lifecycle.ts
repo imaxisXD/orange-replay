@@ -1,3 +1,4 @@
+import { ANALYTICS_RETENTION_MS } from "@orange-replay/shared";
 import { buildDeletionRecord, serializeAnalyticsPayload } from "./export-record.ts";
 
 export const ANALYTICS_ERASURE_BATCH_SIZE = 15;
@@ -14,7 +15,7 @@ export interface AnalyticsErasureRequest {
   sessionId: string;
   projectId: string;
   startedAt: number;
-  deleteReason: "retention_expired" | "delete_requested";
+  deleteReason: "recording_retention_expired" | "delete_requested";
   requiresWarehouseTombstone: number;
 }
 
@@ -46,7 +47,10 @@ interface D1PurgeJobRow {
   delete_reason: string;
   first_zero_at: number | null;
   requires_warehouse_tombstone: number;
+  deletion_v2_visible_at: number | null;
 }
+
+export type AnalyticsPurgeTombstoneTable = "analytics_deletions" | "analytics_deletions_v2";
 
 export interface AnalyticsPurgeJob {
   projectId: string;
@@ -54,6 +58,7 @@ export interface AnalyticsPurgeJob {
   requestedAt: number;
   deleteReason: string;
   requiresWarehouseTombstone: boolean;
+  tombstoneTable: AnalyticsPurgeTombstoneTable | null;
   needsPhysicalMaintenance: boolean;
 }
 
@@ -78,27 +83,50 @@ export async function recordAnalyticsErasureRequests(
   now: number,
 ): Promise<void> {
   for (const chunk of chunkList(rows, ANALYTICS_ERASURE_BATCH_SIZE)) {
-    const placeholders = chunk.map(() => "(?, ?, ?, 1)").join(", ");
-    const values = chunk.flatMap((row) => [row.projectId, row.sessionId, now]);
+    const deletionFenceValues = chunk.flatMap((row) => [
+      row.projectId,
+      row.sessionId,
+      now,
+      row.deleteReason === "delete_requested" ? 1 : 0,
+    ]);
+    const analyticsJobs = chunk.map((row) => ({
+      ...row,
+      deleteReason:
+        row.deleteReason === "delete_requested"
+          ? "delete_requested"
+          : "analytics_retention_expired",
+      requestedAt:
+        row.deleteReason === "delete_requested" ? now : row.startedAt + ANALYTICS_RETENTION_MS,
+    }));
     const statements = [
       db
         .prepare(
-          `INSERT INTO session_deletions (project_id, session_id, requested_at, attempts)
-        VALUES ${placeholders}
+          `INSERT INTO session_deletions (
+            project_id, session_id, requested_at, delete_analytics, attempts
+          ) VALUES ${chunk.map(() => "(?, ?, ?, ?, 1)").join(", ")}
         ON CONFLICT(project_id, session_id) DO UPDATE SET
           attempts = attempts + 1,
+          delete_analytics = CASE
+            WHEN session_deletions.delete_analytics = 1 OR excluded.delete_analytics = 1 THEN 1
+            ELSE 0
+          END,
           last_error = NULL`,
         )
-        .bind(...values),
+        .bind(...deletionFenceValues),
       db
         .prepare(
           `INSERT INTO analytics_deletion_jobs (
             project_id, session_id, requested_at, delete_reason,
             requires_warehouse_tombstone, session_started_at
-          ) VALUES ${chunk.map(() => "(?, ?, ?, ?, ?, ?)").join(", ")}
+          ) VALUES ${analyticsJobs.map(() => "(?, ?, ?, ?, ?, ?)").join(", ")}
           ON CONFLICT(project_id, session_id) DO UPDATE SET
             requested_at = MIN(analytics_deletion_jobs.requested_at, excluded.requested_at),
-            delete_reason = excluded.delete_reason,
+            delete_reason = CASE
+              WHEN analytics_deletion_jobs.delete_reason = 'delete_requested'
+                OR excluded.delete_reason = 'delete_requested'
+              THEN 'delete_requested'
+              ELSE excluded.delete_reason
+            END,
             session_started_at = COALESCE(
               analytics_deletion_jobs.session_started_at,
               excluded.session_started_at
@@ -112,23 +140,28 @@ export async function recordAnalyticsErasureRequests(
             completed_at = NULL`,
         )
         .bind(
-          ...chunk.flatMap((row) => [
+          ...analyticsJobs.flatMap((row) => [
             row.projectId,
             row.sessionId,
-            now,
+            row.requestedAt,
             row.deleteReason,
             row.requiresWarehouseTombstone,
             row.startedAt,
           ]),
         ),
-      db
-        .prepare(
-          `DELETE FROM analytics_export_outbox
-          WHERE record_kind IN ('session', 'event')
-            AND (project_id, session_id) IN (${chunk.map(() => "(?, ?)").join(", ")})`,
-        )
-        .bind(...chunk.flatMap((row) => [row.projectId, row.sessionId])),
     ];
+    const privacyDeletions = chunk.filter((row) => row.deleteReason === "delete_requested");
+    if (privacyDeletions.length > 0) {
+      statements.push(
+        db
+          .prepare(
+            `DELETE FROM analytics_export_outbox
+            WHERE record_kind IN ('session', 'event')
+              AND (project_id, session_id) IN (${privacyDeletions.map(() => "(?, ?)").join(", ")})`,
+          )
+          .bind(...privacyDeletions.flatMap((row) => [row.projectId, row.sessionId])),
+      );
+    }
     await db.batch(statements);
   }
 }
@@ -152,10 +185,11 @@ export async function queueDeletionExportsFromJournal(
         WHERE j.deletion_export_sequence IS NULL
           AND j.completed_at IS NULL
           AND j.requires_warehouse_tombstone = 1
+          AND j.requested_at <= ?
         ORDER BY j.requested_at, j.project_id, j.session_id
         LIMIT ?`,
       )
-      .bind(JOURNAL_BATCH_SIZE)
+      .bind(safeNow, JOURNAL_BATCH_SIZE)
       .all<DeletionJournalJob>();
     const jobs = result.results;
     if (jobs.length === 0) break;
@@ -208,24 +242,27 @@ export async function queueDeletionExportsFromJournal(
             )`,
         )
         .bind(JSON.stringify(deletionExports), safeNow),
-      db.prepare(
-        `UPDATE analytics_deletion_jobs
+      db
+        .prepare(
+          `UPDATE analytics_deletion_jobs
         SET deletion_export_sequence = COALESCE(
           (
             SELECT o.export_sequence
             FROM analytics_export_outbox o
-            WHERE o.export_id = 'deletion:' || analytics_deletion_jobs.project_id || ':' || analytics_deletion_jobs.session_id
+            WHERE o.export_id = 'deletion:' || analytics_deletion_jobs.project_id || ':' || analytics_deletion_jobs.session_id || ':' || analytics_deletion_jobs.requested_at
           ),
           (
             SELECT l.export_sequence
             FROM analytics_export_ledger l
-            WHERE l.export_id = 'deletion:' || analytics_deletion_jobs.project_id || ':' || analytics_deletion_jobs.session_id
+            WHERE l.export_id = 'deletion:' || analytics_deletion_jobs.project_id || ':' || analytics_deletion_jobs.session_id || ':' || analytics_deletion_jobs.requested_at
           )
         )
         WHERE deletion_export_sequence IS NULL
           AND completed_at IS NULL
-          AND requires_warehouse_tombstone = 1`,
-      ),
+          AND requires_warehouse_tombstone = 1
+          AND requested_at <= ?`,
+        )
+        .bind(safeNow),
     ]);
     queued += batchResults[0]?.meta.changes ?? 0;
     if (jobs.length < JOURNAL_BATCH_SIZE) break;
@@ -235,18 +272,21 @@ export async function queueDeletionExportsFromJournal(
 
 export async function listUnsentAnalyticsDeletionV2Jobs(
   db: D1Database,
+  now: number,
   limit: number,
 ): Promise<AnalyticsDeletionV2Job[]> {
-  return listAnalyticsDeletionV2Jobs(db, "j.deletion_v2_sent_at IS NULL", [], limit);
+  return listAnalyticsDeletionV2Jobs(db, now, "j.deletion_v2_sent_at IS NULL", [], limit);
 }
 
 export async function listAnalyticsDeletionV2JobsAwaitingVisibility(
   db: D1Database,
+  now: number,
   visibleBefore: number,
   limit: number,
 ): Promise<AnalyticsDeletionV2Job[]> {
   return listAnalyticsDeletionV2Jobs(
     db,
+    now,
     "j.deletion_v2_sent_at IS NOT NULL AND j.deletion_v2_sent_at <= ?",
     [visibleBefore],
     limit,
@@ -377,6 +417,7 @@ export async function resetAnalyticsDeletionV2ForRetry(
 
 export async function readAnalyticsDeletionV2Counts(
   db: D1Database,
+  now: number,
 ): Promise<AnalyticsDeletionV2Counts> {
   const row = await db
     .prepare(
@@ -385,8 +426,10 @@ export async function readAnalyticsDeletionV2Counts(
         COALESCE(SUM(CASE WHEN deletion_v2_visible_at IS NOT NULL THEN 1 ELSE 0 END), 0)
           AS visibleJobs
       FROM analytics_deletion_jobs
-      WHERE requires_warehouse_tombstone = 1`,
+      WHERE requires_warehouse_tombstone = 1
+        AND requested_at <= ?`,
     )
+    .bind(now)
     .first<AnalyticsDeletionV2Counts>();
   if (
     row === null ||
@@ -455,6 +498,7 @@ export async function claimAnalyticsPurgeJobs(
           AND (j.first_zero_at IS NULL OR j.first_zero_at <= ?)
           AND (
             j.requires_warehouse_tombstone = 0
+            OR j.deletion_v2_visible_at IS NOT NULL
             OR (
               j.deletion_export_sequence IS NOT NULL
               AND j.deletion_export_sequence <= COALESCE(s.verified_sequence, 0)
@@ -464,7 +508,7 @@ export async function claimAnalyticsPurgeJobs(
         LIMIT ?
       )
       RETURNING project_id, session_id, requested_at, delete_reason, first_zero_at,
-        requires_warehouse_tombstone`,
+        requires_warehouse_tombstone, deletion_v2_visible_at`,
     )
     .bind(ownerId, leaseExpiresAt, safeNow, eligibleBefore, safeNow, eligibleBefore, safeLimit)
     .all<D1PurgeJobRow>();
@@ -473,8 +517,10 @@ export async function claimAnalyticsPurgeJobs(
     .prepare(
       `SELECT MIN(requested_at) AS oldest
       FROM analytics_deletion_jobs
-      WHERE completed_at IS NULL`,
+      WHERE completed_at IS NULL
+        AND requested_at <= ?`,
     )
+    .bind(safeNow)
     .first<{ oldest: number | null }>();
   const oldestPendingAt = oldest?.oldest ?? null;
 
@@ -485,6 +531,12 @@ export async function claimAnalyticsPurgeJobs(
       requestedAt: row.requested_at,
       deleteReason: row.delete_reason,
       requiresWarehouseTombstone: row.requires_warehouse_tombstone === 1,
+      tombstoneTable:
+        row.requires_warehouse_tombstone !== 1
+          ? null
+          : row.deletion_v2_visible_at !== null
+            ? "analytics_deletions_v2"
+            : "analytics_deletions",
       needsPhysicalMaintenance: row.first_zero_at === null,
     })),
     deadlineRisk: oldestPendingAt !== null && oldestPendingAt <= safeNow - ANALYTICS_PURGE_ALERT_MS,
@@ -607,6 +659,7 @@ export async function markPurgeDeadlineAlerted(db: D1Database, now = Date.now())
 
 async function listAnalyticsDeletionV2Jobs(
   db: D1Database,
+  now: number,
   extraWhere: string,
   bindings: readonly number[],
   limit: number,
@@ -622,12 +675,13 @@ async function listAnalyticsDeletionV2Jobs(
         j.deletion_export_sequence AS exportSequence
       FROM analytics_deletion_jobs j
       WHERE j.requires_warehouse_tombstone = 1
+        AND j.requested_at <= ?
         AND j.deletion_v2_visible_at IS NULL
         AND ${extraWhere}
       ORDER BY j.deletion_v2_attempt_count, j.requested_at, j.project_id, j.session_id
       LIMIT ?`,
     )
-    .bind(...bindings, limit)
+    .bind(now, ...bindings, limit)
     .all<AnalyticsDeletionV2Job>();
   return result.results;
 }

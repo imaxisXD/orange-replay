@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
+import { ANALYTICS_RETENTION_MS } from "@orange-replay/shared";
 import {
   ANALYTICS_PURGE_QUIET_MS,
   claimAnalyticsPurgeJobs,
@@ -19,15 +20,37 @@ const SESSION_ID = "session";
 const REQUESTED_AT = 1_000;
 
 describe("analytics erasure lifecycle", () => {
-  it("records requests atomically and keeps the durable request fields stable", async () => {
+  it("keeps recording analytics for two years while privacy deletion still erases them", async () => {
     const database = await createLifecycleDatabase();
     const db = lifecycleDatabase(database);
+    database.run(
+      `INSERT INTO analytics_export_outbox (
+        export_id, project_id, session_id, record_kind, payload_json, created_at
+      ) VALUES ('session:project:session', 'project', 'session', 'session', '{}', 1)`,
+    );
 
     await recordAnalyticsErasureRequests(
       db,
       [erasureRequest({ startedAt: 500, requiresWarehouseTombstone: 0 })],
       2_000,
     );
+    expect(
+      database.row(
+        `SELECT requested_at, delete_reason, session_started_at,
+          requires_warehouse_tombstone, completed_at
+        FROM analytics_deletion_jobs`,
+      ),
+    ).toEqual({
+      completed_at: null,
+      delete_reason: "analytics_retention_expired",
+      requested_at: 500 + ANALYTICS_RETENTION_MS,
+      requires_warehouse_tombstone: 0,
+      session_started_at: 500,
+    });
+    expect(database.value("SELECT delete_analytics FROM session_deletions")).toBe(0);
+    expect(database.value("SELECT COUNT(*) FROM analytics_export_outbox")).toBe(1);
+    await expect(queueDeletionExportsFromJournal(db, 3_000)).resolves.toBe(0);
+
     database.run(
       `UPDATE analytics_deletion_jobs SET completed_at = 2_500
       WHERE project_id = ? AND session_id = ?`,
@@ -59,11 +82,13 @@ describe("analytics erasure lifecycle", () => {
       ),
     ).toEqual({
       completed_at: null,
-      delete_reason: "retention_expired",
+      delete_reason: "delete_requested",
       requested_at: 1_000,
       requires_warehouse_tombstone: 1,
       session_started_at: 500,
     });
+    expect(database.value("SELECT delete_analytics FROM session_deletions")).toBe(1);
+    expect(database.value("SELECT COUNT(*) FROM analytics_export_outbox")).toBe(0);
 
     database.run(
       `INSERT INTO analytics_export_outbox (
@@ -145,7 +170,7 @@ describe("analytics erasure lifecycle", () => {
         PROJECT_ID,
         SESSION_ID,
       ),
-    ).toEqual({ export_id: "deletion:project:session", export_sequence: 1 });
+    ).toEqual({ export_id: "deletion:project:session:1000", export_sequence: 1 });
     database.run(
       `INSERT INTO analytics_warehouse_state (project_id, verified_sequence)
       VALUES (?, ?)`,
@@ -232,11 +257,11 @@ describe("analytics erasure lifecycle", () => {
     ).resolves.toMatchObject({ ready: false, selected: 1, sent: 1, visibleJobs: 0 });
     expect(accepted).toEqual([
       expect.objectContaining({
-        export_id: deletionV2ExportId(PROJECT_ID, SESSION_ID),
+        export_id: deletionV2ExportId(PROJECT_ID, SESSION_ID, REQUESTED_AT),
         session_id: SESSION_ID,
       }),
     ]);
-    visibleIds.add(deletionV2ExportId(PROJECT_ID, SESSION_ID));
+    visibleIds.add(deletionV2ExportId(PROJECT_ID, SESSION_ID, REQUESTED_AT));
     await expect(
       maintainAnalyticsDeletionV2(db, pipeline, visibility, {
         now: v2SentAt + 60_000,
@@ -250,7 +275,7 @@ describe("analytics erasure lifecycle", () => {
 function erasureRequest(
   overrides: Partial<{
     startedAt: number;
-    deleteReason: "retention_expired" | "delete_requested";
+    deleteReason: "recording_retention_expired" | "delete_requested";
     requiresWarehouseTombstone: number;
   }> = {},
 ) {
@@ -258,7 +283,7 @@ function erasureRequest(
     projectId: PROJECT_ID,
     sessionId: SESSION_ID,
     startedAt: overrides.startedAt ?? 500,
-    deleteReason: overrides.deleteReason ?? ("retention_expired" as const),
+    deleteReason: overrides.deleteReason ?? ("recording_retention_expired" as const),
     requiresWarehouseTombstone: overrides.requiresWarehouseTombstone ?? 1,
   };
 }
@@ -355,6 +380,7 @@ async function createLifecycleDatabase(): Promise<TestD1Database> {
       "0009_analytics_warehouse.sql",
       "0016_analytics_deletion_started_at.sql",
       "0018_analytics_deletion_v2.sql",
+      "0025_separate_recording_and_analytics_retention.sql",
     ].map(async (fileName) =>
       readFile(new URL(`../migrations/${fileName}`, import.meta.url), "utf8"),
     ),

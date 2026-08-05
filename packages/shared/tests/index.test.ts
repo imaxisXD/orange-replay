@@ -477,7 +477,7 @@ describe("session filters", () => {
     });
   });
 
-  it("rejects an analytics date range longer than 31 days", () => {
+  it("allows up to two years of analytics history", () => {
     expect(
       parseSessionFilterQuery(
         new URLSearchParams(`from=0&to=${String(MAX_ANALYTICS_DATE_RANGE_MS + 1)}`),

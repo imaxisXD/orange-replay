@@ -1,0 +1,4 @@
+*
+!Dockerfile
+!prepare_spark_image.py
+!purge_pending.py

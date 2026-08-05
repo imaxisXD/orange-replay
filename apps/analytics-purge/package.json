@@ -1,0 +1,25 @@
+{
+  "name": "@orange-replay/analytics-purge",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "wrangler deploy --dry-run --outdir dist/worker --containers-rollout=none",
+    "build:container": "wrangler deploy --dry-run --outdir dist/container",
+    "check": "vp check",
+    "deploy": "wrangler deploy",
+    "test": "vp test",
+    "types": "wrangler types --include-runtime false"
+  },
+  "dependencies": {
+    "@cloudflare/containers": "0.3.7",
+    "@orange-replay/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260804.1",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "wrangler": "catalog:"
+  }
+}

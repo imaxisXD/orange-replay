@@ -200,6 +200,15 @@ export function buildAcceptanceProjectsSql(projectIds = [], sourceCutoffMs = Dat
     SELECT COUNT(*)
     FROM session_deletions deletion
     WHERE deletion.project_id = project.id
+      AND (
+        deletion.delete_analytics = 1
+        OR EXISTS (
+          SELECT 1 FROM analytics_deletion_jobs job
+          WHERE job.project_id = deletion.project_id
+            AND job.session_id = deletion.session_id
+            AND job.requested_at <= ${cutoff}
+        )
+      )
   ) AS deletion_count
 FROM projects project
 LEFT JOIN analytics_backfill_completions completion ON completion.project_id = project.id
@@ -263,7 +272,17 @@ LEFT JOIN verified_sessions verified ON verified.session_id = session.session_id
 LEFT JOIN verified_sparse_events event ON event.session_id = session.session_id
 LEFT JOIN source_sparse_events source_event ON source_event.session_id = session.session_id
 LEFT JOIN session_deletions deletion
-  ON deletion.project_id = session.project_id AND deletion.session_id = session.session_id
+  ON deletion.project_id = session.project_id
+  AND deletion.session_id = session.session_id
+  AND (
+    deletion.delete_analytics = 1
+    OR EXISTS (
+      SELECT 1 FROM analytics_deletion_jobs job
+      WHERE job.project_id = deletion.project_id
+        AND job.session_id = deletion.session_id
+        AND job.requested_at <= CAST(unixepoch('subsec') * 1000 AS INTEGER)
+    )
+  )
 WHERE session.project_id = ${project}
   AND session.session_id > ${sqlString(cursor)}
   AND deletion.session_id IS NULL

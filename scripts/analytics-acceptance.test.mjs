@@ -598,6 +598,13 @@ function createD1Fixture() {
     CREATE TABLE session_deletions (
       project_id TEXT NOT NULL,
       session_id TEXT NOT NULL,
+      delete_analytics INTEGER NOT NULL DEFAULT 1,
+      PRIMARY KEY (project_id, session_id)
+    );
+    CREATE TABLE analytics_deletion_jobs (
+      project_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      requested_at INTEGER NOT NULL,
       PRIMARY KEY (project_id, session_id)
     );
     CREATE TABLE analytics_export_outbox (
@@ -644,7 +651,8 @@ function createD1Fixture() {
       ('event:project_1:session_exported:0', 2, 'project_1', 'session_exported', 'event'),
       ('session:project_1:session_complete', 3, 'project_1', 'session_complete', 'session'),
       ('session:project_1:session_deleted', 4, 'project_1', 'session_deleted', 'session');
-    INSERT INTO session_deletions VALUES ('project_1', 'session_deleted');
+    INSERT INTO session_deletions (project_id, session_id)
+    VALUES ('project_1', 'session_deleted');
   `);
   return database;
 }

@@ -565,22 +565,33 @@ describe("analytics production deploy safety", () => {
     ]);
   });
 
-  it("protects the purge job and pins every GitHub action to a full commit", async () => {
-    const workflow = await readFile(
-      path.join(repoRoot, ".github", "workflows", "analytics-purge.yml"),
+  it("keeps physical deletion on one private Cloudflare Container", async () => {
+    const config = await readFile(
+      path.join(repoRoot, "apps", "analytics-purge", "wrangler.jsonc"),
       "utf8",
     );
-    expect(workflow).toMatch(/\n  purge:\n    environment: production-analytics\n/);
+    const packageJson = JSON.parse(
+      await readFile(path.join(repoRoot, "apps", "analytics-purge", "package.json"), "utf8"),
+    );
+    const worker = await readFile(
+      path.join(repoRoot, "apps", "analytics-purge", "src", "index.ts"),
+      "utf8",
+    );
 
-    const actionReferences = [...workflow.matchAll(/uses:\s+(actions\/[A-Za-z0-9_-]+)@([^\s]+)/g)];
-    expect(actionReferences.map((match) => match[1])).toEqual([
-      "actions/checkout",
-      "actions/setup-java",
-      "actions/setup-python",
-    ]);
-    for (const reference of actionReferences) {
-      expect(reference[2]).toMatch(/^[a-f0-9]{40}$/);
-    }
+    expect(config).toContain('"crons": ["*/15 * * * *"]');
+    expect(config).toContain('"max_instances": 1');
+    expect(config).toContain('"instance_type": "standard-2"');
+    expect(config).toContain('"workers_dev": false');
+    expect(config).toContain('"preview_urls": false');
+    expect(worker).toContain("getContainer(env.ANALYTICS_PURGE_CONTAINER)");
+    expect(worker).toContain('sleepAfter = "45m"');
+    expect(worker).not.toContain("super.onError");
+    expect(packageJson.scripts.build).toContain("--containers-rollout=none");
+    expect(packageJson.scripts["build:container"]).not.toContain("--containers-rollout=none");
+
+    await expect(
+      readFile(path.join(repoRoot, ".github", "workflows", "analytics-purge.yml"), "utf8"),
+    ).rejects.toThrow();
   });
 });
 
@@ -1224,11 +1235,13 @@ function createGuardDatabase() {
     CREATE TABLE session_deletions (
       project_id TEXT NOT NULL,
       session_id TEXT NOT NULL,
+      delete_analytics INTEGER NOT NULL DEFAULT 1,
       PRIMARY KEY (project_id, session_id)
     );
     CREATE TABLE analytics_deletion_jobs (
       project_id TEXT NOT NULL,
       session_id TEXT NOT NULL,
+      requested_at INTEGER NOT NULL DEFAULT 1,
       requires_warehouse_tombstone INTEGER NOT NULL,
       PRIMARY KEY (project_id, session_id)
     );

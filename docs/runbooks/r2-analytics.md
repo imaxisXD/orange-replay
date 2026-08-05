@@ -19,7 +19,7 @@ Cloudflare Pipelines and R2 Data Catalog are beta services. The Data Catalog sin
 
 The catalog currently supports the default jurisdiction only. Do not provision this path for a project that promises EU or FedRAMP analytics residency.
 
-Warehouse API reads use a 24-hour range when either date boundary is missing. An explicit date range may cover at most 31 days. This keeps every R2 SQL read bounded; callers that need older history must request it in separate windows.
+Warehouse API reads use a 24-hour range when either date boundary is missing. An explicit date range may cover at most 730 days, matching analytics retention. Wide ranges cost more and should be chosen deliberately in the dashboard.
 
 ## Files used
 
@@ -29,7 +29,8 @@ Warehouse API reads use a 24-hour range when either date boundary is missing. An
 - `infra/analytics/deletion-v2/`: separate schema, Pipeline SQL, resource names, and binding example for `analytics_deletions_v2`
 - `infra/analytics/wrangler.binding.example.jsonc`: Worker binding example
 - `infra/analytics/purge_pending.py`: leased Spark deletion runner; dry-run by default
-- `.github/workflows/analytics-purge.yml`: scheduled 15-minute physical deletion repair
+- `infra/analytics/Dockerfile`: pinned Python, Java, and Spark runtime for physical deletion
+- `apps/analytics-purge/`: private Cloudflare Cron Worker and one Cloudflare Container
 - `scripts/setup-analytics.mjs`: read-only by default; creates only missing resources with `--apply`
 - `scripts/backfill-analytics.mjs`: read-only by default; adds idempotent D1 outbox rows with `--apply`
 
@@ -37,11 +38,11 @@ Warehouse API reads use a 24-hour range when either date boundary is missing. An
 
 Use separate credentials:
 
-1. A bucket-scoped catalog maintenance token. Limit it to `orange-replay-analytics-prod` with **Workers R2 Data Catalog Write** and **Workers R2 Storage Bucket Item Write**. Put it in `ORANGE_REPLAY_CATALOG_TOKEN` while running setup. Store the same bucket-scoped token in the protected GitHub Actions environment for Spark deletion maintenance. Never upload it to the Worker.
-2. A Pipeline-only catalog token for creating missing Data Catalog sinks. Cloudflare currently rejects bucket-scoped tokens for this operation. It must have account-wide **Workers R2 Data Catalog Write** and **Workers R2 Storage Write** access. Put it in `ORANGE_REPLAY_PIPELINE_CATALOG_TOKEN` only while running setup. Cloudflare saves the credential in each sink, so the token must remain valid while those sinks run. Keep it in the local secret store used for Pipeline setup; never put it in the Worker, GitHub Actions, Workers Builds, or the purge runner.
+1. A bucket-scoped catalog maintenance token. Limit it to `orange-replay-analytics-prod` with **Workers R2 Data Catalog Write** and **Workers R2 Storage Bucket Item Write**. Put it in `ORANGE_REPLAY_CATALOG_TOKEN` while running setup. Store the same token as an encrypted secret only on the dedicated `orange-replay-analytics-purge` Worker, which passes it to its Container. Never upload it to the main product Worker.
+2. A Pipeline-only catalog token for creating missing Data Catalog sinks. Cloudflare currently rejects bucket-scoped tokens for this operation. It must have account-wide **Workers R2 Data Catalog Write** and **Workers R2 Storage Write** access. Put it in `ORANGE_REPLAY_PIPELINE_CATALOG_TOKEN` only while running setup. Cloudflare saves the credential in each sink, so the token must remain valid while those sinks run. Keep it in the local secret store used for Pipeline setup; never put it in either Worker, Workers Builds, or the purge runner.
 3. A dedicated R2 SQL query token stored as the Worker secret `R2_SQL_TOKEN`. Cloudflare currently requires R2 SQL read-only, Data Catalog read-only, and R2 storage Admin read/write permissions for queries, so scope it to the analytics bucket even though Orange Replay sends only `SELECT` statements.
 4. A dedicated Account API token used only to create the recording inventory. It must be able to read the replay bucket. The helper verifies it, then mints a 15-minute `object-read-only` credential bound to that one bucket for the actual S3 listing.
-5. A separate random bearer value shared only by the Worker secret and GitHub Actions secret named `ANALYTICS_PURGE_RUNNER_TOKEN`.
+5. A separate random bearer value shared only by the main product Worker and the dedicated purge Worker. Both bindings are named `ANALYTICS_PURGE_RUNNER_TOKEN`.
 
 Never put any token in a committed file, report, browser response, or application log, and do not type a token as a command argument. Wrangler accepts the two catalog tokens only through its `--catalog-token` and `--token` command arguments. The setup script reads them from the environment and sends the Pipeline token only to missing-sink creation and the bucket token only to catalog maintenance. Another process running as the same operating-system user may briefly see those arguments. Run setup only on a trusted machine or single-use CI runner, unset both environment values immediately, and do not run it beside untrusted processes. The helper turns off Wrangler disk logs and redacts both tokens if Wrangler returns either one in an error.
 
@@ -514,17 +515,17 @@ Cloudflare Workers Builds must keep `ORANGE_REPLAY_PROD_ANALYTICS_READ_BACKEND` 
 ORANGE_REPLAY_PROD_ANALYTICS_READ_BACKEND=compare vp run analytics:smoke:prod
 ```
 
-## Physical deletion within 24 hours
+## Physical deletion within 24 hours of the analytics due time
 
-The warehouse deletion tombstone hides a session immediately. Physical removal is a separate job that must finish within 24 hours. Never delete Data Catalog metadata, manifests, snapshots, or Parquet objects through the R2 object API. Iceberg owns those files, and direct deletion can corrupt the catalog.
+Recording expiry and analytics expiry are separate. A recording expires after its project's playback period (90 days by default), while its scrubbed analytics stay visible until 730 days after the session began. The Worker saves that future due time without publishing a tombstone early. An explicit privacy deletion is due immediately. Once a job is due, the warehouse deletion tombstone hides the session and physical removal must finish within 24 hours. Never delete Data Catalog metadata, manifests, snapshots, or Parquet objects through the R2 object API. Iceberg owns those files, and direct deletion can corrupt the catalog.
 
 The automated path is:
 
-1. The D1 deletion journal keeps the request after the source session and replay objects are gone. It also saves whether the session used the default warehouse. Removing or changing the project later cannot weaken that saved requirement. An old job with missing context defaults to requiring a tombstone.
+1. The D1 deletion journal keeps the analytics due time after the source recording and replay objects are gone. If a scrubbed analytics sidecar is still unsent when replay expires, the sweeper keeps only that sidecar and its D1 source row until export succeeds. It also saves whether the session used the default warehouse. Removing or changing the project later cannot weaken that saved requirement. An old job with missing context defaults to requiring a tombstone.
 2. The Worker runs the normal analytics maintenance every five minutes. It runs the retention sweep every 15 minutes at `7,22,37,52 * * * *`, offset from maintenance, so an expired D1 session is not left waiting for a once-daily sweep.
-3. Each `POST /internal/analytics/purge/claim` call leases up to 500 eligible jobs for 45 minutes. A job whose saved requirement says it used the default warehouse is not eligible until its tombstone is inside the verified watermark.
-4. The GitHub workflow runs every 15 minutes. One run reuses one Spark session, handles at most 4,000 jobs in bounded groups of 500, and stops claiming after 20 minutes. The runner target is 30 minutes. The workflow's 40-minute timeout is a hard safety cap, not a safe point to stop Spark work early; do not add forced in-process preemption. The lease is 45 minutes so an interrupted run can be retried safely.
-5. For each group, Spark counts all sessions with two grouped queries. It then runs one delete for `analytics_events` and one for `analytics_sessions`, instead of scanning both tables once per session.
+3. Each `POST /internal/analytics/purge/claim` call leases up to 500 eligible jobs for 45 minutes. A job whose saved requirement says it used the default warehouse is eligible after either its legacy tombstone is inside the verified watermark or its deletion-v2 tombstone has been proved visible. The claim names the exact tombstone table that the runner must verify and preserve.
+4. The dedicated Cloudflare Worker receives a Cron Trigger every 15 minutes and starts one named Cloudflare Container. The image already contains Python, Java, Spark, and the pinned Iceberg packages, so no scheduled run installs or downloads tools. `max_instances: 1` and one fixed Durable Object name prevent overlapping runner processes. One process claims work through the private API, reuses one Spark session, handles at most 4,000 jobs in bounded groups of 500, and stops claiming after 20 minutes. The runner target is 30 minutes, and the image stops it after 40 minutes. The Container inactivity window is 45 minutes, so the SDK cannot stop healthy Spark work early. The D1 lease is also 45 minutes so an interrupted process can be retried safely. Container exit and error hooks write visible Cloudflare events; a nonzero process exit is a server error.
+5. For each group, Spark counts all sessions with two grouped queries and checks each referenced tombstone table with at most one grouped query. It then runs one delete for `analytics_events` and one for `analytics_sessions`, instead of scanning either data table once per session.
 6. Spark rewrites each changed data table once per 500-job group with a `where` filter limited to those project/session pairs. The rewrite applies even a single merge-on-read delete marker. Spark then expires old snapshots with `retain_last => 1` and verifies every session with grouped count queries.
 7. The runner reports results in groups of 20 to `POST /internal/analytics/purge/report`, then releases those leases. Finding a new row moves the first-zero proof to this run even when cleanup succeeds.
 8. D1 completes the job only after two zero-row reports at least ten minutes apart. While a job waits for its second check it cannot be claimed again, so it does not block other work. The second zero check does not repeat compaction when no new rows were deleted. A late Pipeline row resets that proof and is deleted on the next run.
@@ -533,7 +534,7 @@ The automated path is:
 
 The runner keeps every claimed job leased until the claim loop ends. This includes a job whose Spark delete failed, so one repeatedly failing oldest job cannot be reclaimed and block later batches in the same run.
 
-The capacity check uses the slow overlap case, not 96 ideal cron starts. A 40-minute workflow can leave only 36 completed runs per day under the single-run concurrency rule. At 4,000 checks per run and two checks per session, that is room for 72,000 completed session deletions per day. The supported bulk-delete limit is therefore 50,000 sessions, leaving 22,000 sessions of headroom. The automated test locks these numbers together. A production load test must still show that one 500-session Spark group and one full run stay inside their budgets before the scheduled job is enabled.
+The capacity check uses the 40-minute hard process limit, not 96 ideal cron starts. One Container instance can therefore complete at least 36 runs per day without overlap. At 4,000 checks per run and two checks per session, that is room for 72,000 completed session deletions per day. The supported bulk-delete limit is therefore 50,000 sessions, leaving 22,000 sessions of headroom. The automated test locks these numbers together. A production load test must still show that one 500-session Spark group and one full run stay inside their budgets before the Cron Trigger is enabled.
 
 ### Configure the runner
 
@@ -544,21 +545,36 @@ export ORANGE_REPLAY_PROD_ANALYTICS_PURGE_RUNNER_TOKEN="$(openssl rand -base64 4
 node scripts/check-prod-secret.mjs --validate-only
 ```
 
-The deploy script uploads it with the Worker version as `ANALYTICS_PURGE_RUNNER_TOKEN`, then checks the uploaded secret names with `wrangler secret list`. Wrangler's `secrets.required` setting helps local type generation and warnings; it is not a hosted deployment gate. Put the exact same value in the GitHub Actions secret `ANALYTICS_PURGE_RUNNER_TOKEN`.
+The main deploy script uploads it with the product Worker version as `ANALYTICS_PURGE_RUNNER_TOKEN`, then checks the uploaded secret names with `wrangler secret list`. Store the exact same value on the dedicated purge Worker. Its `secrets.required` list makes deployment fail when any runner value is absent.
 
-Create a GitHub environment named `production-analytics` before enabling the scheduled workflow. Limit that environment to the production branch, then store all values below at environment scope. Do not add a required manual reviewer to the scheduled job: a run waiting for approval cannot meet the 24-hour deletion deadline.
+Configure these encrypted secrets on `orange-replay-analytics-purge` before enabling its Cron Trigger:
 
-Configure these GitHub Actions values for `.github/workflows/analytics-purge.yml`:
+| Name                           | Value                                          |
+| ------------------------------ | ---------------------------------------------- |
+| `ORANGE_REPLAY_PURGE_API_URL`  | Exact production product Worker HTTPS origin   |
+| `R2_CATALOG_URI`               | R2 Data Catalog REST URI                       |
+| `R2_SQL_WAREHOUSE`             | Catalog warehouse returned during setup        |
+| `ANALYTICS_PURGE_RUNNER_TOKEN` | Same random value stored in the product Worker |
+| `ORANGE_REPLAY_CATALOG_TOKEN`  | Bucket-scoped catalog maintenance token        |
 
-| Kind     | Name                           | Value                                   |
-| -------- | ------------------------------ | --------------------------------------- |
-| Variable | `ORANGE_REPLAY_PURGE_API_URL`  | Exact production Worker HTTPS origin    |
-| Variable | `R2_CATALOG_URI`               | R2 Data Catalog REST URI                |
-| Variable | `R2_SQL_WAREHOUSE`             | Catalog warehouse returned during setup |
-| Secret   | `ANALYTICS_PURGE_RUNNER_TOKEN` | Same random value stored in the Worker  |
-| Secret   | `ORANGE_REPLAY_CATALOG_TOKEN`  | Bucket-scoped catalog maintenance token |
+Use Cloudflare encrypted secrets for all five values so the Container receives one private runtime environment and the repository contains no production endpoints or credentials. The bucket-scoped catalog token belongs only on this dedicated Worker. Do not put it in plain Worker variables, Workers Builds, logs, user-entered command arguments, or committed files. Never store the account-wide `ORANGE_REPLAY_PIPELINE_CATALOG_TOKEN` on the purge Worker; it is only for local Pipeline sink setup.
 
-The bucket-scoped catalog token belongs only in the protected `production-analytics` workflow secret. Do not put it in Worker variables, logs, user-entered command arguments, or committed files. Never store the account-wide `ORANGE_REPLAY_PIPELINE_CATALOG_TOKEN` in GitHub; it is only for local Pipeline sink setup.
+For the first deployment, Wrangler requires all five values in one `--secrets-file` because the Worker does not exist yet. Create that file outside the repository with mode `0600`, source the values from the production secret manager, pass it only to the deploy command, and securely remove it immediately afterward. Later deployments inherit the existing secrets. Rotate one value with `wrangler secret put <NAME>`; never use a plain Wrangler variable for these values.
+
+The first deployment builds the `linux/amd64` image with Docker, pushes it to Cloudflare's managed registry, creates the Container-backed Durable Object, and installs the Cron Trigger:
+
+```sh
+vp run @orange-replay/analytics-purge#types
+vp run @orange-replay/analytics-purge#test
+vp run @orange-replay/analytics-purge#check
+vp run @orange-replay/analytics-purge#build
+vp run @orange-replay/analytics-purge#build:container
+vp exec --filter @orange-replay/analytics-purge -- wrangler deploy --secrets-file /private/path/to/analytics-purge.secrets
+```
+
+The normal `build` command validates the Worker bundle without building or updating a Container, so the repository-wide build remains usable on machines without Docker. `build:container` is the explicit image check and requires a working Docker engine. The real deploy also builds and uploads the image.
+
+Do not remove the old scheduler until this deploy succeeds, all five secrets are present, the Container deployment is ready, and one real claim/report cycle is visible in Cloudflare logs. The production cutover completed on 2026-08-06: two real claim/report cycles finished all pending jobs, the old GitHub workflow was disabled, and its source is removed here.
 
 ### Dry-run and execute
 
@@ -569,15 +585,18 @@ python3 -m unittest infra.analytics.test_purge_pending
 python3 infra/analytics/purge_pending.py
 ```
 
-Use the GitHub workflow's manual `execute` choice for a reviewed manual run. Scheduled runs always pass `--execute`. The old `infra/analytics/purge_session.py` entry point is disabled because a manually chosen session could skip the D1 lease, watermark, and two-check proof.
+The Container entry point always passes `--execute`. For a reviewed break-glass run from a trusted operator machine, install the same pinned Java and Spark versions, load the five runtime values without printing them, and run `python3 infra/analytics/purge_pending.py --execute`. The old `infra/analytics/purge_session.py` entry point is disabled because a manually chosen session could skip the D1 lease, watermark, and two-check proof.
 
-The runner validates IDs before building SQL, reads both secrets from the environment, and never prints either token. It claims up to 500 jobs per API call, handles up to 4,000 jobs in one scheduled run, and reports at most 20 results per API call. Spark failures, remaining rows, missing required tombstones, and snapshot-expiration failures are reported to D1. A missing secret or API failure fails the workflow; an unreported lease expires safely for retry. A job older than 23 hours records a rate-limited deadline alert and exits non-zero so GitHub sends the configured workflow failure notification.
+The runner validates IDs and the server-chosen tombstone table before building SQL, reads both secrets from the environment, and never prints either token. It claims up to 500 jobs per API call, handles up to 4,000 jobs in one scheduled run, and reports at most 20 results per API call. Spark failures, remaining rows, missing required tombstones, and snapshot-expiration failures are reported to D1. A missing secret or API failure exits the Container with an error; an unreported lease expires safely for retry. A job older than 23 hours records a rate-limited deadline alert and writes a structured warning event. Deadline risk alone does not mark the runner as failed; an actual claim, Spark, deletion, verification, or reporting failure still does.
 
 Cloudflare documents that `DELETE FROM` creates a new Iceberg snapshot rather than immediately removing the old files. The runner therefore performs one shared, row-filtered Iceberg rewrite and snapshot-expiration pass for each bounded group, then reports each verified result. It never asks Iceberg to compact an entire analytics table. Automatic Catalog maintenance remains useful backup maintenance, but it is not the deletion receipt.
 
 Official references:
 
 - [Cloudflare Pipelines](https://developers.cloudflare.com/pipelines/)
+- [Cloudflare Cron Container](https://developers.cloudflare.com/containers/examples/cron/)
+- [Cloudflare Container lifecycle](https://developers.cloudflare.com/containers/container-class/)
+- [Cloudflare Cron Triggers](https://developers.cloudflare.com/workers/configuration/cron-triggers/)
 - [Structured stream behavior](https://developers.cloudflare.com/pipelines/streams/manage-streams/)
 - [R2 Data Catalog sink](https://developers.cloudflare.com/pipelines/sinks/available-sinks/r2-data-catalog/)
 - [R2 token permission groups](https://developers.cloudflare.com/r2/api/tokens/)

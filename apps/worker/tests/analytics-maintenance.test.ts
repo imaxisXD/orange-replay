@@ -190,6 +190,7 @@ async function createDatabase(): Promise<TestD1Database> {
     project_id TEXT NOT NULL,
     session_id TEXT NOT NULL,
     requested_at INTEGER NOT NULL,
+    delete_analytics INTEGER NOT NULL DEFAULT 1,
     PRIMARY KEY (project_id, session_id)
   )`);
   return database;

@@ -479,6 +479,7 @@ export function buildOutboxInsertSql(records, createdAt) {
             WHERE deletion.project_id = incoming.project_id
               AND deletion.session_id = incoming.session_id
               AND job.requires_warehouse_tombstone = 1
+              AND job.requested_at <= ${timestamp}
           )
         )
         OR (
@@ -494,6 +495,14 @@ export function buildOutboxInsertSql(records, createdAt) {
             FROM session_deletions deletion
             WHERE deletion.project_id = incoming.project_id
               AND deletion.session_id = incoming.session_id
+              AND deletion.delete_analytics = 1
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM analytics_deletion_jobs job
+            WHERE job.project_id = incoming.project_id
+              AND job.session_id = incoming.session_id
+              AND job.requested_at <= ${timestamp}
           )
         )
       )

@@ -1,6 +1,7 @@
 import {
   addExportSequence,
   ANALYTICS_RECORD_SCHEMA_VERSION,
+  deletionExportId,
   eventExportId,
   MAX_ANALYTICS_RECORD_BYTES,
   type AnalyticsOutboxPayload,
@@ -1057,11 +1058,18 @@ function isValidEventPayload(payload: Record<string, unknown>): boolean {
 
 function isValidDeletionPayload(payload: Record<string, unknown>): boolean {
   if (!hasOnlyKeys(payload, deletionPayloadKeys)) return false;
-  const canonicalExportId = `deletion:${String(payload["project_id"])}:${String(payload["session_id"])}`;
+  const legacyExportId = `deletion:${String(payload["project_id"])}:${String(payload["session_id"])}`;
+  const canonicalExportId = deletionExportId(
+    String(payload["project_id"]),
+    String(payload["session_id"]),
+    Number(payload["deleted_at"]),
+  );
   const recoveryExportId = `deletion:duration-recovery-v1:${String(payload["project_id"])}:${String(payload["session_id"])}`;
   return (
     payload["event_coverage"] === "none" &&
-    (payload["export_id"] === canonicalExportId || payload["export_id"] === recoveryExportId) &&
+    (payload["export_id"] === canonicalExportId ||
+      payload["export_id"] === legacyExportId ||
+      payload["export_id"] === recoveryExportId) &&
     isSafeTimestamp(payload["deleted_at"]) &&
     payload["deleted_at"] === payload["recorded_at"] &&
     isNonEmptyText(payload["delete_reason"], 200)

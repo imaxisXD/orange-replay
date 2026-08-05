@@ -105,7 +105,7 @@ function parseArgs(args) {
     orgName: "Default org",
     origins: [],
     allowAnyOrigin: false,
-    retentionDays: 30,
+    retentionDays: 90,
     jurisdiction: undefined,
     envFile: "apps/worker/.env.production",
     config: path.join(repoRoot, "apps", "worker", "wrangler.jsonc"),
@@ -398,7 +398,7 @@ Options:
   --org-name VALUE          Org name. Default: Default org.
   --origin VALUE            Allowed SDK origin. Repeat for multiple. Must be http:// or https://.
   --allow-any-origin        Allow SDK ingest from any origin. Use only for a public test project.
-  --retention-days VALUE    Retention days. Default: 30.
+  --retention-days VALUE    Recording retention days. Default: 90.
   --jurisdiction VALUE      Optional Durable Object jurisdiction, for example eu.
   --config VALUE            Wrangler config. Use the generated production config for hosted deploys.
   --env-file VALUE          Save the recorder key to this ignored repo-local .env file. Default: apps/worker/.env.production.

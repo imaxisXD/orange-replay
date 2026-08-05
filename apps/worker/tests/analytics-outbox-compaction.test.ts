@@ -133,6 +133,41 @@ describe("analytics outbox compaction", () => {
     database.close();
   });
 
+  it("keeps analytics export state when only the recording expired", async () => {
+    const database = await createDatabase();
+    const now = Date.UTC(2026, 6, 13, 12, 0, 0);
+    seedExport(database, {
+      exportSequence: 1,
+      exportId: "session:project:recording-expired",
+      sessionId: "recording-expired",
+      sentAt: now - 1_000,
+    });
+    database.run(
+      `INSERT INTO session_deletions (
+        project_id, session_id, requested_at, delete_analytics
+      ) VALUES (?, ?, ?, 0)`,
+      "project",
+      "recording-expired",
+      now,
+    );
+    database.run(
+      `INSERT INTO analytics_warehouse_state (
+        project_id, verified_sequence, verified_at
+      ) VALUES (?, ?, ?)`,
+      "project",
+      1,
+      now - 500,
+    );
+
+    const result = await compact(database, { now });
+
+    expect(result).toMatchObject({ copiedToLedger: 1, deletedDeniedLedgerRows: 0 });
+    expect(database.values("SELECT export_id FROM analytics_export_ledger")).toEqual([
+      "session:project:recording-expired",
+    ]);
+    database.close();
+  });
+
   it("removes an old deletion identity only after warehouse cleanup is complete", async () => {
     const database = await createDatabase();
     const now = Date.UTC(2026, 6, 13, 12, 0, 0);
@@ -323,6 +358,7 @@ async function createDatabase(): Promise<TestDatabase> {
       project_id TEXT NOT NULL,
       session_id TEXT NOT NULL,
       requested_at INTEGER NOT NULL,
+      delete_analytics INTEGER NOT NULL DEFAULT 1,
       PRIMARY KEY (project_id, session_id)
     )`,
   );

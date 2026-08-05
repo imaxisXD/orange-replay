@@ -25,7 +25,7 @@ from urllib.parse import urlsplit
 SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 SAFE_OWNER = re.compile(r"^[A-Za-z0-9_.:-]{1,200}$")
 DATA_TABLES = ("analytics_events", "analytics_sessions")
-TOMBSTONE_TABLE = "analytics_deletions"
+TOMBSTONE_TABLES = ("analytics_deletions", "analytics_deletions_v2")
 CLAIM_PATH = "/internal/analytics/purge/claim"
 REPORT_PATH = "/internal/analytics/purge/report"
 MAX_RESPONSE_BYTES = 1024 * 1024
@@ -36,12 +36,12 @@ MAX_JOBS_PER_RUN = 4_000
 MAX_CLAIM_SECONDS = 20 * 60
 MAX_RUN_SECONDS = 30 * 60
 SCHEDULE_INTERVAL_MINUTES = 15
-WORKFLOW_TIMEOUT_MINUTES = 40
+RUNNER_HARD_TIMEOUT_MINUTES = 40
 LEASE_MINUTES = 45
 ZERO_CHECKS_PER_JOB = 2
 SCHEDULED_RUNS_PER_DAY = 24 * 60 // SCHEDULE_INTERVAL_MINUTES
 WORST_CASE_RUNS_PER_DAY = min(
-    SCHEDULED_RUNS_PER_DAY, 24 * 60 // WORKFLOW_TIMEOUT_MINUTES
+    SCHEDULED_RUNS_PER_DAY, 24 * 60 // RUNNER_HARD_TIMEOUT_MINUTES
 )
 MAX_COMPLETED_JOBS_PER_DAY = (
     MAX_JOBS_PER_RUN * WORST_CASE_RUNS_PER_DAY // ZERO_CHECKS_PER_JOB
@@ -118,11 +118,6 @@ def build_spark(catalog_uri: str, warehouse: str, token: str):
     return (
         SparkSession.builder.appName("OrangeReplayAnalyticsPurge")
         .config(
-            "spark.jars.packages",
-            "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.6.1,"
-            "org.apache.iceberg:iceberg-aws-bundle:1.6.1",
-        )
-        .config(
             "spark.sql.extensions",
             "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",
         )
@@ -194,6 +189,14 @@ def checked_claim(value: dict[str, Any]) -> tuple[list[dict[str, Any]], bool]:
         needs_maintenance = job.get("needs_physical_maintenance")
         if not isinstance(requires_tombstone, bool) or not isinstance(needs_maintenance, bool):
             raise RuntimeError("purge API returned an invalid deletion requirement")
+        tombstone_table = job.get("tombstone_table")
+        if "tombstone_table" not in job:
+            tombstone_table = TOMBSTONE_TABLES[0] if requires_tombstone else None
+        if requires_tombstone:
+            if tombstone_table not in TOMBSTONE_TABLES:
+                raise RuntimeError("purge API returned an invalid tombstone table")
+        elif tombstone_table is not None:
+            raise RuntimeError("purge API returned an unexpected tombstone table")
         key = (project_id, session_id)
         if key in seen_jobs:
             raise RuntimeError("purge API returned the same job more than once")
@@ -203,6 +206,7 @@ def checked_claim(value: dict[str, Any]) -> tuple[list[dict[str, Any]], bool]:
                 "project_id": project_id,
                 "session_id": session_id,
                 "requires_warehouse_tombstone": requires_tombstone,
+                "tombstone_table": tombstone_table,
                 "needs_physical_maintenance": needs_maintenance,
             }
         )
@@ -256,6 +260,18 @@ def data_row_counts(
     for table in DATA_TABLES:
         for key, count in grouped_row_counts(spark, table, jobs).items():
             counts[key][table] = count
+    return counts
+
+
+def tombstone_row_counts(
+    spark, jobs: list[dict[str, Any]]
+) -> dict[tuple[str, str], int]:
+    counts: dict[tuple[str, str], int] = {}
+    for table in TOMBSTONE_TABLES:
+        table_jobs = [job for job in jobs if job.get("tombstone_table") == table]
+        if not table_jobs:
+            continue
+        counts.update(grouped_row_counts(spark, table, table_jobs))
     return counts
 
 
@@ -337,9 +353,7 @@ def delete_job_batch(
     tombstone_error: Exception | None = None
     if jobs_requiring_tombstones:
         try:
-            tombstones_by_job = grouped_row_counts(
-                spark, TOMBSTONE_TABLE, jobs_requiring_tombstones
-            )
+            tombstones_by_job = tombstone_row_counts(spark, jobs_requiring_tombstones)
         except Exception as error:
             tombstone_error = error
 
@@ -348,7 +362,11 @@ def delete_job_batch(
         key = job_key(job)
         before = before_by_job[key]
         tombstones = tombstones_by_job.get(key, 0)
-        details = {"rows_before": before, "tombstones_kept": tombstones}
+        details = {
+            "rows_before": before,
+            "tombstones_kept": tombstones,
+            "tombstone_table": job.get("tombstone_table"),
+        }
         if job["requires_warehouse_tombstone"] and tombstone_error is not None:
             ready.append(
                 (job, failed_result(job, before, rows_total(before), tombstone_error), details)
@@ -378,6 +396,7 @@ def delete_job_batch(
                     "rows_before": before_by_job[key],
                     "rows_after_delete": empty_counts,
                     "tombstones_kept": tombstones_by_job.get(key, 0),
+                    "tombstone_table": job.get("tombstone_table"),
                 },
             )
         )
@@ -407,6 +426,7 @@ def delete_job_batch(
                 "rows_before": before,
                 "rows_after_delete": after_delete,
                 "tombstones_kept": tombstones_by_job.get(key, 0),
+                "tombstone_table": job.get("tombstone_table"),
             }
             ready.append((job, failed_result(job, before, remaining, error), details))
         return pending, ready
@@ -419,6 +439,7 @@ def delete_job_batch(
             "rows_before": before,
             "rows_after_delete": after_delete,
             "tombstones_kept": tombstones_by_job.get(key, 0),
+            "tombstone_table": job.get("tombstone_table"),
         }
         remaining = rows_total(after_delete)
         if remaining > 0:
@@ -452,9 +473,7 @@ def verify_job_batch_after_maintenance(
     ]
     if jobs_requiring_tombstones:
         try:
-            tombstones_by_job = grouped_row_counts(
-                spark, TOMBSTONE_TABLE, jobs_requiring_tombstones
-            )
+            tombstones_by_job = tombstone_row_counts(spark, jobs_requiring_tombstones)
         except Exception as error:
             tombstone_error = error
 
@@ -566,6 +585,22 @@ def report_job_batch(
     return report_error is None
 
 
+def print_deadline_warning() -> None:
+    print(
+        json.dumps(
+            {
+                "event": "analytics.physical_delete_deadline_risk",
+                "deadline_risk": True,
+                "message": (
+                    "At least one analytics deletion is in the final hour before its "
+                    "24-hour deadline."
+                ),
+            },
+            separators=(",", ":"),
+        )
+    )
+
+
 def execute(args: argparse.Namespace) -> int:
     api_url = checked_api_url(args.api_url)
     runner_token = checked_token(
@@ -601,13 +636,15 @@ def execute(args: argparse.Namespace) -> int:
                     {"owner_id": owner_id, "limit": claim_limit},
                 )
                 jobs, claim_deadline_risk = checked_claim(claim)
-                if len(jobs) > claim_limit:
-                    raise RuntimeError("purge API returned too many jobs")
-                deadline_risk = deadline_risk or claim_deadline_risk
             except Exception as error:
                 run_error = simple_error(error)
                 stop_reason = "claim_failed"
                 break
+            if len(jobs) > claim_limit:
+                run_error = "purge API returned too many jobs"
+                stop_reason = "claim_failed"
+                break
+            deadline_risk = deadline_risk or claim_deadline_risk
 
             if not jobs:
                 stop_reason = "no_work"
@@ -704,7 +741,9 @@ def execute(args: argparse.Namespace) -> int:
     )
     if run_error is not None or jobs_failed > 0 or report_failures > 0:
         return 1
-    return 2 if deadline_risk else 0
+    if deadline_risk:
+        print_deadline_warning()
+    return 0
 
 
 def dry_run(args: argparse.Namespace) -> int:

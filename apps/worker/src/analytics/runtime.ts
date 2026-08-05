@@ -51,6 +51,7 @@ export async function readWarehouseSnapshot(
   requestedVersion?: number,
   requestedDeletionVersion: AnalyticsDeletionReadVersion = "v1",
 ): Promise<WarehouseSnapshotResult> {
+  const now = Date.now();
   const [state, backfillCompletion, pendingDeletion, privacyState, quarantinedExport] =
     await Promise.all([
       db
@@ -75,13 +76,14 @@ export async function readWarehouseSnapshot(
         FROM analytics_deletion_jobs j
         LEFT JOIN analytics_warehouse_state s ON s.project_id = j.project_id
         WHERE j.project_id = ?
+          AND j.requested_at <= ?
           AND (
             j.deletion_export_sequence IS NULL
             OR j.deletion_export_sequence > COALESCE(s.verified_sequence, 0)
           )
         LIMIT 1`,
         )
-        .bind(projectId)
+        .bind(projectId, now)
         .first<{ present: number }>(),
       db
         .prepare(
@@ -149,13 +151,14 @@ async function deletionV2IsReady(db: D1Database): Promise<boolean> {
           SELECT 1
           FROM analytics_deletion_jobs
           WHERE requires_warehouse_tombstone = 1
+            AND requested_at <= ?
             AND deletion_v2_visible_at IS NULL
         )
       THEN 1 ELSE 0 END AS ready
       FROM analytics_deletion_v2_state s
       WHERE s.shard = 0`,
       )
-      .bind()
+      .bind(Date.now())
       .first<{ ready: number }>();
     return row?.ready === 1;
   } catch {

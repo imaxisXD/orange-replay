@@ -103,7 +103,15 @@ describe("sessions date range and pin lifecycle", () => {
       [...document.querySelectorAll('[role="option"][data-value]')].map((option) =>
         option.textContent?.trim(),
       ),
-    ).toEqual(["Last 24 hours", "Last 3 days", "Last 7 days", "Last 28 days"]);
+    ).toEqual([
+      "Last 24 hours",
+      "Last 3 days",
+      "Last 7 days",
+      "Last 28 days",
+      "Last 90 days",
+      "Last year",
+      "Last 2 years",
+    ]);
 
     await teardown();
   });

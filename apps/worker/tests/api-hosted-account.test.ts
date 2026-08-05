@@ -70,7 +70,11 @@ describe("hosted account bootstrap", () => {
       headers: authHeaders(),
     });
     expect(configResponse.status).toBe(200);
-    expect(await configResponse.json()).toMatchObject({ allowedOrigins: [], version: 1 });
+    expect(await configResponse.json()).toMatchObject({
+      allowedOrigins: [],
+      retentionDays: 90,
+      version: 1,
+    });
     expect(await readAnalyticsBootstrapReceipt(created.project.id)).toMatchObject({
       projectId: created.project.id,
       sourceSessionCount: 0,

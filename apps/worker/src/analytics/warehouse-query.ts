@@ -129,10 +129,12 @@ export function buildWarehouseSessionsQuery(
   warehouseVersion: number,
   options: SessionListOptions,
   deletionTableVersion: AnalyticsDeletionTableVersion = "v1",
+  recordingAvailableAt = Date.now(),
 ): WarehouseProjectQuery {
   checkProject(projectId);
   const version = sqlWholeNumber(warehouseVersion, "Warehouse version");
   const limit = sqlWholeNumber(options.limit, "Session limit");
+  const availableAt = sqlWholeNumber(recordingAvailableAt, "Recording availability time");
   if (options.limit < 1 || options.limit > 100) {
     throw new Error("Session limit must be between 1 and 100");
   }
@@ -154,6 +156,7 @@ filtered_sessions AS (
   SELECT ${selectColumns("s", sessionRowColumns)}
   FROM live_sessions s
   WHERE ${filterSql}
+    AND s.expires_at >= ${availableAt}
 )
 SELECT ${selectColumns("s", sessionRowColumns)}
 FROM filtered_sessions s
@@ -479,7 +482,11 @@ function buildDeletionCtes(
       alias: "d",
       select: selectColumns("d", analyticsDeletionColumns),
       rankAlias: "export_retry_rank",
-      where: [`d.project_id = ${project}`],
+      where: [
+        `d.project_id = ${project}`,
+        `d.delete_reason <> 'retention_expired'`,
+        `d.delete_reason <> 'recording_retention_expired'`,
+      ],
     })},
 deleted_sessions AS (
   SELECT DISTINCT d.project_id, d.session_id
@@ -503,7 +510,13 @@ deleted_sessions AS (
     alias: "d",
     select: selectColumns("d", analyticsDeletionV2Columns),
     rankAlias: "export_retry_rank",
-    where: [`d.project_id = ${project}`, `d.schema_version = 2`, ...rangeClauses],
+    where: [
+      `d.project_id = ${project}`,
+      `d.schema_version = 2`,
+      `d.delete_reason <> 'retention_expired'`,
+      `d.delete_reason <> 'recording_retention_expired'`,
+      ...rangeClauses,
+    ],
   })},
 deleted_sessions AS (
   SELECT DISTINCT d.project_id, d.session_id

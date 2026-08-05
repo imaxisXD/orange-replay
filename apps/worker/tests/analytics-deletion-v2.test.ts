@@ -46,15 +46,15 @@ describe("analytics deletion v2 backfill", () => {
     });
     expect(accepted).toEqual([
       expect.objectContaining({
-        export_id: deletionV2ExportId("project", "live-session"),
+        export_id: deletionV2ExportId("project", "live-session", 100),
         session_started_at: 40,
       }),
       expect.objectContaining({
-        export_id: deletionV2ExportId("project", "outbox-session"),
+        export_id: deletionV2ExportId("project", "outbox-session", 110),
         session_started_at: 60,
       }),
       expect.objectContaining({
-        export_id: deletionV2ExportId("project", "completed-session"),
+        export_id: deletionV2ExportId("project", "completed-session", 120),
         session_started_at: null,
       }),
     ]);
@@ -211,7 +211,7 @@ describe("analytics deletion v2 backfill", () => {
       }),
     ).resolves.toMatchObject({ failed: 0, selected: 1, sent: 1 });
 
-    expect(sentIds).toEqual([deletionV2ExportId("project", "outbox-session")]);
+    expect(sentIds).toEqual([deletionV2ExportId("project", "outbox-session", 110)]);
     database.close();
   });
 
@@ -395,7 +395,7 @@ async function createDatabase(): Promise<TestD1Database> {
     ) VALUES
       ('project', 'live-session', 100, 'delete_requested', 1, 1, NULL),
       ('project', 'outbox-session', 110, 'delete_requested', 1, 2, NULL),
-      ('project', 'completed-session', 120, 'retention_expired', 1, 3, 130),
+      ('project', 'completed-session', 120, 'delete_requested', 1, 3, 130),
       ('project', 'no-warehouse-session', 130, 'delete_requested', 0, NULL, 140);
   `);
   database.sqlite.exec(

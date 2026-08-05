@@ -1,4 +1,5 @@
 import {
+  analyticsSidecarKey,
   sessionPrefix,
   startWideEvent,
   uuidv7,
@@ -20,8 +21,9 @@ export interface ExpiredSessionRow {
   sessionId: string;
   projectId: string;
   startedAt: number;
-  deleteReason: "retention_expired" | "delete_requested";
+  deleteReason: "recording_retention_expired" | "delete_requested";
   requiresWarehouseTombstone: number;
+  keepAnalyticsSidecar: number;
 }
 
 interface SweepTotals {
@@ -57,8 +59,9 @@ export async function sweepExpiredSessions(env: Env): Promise<void> {
       const safelyDeleted: ExpiredSessionRow[] = [];
       for (const row of rows) {
         try {
-          totals.objectsDeleted += await deleteSessionObjects(env.RECORDINGS, row);
-          safelyDeleted.push(row);
+          const deletion = await deleteSessionObjects(env.RECORDINGS, row);
+          totals.objectsDeleted += deletion.objectsDeleted;
+          if (deletion.complete) safelyDeleted.push(row);
         } catch (error) {
           totals.sessionsFailed += 1;
           firstDeleteError ??= error;
@@ -98,7 +101,11 @@ export async function selectExpiredSessions(
     .prepare(
       `SELECT sessions.session_id AS sessionId, sessions.project_id AS projectId,
         sessions.started_at AS startedAt,
-        CASE WHEN sessions.expires_at < ? THEN 'retention_expired' ELSE 'delete_requested' END AS deleteReason,
+        CASE
+          WHEN COALESCE(d.delete_analytics, 0) = 1 THEN 'delete_requested'
+          WHEN sessions.expires_at < ? THEN 'recording_retention_expired'
+          ELSE 'delete_requested'
+        END AS deleteReason,
         CASE
           WHEN p.id IS NULL OR p.jurisdiction IS NULL THEN 1
           WHEN EXISTS (
@@ -114,7 +121,22 @@ export async function selectExpiredSessions(
               AND l.session_id = sessions.session_id
           ) THEN 1
           ELSE 0
-        END AS requiresWarehouseTombstone
+        END AS requiresWarehouseTombstone,
+        CASE
+          WHEN COALESCE(d.delete_analytics, 0) = 0
+            AND sessions.expires_at < ?
+            AND EXISTS (
+              SELECT 1
+              FROM analytics_export_outbox pending
+              WHERE pending.project_id = sessions.project_id
+                AND pending.session_id = sessions.session_id
+                AND pending.record_kind = 'session'
+                AND pending.sent_at IS NULL
+                AND json_extract(pending.payload_json, '$.analytics_sidecar_key') IS NOT NULL
+            )
+          THEN 1
+          ELSE 0
+        END AS keepAnalyticsSidecar
       FROM sessions
       LEFT JOIN projects p ON p.id = sessions.project_id
       LEFT JOIN session_deletions d
@@ -128,12 +150,15 @@ export async function selectExpiredSessions(
       ORDER BY COALESCE(d.attempts, 0), sessions.expires_at, sessions.project_id, sessions.session_id
       LIMIT 200`,
     )
-    .bind(now, now)
+    .bind(now, now, now)
     .all<ExpiredSessionRow>();
   return result.results;
 }
 
-async function deleteSessionObjects(bucket: R2Bucket, row: ExpiredSessionRow): Promise<number> {
+async function deleteSessionObjects(
+  bucket: R2Bucket,
+  row: ExpiredSessionRow,
+): Promise<{ complete: boolean; objectsDeleted: number }> {
   if (!isValidPathId(row.projectId) || !isValidPathId(row.sessionId)) {
     throw new Error("The session has an invalid storage id, so its data was not deleted.");
   }
@@ -141,10 +166,18 @@ async function deleteSessionObjects(bucket: R2Bucket, row: ExpiredSessionRow): P
   const prefix = `${sessionPrefix(row.projectId, row.sessionId)}/`;
   let cursor: string | undefined;
   let objectsDeleted = 0;
+  let keptSidecar = false;
+  const sidecarKey = analyticsSidecarKey(row.projectId, row.sessionId);
 
   for (;;) {
     const listed = await bucket.list({ prefix, cursor, limit: R2_DELETE_LIMIT });
-    const keys = listed.objects.map((object) => object.key);
+    const keys = listed.objects.flatMap((object) => {
+      if (row.keepAnalyticsSidecar === 1 && object.key === sidecarKey) {
+        keptSidecar = true;
+        return [];
+      }
+      return [object.key];
+    });
 
     for (const keyChunk of chunkList(keys, R2_DELETE_LIMIT)) {
       if (keyChunk.length > 0) {
@@ -157,7 +190,10 @@ async function deleteSessionObjects(bucket: R2Bucket, row: ExpiredSessionRow): P
     cursor = listed.cursor;
   }
 
-  return objectsDeleted;
+  if (row.keepAnalyticsSidecar === 1 && !keptSidecar) {
+    throw new Error("The pending analytics sidecar is missing, so cleanup was paused.");
+  }
+  return { complete: !keptSidecar, objectsDeleted };
 }
 
 export async function markRowsForDeletion(

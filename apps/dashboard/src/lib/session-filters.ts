@@ -11,6 +11,9 @@ export const dateRangeOptions = [
   { label: "Last 3 days", value: "3d", durationMs: 3 * 24 * 60 * 60 * 1000 },
   { label: "Last 7 days", value: "7d", durationMs: 7 * 24 * 60 * 60 * 1000 },
   { label: "Last 28 days", value: "28d", durationMs: 28 * 24 * 60 * 60 * 1000 },
+  { label: "Last 90 days", value: "90d", durationMs: 90 * 24 * 60 * 60 * 1000 },
+  { label: "Last year", value: "1y", durationMs: 365 * 24 * 60 * 60 * 1000 },
+  { label: "Last 2 years", value: "2y", durationMs: 730 * 24 * 60 * 60 * 1000 },
 ] as const;
 
 export type DateRangeValue = (typeof dateRangeOptions)[number]["value"];

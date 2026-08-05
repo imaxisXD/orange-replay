@@ -11,6 +11,13 @@ describe("analytics deletion journal", () => {
   it("repairs a saved default-residency tombstone after the project is removed", async () => {
     const database = new TestD1Database();
     database.sqlite.exec("CREATE TABLE projects (id TEXT PRIMARY KEY, jurisdiction TEXT)");
+    database.sqlite.exec(`CREATE TABLE session_deletions (
+      project_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      requested_at INTEGER NOT NULL,
+      delete_analytics INTEGER NOT NULL DEFAULT 1,
+      PRIMARY KEY (project_id, session_id)
+    )`);
     database.sqlite.exec(
       await readFile(
         new URL("../migrations/0009_analytics_warehouse.sql", import.meta.url),
@@ -121,7 +128,7 @@ describe("analytics deletion journal", () => {
         `INSERT INTO analytics_export_outbox (
           export_id, project_id, session_id, record_kind, payload_json, created_at
         ) VALUES ('session:old-project:outbox-session', 'old-project', 'outbox-session',
-          'session', '{}', 1)`,
+          'session', '{"analytics_sidecar_key":"p/old-project/outbox-session/analytics.ndjson"}', 1)`,
       )
       .run();
     database.sqlite
@@ -148,6 +155,9 @@ describe("analytics deletion journal", () => {
     const requiredBySession = Object.fromEntries(
       rows.map((row) => [row.sessionId, row.requiresWarehouseTombstone]),
     );
+    const keepSidecarBySession = Object.fromEntries(
+      rows.map((row) => [row.sessionId, row.keepAnalyticsSidecar]),
+    );
 
     expect(requiredBySession).toEqual({
       "default-session": 1,
@@ -155,6 +165,13 @@ describe("analytics deletion journal", () => {
       "never-exported": 0,
       "outbox-session": 1,
       "removed-session": 1,
+    });
+    expect(keepSidecarBySession).toEqual({
+      "default-session": 0,
+      "ledger-session": 0,
+      "never-exported": 0,
+      "outbox-session": 1,
+      "removed-session": 0,
     });
     database.sqlite.close();
   });
@@ -172,6 +189,7 @@ describe("analytics deletion journal", () => {
       sessionId: "session",
       startedAt: 50,
       deleteReason: "delete_requested" as const,
+      keepAnalyticsSidecar: 0,
       requiresWarehouseTombstone: 1,
     };
 
@@ -217,6 +235,18 @@ async function sweeperDatabase(): Promise<TestD1Database> {
   database.sqlite.exec(
     await readFile(
       new URL("../migrations/0016_analytics_deletion_started_at.sql", import.meta.url),
+      "utf8",
+    ),
+  );
+  database.sqlite.exec(
+    await readFile(
+      new URL("../migrations/0018_analytics_deletion_v2.sql", import.meta.url),
+      "utf8",
+    ),
+  );
+  database.sqlite.exec(
+    await readFile(
+      new URL("../migrations/0025_separate_recording_and_analytics_retention.sql", import.meta.url),
       "utf8",
     ),
   );

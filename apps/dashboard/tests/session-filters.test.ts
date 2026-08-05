@@ -20,6 +20,9 @@ describe("dashboard session filters", () => {
       "Last 3 days",
       "Last 7 days",
       "Last 28 days",
+      "Last 90 days",
+      "Last year",
+      "Last 2 years",
     ]);
   });
 

@@ -206,7 +206,7 @@ export function buildDeletionRecord(input: {
   const record: AnalyticsDeletionRecord = {
     schema_version: ANALYTICS_RECORD_SCHEMA_VERSION,
     record_kind: "deletion",
-    export_id: deletionExportId(input.projectId, input.sessionId),
+    export_id: deletionExportId(input.projectId, input.sessionId, input.deletedAt),
     project_id: input.projectId,
     session_id: input.sessionId,
     recorded_at: input.deletedAt,
@@ -261,8 +261,8 @@ export function eventExportId(
   return `event:${projectId}:${sessionId}:${eventIndex}:${String(eventTime)}:${eventKind}`;
 }
 
-export function deletionExportId(projectId: string, sessionId: string): string {
-  return `deletion:${projectId}:${sessionId}`;
+export function deletionExportId(projectId: string, sessionId: string, deletedAt: number): string {
+  return `deletion:${projectId}:${sessionId}:${String(deletedAt)}`;
 }
 
 function boundedOptionalText(value: string | undefined, limit: number): string | null {

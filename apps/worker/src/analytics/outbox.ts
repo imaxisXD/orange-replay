@@ -131,10 +131,34 @@ export function createD1AnalyticsOutboxStore(db: D1Database): AnalyticsOutboxSto
               FROM projects p
               WHERE p.id = ?
                 AND p.jurisdiction IS NULL
+                AND NOT EXISTS (
+                  SELECT 1
+                  FROM session_deletions d
+                  WHERE d.project_id = ?
+                    AND d.session_id = ?
+                    AND d.delete_analytics = 1
+                )
+                AND NOT EXISTS (
+                  SELECT 1
+                  FROM analytics_deletion_jobs j
+                  WHERE j.project_id = ?
+                    AND j.session_id = ?
+                    AND j.requested_at <= ?
+                )
             )
           END AS allowed`,
         )
-        .bind(recordKind, projectId, sessionId, projectId)
+        .bind(
+          recordKind,
+          projectId,
+          sessionId,
+          projectId,
+          projectId,
+          sessionId,
+          projectId,
+          sessionId,
+          Date.now(),
+        )
         .first<{ allowed: number }>();
       return allowed?.allowed === 1;
     },
@@ -318,9 +342,21 @@ export async function compactVerifiedAnalyticsOutbox(
         WHERE export_id IN (
           SELECT l.export_id
           FROM analytics_export_ledger l
-          INNER JOIN session_deletions d
-            ON d.project_id = l.project_id AND d.session_id = l.session_id
-          WHERE l.record_kind <> 'deletion'
+          WHERE (
+              EXISTS (
+                SELECT 1 FROM session_deletions d
+                WHERE d.project_id = l.project_id
+                  AND d.session_id = l.session_id
+                  AND d.delete_analytics = 1
+              )
+              OR EXISTS (
+                SELECT 1 FROM analytics_deletion_jobs due
+                WHERE due.project_id = l.project_id
+                  AND due.session_id = l.session_id
+                  AND due.requested_at <= ?
+              )
+            )
+            AND (l.record_kind <> 'deletion'
             OR (
               l.first_seen_verified_at <= ?
               AND NOT EXISTS (
@@ -333,12 +369,12 @@ export async function compactVerifiedAnalyticsOutbox(
                   AND j.session_id = l.session_id
                   AND j.completed_at IS NOT NULL
               )
-            )
+            ))
           ORDER BY l.export_sequence
           LIMIT ?
         )`,
       )
-      .bind(deleteBefore, limit),
+      .bind(now, deleteBefore, limit),
     db
       .prepare(
         `INSERT INTO analytics_export_ledger (
@@ -360,6 +396,7 @@ export async function compactVerifiedAnalyticsOutbox(
               SELECT 1
               FROM session_deletions d
               WHERE d.project_id = o.project_id AND d.session_id = o.session_id
+                AND d.delete_analytics = 1
             )
           )
           AND NOT EXISTS (

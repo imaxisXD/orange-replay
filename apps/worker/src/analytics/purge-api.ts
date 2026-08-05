@@ -96,6 +96,7 @@ async function handleAuthorizedRequest(
         requested_at: job.requestedAt,
         delete_reason: job.deleteReason,
         requires_warehouse_tombstone: job.requiresWarehouseTombstone,
+        tombstone_table: job.tombstoneTable,
         needs_physical_maintenance: job.needsPhysicalMaintenance,
       })),
       deadline_risk: claimed.deadlineRisk,

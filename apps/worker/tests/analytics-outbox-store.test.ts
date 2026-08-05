@@ -101,6 +101,13 @@ describe("analytics outbox project selection", () => {
         "utf8",
       ),
     );
+    database.sqlite.exec(`CREATE TABLE session_deletions (
+      project_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      requested_at INTEGER NOT NULL,
+      delete_analytics INTEGER NOT NULL DEFAULT 1,
+      PRIMARY KEY (project_id, session_id)
+    )`);
     seedExport(database, 1, "project");
     const store = createD1AnalyticsOutboxStore(
       database as unknown as Parameters<typeof createD1AnalyticsOutboxStore>[0],
@@ -112,6 +119,59 @@ describe("analytics outbox project selection", () => {
     database.sqlite.prepare("UPDATE projects SET jurisdiction = 'eu' WHERE id = 'project'").run();
 
     await expect(store.listPending(90)).resolves.toHaveLength(1);
+    await expect(store.canSendRecord("project", "session-1", "session")).resolves.toBe(false);
+    database.sqlite.close();
+  });
+
+  it("keeps recording-expiry exports moving until analytics are due", async () => {
+    const database = new TestD1Database();
+    database.sqlite.exec("CREATE TABLE projects (id TEXT PRIMARY KEY, jurisdiction TEXT)");
+    database.sqlite.exec(
+      await readFile(
+        new URL("../migrations/0009_analytics_warehouse.sql", import.meta.url),
+        "utf8",
+      ),
+    );
+    database.sqlite.exec(`CREATE TABLE session_deletions (
+      project_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      requested_at INTEGER NOT NULL,
+      delete_analytics INTEGER NOT NULL DEFAULT 1,
+      PRIMARY KEY (project_id, session_id)
+    )`);
+    seedExport(database, 1, "project");
+    database.sqlite
+      .prepare(
+        `INSERT INTO session_deletions (
+          project_id, session_id, requested_at, delete_analytics
+        ) VALUES ('project', 'session-1', 1, 0)`,
+      )
+      .run();
+    database.sqlite
+      .prepare(
+        `INSERT INTO analytics_deletion_jobs (
+          project_id, session_id, requested_at, delete_reason
+        ) VALUES ('project', 'session-1', ?, 'analytics_retention_expired')`,
+      )
+      .run(Date.now() + 60_000);
+    const store = createD1AnalyticsOutboxStore(
+      database as unknown as Parameters<typeof createD1AnalyticsOutboxStore>[0],
+    );
+
+    await expect(store.canSendRecord("project", "session-1", "session")).resolves.toBe(true);
+
+    database.sqlite
+      .prepare(
+        `UPDATE analytics_deletion_jobs SET requested_at = 1
+        WHERE project_id = 'project' AND session_id = 'session-1'`,
+      )
+      .run();
+    await expect(store.canSendRecord("project", "session-1", "session")).resolves.toBe(false);
+
+    database.sqlite
+      .prepare("UPDATE analytics_deletion_jobs SET requested_at = ?")
+      .run(Date.now() + 60_000);
+    database.sqlite.prepare("UPDATE session_deletions SET delete_analytics = 1").run();
     await expect(store.canSendRecord("project", "session-1", "session")).resolves.toBe(false);
     database.sqlite.close();
   });

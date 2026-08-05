@@ -20,6 +20,7 @@ describe("analytics physical deletion jobs", () => {
     for (const [projectId, jurisdiction] of [
       ["default-ready", null],
       ["default-wait", null],
+      ["v2-ready", null],
       ["restricted", "eu"],
       ["too-new", null],
       ["leased", null],
@@ -32,6 +33,7 @@ describe("analytics physical deletion jobs", () => {
     }
     seedWarehouseState(database, "default-ready", 10);
     seedWarehouseState(database, "default-wait", 9);
+    seedWarehouseState(database, "v2-ready", 0);
     seedWarehouseState(database, "missing-project", 999);
     seedWarehouseState(database, "too-new", 10);
     seedWarehouseState(database, "leased", 10);
@@ -48,6 +50,13 @@ describe("analytics physical deletion jobs", () => {
       requestedAt: NOW - ANALYTICS_PURGE_QUIET_MS - 5_000,
       deletionExportSequence: 999,
       requiresWarehouseTombstone: false,
+    });
+    seedJob(database, {
+      projectId: "v2-ready",
+      sessionId: "session-v2-ready",
+      requestedAt: NOW - ANALYTICS_PURGE_QUIET_MS - 4_500,
+      deletionExportSequence: 20,
+      deletionV2VisibleAt: NOW - 1,
     });
     seedJob(database, {
       projectId: "missing-project",
@@ -88,6 +97,7 @@ describe("analytics physical deletion jobs", () => {
           requestedAt: NOW - ANALYTICS_PURGE_ALERT_MS - 1,
           deleteReason: "delete_requested",
           requiresWarehouseTombstone: true,
+          tombstoneTable: "analytics_deletions",
           needsPhysicalMaintenance: true,
         },
         {
@@ -96,6 +106,16 @@ describe("analytics physical deletion jobs", () => {
           requestedAt: NOW - ANALYTICS_PURGE_QUIET_MS - 5_000,
           deleteReason: "delete_requested",
           requiresWarehouseTombstone: false,
+          tombstoneTable: null,
+          needsPhysicalMaintenance: true,
+        },
+        {
+          projectId: "v2-ready",
+          sessionId: "session-v2-ready",
+          requestedAt: NOW - ANALYTICS_PURGE_QUIET_MS - 4_500,
+          deleteReason: "delete_requested",
+          requiresWarehouseTombstone: true,
+          tombstoneTable: "analytics_deletions_v2",
           needsPhysicalMaintenance: true,
         },
         {
@@ -104,6 +124,7 @@ describe("analytics physical deletion jobs", () => {
           requestedAt: NOW - ANALYTICS_PURGE_QUIET_MS - 4_000,
           deleteReason: "delete_requested",
           requiresWarehouseTombstone: true,
+          tombstoneTable: "analytics_deletions",
           needsPhysicalMaintenance: true,
         },
       ],
@@ -298,13 +319,15 @@ function seedJob(
     leaseOwner?: string;
     leaseExpiresAt?: number;
     requiresWarehouseTombstone?: boolean;
+    deletionV2VisibleAt?: number;
   },
 ): void {
   database.run(
     `INSERT INTO analytics_deletion_jobs (
       project_id, session_id, requested_at, delete_reason, deletion_export_sequence,
-      lease_owner, lease_expires_at, requires_warehouse_tombstone
-    ) VALUES (?, ?, ?, 'delete_requested', ?, ?, ?, ?)`,
+      lease_owner, lease_expires_at, requires_warehouse_tombstone,
+      deletion_v2_visible_at
+    ) VALUES (?, ?, ?, 'delete_requested', ?, ?, ?, ?, ?)`,
     input.projectId,
     input.sessionId,
     input.requestedAt,
@@ -312,5 +335,6 @@ function seedJob(
     input.leaseOwner ?? null,
     input.leaseExpiresAt ?? null,
     input.requiresWarehouseTombstone === false ? 0 : 1,
+    input.deletionV2VisibleAt ?? null,
   );
 }

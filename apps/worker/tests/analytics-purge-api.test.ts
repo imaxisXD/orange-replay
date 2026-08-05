@@ -70,7 +70,7 @@ describe("analytics physical deletion API", () => {
     muteWideEvents();
     vi.spyOn(Date, "now").mockReturnValue(NOW);
     const database = await createPurgeTestDatabase();
-    seedJob(database, NOW - ANALYTICS_PURGE_ALERT_MS - 1);
+    seedJob(database, NOW - ANALYTICS_PURGE_ALERT_MS - 1, "session", "v2");
     const env = purgeEnv(database, TOKEN);
 
     const claim = await handleAnalyticsPurgeApi(
@@ -86,7 +86,8 @@ describe("analytics physical deletion API", () => {
           session_id: "session",
           requested_at: NOW - ANALYTICS_PURGE_ALERT_MS - 1,
           delete_reason: "delete_requested",
-          requires_warehouse_tombstone: false,
+          requires_warehouse_tombstone: true,
+          tombstone_table: "analytics_deletions_v2",
           needs_physical_maintenance: true,
         },
       ],
@@ -255,13 +256,22 @@ function jsonRequest(url: string, body: unknown, token?: string): Request {
   });
 }
 
-function seedJob(database: PurgeTestDatabase, requestedAt: number, sessionId = "session"): void {
+function seedJob(
+  database: PurgeTestDatabase,
+  requestedAt: number,
+  sessionId = "session",
+  tombstone: "none" | "v2" = "none",
+): void {
   expect(requestedAt).toBeLessThanOrEqual(NOW - ANALYTICS_PURGE_QUIET_MS);
   database.run(
     `INSERT INTO analytics_deletion_jobs (
-      project_id, session_id, requested_at, delete_reason, requires_warehouse_tombstone
-    ) VALUES ('missing-project', ?, ?, 'delete_requested', 0)`,
+      project_id, session_id, requested_at, delete_reason, requires_warehouse_tombstone,
+      deletion_export_sequence, deletion_v2_visible_at
+    ) VALUES ('missing-project', ?, ?, 'delete_requested', ?, ?, ?)`,
     sessionId,
     requestedAt,
+    tombstone === "v2" ? 1 : 0,
+    tombstone === "v2" ? 1 : null,
+    tombstone === "v2" ? NOW - 1 : null,
   );
 }

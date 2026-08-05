@@ -312,7 +312,14 @@ export async function indexSession(
         WHERE NOT EXISTS (
           SELECT 1 FROM session_deletions d
           WHERE d.project_id = incoming.project_id AND d.session_id = incoming.session_id
+            AND d.delete_analytics = 1
         )
+          AND NOT EXISTS (
+            SELECT 1 FROM analytics_deletion_jobs j
+            WHERE j.project_id = incoming.project_id
+              AND j.session_id = incoming.session_id
+              AND j.requested_at <= ?
+          )
           AND EXISTS (
             SELECT 1 FROM projects p
             WHERE p.id = incoming.project_id
@@ -324,7 +331,7 @@ export async function indexSession(
           )
         ORDER BY CAST(record_order AS INTEGER)`,
         )
-        .bind(JSON.stringify(outboxRows), Date.now()),
+        .bind(JSON.stringify(outboxRows), indexedAt, indexedAt),
     );
   }
 

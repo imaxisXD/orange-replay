@@ -10,6 +10,7 @@ export * from "./project-website-contract.ts";
 export * from "./project-config-update.ts";
 export * from "./public-page-contract.ts";
 export * from "./rage.ts";
+export * from "./retention-policy.ts";
 export * from "./sampling.ts";
 export * from "./schemas.ts";
 export * from "./session-filter.ts";

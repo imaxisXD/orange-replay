@@ -1,5 +1,6 @@
 import {
   MAX_PROJECT_CREATE_BODY_BYTES,
+  DEFAULT_RECORDING_RETENTION_DAYS,
   projectCreateRequestSchema,
   uuidv7,
   type AccountResponse,
@@ -285,7 +286,7 @@ function prepareProjectInsert(
       workspaceId,
       "Default project",
       null,
-      30,
+      DEFAULT_RECORDING_RETENTION_DAYS,
       1,
       "[]",
       1,

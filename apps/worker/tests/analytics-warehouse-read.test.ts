@@ -124,9 +124,10 @@ describe("analytics warehouse queries", () => {
       before: { sort: "friction", sortValue: 1_203, sessionId: "session_b" },
       error_detail: "Checkout failed",
     };
-    const query = buildWarehouseSessionsQuery("project_1", 9, options).sql;
+    const query = buildWarehouseSessionsQuery("project_1", 9, options, "v1", 150).sql;
 
     expect(query).toContain('FROM "default"."analytics_events" e');
+    expect(query).toContain("s.expires_at >= 150");
     expect(query).toContain("INNER JOIN live_sessions target_session");
     expect(query).toContain("AND e.event_kind = 'error'");
     expect(query).toContain(

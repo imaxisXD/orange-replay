@@ -74,18 +74,18 @@ class PurgePendingRunnerTest(unittest.TestCase):
         )
 
     def test_capacity_uses_timeout_overlap_and_has_bulk_delete_headroom(self) -> None:
-        self.assertEqual(purge_pending.WORKFLOW_TIMEOUT_MINUTES, 40)
+        self.assertEqual(purge_pending.RUNNER_HARD_TIMEOUT_MINUTES, 40)
         self.assertLess(
             purge_pending.MAX_RUN_SECONDS,
-            purge_pending.WORKFLOW_TIMEOUT_MINUTES * 60,
+            purge_pending.RUNNER_HARD_TIMEOUT_MINUTES * 60,
         )
         self.assertLess(
-            purge_pending.WORKFLOW_TIMEOUT_MINUTES,
+            purge_pending.RUNNER_HARD_TIMEOUT_MINUTES,
             purge_pending.LEASE_MINUTES,
         )
         self.assertEqual(
             purge_pending.WORST_CASE_RUNS_PER_DAY,
-            24 * 60 // purge_pending.WORKFLOW_TIMEOUT_MINUTES,
+            24 * 60 // purge_pending.RUNNER_HARD_TIMEOUT_MINUTES,
         )
         self.assertEqual(purge_pending.WORST_CASE_RUNS_PER_DAY, 36)
         self.assertEqual(purge_pending.MAX_COMPLETED_JOBS_PER_DAY, 72_000)
@@ -128,6 +128,66 @@ class PurgePendingRunnerTest(unittest.TestCase):
         self.assertEqual(ready, [])
         self.assertEqual(len(deletes), len(purge_pending.DATA_TABLES))
         self.assertTrue(all("project-499" in query for query in deletes))
+
+    def test_claim_uses_the_verified_tombstone_table_for_each_job(self) -> None:
+        checked, deadline_risk = purge_pending.checked_claim(
+            {
+                "jobs": [
+                    {
+                        **job(1),
+                        "requires_warehouse_tombstone": True,
+                        "tombstone_table": "analytics_deletions",
+                    },
+                    {
+                        **job(2),
+                        "requires_warehouse_tombstone": True,
+                        "tombstone_table": "analytics_deletions_v2",
+                    },
+                    job(3),
+                ],
+                "deadline_risk": False,
+            }
+        )
+        self.assertFalse(deadline_risk)
+        self.assertEqual(
+            [claimed["tombstone_table"] for claimed in checked],
+            ["analytics_deletions", "analytics_deletions_v2", None],
+        )
+
+        spark = CountSpark()
+        self.assertEqual(purge_pending.tombstone_row_counts(spark, checked[:2]), {})
+        self.assertEqual(len(spark.queries), 2)
+        self.assertIn("r2.default.analytics_deletions ", spark.queries[0])
+        self.assertIn("r2.default.analytics_deletions_v2 ", spark.queries[1])
+
+    def test_old_claim_response_defaults_to_the_legacy_tombstone_table(self) -> None:
+        checked, _deadline_risk = purge_pending.checked_claim(
+            {
+                "jobs": [
+                    {
+                        **job(1),
+                        "requires_warehouse_tombstone": True,
+                    }
+                ],
+                "deadline_risk": False,
+            }
+        )
+        self.assertEqual(checked[0]["tombstone_table"], "analytics_deletions")
+
+    def test_claim_rejects_an_unknown_tombstone_table(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "invalid tombstone table"):
+            purge_pending.checked_claim(
+                {
+                    "jobs": [
+                        {
+                            **job(1),
+                            "requires_warehouse_tombstone": True,
+                            "tombstone_table": "analytics_deletions; DROP TABLE",
+                        }
+                    ],
+                    "deadline_risk": False,
+                }
+            )
 
     def test_maintenance_is_scoped_and_second_zero_skips_compaction(self) -> None:
         first_check = (
@@ -187,29 +247,82 @@ class PurgePendingRunnerTest(unittest.TestCase):
             1,
         )
 
-    def test_workflow_runs_on_schedule_with_required_secrets(self) -> None:
-        workflow = (
-            Path(__file__).resolve().parents[2]
-            / ".github"
-            / "workflows"
-            / "analytics-purge.yml"
+    def test_cloudflare_container_runs_on_schedule_with_required_secrets(self) -> None:
+        root = Path(__file__).resolve().parents[2]
+        config = (root / "apps" / "analytics-purge" / "wrangler.jsonc").read_text(
+            encoding="utf-8"
+        )
+        worker = (root / "apps" / "analytics-purge" / "src" / "index.ts").read_text(
+            encoding="utf-8"
+        )
+        image = (root / "infra" / "analytics" / "Dockerfile").read_text(
+            encoding="utf-8"
+        )
+        image_prep = (
+            root / "infra" / "analytics" / "prepare_spark_image.py"
         ).read_text(encoding="utf-8")
+        runner = (root / "infra" / "analytics" / "purge_pending.py").read_text(
+            encoding="utf-8"
+        )
+
         self.assertIn(
-            f'cron: "*/{purge_pending.SCHEDULE_INTERVAL_MINUTES} * * * *"',
-            workflow,
+            f'"crons": ["*/{purge_pending.SCHEDULE_INTERVAL_MINUTES} * * * *"]',
+            config,
         )
-        timeout_line = next(
-            line for line in workflow.splitlines() if "timeout-minutes:" in line
+        self.assertIn('"max_instances": 1', config)
+        self.assertIn('"instance_type": "standard-2"', config)
+        self.assertIn('"rollout_active_grace_period": 1800', config)
+        self.assertIn("ANALYTICS_PURGE_RUNNER_TOKEN", config)
+        self.assertIn("ORANGE_REPLAY_CATALOG_TOKEN", config)
+        self.assertIn("getContainer(env.ANALYTICS_PURGE_CONTAINER)", worker)
+        self.assertIn('"--kill-after=30s", "40m", "python"', image)
+        self.assertIn('"/app/purge_pending.py", "--execute"', image)
+        self.assertIn("python /tmp/prepare_spark_image.py", image)
+        self.assertIn("iceberg-spark-runtime-3.5_2.12-1.6.1.jar", image_prep)
+        self.assertIn("iceberg-aws-bundle-1.6.1.jar", image_prep)
+        self.assertIn(
+            "87e7184f31ef0caac415bbdfcf1bc4943346a58b98d747dc83434f7139e12acb",
+            image_prep,
         )
-        self.assertEqual(
-            int(timeout_line.split(":", 1)[1].strip()),
-            purge_pending.WORKFLOW_TIMEOUT_MINUTES,
+        self.assertIn(
+            "d14a49ced66a20cbd30f73ebb379646248d784fc5cd49d7295d36524380330e3",
+            image_prep,
         )
-        self.assertIn("ANALYTICS_PURGE_RUNNER_TOKEN", workflow)
-        self.assertIn("ORANGE_REPLAY_CATALOG_TOKEN", workflow)
-        self.assertIn("arguments+=(--execute)", workflow)
-        self.assertIn("infra/analytics/purge_pending.py", workflow)
-        self.assertNotIn("purge_session.py", workflow)
+        self.assertNotIn("spark.jars.packages", runner)
+        self.assertIn('sleepAfter = "45m"', worker)
+        self.assertFalse((root / ".github" / "workflows" / "analytics-purge.yml").exists())
+
+    def test_deadline_risk_without_claimable_work_is_a_warning(self) -> None:
+        arguments = argparse.Namespace(
+            api_url="https://purge.example",
+            catalog_uri="https://catalog.example",
+            warehouse="warehouse",
+            owner_id="runner-warning",
+        )
+        with (
+            mock.patch.dict(
+                os.environ,
+                {
+                    "ANALYTICS_PURGE_RUNNER_TOKEN": "r" * 40,
+                    "ORANGE_REPLAY_CATALOG_TOKEN": "c" * 40,
+                },
+                clear=False,
+            ),
+            mock.patch.object(
+                purge_pending,
+                "post_json",
+                return_value={"jobs": [], "deadline_risk": True},
+            ),
+            mock.patch.object(purge_pending, "build_spark") as build,
+            mock.patch.object(purge_pending.time, "monotonic", side_effect=[0, 1]),
+            contextlib.redirect_stdout(io.StringIO()) as output,
+        ):
+            exit_code = purge_pending.execute(arguments)
+
+        self.assertEqual(exit_code, 0)
+        build.assert_not_called()
+        events = [json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertEqual(events[-1]["event"], "analytics.physical_delete_deadline_risk")
 
     def test_one_run_claims_deletes_and_reports_as_batches(self) -> None:
         claims = iter([claimed_jobs(1, 2)])
