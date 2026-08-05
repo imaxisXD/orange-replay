@@ -3,8 +3,9 @@ import type { EdgeAttrs, SegmentCheckpoint, SegmentRef } from "@orange-replay/sh
 import { clampIndexForStorage } from "./session-budgets.ts";
 import {
   createFreshState,
+  encodeStoredSessionState,
   encodedTextBytes,
-  normalizeSessionState,
+  parseStoredSessionState,
   updateStateWithBatch,
 } from "./session-state.ts";
 import type { SegmentForManifest } from "./session-manifest.ts";
@@ -228,12 +229,17 @@ export class SessionRecorderStore {
       return { state: null, tombstone: null };
     }
 
-    const parsed = JSON.parse(row.v) as unknown;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(row.v) as unknown;
+    } catch {
+      throw new Error("Stored session state is not valid JSON.");
+    }
     if (isFinalizedTombstone(parsed)) {
       return { state: null, tombstone: normalizeFinalizedTombstone(parsed) };
     }
 
-    return { state: normalizeSessionState(parsed as SessionState), tombstone: null };
+    return { state: parseStoredSessionState(parsed), tombstone: null };
   }
 
   persistState(state: SessionState): void {
@@ -241,7 +247,7 @@ export class SessionRecorderStore {
       `INSERT INTO state (id, v)
         VALUES (1, ?)
         ON CONFLICT(id) DO UPDATE SET v = excluded.v`,
-      JSON.stringify(state),
+      encodeStoredSessionState(state),
     );
   }
 

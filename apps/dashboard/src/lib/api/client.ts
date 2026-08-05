@@ -21,7 +21,7 @@ export type ResponseDecoder<Value> = (value: unknown) => Value;
 export interface RequestOptions<Value = unknown> {
   auth: boolean;
   body?: unknown;
-  decode?: ResponseDecoder<Value>;
+  decode: ResponseDecoder<Value>;
   method?: string;
   redirectOnAuthError?: boolean;
   scope?: DashboardAccessScope;
@@ -66,7 +66,7 @@ export async function requestJson<T>(path: string, options: RequestOptions<T>): 
 
   try {
     const body: unknown = await response.json();
-    return options.decode === undefined ? (body as T) : options.decode(body);
+    return options.decode(body);
   } catch {
     throw new ApiError(
       "The server returned data in an unexpected format.",

@@ -35,6 +35,7 @@ catalog:
   terser: ^5.49.0
   tldts: 7.4.6
   typescript: ^5
+  valibot: 1.4.2
   vite: npm:@voidzero-dev/vite-plus-core@0.2.2
   vite-plus: 0.2.2
   wrangler: ^4.110.0

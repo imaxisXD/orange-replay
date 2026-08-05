@@ -1,9 +1,10 @@
-import { decodeIngestBody, parseSegment, segmentBatch } from "@orange-replay/shared/wire";
+import { parseSegment, segmentBatch } from "@orange-replay/shared/wire";
 import { MAX_CHECKPOINTS_PER_SEGMENT } from "@orange-replay/shared/constants";
 import type { BatchIndex, SegmentCheckpoint, SegmentRef } from "@orange-replay/shared/types";
 import { EventType } from "rrweb";
 import { replayViewportFromEvent } from "./geometry.ts";
 import { validateReplayEventTimesAgainstIndex } from "./replay-event-validation.ts";
+import { tryDecodeReplayIngestBody } from "./replay-wire.ts";
 import type { DecodeWorkerHost } from "./worker-host.ts";
 import type { ReplayEvent, SegmentWindow } from "./types.ts";
 
@@ -318,17 +319,7 @@ async function decodeSegmentBatch(
   worker: DecodeWorkerHost,
   trustedTimeRange?: Pick<SegmentRef, "t0" | "t1">,
 ): Promise<DecodedReplayBatch> {
-  let encoded:
-    | {
-        index: BatchIndex;
-        payload: Uint8Array;
-      }
-    | undefined;
-  try {
-    encoded = decodeIngestBody(batch);
-  } catch {
-    encoded = undefined;
-  }
+  const encoded = tryDecodeReplayIngestBody(batch);
 
   if (encoded !== undefined) {
     const decoded = await worker.decodeBatchWithStats(encoded.payload);
@@ -361,11 +352,7 @@ interface InspectedSegmentBatch {
 function tryDecodeIndexedBatch(
   batch: Uint8Array,
 ): { index: BatchIndex; payload: Uint8Array } | undefined {
-  try {
-    return decodeIngestBody(batch);
-  } catch {
-    return undefined;
-  }
+  return tryDecodeReplayIngestBody(batch);
 }
 
 async function decodeInspectedBatch(

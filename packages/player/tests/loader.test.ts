@@ -155,6 +155,24 @@ describe("manifest and segment loading", () => {
 
     await expect(
       fetchSegmentBytes(
+        { fetch: fetchMock },
+        {
+          projectId: "project",
+          sessionId: "session",
+          segment: {
+            key: "p/project/session/seg-000001.ors",
+            bytes: Number.NaN,
+            t0: 1,
+            t1: 2,
+            batches: 1,
+          },
+        },
+      ),
+    ).rejects.toThrow();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await expect(
+      fetchSegmentBytes(
         { fetch: async () => new Response(new Uint8Array([1, 2])) },
         {
           projectId: "project",
@@ -183,6 +201,18 @@ describe("manifest and segment loading", () => {
     );
 
     await expect(readResponseBytesCapped(response, 3)).rejects.toThrow("exceeds");
+  });
+
+  it("rejects invalid segment byte limits before reading the response", async () => {
+    const cancel = vi.fn();
+    const response = {
+      body: { cancel },
+    } as unknown as Response;
+
+    await expect(readResponseBytesCapped(response, Number.NaN)).rejects.toThrow(
+      "byte limit is invalid",
+    );
+    expect(cancel).toHaveBeenCalledOnce();
   });
 
   it("updates the player timeline with dead clicks after replay data decodes", async () => {
@@ -415,6 +445,23 @@ describe("manifest and segment loading", () => {
     expect(fetchCalls).toHaveLength(1);
     expect(fetchCalls[0]?.method).toBe("POST");
     expect(fetchCalls[0]?.headers.get("authorization")).toBeNull();
+  });
+
+  it("rejects malformed live ticket responses", async () => {
+    const malformedResponses = [
+      { ticket: "", expiresAt: Date.now() + 60_000 },
+      { ticket: "ticket", expiresAt: Number.NaN },
+      { ticket: "ticket", expiresAt: Date.now() + 0.5 },
+    ];
+
+    for (const response of malformedResponses) {
+      await expect(
+        mintLiveTicket(
+          { fetch: async () => Response.json(response) },
+          { projectId: "project", sessionId: "session" },
+        ),
+      ).rejects.toThrow();
+    }
   });
 
   it("mints a fresh live ticket on reconnect", async () => {

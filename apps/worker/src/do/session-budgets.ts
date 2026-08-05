@@ -3,6 +3,7 @@ import {
   MAX_ENCODED_SEGMENT_BYTES,
   MAX_MANIFEST_SEGMENTS,
   MAX_SEQ,
+  MAX_SESSION_BATCHES,
 } from "@orange-replay/shared";
 import type { BatchIndex, FinalizeMessage, IndexEvent } from "@orange-replay/shared";
 
@@ -16,7 +17,7 @@ export const MAX_SESSION_STORED_BYTES = 512 * 1024 * 1024;
 export const MAX_SESSION_EVENT_BYTES = 64 * 1024 * 1024;
 // Bounds the synchronous work needed to finalize one Durable Object. At the
 // default SDK flush interval this still permits more than eight continuous days.
-export const MAX_SESSION_BATCHES = 50_000;
+export { MAX_SESSION_BATCHES };
 // Full analytics are deliberately lower than the storage cap. Each sanitized
 // batch may carry up to 16 KiB of event metadata, so these limits keep a
 // finalization pass near 8 MiB and skip the second sidecar pass above them.

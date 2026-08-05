@@ -1,6 +1,8 @@
 import type { EdgeAttrs } from "@orange-replay/shared";
+import * as v from "valibot";
 import type { AppendArgs } from "./contract.ts";
 import {
+  MAX_TRACKED_PAGE_TABS,
   normalizePageTabs,
   normalizeSessionAnalyticsVersion,
   updatePageTrackingWithBatch,
@@ -38,6 +40,91 @@ export interface SessionState {
   finalizingAt?: number;
 }
 
+const SESSION_STATE_FORMAT = 1;
+const pathIdSchema = v.pipe(v.string(), v.regex(/^[A-Za-z0-9_-]{1,64}$/));
+const nonEmptyTextSchema = v.pipe(v.string(), v.minLength(1));
+const wholeNumberSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
+const finiteNumberSchema = v.pipe(v.number(), v.finite());
+const timestampSchema = v.pipe(wholeNumberSchema, v.finite());
+const edgeAttrsSchema = v.object({
+  country: v.optional(v.string()),
+  region: v.optional(v.string()),
+  city: v.optional(v.string()),
+  device: v.optional(v.string()),
+  browser: v.optional(v.string()),
+  os: v.optional(v.string()),
+  asn: v.optional(wholeNumberSchema),
+});
+const pageTabSchema = v.object({
+  tab: nonEmptyTextSchema,
+  url: nonEmptyTextSchema,
+  previousUrl: v.optional(nonEmptyTextSchema),
+  enteredAt: v.optional(finiteNumberSchema),
+});
+const websiteIdsSchema = v.pipe(
+  v.array(pathIdSchema),
+  v.maxLength(100),
+  v.check((ids) => new Set(ids).size === ids.length, "Website ids must be unique."),
+);
+const stableSessionStateEntries = {
+  projectId: pathIdSchema,
+  orgId: pathIdSchema,
+  shard: wholeNumberSchema,
+  retentionDays: v.pipe(wholeNumberSchema, v.minValue(1), v.maxValue(365)),
+  sessionId: pathIdSchema,
+  startedAt: timestampSchema,
+  lastActivity: timestampSchema,
+  lastFlushAt: timestampSchema,
+  bufferedBytes: wholeNumberSchema,
+  totalPayloadBytes: wholeNumberSchema,
+  batchCount: wholeNumberSchema,
+  segmentCount: wholeNumberSchema,
+  flags: v.pipe(wholeNumberSchema, v.maxValue(0xffff_ffff)),
+  attrs: edgeAttrsSchema,
+  firstRequestId: nonEmptyTextSchema,
+  entryUrl: v.optional(nonEmptyTextSchema),
+  urlCount: wholeNumberSchema,
+  encKeyId: v.optional(nonEmptyTextSchema),
+  lastPresencePingAt: v.optional(timestampSchema),
+  checkpointRequested: v.optional(v.boolean()),
+} as const;
+const currentSessionStateSchema = v.object({
+  ...stableSessionStateEntries,
+  websiteIds: v.optional(websiteIdsSchema),
+  totalEventBytes: wholeNumberSchema,
+  analyticsVersion: wholeNumberSchema,
+  pageCount: wholeNumberSchema,
+  quickBacks: wholeNumberSchema,
+  pageTabs: v.pipe(v.array(pageTabSchema), v.maxLength(MAX_TRACKED_PAGE_TABS)),
+  finalizingAt: v.optional(timestampSchema),
+});
+const storedSessionStateEnvelopeSchema = v.object({
+  stateFormat: v.literal(SESSION_STATE_FORMAT),
+  state: currentSessionStateSchema,
+});
+const legacySessionStateSchema = v.object({
+  ...stableSessionStateEntries,
+  websiteIds: v.optional(v.unknown()),
+  totalEventBytes: v.optional(v.unknown()),
+  analyticsVersion: v.optional(v.unknown()),
+  pageCount: v.optional(v.unknown()),
+  quickBacks: v.optional(v.unknown()),
+  pageTabs: v.optional(v.unknown()),
+  finalizingAt: v.optional(v.unknown()),
+});
+
+type NormalizedSessionStateKey =
+  | "websiteIds"
+  | "totalEventBytes"
+  | "analyticsVersion"
+  | "pageCount"
+  | "quickBacks"
+  | "pageTabs"
+  | "finalizingAt";
+type NormalizableSessionState = Omit<SessionState, NormalizedSessionStateKey> & {
+  [Key in NormalizedSessionStateKey]?: unknown;
+};
+
 const utf8Encoder = new TextEncoder();
 
 export function createFreshState(args: AppendArgs): SessionState {
@@ -67,34 +154,52 @@ export function createFreshState(args: AppendArgs): SessionState {
   };
 }
 
-export function normalizeSessionState(state: SessionState): SessionState {
-  const normalized = {
-    ...state,
-    totalEventBytes:
-      typeof state.totalEventBytes === "number" && Number.isFinite(state.totalEventBytes)
-        ? state.totalEventBytes
-        : 0,
-    analyticsVersion: normalizeSessionAnalyticsVersion(state.analyticsVersion, state.pageCount),
-    pageCount:
-      typeof state.pageCount === "number" && Number.isSafeInteger(state.pageCount)
-        ? Math.max(0, state.pageCount)
-        : 0,
-    quickBacks:
-      typeof state.quickBacks === "number" && Number.isSafeInteger(state.quickBacks)
-        ? Math.max(0, state.quickBacks)
-        : 0,
-    pageTabs: normalizePageTabs(state.pageTabs),
-    websiteIds: normalizeWebsiteIds(state.websiteIds),
+export function parseStoredSessionState(value: unknown): SessionState {
+  if (isRecord(value) && Object.hasOwn(value, "stateFormat")) {
+    const parsed = v.safeParse(storedSessionStateEnvelopeSchema, value);
+    if (!parsed.success) throw new Error("Stored session state is invalid.");
+    return normalizeSessionState(parsed.output.state);
+  }
+
+  const legacy = v.safeParse(legacySessionStateSchema, value);
+  if (!legacy.success) throw new Error("Stored session state is invalid.");
+  return normalizeSessionState(legacy.output);
+}
+
+export function encodeStoredSessionState(state: SessionState): string {
+  const parsed = v.safeParse(currentSessionStateSchema, state);
+  if (!parsed.success) throw new Error("Session state cannot be stored because it is invalid.");
+  return JSON.stringify({ stateFormat: SESSION_STATE_FORMAT, state: parsed.output });
+}
+
+export function normalizeSessionState(state: NormalizableSessionState): SessionState {
+  const {
+    websiteIds: rawWebsiteIds,
+    totalEventBytes: rawTotalEventBytes,
+    analyticsVersion: rawAnalyticsVersion,
+    pageCount: rawPageCount,
+    quickBacks: rawQuickBacks,
+    pageTabs: rawPageTabs,
+    finalizingAt: rawFinalizingAt,
+    ...stableState
+  } = state;
+  const websiteIds = normalizeWebsiteIds(rawWebsiteIds);
+  const normalized: SessionState = {
+    ...stableState,
+    ...(websiteIds === undefined ? {} : { websiteIds }),
+    totalEventBytes: nonnegativeWholeNumber(rawTotalEventBytes),
+    analyticsVersion: normalizeSessionAnalyticsVersion(rawAnalyticsVersion, rawPageCount),
+    pageCount: nonnegativeWholeNumber(rawPageCount),
+    quickBacks: nonnegativeWholeNumber(rawQuickBacks),
+    pageTabs: normalizePageTabs(rawPageTabs),
   };
 
   if (
-    typeof state.finalizingAt === "number" &&
-    Number.isFinite(state.finalizingAt) &&
-    state.finalizingAt >= 0
+    typeof rawFinalizingAt === "number" &&
+    Number.isSafeInteger(rawFinalizingAt) &&
+    rawFinalizingAt >= 0
   ) {
-    normalized.finalizingAt = Math.floor(state.finalizingAt);
-  } else {
-    delete normalized.finalizingAt;
+    normalized.finalizingAt = rawFinalizingAt;
   }
 
   return normalized;
@@ -130,11 +235,22 @@ export function updateStateWithBatch(
 
 function normalizeWebsiteIds(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
-  const ids = [...new Set(value.filter((id): id is string => typeof id === "string"))].slice(
-    0,
-    100,
-  );
+  const ids = [
+    ...new Set(
+      value.filter(
+        (id): id is string => typeof id === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(id),
+      ),
+    ),
+  ].slice(0, 100);
   return ids.length === 0 ? undefined : ids;
+}
+
+function nonnegativeWholeNumber(value: unknown): number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function encodedTextBytes(value: string): number {

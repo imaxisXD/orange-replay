@@ -1,5 +1,6 @@
-import { z } from "zod";
+import * as v from "valibot";
 import { PROJECT_NAME_MAX_CHARS } from "./project-contract.ts";
+import { sharedSchema } from "./validation.ts";
 
 const EXPLICIT_SCHEME = /^[a-z][a-z\d+.-]*:\/\//i;
 const DOMAIN_LABEL = /^[a-z\d](?:[a-z\d-]{0,61}[a-z\d])?$/i;
@@ -17,14 +18,19 @@ export const WEBSITE_URL_ISSUE = {
  * scheme means HTTPS. The output is the canonical URL used for project naming,
  * origin access, favicon identity, and cache keys.
  */
-export const websiteUrlSchema = z.string().transform((value, context): URL => {
-  const parsed = parseWebsiteUrl(value);
-  if (!parsed.ok) {
-    context.addIssue({ code: "custom", message: parsed.issue });
-    return z.NEVER;
-  }
-  return parsed.url;
-});
+export const websiteUrlSchema = sharedSchema(
+  v.pipe(
+    v.string(),
+    v.rawTransform(({ dataset, addIssue, NEVER }): URL => {
+      const parsed = parseWebsiteUrl(dataset.value);
+      if (!parsed.ok) {
+        addIssue({ message: parsed.issue });
+        return NEVER;
+      }
+      return parsed.url;
+    }),
+  ),
+);
 
 function parseWebsiteUrl(value: string): { ok: true; url: URL } | { ok: false; issue: string } {
   const cleanValue = value.trim();

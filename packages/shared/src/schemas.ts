@@ -1,16 +1,21 @@
-import { z } from "zod";
+import * as v from "valibot";
 import {
   MAX_BATCHES_PER_SEGMENT,
   MAX_CHECKPOINTS_PER_BATCH,
   MAX_CHECKPOINTS_PER_SEGMENT,
   MAX_MANIFEST_SEGMENTS,
   MAX_SEQ,
+  MAX_SESSION_BATCHES,
 } from "./constants.ts";
 import type {
   BatchIndex,
   FinalizeMessage,
   IngestAck,
   IndexEvent,
+  LiveFinalizedMessage,
+  LiveHelloMessage,
+  LiveSessionSnapshot,
+  LiveTicketResponse,
   ProjectConfig,
   StoredProjectConfig,
   SegmentRef,
@@ -19,8 +24,9 @@ import type {
   SessionInsights,
   SessionManifest,
 } from "./types.ts";
+import { schemaCheck, sharedSchema, type SharedSchema } from "./validation.ts";
 
-const indexEventKindSchema = z.enum([
+const indexEventKindSchema = v.picklist([
   "click",
   "rage",
   "error",
@@ -40,231 +46,344 @@ const MAX_MANIFEST_TIMELINE_EVENTS = 10_000;
 const MAX_R2_KEY_CHARS = 512;
 const MAX_ENTRY_URL_CHARS = 2048;
 const MAX_ENC_KEY_CHARS = 64;
+const MAX_LIVE_TICKET_CHARS = 4096;
 
-const eventMetaSchema = z
-  .record(
-    z.string().min(1).max(MAX_EVENT_META_KEY_CHARS),
-    z.union([z.string().max(MAX_EVENT_META_VALUE_CHARS), z.number()]),
-  )
-  .refine((value) => Object.keys(value).length <= MAX_EVENT_META_KEYS, {
-    message: `event metadata must have at most ${MAX_EVENT_META_KEYS} keys`,
-  });
-const pathIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
-const segmentKeySchema = z
-  .string()
-  .max(MAX_R2_KEY_CHARS)
-  .regex(/^p\/[A-Za-z0-9_-]{1,64}\/[A-Za-z0-9_-]{1,64}\/seg-[0-9]{6}\.ors$/);
-const analyticsSidecarKeySchema = z
-  .string()
-  .max(MAX_R2_KEY_CHARS)
-  .regex(/^p\/[A-Za-z0-9_-]{1,64}\/[A-Za-z0-9_-]{1,64}\/analytics\.ndjson$/);
-const replayUrlSchema = z.string().max(MAX_ENTRY_URL_CHARS).refine(isSafeReplayUrl, {
-  message: "entryUrl must be an http(s) URL or a relative path",
+const finiteNumberSchema = v.pipe(v.number(), v.finite());
+const safeIntegerSchema = v.pipe(v.number(), v.safeInteger());
+const nonnegativeSafeIntegerSchema = v.pipe(safeIntegerSchema, v.minValue(0));
+
+const eventMetaKeySchema = v.pipe(
+  v.string(),
+  v.minLength(1),
+  v.maxLength(MAX_EVENT_META_KEY_CHARS),
+);
+const eventMetaValueSchema = v.union([
+  v.pipe(v.string(), v.maxLength(MAX_EVENT_META_VALUE_CHARS)),
+  finiteNumberSchema,
+]);
+const eventMetaSchema = v.pipe(
+  v.custom<Record<string, string | number>>(isPlainRecord, "event metadata must be an object"),
+  v.rawTransform<Record<string, string | number>, Record<string, string | number>>(
+    ({ dataset, addIssue }) => {
+      const input = dataset.value;
+      const output: Record<string, string | number> = {};
+
+      for (const key of Object.keys(input)) {
+        const value = input[key];
+        const keyResult = v.safeParse(eventMetaKeySchema, key);
+        const valueResult = v.safeParse(eventMetaValueSchema, value);
+        for (const issue of keyResult.issues ?? []) {
+          addIssue({ message: issue.message, path: [eventMetaPath(input, key, "key")] });
+        }
+        for (const issue of valueResult.issues ?? []) {
+          addIssue({ message: issue.message, path: [eventMetaPath(input, key, "value")] });
+        }
+        if (!keyResult.success || !valueResult.success) continue;
+
+        // Define every key as data so reserved names stay valid metadata
+        // without changing the output object's prototype.
+        Object.defineProperty(output, keyResult.output, {
+          configurable: true,
+          enumerable: true,
+          value: valueResult.output,
+          writable: true,
+        });
+      }
+      return output;
+    },
+  ),
+  v.check(
+    (value) => Object.keys(value).length <= MAX_EVENT_META_KEYS,
+    `event metadata must have at most ${MAX_EVENT_META_KEYS} keys`,
+  ),
+);
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function eventMetaPath(
+  input: Record<string, unknown>,
+  key: string,
+  origin: "key" | "value",
+): v.ObjectPathItem {
+  return { type: "object", origin, input, key, value: input[key] };
+}
+
+const pathIdSchema = v.pipe(v.string(), v.regex(/^[A-Za-z0-9_-]{1,64}$/));
+const segmentKeySchema = v.pipe(
+  v.string(),
+  v.maxLength(MAX_R2_KEY_CHARS),
+  v.regex(/^p\/[A-Za-z0-9_-]{1,64}\/[A-Za-z0-9_-]{1,64}\/seg-[0-9]{6}\.ors$/),
+);
+const analyticsSidecarKeySchema = v.pipe(
+  v.string(),
+  v.maxLength(MAX_R2_KEY_CHARS),
+  v.regex(/^p\/[A-Za-z0-9_-]{1,64}\/[A-Za-z0-9_-]{1,64}\/analytics\.ndjson$/),
+);
+const replayUrlSchema = v.pipe(
+  v.string(),
+  v.maxLength(MAX_ENTRY_URL_CHARS),
+  v.check(isSafeReplayUrl, "entryUrl must be an http(s) URL or a relative path"),
+);
+
+const indexEventSchema = v.strictObject({
+  t: finiteNumberSchema,
+  k: indexEventKindSchema,
+  d: v.optional(v.pipe(v.string(), v.maxLength(MAX_EVENT_DETAIL_CHARS))),
+  m: v.optional(eventMetaSchema),
+}) satisfies v.GenericSchema<IndexEvent, IndexEvent>;
+
+const encSchema = v.strictObject({
+  k: v.pipe(v.string(), v.minLength(1), v.maxLength(MAX_ENC_KEY_CHARS)),
 });
 
-const indexEventSchema: z.ZodType<IndexEvent> = z
-  .object({
-    t: z.number(),
-    k: indexEventKindSchema,
-    d: z.string().max(MAX_EVENT_DETAIL_CHARS).optional(),
-    m: eventMetaSchema.optional(),
-  })
-  .strict();
+const edgeAttrsSchema = v.strictObject({
+  country: v.optional(v.string()),
+  region: v.optional(v.string()),
+  city: v.optional(v.string()),
+  device: v.optional(v.string()),
+  browser: v.optional(v.string()),
+  os: v.optional(v.string()),
+  asn: v.optional(nonnegativeSafeIntegerSchema),
+});
 
-const encSchema = z
-  .object({
-    k: z.string().min(1).max(MAX_ENC_KEY_CHARS),
-  })
-  .strict();
+const sessionAttrsSchema = v.strictObject({
+  ...edgeAttrsSchema.entries,
+  entryUrl: v.optional(replayUrlSchema),
+  urlCount: v.optional(nonnegativeSafeIntegerSchema),
+  pageCount: v.optional(nonnegativeSafeIntegerSchema),
+}) satisfies v.GenericSchema<SessionManifest["attrs"], SessionManifest["attrs"]>;
 
-const edgeAttrsSchema = z
-  .object({
-    country: z.string().optional(),
-    region: z.string().optional(),
-    city: z.string().optional(),
-    device: z.string().optional(),
-    browser: z.string().optional(),
-    os: z.string().optional(),
-    asn: z.number().int().nonnegative().optional(),
-  })
-  .strict();
+const segmentCheckpointSchema = v.strictObject({
+  timestamp: finiteNumberSchema,
+  tab: pathIdSchema,
+  batch: v.pipe(nonnegativeSafeIntegerSchema, v.maxValue(MAX_BATCHES_PER_SEGMENT - 1)),
+}) satisfies v.GenericSchema<SegmentCheckpoint, SegmentCheckpoint>;
 
-const sessionAttrsSchema: z.ZodType<SessionManifest["attrs"]> = edgeAttrsSchema
-  .extend({
-    entryUrl: replayUrlSchema.optional(),
-    urlCount: z.number().int().nonnegative().optional(),
-    pageCount: z.number().int().nonnegative().optional(),
-  })
-  .strict();
-
-const segmentCheckpointSchema: z.ZodType<SegmentCheckpoint> = z
-  .object({
-    timestamp: z.number(),
-    tab: pathIdSchema,
-    batch: z
-      .number()
-      .int()
-      .nonnegative()
-      .max(MAX_BATCHES_PER_SEGMENT - 1),
-  })
-  .strict();
-
-const segmentRefSchema: z.ZodType<SegmentRef> = z
-  .object({
-    key: segmentKeySchema,
-    bytes: z.number().int().nonnegative(),
-    t0: z.number(),
-    t1: z.number(),
-    batches: z.number().int().nonnegative().max(MAX_BATCHES_PER_SEGMENT),
-    checkpoints: z.array(segmentCheckpointSchema).max(MAX_CHECKPOINTS_PER_SEGMENT).optional(),
-  })
-  .strict()
-  .superRefine((segment, context) => {
-    for (const [index, checkpoint] of (segment.checkpoints ?? []).entries()) {
-      if (checkpoint.timestamp < segment.t0 || checkpoint.timestamp > segment.t1) {
+export const segmentRefSchema: SharedSchema<v.GenericSchema<SegmentRef, SegmentRef>> = sharedSchema(
+  v.pipe(
+    v.strictObject({
+      key: segmentKeySchema,
+      bytes: nonnegativeSafeIntegerSchema,
+      t0: finiteNumberSchema,
+      t1: finiteNumberSchema,
+      batches: v.pipe(nonnegativeSafeIntegerSchema, v.maxValue(MAX_BATCHES_PER_SEGMENT)),
+      checkpoints: v.optional(
+        v.pipe(v.array(segmentCheckpointSchema), v.maxLength(MAX_CHECKPOINTS_PER_SEGMENT)),
+      ),
+    }),
+    schemaCheck<SegmentRef>((segment, context) => {
+      if (segment.t0 > segment.t1) {
         context.addIssue({
-          code: "custom",
-          message: "checkpoint timestamp must be inside the segment time range",
-          path: ["checkpoints", index, "timestamp"],
+          message: "segment t0 must be less than or equal to t1",
+          path: ["t1"],
         });
       }
-      if (checkpoint.batch >= segment.batches) {
-        context.addIssue({
-          code: "custom",
-          message: "checkpoint batch must exist in the segment",
-          path: ["checkpoints", index, "batch"],
-        });
+      for (const [index, checkpoint] of (segment.checkpoints ?? []).entries()) {
+        if (checkpoint.timestamp < segment.t0 || checkpoint.timestamp > segment.t1) {
+          context.addIssue({
+            message: "checkpoint timestamp must be inside the segment time range",
+            path: ["checkpoints", index, "timestamp"],
+          });
+        }
+        if (checkpoint.batch >= segment.batches) {
+          context.addIssue({
+            message: "checkpoint batch must exist in the segment",
+            path: ["checkpoints", index, "batch"],
+          });
+        }
       }
-    }
-  });
+    }),
+  ),
+);
 
-const sessionCountsSchema: z.ZodType<SessionCounts> = z
-  .object({
-    batches: z.number().int().nonnegative(),
-    events: z.number().int().nonnegative(),
-    clicks: z.number().int().nonnegative(),
-    errors: z.number().int().nonnegative(),
-    rages: z.number().int().nonnegative(),
-    navs: z.number().int().nonnegative(),
-  })
-  .strict();
+const sessionCountsSchema = v.strictObject({
+  batches: nonnegativeSafeIntegerSchema,
+  events: nonnegativeSafeIntegerSchema,
+  clicks: nonnegativeSafeIntegerSchema,
+  errors: nonnegativeSafeIntegerSchema,
+  rages: nonnegativeSafeIntegerSchema,
+  navs: nonnegativeSafeIntegerSchema,
+}) satisfies v.GenericSchema<SessionCounts, SessionCounts>;
 
-const sessionInsightsSchema: z.ZodType<SessionInsights> = z
-  .object({
-    maxScrollDepth: z.number().int().min(0).max(100),
-    quickBacks: z.number().int().nonnegative(),
-    interactionTimeMs: z.number().int().nonnegative(),
-    activityHist: z
-      .string()
-      .regex(/^[0-9a-f]{8}-[0-9a-f]{2}$/)
-      .nullable()
-      .optional(),
-  })
-  .strict();
-
-export const maskRuleSchema = z
-  .object({
-    selector: z.string().min(1).max(500),
-    action: z.enum(["mask", "block"]),
-  })
-  .strict();
-
-export const maskRulesSchema = z.array(maskRuleSchema);
-
-export const captureTogglesSchema = z
-  .object({
-    heatmaps: z.boolean(),
-    console: z.boolean(),
-    network: z.boolean(),
-    canvas: z.boolean(),
-  })
-  .strict();
-
-const projectConfigObject = z
-  .object({
-    projectId: pathIdSchema,
-    orgId: pathIdSchema,
-    shard: z.number().int().nonnegative(),
-    active: z.boolean(),
-    sampleRate: z.number().min(0).max(1),
-    // A brand-new hosted project starts fail-closed until its owner adds the
-    // website origin. Updates still require at least one explicit origin.
-    allowedOrigins: z.array(z.string()),
-    maskPolicyVersion: z.number().int().nonnegative(),
-    maskRules: maskRulesSchema.optional(),
-    capture: captureTogglesSchema.optional(),
-    quotaState: z.enum(["ok", "soft", "exceeded"]),
-    retentionDays: z.number().int().min(1).max(365),
-    jurisdiction: z.enum(["eu", "fedramp"]).optional(),
-    version: z.number().int().nonnegative().optional(),
-    sessionCookieDomain: z.string().min(1).max(253).optional(),
-    websiteId: pathIdSchema.optional(),
-    websitePending: z.boolean().optional(),
-  })
-  .strict();
-
-export const batchIndexSchema: z.ZodType<BatchIndex> = z
-  .object({
-    v: z.literal(1),
-    s: pathIdSchema,
-    tab: pathIdSchema,
-    seq: z.number().int().min(0).max(MAX_SEQ),
-    t0: z.number(),
-    t1: z.number(),
-    e: z.array(indexEventSchema).max(MAX_INDEX_EVENTS_PER_BATCH),
-    checkpointTimestamps: z.array(z.number()).max(MAX_CHECKPOINTS_PER_BATCH).optional(),
-    u: replayUrlSchema.optional(),
-    enc: encSchema.optional(),
-  })
-  .strict()
-  .superRefine((value, context) => {
-    if (value.t0 > value.t1) {
+const liveSessionSnapshotSchema = v.pipe(
+  v.strictObject({
+    startedAt: finiteNumberSchema,
+    endedAt: finiteNumberSchema,
+    durationMs: v.pipe(finiteNumberSchema, v.minValue(0)),
+    timeline: v.pipe(v.array(indexEventSchema), v.maxLength(MAX_MANIFEST_TIMELINE_EVENTS)),
+    counts: sessionCountsSchema,
+  }),
+  schemaCheck<LiveSessionSnapshot>((snapshot, context) => {
+    if (snapshot.startedAt > snapshot.endedAt) {
       context.addIssue({
-        code: "custom",
-        message: "t0 must be less than or equal to t1",
-        path: ["t1"],
+        message: "live snapshot startedAt must be less than or equal to endedAt",
+        path: ["endedAt"],
       });
     }
-    for (const [index, timestamp] of (value.checkpointTimestamps ?? []).entries()) {
-      if (timestamp < value.t0 || timestamp > value.t1) {
+  }),
+) satisfies v.GenericSchema<LiveSessionSnapshot, LiveSessionSnapshot>;
+
+const sessionInsightsSchema = v.strictObject({
+  maxScrollDepth: v.pipe(safeIntegerSchema, v.minValue(0), v.maxValue(100)),
+  quickBacks: nonnegativeSafeIntegerSchema,
+  interactionTimeMs: nonnegativeSafeIntegerSchema,
+  activityHist: v.optional(v.nullable(v.pipe(v.string(), v.regex(/^[0-9a-f]{8}-[0-9a-f]{2}$/)))),
+}) satisfies v.GenericSchema<SessionInsights, SessionInsights>;
+
+export const maskRuleSchema = sharedSchema(
+  v.strictObject({
+    selector: v.pipe(v.string(), v.minLength(1), v.maxLength(500)),
+    action: v.picklist(["mask", "block"]),
+  }),
+);
+
+export const maskRulesSchema = sharedSchema(v.array(maskRuleSchema));
+
+export const captureTogglesSchema = sharedSchema(
+  v.strictObject({
+    heatmaps: v.boolean(),
+    console: v.boolean(),
+    network: v.boolean(),
+    canvas: v.boolean(),
+  }),
+);
+
+const projectConfigObject = v.strictObject({
+  projectId: pathIdSchema,
+  orgId: pathIdSchema,
+  shard: nonnegativeSafeIntegerSchema,
+  active: v.boolean(),
+  sampleRate: v.pipe(finiteNumberSchema, v.minValue(0), v.maxValue(1)),
+  // A brand-new hosted project starts fail-closed until its owner adds the
+  // website origin. Updates still require at least one explicit origin.
+  allowedOrigins: v.array(v.string()),
+  maskPolicyVersion: nonnegativeSafeIntegerSchema,
+  maskRules: v.optional(maskRulesSchema),
+  capture: v.optional(captureTogglesSchema),
+  quotaState: v.picklist(["ok", "soft", "exceeded"]),
+  retentionDays: v.pipe(safeIntegerSchema, v.minValue(1), v.maxValue(365)),
+  jurisdiction: v.optional(v.picklist(["eu", "fedramp"])),
+  version: v.optional(nonnegativeSafeIntegerSchema),
+  sessionCookieDomain: v.optional(v.pipe(v.string(), v.minLength(1), v.maxLength(253))),
+  websiteId: v.optional(pathIdSchema),
+  websitePending: v.optional(v.boolean()),
+});
+
+export const batchIndexSchema: SharedSchema<v.GenericSchema<BatchIndex, BatchIndex>> = sharedSchema(
+  v.pipe(
+    v.strictObject({
+      v: v.literal(1),
+      s: pathIdSchema,
+      tab: pathIdSchema,
+      seq: v.pipe(safeIntegerSchema, v.minValue(0), v.maxValue(MAX_SEQ)),
+      t0: finiteNumberSchema,
+      t1: finiteNumberSchema,
+      e: v.pipe(v.array(indexEventSchema), v.maxLength(MAX_INDEX_EVENTS_PER_BATCH)),
+      checkpointTimestamps: v.optional(
+        v.pipe(v.array(finiteNumberSchema), v.maxLength(MAX_CHECKPOINTS_PER_BATCH)),
+      ),
+      u: v.optional(replayUrlSchema),
+      enc: v.optional(encSchema),
+    }),
+    schemaCheck<BatchIndex>((value, context) => {
+      if (value.t0 > value.t1) {
         context.addIssue({
-          code: "custom",
-          message: "checkpoint timestamp must be inside the batch time range",
-          path: ["checkpointTimestamps", index],
+          message: "t0 must be less than or equal to t1",
+          path: ["t1"],
         });
       }
-    }
-  });
+      for (const [index, timestamp] of (value.checkpointTimestamps ?? []).entries()) {
+        if (timestamp < value.t0 || timestamp > value.t1) {
+          context.addIssue({
+            message: "checkpoint timestamp must be inside the batch time range",
+            path: ["checkpointTimestamps", index],
+          });
+        }
+      }
+    }),
+  ),
+);
 
-export const projectConfigSchema: z.ZodType<ProjectConfig> = projectConfigObject;
+export const projectConfigSchema: SharedSchema<v.GenericSchema<ProjectConfig, ProjectConfig>> =
+  sharedSchema(projectConfigObject);
 
-export const storedProjectConfigSchema: z.ZodType<StoredProjectConfig> = projectConfigObject
-  .extend({
+export const storedProjectConfigSchema: SharedSchema<
+  v.GenericSchema<StoredProjectConfig, StoredProjectConfig>
+> = sharedSchema(
+  v.object({
+    ...projectConfigObject.entries,
     maskRules: maskRulesSchema,
     capture: captureTogglesSchema,
-    version: z.number().int().nonnegative(),
-  })
-  .strict();
+    version: nonnegativeSafeIntegerSchema,
+  }),
+);
 
-export const sessionManifestSchema: z.ZodType<SessionManifest> = z
-  .object({
-    v: z.literal(1),
+export const sessionManifestSchema: SharedSchema<
+  v.GenericSchema<SessionManifest, SessionManifest>
+> = sharedSchema(
+  v.strictObject({
+    v: v.literal(1),
     sessionId: pathIdSchema,
     projectId: pathIdSchema,
     orgId: pathIdSchema,
-    websiteIds: z.array(pathIdSchema).max(100).optional(),
-    startedAt: z.number(),
-    endedAt: z.number(),
-    durationMs: z.number().nonnegative(),
-    segments: z.array(segmentRefSchema).max(MAX_MANIFEST_SEGMENTS),
-    timeline: z.array(indexEventSchema).max(MAX_MANIFEST_TIMELINE_EVENTS),
+    websiteIds: v.optional(v.pipe(v.array(pathIdSchema), v.maxLength(100))),
+    startedAt: finiteNumberSchema,
+    endedAt: finiteNumberSchema,
+    durationMs: v.pipe(finiteNumberSchema, v.minValue(0)),
+    segments: v.pipe(v.array(segmentRefSchema), v.maxLength(MAX_MANIFEST_SEGMENTS)),
+    timeline: v.pipe(v.array(indexEventSchema), v.maxLength(MAX_MANIFEST_TIMELINE_EVENTS)),
     counts: sessionCountsSchema,
-    bytes: z.number().int().nonnegative(),
-    flags: z.number().int().nonnegative(),
-    enc: encSchema.optional(),
+    bytes: nonnegativeSafeIntegerSchema,
+    flags: nonnegativeSafeIntegerSchema,
+    enc: v.optional(encSchema),
     attrs: sessionAttrsSchema,
-  })
-  .strict();
+  }),
+);
+
+export const liveTicketResponseSchema: SharedSchema<
+  v.GenericSchema<LiveTicketResponse, LiveTicketResponse>
+> = sharedSchema(
+  v.object({
+    ticket: v.pipe(v.string(), v.minLength(1), v.maxLength(MAX_LIVE_TICKET_CHARS)),
+    expiresAt: v.pipe(safeIntegerSchema, v.minValue(1)),
+  }),
+);
+
+export const liveHelloMessageSchema: SharedSchema<
+  v.GenericSchema<LiveHelloMessage, LiveHelloMessage>
+> = sharedSchema(
+  v.pipe(
+    v.object({
+      type: v.literal("hello"),
+      sessionId: pathIdSchema,
+      startedAt: finiteNumberSchema,
+      segments: v.pipe(v.array(segmentRefSchema), v.maxLength(MAX_MANIFEST_SEGMENTS)),
+      pendingBatches: v.pipe(nonnegativeSafeIntegerSchema, v.maxValue(MAX_SESSION_BATCHES)),
+      snapshot: liveSessionSnapshotSchema,
+    }),
+    schemaCheck<LiveHelloMessage>((message, context) => {
+      if (message.startedAt !== message.snapshot.startedAt) {
+        context.addIssue({
+          message: "live hello startedAt must match snapshot startedAt",
+          path: ["snapshot", "startedAt"],
+        });
+      }
+    }),
+  ),
+);
+
+export const liveFinalizedMessageSchema: SharedSchema<
+  v.GenericSchema<LiveFinalizedMessage, LiveFinalizedMessage>
+> = sharedSchema(
+  v.object({
+    type: v.literal("finalized"),
+    manifest: sessionManifestSchema,
+  }),
+);
 
 function isSafeReplayUrl(value: string): boolean {
   if (value.startsWith("/") && !value.startsWith("//")) {
@@ -284,63 +403,68 @@ function isSafeReplayUrl(value: string): boolean {
   }
 }
 
-export const ingestAckSchema: z.ZodType<IngestAck> = z
-  .object({
-    ok: z.boolean(),
-    live: z.boolean(),
-    flushMs: z.number(),
-    drop: z.boolean().optional(),
-    closed: z.boolean().optional(),
-    checkpoint: z.boolean().optional(),
-  })
-  .strict();
+export const ingestAckSchema: SharedSchema<v.GenericSchema<IngestAck, IngestAck>> = sharedSchema(
+  v.strictObject({
+    ok: v.boolean(),
+    live: v.boolean(),
+    flushMs: finiteNumberSchema,
+    drop: v.optional(v.boolean()),
+    closed: v.optional(v.boolean()),
+    checkpoint: v.optional(v.boolean()),
+  }),
+);
 
-export const finalizeMessageSchema: z.ZodType<FinalizeMessage> = z
-  .object({
-    type: z.literal("session.finalized"),
-    sessionId: pathIdSchema,
-    projectId: pathIdSchema,
-    orgId: pathIdSchema,
-    shard: z.number().int().nonnegative(),
-    requestId: z.string(),
-    manifestKey: z.string(),
-    analyticsSidecarKey: analyticsSidecarKeySchema.optional(),
-    startedAt: z.number(),
-    endedAt: z.number(),
-    // Optional so messages queued by a pre-upgrade DO still parse during a
-    // deploy window; the consumer falls back to the server-time span.
-    durationMs: z.number().nonnegative().optional(),
-    hasCheckpoint: z.boolean().optional(),
-    bytes: z.number().int().nonnegative(),
-    segments: z.number().int().nonnegative(),
-    flags: z.number().int().nonnegative(),
-    analyticsVersion: z.number().int().nonnegative().optional(),
-    insights: sessionInsightsSchema.optional(),
-    counts: sessionCountsSchema,
-    attrs: sessionAttrsSchema,
-    retentionDays: z.number().int().nonnegative(),
-    events: z
-      .array(indexEventSchema.refine((event) => event.k === "error" || event.k === "custom"))
-      .max(200),
-  })
-  .strict()
-  .superRefine((message, context) => {
-    if (message.analyticsVersion !== undefined && message.analyticsVersion >= 1) {
-      if (message.attrs.pageCount === undefined) {
-        context.addIssue({
-          code: "custom",
-          message: "pageCount is required for covered analytics",
-          path: ["attrs", "pageCount"],
-        });
+const finalizedAnalyticsEventSchema = v.pipe(
+  indexEventSchema,
+  v.check((event) => event.k === "error" || event.k === "custom"),
+);
+
+export const finalizeMessageSchema: SharedSchema<
+  v.GenericSchema<FinalizeMessage, FinalizeMessage>
+> = sharedSchema(
+  v.pipe(
+    v.strictObject({
+      type: v.literal("session.finalized"),
+      sessionId: pathIdSchema,
+      projectId: pathIdSchema,
+      orgId: pathIdSchema,
+      shard: nonnegativeSafeIntegerSchema,
+      requestId: v.string(),
+      manifestKey: v.string(),
+      analyticsSidecarKey: v.optional(analyticsSidecarKeySchema),
+      startedAt: finiteNumberSchema,
+      endedAt: finiteNumberSchema,
+      // Optional so messages queued by a pre-upgrade DO still parse during a
+      // deploy window; the consumer falls back to the server-time span.
+      durationMs: v.optional(v.pipe(finiteNumberSchema, v.minValue(0))),
+      hasCheckpoint: v.optional(v.boolean()),
+      bytes: nonnegativeSafeIntegerSchema,
+      segments: nonnegativeSafeIntegerSchema,
+      flags: nonnegativeSafeIntegerSchema,
+      analyticsVersion: v.optional(nonnegativeSafeIntegerSchema),
+      insights: v.optional(sessionInsightsSchema),
+      counts: sessionCountsSchema,
+      attrs: sessionAttrsSchema,
+      retentionDays: nonnegativeSafeIntegerSchema,
+      events: v.pipe(v.array(finalizedAnalyticsEventSchema), v.maxLength(200)),
+    }),
+    schemaCheck<FinalizeMessage>((message, context) => {
+      if (message.analyticsVersion !== undefined && message.analyticsVersion >= 1) {
+        if (message.attrs.pageCount === undefined) {
+          context.addIssue({
+            message: "pageCount is required for covered analytics",
+            path: ["attrs", "pageCount"],
+          });
+        }
       }
-    }
-    if (message.analyticsVersion !== undefined && message.analyticsVersion >= 2) {
-      if (message.insights === undefined) {
-        context.addIssue({
-          code: "custom",
-          message: "insights are required for covered derived analytics",
-          path: ["insights"],
-        });
+      if (message.analyticsVersion !== undefined && message.analyticsVersion >= 2) {
+        if (message.insights === undefined) {
+          context.addIssue({
+            message: "insights are required for covered derived analytics",
+            path: ["insights"],
+          });
+        }
       }
-    }
-  });
+    }),
+  ),
+);

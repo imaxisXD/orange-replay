@@ -2,6 +2,8 @@ import {
   adminUsersQuerySchema,
   createProjectKeyRequestSchema,
   decodeAccountResponse,
+  decodeAdminStatsResponse,
+  decodeAdminUsersResponse,
   decodeAuthConfigResponse,
   decodeCreatedProjectKeyResponse,
   decodeProjectKeyResponse,
@@ -13,6 +15,9 @@ import {
   type AccountResponse as SharedAccountResponse,
   type AccountUser as SharedAccountUser,
   type AccountWorkspace as SharedAccountWorkspace,
+  type AdminStatsResponse as SharedAdminStatsResponse,
+  type AdminUser as SharedAdminUser,
+  type AdminUsersResponse as SharedAdminUsersResponse,
   type CreatedProjectKeyResponse as SharedCreatedProjectKeyResponse,
   type ProjectKeyAudit as SharedProjectKeyAudit,
   type ProjectKeysResponse as SharedProjectKeysResponse,
@@ -40,33 +45,9 @@ export type EnsureProjectWebsiteResponse = SharedEnsureProjectWebsiteResponse;
 export type ProjectWebsiteInstallStatus = SharedProjectWebsiteInstallStatus;
 export type ProjectWebsitesResponse = SharedProjectWebsitesResponse;
 
-export interface AdminStatsResponse {
-  users: number;
-  newUsers: number;
-  workspaces: number;
-  projects: number;
-  activeKeys: number;
-}
-
-export interface AdminUser {
-  id: string;
-  name: string;
-  email: string;
-  image: string | null;
-  role: string;
-  banned: boolean;
-  banReason: string | null;
-  createdAt: number;
-  lastSignedInAt: number | null;
-  workspaceCount: number;
-}
-
-export interface AdminUsersResponse {
-  users: AdminUser[];
-  total: number;
-  limit: number;
-  offset: number;
-}
+export type AdminStatsResponse = SharedAdminStatsResponse;
+export type AdminUser = SharedAdminUser;
+export type AdminUsersResponse = SharedAdminUsersResponse;
 
 export interface AdminUserSearch {
   limit?: number;
@@ -190,7 +171,10 @@ export async function revokeProjectKey(
 }
 
 export async function fetchAdminStats(): Promise<AdminStatsResponse> {
-  return requestJson<AdminStatsResponse>("/api/v1/admin/stats", { auth: true });
+  return requestJson<AdminStatsResponse>("/api/v1/admin/stats", {
+    auth: true,
+    decode: decodeAdminStatsResponse,
+  });
 }
 
 export async function fetchAdminUsers(search: AdminUserSearch = {}): Promise<AdminUsersResponse> {
@@ -202,5 +186,8 @@ export async function fetchAdminUsers(search: AdminUserSearch = {}): Promise<Adm
     query.set("search", parsed.search);
   }
   const suffix = query.size === 0 ? "" : `?${query.toString()}`;
-  return requestJson<AdminUsersResponse>(`/api/v1/admin/users${suffix}`, { auth: true });
+  return requestJson<AdminUsersResponse>(`/api/v1/admin/users${suffix}`, {
+    auth: true,
+    decode: decodeAdminUsersResponse,
+  });
 }

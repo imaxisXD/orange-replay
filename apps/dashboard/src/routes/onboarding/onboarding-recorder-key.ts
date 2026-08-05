@@ -1,3 +1,5 @@
+import { generatedRecorderKeySchema } from "@orange-replay/shared";
+
 const ONBOARDING_RECORDER_KEY_PREFIX = "orange-replay:onboarding-recorder-key:";
 
 /**
@@ -8,7 +10,13 @@ const ONBOARDING_RECORDER_KEY_PREFIX = "orange-replay:onboarding-recorder-key:";
  */
 export function readOnboardingRecorderKey(projectId: string, websiteId: string): string | null {
   try {
-    return window.sessionStorage.getItem(storageKey(projectId, websiteId));
+    const key = storageKey(projectId, websiteId);
+    const storedValue = window.sessionStorage.getItem(key);
+    if (storedValue === null) return null;
+    const parsed = generatedRecorderKeySchema.safeParse(storedValue);
+    if (parsed.success) return parsed.data;
+    window.sessionStorage.removeItem(key);
+    return null;
   } catch {
     return null;
   }
@@ -20,7 +28,13 @@ export function saveOnboardingRecorderKey(
   recorderKey: string,
 ): void {
   try {
-    window.sessionStorage.setItem(storageKey(projectId, websiteId), recorderKey);
+    const key = storageKey(projectId, websiteId);
+    const parsed = generatedRecorderKeySchema.safeParse(recorderKey);
+    if (!parsed.success) {
+      window.sessionStorage.removeItem(key);
+      return;
+    }
+    window.sessionStorage.setItem(key, parsed.data);
   } catch {
     // In-memory context still carries the key when storage is unavailable.
   }

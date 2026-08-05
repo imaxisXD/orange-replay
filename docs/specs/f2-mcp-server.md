@@ -11,7 +11,7 @@ Acceptance demo: with the local worker running and a recorded error session pres
 ## Package shape
 
 - `packages/mcp` mirroring sibling packages: source exports (`"." → ./src/index.ts`), `bin: { "orange-replay-mcp": "./src/cli.ts" }` wired the way vp-built packages do binaries (check how other packages handle bin with vp pack; if source bin is not viable, a tiny dist-built bin is acceptable — document the choice).
-- **New dependency (justified):** `@modelcontextprotocol/sdk` — the official MCP SDK; hand-rolling the protocol is error-prone and not our business. `zod` already exists in the workspace for tool input schemas.
+- **New dependency (justified):** `@modelcontextprotocol/sdk` — the official MCP SDK; hand-rolling the protocol is error-prone and not our business. Valibot already exists in the workspace for shared validation. Reuse those contracts where the SDK accepts them; otherwise add one narrow adapter after checking the SDK's current docs.
 - Files: `src/cli.ts` (arg/env parsing → start), `src/server.ts` (MCP server + tool registration), `src/rest.ts` (typed client over our existing API), `src/decode.ts` (segment bytes → event JSON in Node), `src/tools/*.ts` (one file per tool), `src/redact.ts` (output caps), `README.md`.
 
 ## Configuration

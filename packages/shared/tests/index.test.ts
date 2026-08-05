@@ -14,6 +14,9 @@ import {
   manifestKey,
   MAX_RAGE_DETECTION_CLICKS,
   ingestAckSchema,
+  liveFinalizedMessageSchema,
+  liveHelloMessageSchema,
+  liveTicketResponseSchema,
   parseSegment,
   parseSessionFilterQuery,
   segmentBatch,
@@ -23,6 +26,7 @@ import {
   withDefaultAnalyticsDateRange,
   finalizeMessageSchema,
   sessionManifestSchema,
+  segmentRefSchema,
   setWideEventVersion,
   startWideEvent,
 } from "../src/index.ts";
@@ -78,6 +82,26 @@ describe("ingest body wire format", () => {
 
     expect(nulCount).toBe(1);
     expect(decodeIngestBody(encoded).index.e[0]?.d).toBe("contains \0 inside string");
+  });
+
+  it("keeps reserved object names as safe event metadata", () => {
+    const metadata = JSON.parse(
+      '{"constructor":"constructor value","prototype":"prototype value","__proto__":"proto value"}',
+    ) as Record<string, string>;
+    const parsed = batchIndexSchema.parse({
+      v: 1,
+      s: "session",
+      tab: "tab",
+      seq: 1,
+      t0: 1,
+      t1: 1,
+      e: [{ t: 1, k: "custom", m: metadata }],
+    });
+    const parsedMetadata = parsed.e[0]?.m;
+
+    expect(parsedMetadata).toMatchObject(metadata);
+    expect(Object.keys(parsedMetadata ?? {})).toEqual(["constructor", "prototype", "__proto__"]);
+    expect(Object.getPrototypeOf(parsedMetadata)).toBe(Object.prototype);
   });
 
   it("rejects bodies without a separator", () => {
@@ -294,6 +318,89 @@ describe("schemas", () => {
         segments: [
           { ...manifest.segments[0], checkpoints: [{ timestamp: 1.5, tab: "tab", batch: 1 }] },
         ],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("validates live Player responses and messages deeply", () => {
+    const segment = {
+      key: "p/project/session/seg-000001.ors",
+      bytes: 12,
+      t0: 1_000,
+      t1: 2_000,
+      batches: 1,
+      checkpoints: [{ timestamp: 1_000, tab: "tab", batch: 0 }],
+    };
+    const snapshot = {
+      startedAt: 1_000,
+      endedAt: 2_000,
+      durationMs: 1_000,
+      timeline: [{ t: 1_100, k: "click" as const }],
+      counts: { batches: 1, events: 1, clicks: 1, errors: 0, rages: 0, navs: 0 },
+    };
+    const manifest: SessionManifest = {
+      v: 1,
+      sessionId: "session",
+      projectId: "project",
+      orgId: "org",
+      startedAt: 1_000,
+      endedAt: 2_000,
+      durationMs: 1_000,
+      segments: [segment],
+      timeline: snapshot.timeline,
+      counts: snapshot.counts,
+      bytes: segment.bytes,
+      flags: 0,
+      attrs: {},
+    };
+    const hello = {
+      type: "hello" as const,
+      sessionId: "session",
+      startedAt: 1_000,
+      segments: [segment],
+      pendingBatches: 1,
+      snapshot,
+    };
+
+    expect(liveTicketResponseSchema.parse({ ticket: "ticket", expiresAt: 2_000 })).toEqual({
+      ticket: "ticket",
+      expiresAt: 2_000,
+    });
+    expect(
+      liveTicketResponseSchema.parse({ ticket: "ticket", expiresAt: 2_000, futureField: true }),
+    ).toEqual({ ticket: "ticket", expiresAt: 2_000 });
+    expect(liveHelloMessageSchema.parse(hello)).toEqual(hello);
+    expect(liveHelloMessageSchema.parse({ ...hello, futureField: true })).toEqual(hello);
+    expect(liveFinalizedMessageSchema.parse({ type: "finalized", manifest })).toEqual({
+      type: "finalized",
+      manifest,
+    });
+    expect(
+      liveFinalizedMessageSchema.parse({ type: "finalized", manifest, futureField: true }),
+    ).toEqual({ type: "finalized", manifest });
+    expect(segmentRefSchema.safeParse({ ...segment, t0: 3_000 }).success).toBe(false);
+    expect(liveTicketResponseSchema.safeParse({ ticket: "", expiresAt: 2_000 }).success).toBe(
+      false,
+    );
+    expect(liveTicketResponseSchema.safeParse({ ticket: "ticket", expiresAt: 1.5 }).success).toBe(
+      false,
+    );
+    expect(
+      liveHelloMessageSchema.safeParse({
+        ...hello,
+        pendingBatches: 50_001,
+      }).success,
+    ).toBe(false);
+    expect(
+      liveHelloMessageSchema.safeParse({
+        ...hello,
+        snapshot: { ...snapshot, timeline: [{ t: 1_100, k: "unknown" }] },
+      }).success,
+    ).toBe(false);
+    expect(
+      liveFinalizedMessageSchema.safeParse({
+        type: "finalized",
+        manifest: { ...manifest, segments: [{ ...segment, bytes: Number.NaN }] },
       }).success,
     ).toBe(false);
   });

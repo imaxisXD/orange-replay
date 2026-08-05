@@ -27,6 +27,9 @@ export const PUBLIC_PAGE_REFRESH_MS = 60_000;
 export const MAX_PRESENCE_ID_CHARS = 64;
 export const MAX_PRESENCE_TEXT_CHARS = 2048;
 export const MAX_BATCHES_PER_SEGMENT = 4096;
+// Bounds both Durable Object storage work and the pending live-replay payload.
+// Keep this shared so the producer and Player cannot accept different limits.
+export const MAX_SESSION_BATCHES = 50_000;
 export const MAX_ENCODED_SEGMENT_BYTES = 16 * 1024 * 1024;
 export const MAX_MANIFEST_SEGMENTS = 10_000;
 export const MAX_SEQ = 10_000_000;

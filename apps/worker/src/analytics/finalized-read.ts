@@ -1,6 +1,7 @@
 import {
   encodeSessionFilter,
   finalizedProjectStatsSchema,
+  sessionListItemSchema,
   startWideEvent,
   withDefaultAnalyticsDateRange,
   type AnalyticsState,
@@ -8,6 +9,7 @@ import {
   type SessionFilter,
   type SessionListItem,
 } from "@orange-replay/shared";
+import * as v from "valibot";
 import {
   buildSessionsQuery,
   encodeSessionCursor,
@@ -39,6 +41,11 @@ export interface FinalizedSessionPage {
   sessions: SessionListItem[];
   nextBefore: string | null;
 }
+
+const finalizedSessionPageSchema = v.object({
+  sessions: v.array(sessionListItemSchema),
+  nextBefore: v.nullable(v.string()),
+});
 
 export type FinalizedAnalyticsState = AnalyticsState;
 
@@ -229,10 +236,11 @@ async function readR2SessionPage(input: {
   );
   const currentCache = await readAnalyticsCache<FinalizedSessionPage>(
     cacheRequests.current,
+    cachedSessionPageDecoder(projectId),
     snapshot.version,
   );
 
-  if (currentCache !== null && safeCachedPage(currentCache.value, projectId)) {
+  if (currentCache !== null) {
     wideEvent.set({
       cache_hit: true,
       analytics_cache_state: "current",
@@ -260,8 +268,11 @@ async function readR2SessionPage(input: {
   } catch (error) {
     if (!(error instanceof AnalyticsReadError)) throw error;
 
-    const lastGood = await readAnalyticsCache<FinalizedSessionPage>(cacheRequests.lastGood);
-    if (lastGood === null || !safeCachedPage(lastGood.value, projectId)) {
+    const lastGood = await readAnalyticsCache<FinalizedSessionPage>(
+      cacheRequests.lastGood,
+      cachedSessionPageDecoder(projectId),
+    );
+    if (lastGood === null) {
       return analyticsUnavailable();
     }
 
@@ -350,11 +361,12 @@ async function readR2Stats(input: {
   );
   const currentCache = await readAnalyticsCache<FinalizedProjectStats>(
     cacheRequests.current,
+    safeCachedStats,
     snapshot.version,
   );
   // Both cache reads validate like the session-page path: an entry written by
   // an older FinalizedProjectStats shape reads as a miss, never as a response.
-  let finalized = currentCache === null ? null : safeCachedStats(currentCache.value);
+  let finalized = currentCache?.value ?? null;
   let responseWarehouseVersion =
     finalized === null || currentCache === null ? snapshot.version : currentCache.warehouseVersion;
   let analyticsState: "fresh" | "stale" = "fresh";
@@ -384,10 +396,12 @@ async function readR2Stats(input: {
   } catch (error) {
     if (!(error instanceof AnalyticsReadError)) throw error;
 
-    const lastGood = await readAnalyticsCache<FinalizedProjectStats>(cacheRequests.lastGood);
-    const lastGoodStats = lastGood === null ? null : safeCachedStats(lastGood.value);
-    if (lastGood === null || lastGoodStats === null) return analyticsUnavailable();
-    finalized = lastGoodStats;
+    const lastGood = await readAnalyticsCache<FinalizedProjectStats>(
+      cacheRequests.lastGood,
+      safeCachedStats,
+    );
+    if (lastGood === null) return analyticsUnavailable();
+    finalized = lastGood.value;
     responseWarehouseVersion = lastGood.warehouseVersion;
     analyticsState = "stale";
     wideEvent.set({
@@ -663,17 +677,16 @@ function safeCachedStats(value: unknown): FinalizedProjectStats | null {
   return parsed.success ? parsed.data : null;
 }
 
-function safeCachedPage(value: unknown, projectId: string): value is FinalizedSessionPage {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-  const page = value as Record<string, unknown>;
-  if (!Array.isArray(page["sessions"])) return false;
-  if (page["nextBefore"] !== null && typeof page["nextBefore"] !== "string") return false;
-
-  return page["sessions"].every((session) => {
-    if (typeof session !== "object" || session === null || Array.isArray(session)) return false;
-    const row = session as Record<string, unknown>;
-    return row["project_id"] === projectId && typeof row["session_id"] === "string";
-  });
+function cachedSessionPageDecoder(
+  projectId: string,
+): (value: unknown) => FinalizedSessionPage | null {
+  return (value) => {
+    const parsed = v.safeParse(finalizedSessionPageSchema, value);
+    if (!parsed.success) return null;
+    return parsed.output.sessions.every((session) => session.project_id === projectId)
+      ? parsed.output
+      : null;
+  };
 }
 
 function cacheRequest(baseUrl: string, params: URLSearchParams): Request {

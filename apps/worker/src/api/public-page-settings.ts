@@ -1,12 +1,11 @@
 import {
-  MAX_PUBLIC_PAGE_RECORDINGS,
   MAX_PUBLIC_PAGE_SETTINGS_BODY_BYTES,
+  publicPageSettingsUpdateSchema,
   type PublicPageSettingsUpdate,
   startWideEvent,
 } from "@orange-replay/shared";
 import type { Env } from "../env.ts";
 import { readPublicationSettings, replacePublicationSettings } from "../public-page/publication.ts";
-import { isValidPathId } from "../query/session-query.ts";
 import { jsonError, jsonResponse, readJsonBodyCapped } from "../http.ts";
 
 export async function getPublicPageSettings(
@@ -64,46 +63,18 @@ export async function putPublicPageSettings(
 function parsePublicPageSettingsUpdate(
   value: unknown,
 ): { ok: true; value: PublicPageSettingsUpdate } | { ok: false; error: string } {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return { ok: false, error: "invalid_public_page_settings" };
-  }
-  const record = value as Record<string, unknown>;
-  const keys = Object.keys(record).sort();
-  if (
-    keys.length !== 3 ||
-    keys[0] !== "enabled" ||
-    keys[1] !== "expectedRevision" ||
-    keys[2] !== "sessionIds"
-  ) {
-    return { ok: false, error: "invalid_public_page_settings" };
-  }
-  if (
-    typeof record.enabled !== "boolean" ||
-    !Number.isSafeInteger(record.expectedRevision) ||
-    (record.expectedRevision as number) < 0 ||
-    !Array.isArray(record.sessionIds)
-  ) {
-    return { ok: false, error: "invalid_public_page_settings" };
-  }
-  if (record.sessionIds.length > MAX_PUBLIC_PAGE_RECORDINGS) {
+  const parsed = publicPageSettingsUpdateSchema.safeParse(value);
+  if (parsed.success) return { ok: true, value: parsed.data };
+
+  const sessionIssues = parsed.error.issues.filter((issue) => issue.path[0] === "sessionIds");
+  if (sessionIssues.some((issue) => issue.code === "max_length")) {
     return { ok: false, error: "too_many_public_recordings" };
   }
-  if (!record.sessionIds.every((sessionId) => typeof sessionId === "string")) {
-    return { ok: false, error: "invalid_recording_id" };
-  }
-  const sessionIds = record.sessionIds as string[];
-  if (!sessionIds.every(isValidPathId)) {
-    return { ok: false, error: "invalid_recording_id" };
-  }
-  if (new Set(sessionIds).size !== sessionIds.length) {
+  if (sessionIssues.some((issue) => issue.message === "session id must be unique")) {
     return { ok: false, error: "duplicate_recording_id" };
   }
   return {
-    ok: true,
-    value: {
-      enabled: record.enabled,
-      expectedRevision: record.expectedRevision as number,
-      sessionIds,
-    },
+    ok: false,
+    error: sessionIssues.length > 0 ? "invalid_recording_id" : "invalid_public_page_settings",
   };
 }

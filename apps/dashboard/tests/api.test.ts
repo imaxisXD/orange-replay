@@ -12,15 +12,20 @@ import {
   fetchAdminStats,
   fetchAdminUsers,
   fetchAuthConfig,
+  fetchDemoWorkspace,
+  fetchInstallStatus,
   fetchLiveSessions,
+  fetchProjectConfig,
   fetchProjectKeys,
   fetchProjectStats,
+  fetchPublicPageSettings,
   fetchProjectWebsites,
   fetchSessionHeads,
   fetchSessionState,
   health,
   listSessions,
   revokeProjectKey,
+  savePublicPageSettings,
   segmentUrl,
 } from "../src/lib/api";
 import {
@@ -270,7 +275,9 @@ describe("api client", () => {
 
   it("loads operator totals and an encoded user page", async () => {
     fetchMock
-      .mockResolvedValueOnce(jsonResponse({ users: 1, newUsers: 1 }))
+      .mockResolvedValueOnce(
+        jsonResponse({ users: 1, newUsers: 1, workspaces: 1, projects: 2, activeKeys: 2 }),
+      )
       .mockResolvedValueOnce(jsonResponse({ users: [], total: 0, limit: 25, offset: 25 }));
 
     await fetchAdminStats();
@@ -304,6 +311,41 @@ describe("api client", () => {
       code: "invalid_response",
       message: "The server returned data in an unexpected format.",
     } satisfies Partial<ApiError>);
+  });
+
+  it("rejects incomplete app-owned dashboard responses", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ users: 1 }))
+      .mockResolvedValueOnce(jsonResponse({ users: [{}], total: 1, limit: 25, offset: 0 }))
+      .mockResolvedValueOnce(jsonResponse({ projectId: "demo_project" }))
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(jsonResponse({ version: 1 }))
+      .mockResolvedValueOnce(jsonResponse({ enabled: false }));
+
+    for (const request of [
+      () => fetchAdminStats(),
+      () => fetchAdminUsers(),
+      () => fetchDemoWorkspace(),
+      () => fetchInstallStatus("project_one"),
+      () => fetchProjectConfig("project_one"),
+      () => fetchPublicPageSettings("project_one"),
+    ]) {
+      await expect(request()).rejects.toMatchObject({
+        status: 200,
+        code: "invalid_response",
+      } satisfies Partial<ApiError>);
+    }
+  });
+
+  it("rejects invalid public page settings before sending them", async () => {
+    await expect(
+      savePublicPageSettings("project_one", {
+        enabled: true,
+        expectedRevision: 0,
+        sessionIds: ["bad/slash"],
+      }),
+    ).rejects.toThrow();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("creates a project in the selected workspace and validates the response", async () => {

@@ -1,4 +1,5 @@
-import { z } from "zod";
+import * as v from "valibot";
+import { schemaCheck, sharedSchema } from "./validation.ts";
 
 const MAX_FILTER_VALUE_CHARS = 200;
 const MAX_ENTRY_URL_PREFIX_CHARS = 2048;
@@ -29,108 +30,120 @@ export const sessionFilterQueryKeys = [
 
 export type SessionFilterQueryKey = (typeof sessionFilterQueryKeys)[number];
 
-const optionalEpochMsSchema = z.preprocess(
-  parseOptionalIntegerInput,
-  z.number().int().safe().nonnegative().optional(),
+const wholeNumberSchema = v.pipe(v.number(), v.integer(), v.safeInteger(), v.minValue(0));
+const optionalEpochMsSchema = v.optional(
+  v.pipe(v.unknown(), v.transform(parseOptionalIntegerInput), v.optional(wholeNumberSchema)),
 );
-const optionalFilterValueSchema = z.preprocess(
-  emptyStringToUndefined,
-  z.string().trim().min(1).max(MAX_FILTER_VALUE_CHARS).optional(),
+const filterValueSchema = v.pipe(
+  v.string(),
+  v.trim(),
+  v.minLength(1),
+  v.maxLength(MAX_FILTER_VALUE_CHARS),
 );
-const countryCodeWireSchema = z
-  .string()
-  .regex(/^(?:[A-Z]{2}|T1)$/, "Use a two-character country code.");
-export const countryCodeSchema = z.string().trim().toUpperCase().pipe(countryCodeWireSchema);
-const optionalCountryCodeSchema = z.preprocess(
-  emptyStringToUndefined,
-  countryCodeSchema.optional(),
+const optionalFilterValueSchema = v.optional(
+  v.pipe(v.unknown(), v.transform(emptyStringToUndefined), v.optional(filterValueSchema)),
 );
-const optionalEntryUrlPrefixSchema = z.preprocess(
-  emptyStringToUndefined,
-  z.string().trim().min(1).max(MAX_ENTRY_URL_PREFIX_CHARS).optional(),
+const countryCodePattern = /^(?:[A-Z]{2}|T1)$/;
+const countryCodeMessage = "Use a two-character country code.";
+const countryCodeWireSchema = v.pipe(v.string(), v.regex(countryCodePattern, countryCodeMessage));
+export const countryCodeSchema = sharedSchema(
+  v.pipe(v.string(), v.trim(), v.toUpperCase(), v.regex(countryCodePattern, countryCodeMessage)),
 );
-const optionalBooleanSchema = z.preprocess(parseOptionalBooleanInput, z.boolean().optional());
+const optionalCountryCodeSchema = v.optional(
+  v.pipe(v.unknown(), v.transform(emptyStringToUndefined), v.optional(countryCodeSchema)),
+);
+const entryUrlPrefixSchema = v.pipe(
+  v.string(),
+  v.trim(),
+  v.minLength(1),
+  v.maxLength(MAX_ENTRY_URL_PREFIX_CHARS),
+);
+const optionalEntryUrlPrefixSchema = v.optional(
+  v.pipe(v.unknown(), v.transform(emptyStringToUndefined), v.optional(entryUrlPrefixSchema)),
+);
+const optionalBooleanSchema = v.optional(
+  v.pipe(v.unknown(), v.transform(parseOptionalBooleanInput), v.optional(v.boolean())),
+);
 
-const analyticsDateRangeSchema = z
-  .object({ from: optionalEpochMsSchema, to: optionalEpochMsSchema })
-  .refine(dateRangeIsOrdered, {
-    message: "from must be before or equal to to",
-    path: ["to"],
-  })
-  .refine(dateRangeFitsLimit, {
-    message: "date range must be 31 days or less",
-    path: ["to"],
-  });
+const analyticsDateRangeBaseSchema = v.object({
+  from: optionalEpochMsSchema,
+  to: optionalEpochMsSchema,
+});
+const analyticsDateRangeSchema = sharedSchema(
+  v.pipe(
+    analyticsDateRangeBaseSchema,
+    checkDateRange<v.InferOutput<typeof analyticsDateRangeBaseSchema>>(),
+  ),
+);
 
-export const sessionFilterSchema = z
-  .object({
-    from: optionalEpochMsSchema,
-    to: optionalEpochMsSchema,
-    country: optionalCountryCodeSchema,
-    region: optionalFilterValueSchema,
-    city: optionalFilterValueSchema,
-    device: optionalFilterValueSchema,
-    browser: optionalFilterValueSchema,
-    os: optionalFilterValueSchema,
-    entry_url: optionalEntryUrlPrefixSchema,
-    entry_url_prefix: optionalEntryUrlPrefixSchema,
-    has_errors: optionalBooleanSchema,
-    error_detail: optionalFilterValueSchema,
-    has_page_coverage: optionalBooleanSchema,
-    has_rage: optionalBooleanSchema,
-    has_quick_back: optionalBooleanSchema,
-    has_insights: optionalBooleanSchema,
-    min_duration_ms: optionalEpochMsSchema,
-    /** Verified analytics export sequence shared by a metric and its recording list. */
-    warehouse_version: optionalEpochMsSchema,
-  })
-  .strict()
-  .refine(dateRangeIsOrdered, {
-    message: "from must be before or equal to to",
-    path: ["to"],
-  })
-  .refine(dateRangeFitsLimit, {
-    message: "date range must be 31 days or less",
-    path: ["to"],
-  });
+const sessionFilterBaseSchema = v.strictObject({
+  from: optionalEpochMsSchema,
+  to: optionalEpochMsSchema,
+  country: optionalCountryCodeSchema,
+  region: optionalFilterValueSchema,
+  city: optionalFilterValueSchema,
+  device: optionalFilterValueSchema,
+  browser: optionalFilterValueSchema,
+  os: optionalFilterValueSchema,
+  entry_url: optionalEntryUrlPrefixSchema,
+  entry_url_prefix: optionalEntryUrlPrefixSchema,
+  has_errors: optionalBooleanSchema,
+  error_detail: optionalFilterValueSchema,
+  has_page_coverage: optionalBooleanSchema,
+  has_rage: optionalBooleanSchema,
+  has_quick_back: optionalBooleanSchema,
+  has_insights: optionalBooleanSchema,
+  min_duration_ms: optionalEpochMsSchema,
+  /** Verified analytics export sequence shared by a metric and its recording list. */
+  warehouse_version: optionalEpochMsSchema,
+});
+export const sessionFilterSchema = sharedSchema(
+  v.pipe(sessionFilterBaseSchema, checkDateRange<v.InferOutput<typeof sessionFilterBaseSchema>>()),
+);
 
 /**
  * Response filters are already typed values from the server. Validate them
  * without normalizing strings so a decoded response keeps the exact wire value
  * used by its labels and metric doorways.
  */
-export const responseSessionFilterSchema = z
-  .object({
-    from: z.number().int().safe().nonnegative().optional(),
-    to: z.number().int().safe().nonnegative().optional(),
-    country: countryCodeWireSchema.optional(),
-    region: z.string().min(1).max(MAX_FILTER_VALUE_CHARS).optional(),
-    city: z.string().min(1).max(MAX_FILTER_VALUE_CHARS).optional(),
-    device: z.string().min(1).max(MAX_FILTER_VALUE_CHARS).optional(),
-    browser: z.string().min(1).max(MAX_FILTER_VALUE_CHARS).optional(),
-    os: z.string().min(1).max(MAX_FILTER_VALUE_CHARS).optional(),
-    entry_url: z.string().min(1).max(MAX_ENTRY_URL_PREFIX_CHARS).optional(),
-    entry_url_prefix: z.string().min(1).max(MAX_ENTRY_URL_PREFIX_CHARS).optional(),
-    has_errors: z.boolean().optional(),
-    error_detail: z.string().min(1).max(MAX_FILTER_VALUE_CHARS).optional(),
-    has_page_coverage: z.boolean().optional(),
-    has_rage: z.boolean().optional(),
-    has_quick_back: z.boolean().optional(),
-    has_insights: z.boolean().optional(),
-    min_duration_ms: z.number().int().safe().nonnegative().optional(),
-    warehouse_version: z.number().int().safe().nonnegative().optional(),
-  })
-  .strict()
-  .refine(dateRangeIsOrdered, {
-    message: "from must be before or equal to to",
-    path: ["to"],
-  })
-  .refine(dateRangeFitsLimit, {
-    message: "date range must be 31 days or less",
-    path: ["to"],
-  });
+const responseFilterValueSchema = v.pipe(
+  v.string(),
+  v.minLength(1),
+  v.maxLength(MAX_FILTER_VALUE_CHARS),
+);
+const responseEntryUrlSchema = v.pipe(
+  v.string(),
+  v.minLength(1),
+  v.maxLength(MAX_ENTRY_URL_PREFIX_CHARS),
+);
+const responseSessionFilterBaseSchema = v.strictObject({
+  from: v.optional(wholeNumberSchema),
+  to: v.optional(wholeNumberSchema),
+  country: v.optional(countryCodeWireSchema),
+  region: v.optional(responseFilterValueSchema),
+  city: v.optional(responseFilterValueSchema),
+  device: v.optional(responseFilterValueSchema),
+  browser: v.optional(responseFilterValueSchema),
+  os: v.optional(responseFilterValueSchema),
+  entry_url: v.optional(responseEntryUrlSchema),
+  entry_url_prefix: v.optional(responseEntryUrlSchema),
+  has_errors: v.optional(v.boolean()),
+  error_detail: v.optional(responseFilterValueSchema),
+  has_page_coverage: v.optional(v.boolean()),
+  has_rage: v.optional(v.boolean()),
+  has_quick_back: v.optional(v.boolean()),
+  has_insights: v.optional(v.boolean()),
+  min_duration_ms: v.optional(wholeNumberSchema),
+  warehouse_version: v.optional(wholeNumberSchema),
+});
+export const responseSessionFilterSchema = sharedSchema(
+  v.pipe(
+    responseSessionFilterBaseSchema,
+    checkDateRange<v.InferOutput<typeof responseSessionFilterBaseSchema>>(),
+  ),
+);
 
-export type SessionFilter = z.output<typeof sessionFilterSchema>;
+export type SessionFilter = v.InferOutput<typeof sessionFilterSchema>;
 
 export type ParsedSessionFilter =
   | { ok: true; filter: SessionFilter }
@@ -226,6 +239,23 @@ function dateRangeFitsLimit(filter: { from?: number; to?: number }): boolean {
     filter.to === undefined ||
     filter.to - filter.from <= MAX_ANALYTICS_DATE_RANGE_MS
   );
+}
+
+function checkDateRange<Input extends { from?: number; to?: number }>(): v.RawCheckAction<Input> {
+  return schemaCheck<Input>((filter, context) => {
+    if (!dateRangeIsOrdered(filter)) {
+      context.addIssue({
+        message: "from must be before or equal to to",
+        path: ["to"],
+      });
+    }
+    if (!dateRangeFitsLimit(filter)) {
+      context.addIssue({
+        message: "date range must be 31 days or less",
+        path: ["to"],
+      });
+    }
+  });
 }
 
 function emptyStringToUndefined(value: unknown): unknown {

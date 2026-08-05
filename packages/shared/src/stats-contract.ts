@@ -1,65 +1,74 @@
-import { z } from "zod";
+import * as v from "valibot";
 import {
   responseSessionFilterSchema as responseSessionFilterValueSchema,
   sessionFilterQueryKeys,
   type SessionFilter,
 } from "./session-filter.ts";
+import { schemaCheck, sharedSchema, type ValidationContext } from "./validation.ts";
 
-const responseSessionFilterSchema = z.preprocess(
-  stripUnknownSessionFilterKeys,
+const responseSessionFilterSchema = v.pipe(
+  v.unknown(),
+  v.transform(stripUnknownSessionFilterKeys),
   responseSessionFilterValueSchema,
 );
 
-export const analyticsStateSchema = z.enum([
-  "fresh",
-  "stale",
-  "compare",
-  "d1_rollback",
-  "d1_residency",
-]);
+const finiteNumberSchema = v.pipe(v.number(), v.finite());
+const wholeNumberSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
 
-export const filteredNumberSchema = z.object({
-  value: z.number().finite(),
-  filter: responseSessionFilterSchema,
-});
+export const analyticsStateSchema = sharedSchema(
+  v.picklist(["fresh", "stale", "compare", "d1_rollback", "d1_residency"]),
+);
 
-export const filteredOptionalNumberSchema = z.object({
-  value: z.number().finite().nullable(),
-  filter: responseSessionFilterSchema,
-});
+export const filteredNumberSchema = sharedSchema(
+  v.object({
+    value: finiteNumberSchema,
+    filter: responseSessionFilterSchema,
+  }),
+);
 
-export const statsBreakdownRowSchema = z.object({
-  label: z.string(),
-  /** Present on city rows only: the ISO country code the city belongs to,
-   * since city names are not unique across countries. */
-  country: z.string().optional(),
-  filter: responseSessionFilterSchema,
-  count: filteredNumberSchema,
-  share: filteredNumberSchema,
-});
+export const filteredOptionalNumberSchema = sharedSchema(
+  v.object({
+    value: v.nullable(finiteNumberSchema),
+    filter: responseSessionFilterSchema,
+  }),
+);
 
-export const statsErrorGroupSchema = z.object({
-  detail: z.string(),
-  filter: responseSessionFilterSchema,
-  count: filteredNumberSchema,
-  affectedSessions: filteredNumberSchema,
-});
+export const statsBreakdownRowSchema = sharedSchema(
+  v.object({
+    label: v.string(),
+    /** Present on city rows only: the ISO country code the city belongs to,
+     * since city names are not unique across countries. */
+    country: v.optional(v.string()),
+    filter: responseSessionFilterSchema,
+    count: filteredNumberSchema,
+    share: filteredNumberSchema,
+  }),
+);
 
-const finalizedProjectStatsObjectSchema = z.object({
+export const statsErrorGroupSchema = sharedSchema(
+  v.object({
+    detail: v.string(),
+    filter: responseSessionFilterSchema,
+    count: filteredNumberSchema,
+    affectedSessions: filteredNumberSchema,
+  }),
+);
+
+const finalizedProjectStatsObjectSchema = v.object({
   filter: responseSessionFilterSchema,
   sessions: filteredNumberSchema,
-  duration: z.object({
+  duration: v.object({
     average: filteredNumberSchema,
     p50: filteredNumberSchema,
   }),
   clicks: filteredNumberSchema,
-  pagesPerSession: z.object({
-    value: z.number().finite().nullable(),
+  pagesPerSession: v.object({
+    value: v.nullable(finiteNumberSchema),
     filter: responseSessionFilterSchema,
     includedSessions: filteredNumberSchema,
     totalSessions: filteredNumberSchema,
   }),
-  insights: z.object({
+  insights: v.object({
     ragePercent: filteredOptionalNumberSchema,
     quickBackPercent: filteredOptionalNumberSchema,
     averageInteractionTimeMs: filteredOptionalNumberSchema,
@@ -67,66 +76,83 @@ const finalizedProjectStatsObjectSchema = z.object({
     includedSessions: filteredNumberSchema,
     totalSessions: filteredNumberSchema,
   }),
-  breakdowns: z.object({
-    country: z.array(statsBreakdownRowSchema),
-    region: z.array(statsBreakdownRowSchema),
-    city: z.array(statsBreakdownRowSchema),
-    device: z.array(statsBreakdownRowSchema),
-    browser: z.array(statsBreakdownRowSchema),
-    os: z.array(statsBreakdownRowSchema),
-    entryPage: z.array(statsBreakdownRowSchema),
+  breakdowns: v.object({
+    country: v.array(statsBreakdownRowSchema),
+    region: v.array(statsBreakdownRowSchema),
+    city: v.array(statsBreakdownRowSchema),
+    device: v.array(statsBreakdownRowSchema),
+    browser: v.array(statsBreakdownRowSchema),
+    os: v.array(statsBreakdownRowSchema),
+    entryPage: v.array(statsBreakdownRowSchema),
   }),
-  errors: z.array(statsErrorGroupSchema),
+  errors: v.array(statsErrorGroupSchema),
 });
 
 const analyticsMetadataShape = {
-  warehouseVersion: z.number().int().safe().nonnegative().optional(),
-  analyticsState: analyticsStateSchema.optional(),
+  warehouseVersion: v.optional(wholeNumberSchema),
+  analyticsState: v.optional(analyticsStateSchema),
 } as const;
 
-export const finalizedProjectStatsSchema = finalizedProjectStatsObjectSchema.superRefine(
-  validateFinalizedStatsDoorways,
+export const finalizedProjectStatsSchema = sharedSchema(
+  v.pipe(finalizedProjectStatsObjectSchema, schemaCheck(validateFinalizedStatsDoorways)),
 );
 
-export const projectStatsSchema = finalizedProjectStatsObjectSchema
-  .extend({ liveNow: filteredNumberSchema })
-  .superRefine((stats, context) => {
-    validateFinalizedStatsDoorways(stats, context);
-    requireSameFilter(context, ["liveNow", "filter"], stats.filter, stats.liveNow.filter);
-  });
+export const projectStatsSchema = sharedSchema(
+  v.pipe(
+    v.object({ ...finalizedProjectStatsObjectSchema.entries, liveNow: filteredNumberSchema }),
+    schemaCheck((stats, context) => {
+      validateFinalizedStatsDoorways(stats, context);
+      requireSameFilter(context, ["liveNow", "filter"], stats.filter, stats.liveNow.filter);
+    }),
+  ),
+);
 
-export const finalizedProjectStatsResponseSchema = finalizedProjectStatsObjectSchema
-  .extend(analyticsMetadataShape)
-  .superRefine((stats, context) => {
-    validateFinalizedStatsDoorways(stats, context);
-    validateAnalyticsMetadata(stats, context);
-  });
+export const finalizedProjectStatsResponseSchema = sharedSchema(
+  v.pipe(
+    v.object({ ...finalizedProjectStatsObjectSchema.entries, ...analyticsMetadataShape }),
+    schemaCheck((stats, context) => {
+      validateFinalizedStatsDoorways(stats, context);
+      validateAnalyticsMetadata(stats, context);
+    }),
+  ),
+);
 
-export const projectStatsResponseSchema = finalizedProjectStatsObjectSchema
-  .extend({ liveNow: filteredNumberSchema, ...analyticsMetadataShape })
-  .superRefine((stats, context) => {
-    validateFinalizedStatsDoorways(stats, context);
-    requireSameFilter(context, ["liveNow", "filter"], stats.filter, stats.liveNow.filter);
-    validateAnalyticsMetadata(stats, context);
-  });
+export const projectStatsResponseSchema = sharedSchema(
+  v.pipe(
+    v.object({
+      ...finalizedProjectStatsObjectSchema.entries,
+      liveNow: filteredNumberSchema,
+      ...analyticsMetadataShape,
+    }),
+    schemaCheck((stats, context) => {
+      validateFinalizedStatsDoorways(stats, context);
+      requireSameFilter(context, ["liveNow", "filter"], stats.filter, stats.liveNow.filter);
+      validateAnalyticsMetadata(stats, context);
+    }),
+  ),
+);
 
-export type AnalyticsState = z.output<typeof analyticsStateSchema>;
-export type FilteredNumber = z.output<typeof filteredNumberSchema>;
-export type FilteredOptionalNumber = z.output<typeof filteredOptionalNumberSchema>;
-export type StatsBreakdownRow = z.output<typeof statsBreakdownRowSchema>;
-export type StatsErrorGroup = z.output<typeof statsErrorGroupSchema>;
-export type FinalizedProjectStats = z.output<typeof finalizedProjectStatsSchema>;
-export type ProjectStats = z.output<typeof projectStatsSchema>;
-export type FinalizedProjectStatsResponse = z.output<typeof finalizedProjectStatsResponseSchema>;
-export type ProjectStatsResponse = z.output<typeof projectStatsResponseSchema>;
+export type AnalyticsState = v.InferOutput<typeof analyticsStateSchema>;
+export type FilteredNumber = v.InferOutput<typeof filteredNumberSchema>;
+export type FilteredOptionalNumber = v.InferOutput<typeof filteredOptionalNumberSchema>;
+export type StatsBreakdownRow = v.InferOutput<typeof statsBreakdownRowSchema>;
+export type StatsErrorGroup = v.InferOutput<typeof statsErrorGroupSchema>;
+export type FinalizedProjectStats = v.InferOutput<typeof finalizedProjectStatsSchema>;
+export type ProjectStats = v.InferOutput<typeof projectStatsSchema>;
+export type FinalizedProjectStatsResponse = v.InferOutput<
+  typeof finalizedProjectStatsResponseSchema
+>;
+export type ProjectStatsResponse = v.InferOutput<typeof projectStatsResponseSchema>;
 
 export function decodeProjectStatsResponse(value: unknown): ProjectStatsResponse {
   return projectStatsResponseSchema.parse(value);
 }
 
+type FinalizedProjectStatsObject = v.InferOutput<typeof finalizedProjectStatsObjectSchema>;
+
 function validateFinalizedStatsDoorways(
-  stats: z.output<typeof finalizedProjectStatsObjectSchema>,
-  context: z.core.$RefinementCtx<z.output<typeof finalizedProjectStatsObjectSchema>>,
+  stats: FinalizedProjectStatsObject,
+  context: ValidationContext,
 ): void {
   requireSameFilter(context, ["sessions", "filter"], stats.filter, stats.sessions.filter);
   requireSameFilter(
@@ -211,7 +237,6 @@ function validateFinalizedStatsDoorways(
     } satisfies SessionFilter;
     if (row.country === undefined) {
       context.addIssue({
-        code: "custom",
         message: "city breakdown rows must carry their country",
         path: ["breakdowns", "city", index, "country"],
       });
@@ -236,7 +261,7 @@ function validateFinalizedStatsDoorways(
 }
 
 function validateBreakdownRow(
-  context: z.core.$RefinementCtx<z.output<typeof finalizedProjectStatsObjectSchema>>,
+  context: ValidationContext,
   path: Array<string | number>,
   expected: SessionFilter,
   row: StatsBreakdownRow,
@@ -252,14 +277,13 @@ function validateAnalyticsMetadata(
     warehouseVersion?: number;
     analyticsState?: AnalyticsState;
   },
-  context: z.core.$RefinementCtx<z.output<typeof finalizedProjectStatsObjectSchema>>,
+  context: ValidationContext,
 ): void {
   if (
     (stats.analyticsState === "fresh" || stats.analyticsState === "stale") &&
     stats.warehouseVersion === undefined
   ) {
     context.addIssue({
-      code: "custom",
       message: "fresh or stale analytics must identify its warehouse version",
       path: ["warehouseVersion"],
     });
@@ -269,7 +293,6 @@ function validateAnalyticsMetadata(
     stats.filter.warehouse_version !== stats.warehouseVersion
   ) {
     context.addIssue({
-      code: "custom",
       message: "stats filters must use the response warehouse version",
       path: ["filter", "warehouse_version"],
     });
@@ -277,14 +300,13 @@ function validateAnalyticsMetadata(
 }
 
 function requireSameFilter(
-  context: z.core.$RefinementCtx<z.output<typeof finalizedProjectStatsObjectSchema>>,
+  context: ValidationContext,
   path: Array<string | number>,
   expected: SessionFilter,
   actual: SessionFilter,
 ): void {
   if (sameFilter(expected, actual)) return;
   context.addIssue({
-    code: "custom",
     message: "metric doorway filter does not match its session set",
     path,
   });

@@ -8,6 +8,13 @@ import {
   type PresenceSessionHead,
   type PresenceSession,
 } from "./presence-logic.ts";
+import {
+  decodePresenceDebugBody,
+  decodePresenceHeadBody,
+  decodePresenceHeadsBody,
+  decodePresenceInstallBody,
+  decodePresenceListBody,
+} from "./presence-response.ts";
 
 type PresenceWritePath = "/ping" | "/mark-finalizing" | "/remove";
 type PresenceReadPath = "/list" | "/heads" | "/install-status" | "/debug";
@@ -17,26 +24,6 @@ interface PresenceWriteBody {
   projectId: string;
   sessionId: string;
   [key: string]: unknown;
-}
-
-interface PresenceListBody {
-  sessions?: PresenceSession[];
-}
-
-interface PresenceHeadsBody {
-  sessions?: PresenceSessionHead[];
-}
-
-interface PresenceHeadBody {
-  session?: PresenceSessionHead | null;
-}
-
-interface PresenceInstallBody {
-  firstEventAt?: number | null;
-}
-
-interface PresenceDebugBody extends PresenceInstallBody {
-  rows?: number;
 }
 
 export async function sendPresenceSessionRequest(
@@ -62,15 +49,19 @@ export async function listProjectPresence(
   requestId: string,
   now: number,
 ): Promise<{ sessions: PresenceSession[]; truncated: boolean } | null> {
-  const bodies = await readPresenceShards<PresenceListBody>(env, projectId, "/list", requestId, {
+  const bodies = await readPresenceShards(
+    env,
     projectId,
-    now,
-  });
+    "/list",
+    requestId,
+    decodePresenceListBody,
+    { projectId, now },
+  );
   if (bodies === null) return null;
   const bySession = new Map<string, PresenceSession>();
 
   for (const body of bodies) {
-    for (const session of body.sessions ?? []) {
+    for (const session of body.sessions) {
       const current = bySession.get(session.session_id);
       if (current === undefined || session.last_seen > current.last_seen) {
         bySession.set(session.session_id, session);
@@ -95,11 +86,12 @@ export async function listProjectSessionHeads(
   query: PresenceHeadQuery,
 ): Promise<{ sessions: PresenceSessionHead[] } | null> {
   const { trackedSessionIds = [], ...sharedQuery } = query;
-  const bodies = await readPresenceShards<PresenceHeadsBody>(
+  const bodies = await readPresenceShards(
     env,
     projectId,
     "/heads",
     requestId,
+    decodePresenceHeadsBody,
     (shard) => {
       const shardTrackedSessionIds = trackedSessionIds.filter(
         (sessionId) => presenceShardIndex(sessionId) === shard,
@@ -118,7 +110,7 @@ export async function listProjectSessionHeads(
   const bySession = new Map<string, PresenceSessionHead>();
 
   for (const body of bodies) {
-    for (const session of body.sessions ?? []) {
+    for (const session of body.sessions) {
       const current = bySession.get(session.session_id);
       if (current === undefined || session.last_seen > current.last_seen) {
         bySession.set(session.session_id, session);
@@ -154,8 +146,7 @@ export async function readProjectSessionHead(
   if (!response.ok) {
     throw new Error(`presence registry returned ${response.status}`);
   }
-  const body = (await response.json()) as PresenceHeadBody;
-  return body.session ?? null;
+  return decodePresenceHeadBody(await response.json()).session;
 }
 
 export async function readProjectInstallStatus(
@@ -163,11 +154,12 @@ export async function readProjectInstallStatus(
   projectId: string,
   requestId: string,
 ): Promise<{ firstEventAt: number | null } | null> {
-  const bodies = await readPresenceShards<PresenceInstallBody>(
+  const bodies = await readPresenceShards(
     env,
     projectId,
     "/install-status",
     requestId,
+    decodePresenceInstallBody,
     { projectId },
   );
   if (bodies === null) return null;
@@ -182,9 +174,14 @@ export async function readProjectPresenceDebug(
   projectId: string,
   requestId: string,
 ): Promise<{ rows: number; firstEventAt: number | null } | null> {
-  const bodies = await readPresenceShards<PresenceDebugBody>(env, projectId, "/debug", requestId, {
+  const bodies = await readPresenceShards(
+    env,
     projectId,
-  });
+    "/debug",
+    requestId,
+    decodePresenceDebugBody,
+    { projectId },
+  );
   if (bodies === null) return null;
   const firstEventValues = bodies
     .map((body) => body.firstEventAt)
@@ -203,6 +200,7 @@ async function readPresenceShards<Body>(
   projectId: string,
   path: PresenceReadPath,
   requestId: string,
+  decodeBody: (value: unknown) => Body,
   body: Record<string, unknown> | ((shard: number) => Record<string, unknown>),
   requireEveryShard = false,
 ): Promise<Body[] | null> {
@@ -218,7 +216,7 @@ async function readPresenceShards<Body>(
       if (!response.ok) {
         throw new Error(`presence registry returned ${response.status}`);
       }
-      return (await response.json()) as Body;
+      return decodeBody(await response.json());
     }),
   );
   const bodies = results.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));

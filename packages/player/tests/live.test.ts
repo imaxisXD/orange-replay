@@ -9,6 +9,8 @@ import {
   createLiveKeyframeBuffer,
   createLiveFrameState,
   decodeLiveFrame,
+  parseLiveFinalizedMessage,
+  parseLiveHelloMessage,
   retainLiveReplayEvents,
   startWaitingForKeyframe,
 } from "../src/live.ts";
@@ -23,6 +25,45 @@ describe("live frame handling", () => {
     expect(frame.index).toEqual(index);
     expect(Array.from(frame.payload)).toEqual([1, 2, 3]);
     expect(frame.encodedByteLength).toBe(encoded.byteLength);
+  });
+
+  it("rejects live frames whose decoded index does not match the shared contract", () => {
+    const invalidIndex = {
+      ...makeIndex("tab-a", 1, 1_000),
+      e: [null],
+    } as unknown as BatchIndex;
+    const encoded = encodeIngestBody(invalidIndex, new Uint8Array([1]));
+
+    expect(() => decodeLiveFrame(encoded)).toThrow();
+  });
+
+  it("parses live text messages with the shared deep schemas", () => {
+    const snapshot = {
+      startedAt: 1_000,
+      endedAt: 1_100,
+      durationMs: 100,
+      timeline: [{ t: 1_050, k: "click" }],
+      counts: { batches: 1, events: 1, clicks: 1, errors: 0, rages: 0, navs: 0 },
+    };
+    const hello = {
+      type: "hello",
+      sessionId: "session",
+      startedAt: 1_000,
+      segments: [],
+      pendingBatches: 0,
+      snapshot,
+    };
+
+    expect(parseLiveHelloMessage(JSON.stringify(hello))).toEqual(hello);
+    expect(
+      parseLiveHelloMessage(
+        JSON.stringify({ ...hello, snapshot: { ...snapshot, timeline: [{ t: 1, k: "bad" }] } }),
+      ),
+    ).toBeNull();
+    expect(parseLiveHelloMessage(JSON.stringify({ ...hello, pendingBatches: 50_001 }))).toBeNull();
+    expect(
+      parseLiveFinalizedMessage(JSON.stringify({ type: "finalized", manifest: {} })),
+    ).toBeNull();
   });
 
   it("keeps duplicate live frames out of state", () => {

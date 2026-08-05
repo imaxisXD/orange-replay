@@ -1,13 +1,11 @@
-import { decodeIngestBody } from "@orange-replay/shared/wire";
-import { sessionManifestSchema } from "@orange-replay/shared/schemas";
+import { liveFinalizedMessageSchema, liveHelloMessageSchema } from "@orange-replay/shared/schemas";
 import type {
   BatchIndex,
   LiveFinalizedMessage,
   LiveHelloMessage,
-  LiveSessionSnapshot,
-  SessionCounts,
 } from "@orange-replay/shared/types";
 import { EventType } from "rrweb";
+import { decodeReplayIngestBody } from "./replay-wire.ts";
 import type { ReplayEvent } from "./types.ts";
 
 export interface LiveFrame {
@@ -28,18 +26,8 @@ export function parseLiveHelloMessage(value: string): LiveHelloMessage | null {
     return null;
   }
 
-  if (!isRecord(parsed) || parsed["type"] !== "hello") return null;
-  if (
-    readLiveSnapshot(parsed["snapshot"]) === null ||
-    typeof parsed["sessionId"] !== "string" ||
-    !Number.isFinite(parsed["startedAt"]) ||
-    !Array.isArray(parsed["segments"]) ||
-    !isNonnegativeNumber(parsed["pendingBatches"])
-  ) {
-    return null;
-  }
-
-  return parsed as unknown as LiveHelloMessage;
+  const result = liveHelloMessageSchema.safeParse(parsed);
+  return result.success ? result.data : null;
 }
 
 export function parseLiveFinalizedMessage(value: string): LiveFinalizedMessage | null {
@@ -50,9 +38,8 @@ export function parseLiveFinalizedMessage(value: string): LiveFinalizedMessage |
     return null;
   }
 
-  if (!isRecord(parsed) || parsed["type"] !== "finalized") return null;
-  const manifest = sessionManifestSchema.safeParse(parsed["manifest"]);
-  return manifest.success ? { type: "finalized", manifest: manifest.data } : null;
+  const result = liveFinalizedMessageSchema.safeParse(parsed);
+  return result.success ? result.data : null;
 }
 
 export interface LiveKeyframeBuffer {
@@ -217,7 +204,7 @@ export function acceptLiveFrame(
 
 export function decodeLiveFrame(bytes: ArrayBuffer | Uint8Array): LiveFrame {
   const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-  return { ...decodeIngestBody(view), encodedByteLength: view.byteLength };
+  return { ...decodeReplayIngestBody(view), encodedByteLength: view.byteLength };
 }
 
 export function retainLiveReplayEvents(
@@ -298,35 +285,6 @@ function estimateReplayBytes(events: readonly ReplayEvent[]): number {
     }
   }
   return total;
-}
-
-function readLiveSnapshot(value: unknown): LiveSessionSnapshot | null {
-  if (!isRecord(value)) return null;
-  if (
-    !Number.isFinite(value["startedAt"]) ||
-    !Number.isFinite(value["endedAt"]) ||
-    !isNonnegativeNumber(value["durationMs"]) ||
-    !Array.isArray(value["timeline"]) ||
-    !isSessionCounts(value["counts"])
-  ) {
-    return null;
-  }
-  return value as unknown as LiveSessionSnapshot;
-}
-
-function isSessionCounts(value: unknown): value is SessionCounts {
-  if (!isRecord(value)) return false;
-  return ["batches", "events", "clicks", "errors", "rages", "navs"].every((key) =>
-    isNonnegativeNumber(value[key]),
-  );
-}
-
-function isNonnegativeNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function compareBufferedLiveReplayBatches(

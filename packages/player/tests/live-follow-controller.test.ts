@@ -30,6 +30,74 @@ describe("LiveFollowController", () => {
     ).toBe(20);
   });
 
+  it("closes a live socket whose hello belongs to another session", async () => {
+    const sockets: SessionWebSocket[] = [];
+    const errors: string[] = [];
+    let closed = false;
+
+    class SessionWebSocket {
+      binaryType = "";
+      onopen: (() => void) | null = null;
+      onmessage: ((event: { data: unknown }) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onclose: ((event: { code: number }) => void) | null = null;
+
+      constructor(readonly url: string) {
+        sockets.push(this);
+        queueMicrotask(() => this.onopen?.());
+      }
+
+      close(): void {
+        closed = true;
+        this.onclose?.({ code: 1000 });
+      }
+    }
+    vi.stubGlobal("WebSocket", SessionWebSocket);
+    const controller = new LiveFollowController({
+      request: {
+        api: {
+          baseUrl: "https://api.example.test",
+          fetch: async () =>
+            Response.json({ ticket: "session-ticket", expiresAt: Date.now() + 60_000 }),
+        },
+        projectId: "project",
+        sessionId: "session",
+      },
+      signal: new AbortController().signal,
+      worker: {} as DecodeWorkerHost,
+      host: {
+        ...makeHost([]),
+        onEvent: (event) => {
+          if (event.type === "error") errors.push(event.message);
+        },
+      },
+    });
+
+    controller.startFollowing();
+    controller.connect();
+    await waitFor(() => sockets.length === 1);
+    sockets[0]?.onmessage?.({
+      data: JSON.stringify({
+        type: "hello",
+        sessionId: "another-session",
+        startedAt: 1_000,
+        segments: [],
+        pendingBatches: 0,
+        snapshot: {
+          startedAt: 1_000,
+          endedAt: 1_000,
+          durationMs: 0,
+          timeline: [],
+          counts: { batches: 0, events: 0, clicks: 0, errors: 0, rages: 0, navs: 0 },
+        },
+      }),
+    });
+
+    expect(errors).toContain("Live socket returned a different session.");
+    expect(closed).toBe(true);
+    controller.stopFollowing();
+  });
+
   it("does not charge background tabs against loaded live history", async () => {
     const activeEvents = [
       {
@@ -71,7 +139,7 @@ describe("LiveFollowController", () => {
       ),
     );
     const segments: SegmentRef[] = segmentBytes.map((bytes, index) => ({
-      key: `p/project/session/seg-${index}.ors`,
+      key: `p/project/session/seg-${String(index).padStart(6, "0")}.ors`,
       bytes: bytes.byteLength,
       t0: 1_000 + index,
       t1: 1_000 + index,
@@ -195,7 +263,7 @@ describe("LiveFollowController", () => {
       ]),
     );
     const segments: SegmentRef[] = segmentBytes.map((bytes, index) => ({
-      key: `p/project/session/seg-${index}.ors`,
+      key: `p/project/session/seg-${String(index).padStart(6, "0")}.ors`,
       bytes: bytes.byteLength,
       t0: 1_000 + index,
       t1: 1_000 + index,
@@ -505,7 +573,11 @@ describe("LiveFollowController", () => {
     controller.connect();
     await waitFor(() => sockets.length === 1);
 
-    const largeDetail = "x".repeat(60_000);
+    const largeIndexEvents = Array.from({ length: 200 }, (_, eventIndex) => ({
+      t: 0,
+      k: "custom" as const,
+      d: `${String(eventIndex)}:${"x".repeat(196)}`,
+    }));
     for (let seq = 0; seq < 400 && errors.length === 0; seq += 1) {
       const frame = encodeIngestBody(
         {
@@ -515,7 +587,7 @@ describe("LiveFollowController", () => {
           seq,
           t0: seq,
           t1: seq,
-          e: [{ t: seq, k: "custom", d: largeDetail }],
+          e: largeIndexEvents.map((event) => ({ ...event, t: seq })),
         },
         new Uint8Array(),
       );

@@ -179,7 +179,7 @@ state instead of showing stale setup.
 
 ## Website address and favicon contract
 
-`packages/shared/src/website-url.ts` is the one Zod boundary used by both the
+`packages/shared/src/website-url.ts` is the one Valibot boundary used by both the
 dashboard form and the Worker favicon route. A bare domain such as `acme.com`,
 an address beginning with `www`, or a scheme-relative address is normalized to
 HTTPS. Explicit HTTP and HTTPS addresses, ports, paths, query strings, IPv4,
@@ -187,7 +187,7 @@ IPv6, and localhost remain valid when the browser URL parser accepts them.
 Other schemes, credentials, whitespace, invalid hostnames, overlong values, and
 names that cannot fit the project name contract are rejected. The form maps
 those issues to its existing plain-English error instead of exposing schema
-messages. The repo already uses Zod, so this did not add Valibot or a second
+messages. The repo uses Valibot for shared validation, so this stays within one
 validation system. A non-empty invalid draft waits for one quiet second before
 showing that error and replaying the transitions.dev shake. Continue and Enter
 still validate immediately, and the error clears as soon as the visitor edits

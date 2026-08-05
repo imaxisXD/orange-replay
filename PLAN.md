@@ -53,7 +53,7 @@ Phase 0 seeded `apps/worker` with the **final router** (`src/index.ts`), `env.ts
 
 | Task | Scope                                                                                                                                                                                           | Depends       |
 | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
-| T1.1 | `packages/shared`: wire codec (ingest body `[index][0x00][payload]`), ORS1 segment codec, types, constants, zod schemas, wide-event logger, unit tests                                          | — (gate task) |
+| T1.1 | `packages/shared`: wire codec (ingest body `[index][0x00][payload]`), ORS1 segment codec, types, constants, Valibot schemas, wide-event logger, unit tests                                      | — (gate task) |
 | T1.2 | `SessionRecorder` DO: (tab,seq) dedupe, SQLite buffering, ORS1 flush → R2, alarm lifecycle (minimal writes), finalize → queue + manifest, hibernation WS hub, live-flag return                  | T1.1          |
 | T1.3 | Ingest handler: CORS, header/size validation, KV config + D1 read-through, quota drop, `request.cf` enrichment, gzip-normalize fallback, DO RPC, wide event                                     | T1.1          |
 | T1.4 | Queue consumer (idempotent D1 upserts + usage rollups, per-message ack/retry, DLQ classification) + retention sweeper cron                                                                      | T1.1          |

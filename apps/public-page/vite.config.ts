@@ -2,11 +2,14 @@ import path from "node:path";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite-plus";
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   plugins: [react()],
-  define: {
-    "process.env.NODE_ENV": JSON.stringify("production"),
-  },
+  define:
+    command === "build"
+      ? {
+          "process.env.NODE_ENV": JSON.stringify("production"),
+        }
+      : {},
   build: {
     outDir: path.resolve(import.meta.dirname, "../dashboard/dist/public"),
     emptyOutDir: false,
@@ -35,4 +38,4 @@ export default defineConfig({
   test: {
     environment: "happy-dom",
   },
-});
+}));

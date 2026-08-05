@@ -8,6 +8,7 @@ import type {
 import { shardDb, type Env } from "../env.ts";
 import { sha256Hex } from "../ingest/hash.ts";
 import { readStoredProjectConfig } from "./storage.ts";
+import { parseStoredWebsiteOrigins } from "./website-origins.ts";
 
 const CACHE_REPAIR_LIMIT = 200;
 const FINAL_CACHE_CHECK_DELAY_MS = 15 * 60 * 1_000;
@@ -766,18 +767,7 @@ async function configForWebsite(
     .first<WebsiteKeyConfigRow>();
   if (website === null) throw new Error("The recorder key Website could not be found.");
 
-  let allowedOrigins: unknown;
-  try {
-    allowedOrigins = JSON.parse(website.allowed_origins);
-  } catch {
-    throw new Error("The recorder key Website origins could not be read.");
-  }
-  if (
-    !Array.isArray(allowedOrigins) ||
-    !allowedOrigins.every((origin) => typeof origin === "string")
-  ) {
-    throw new Error("The recorder key Website origins are invalid.");
-  }
+  const allowedOrigins = parseStoredWebsiteOrigins(website.allowed_origins);
   return {
     ...config,
     allowedOrigins,

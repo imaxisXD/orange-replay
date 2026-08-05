@@ -1,22 +1,29 @@
-import { z } from "zod";
+import * as v from "valibot";
+import { schemaCheck, sharedSchema } from "./validation.ts";
 
 const generatedRecorderKeyPattern = /^or_live_[A-Za-z0-9_-]{32}$/;
 
-export const projectKeyNameSchema = z
-  .string()
-  .trim()
-  .min(1, "Enter a name for this key.")
-  .max(64, "Keep the key name under 65 characters.")
-  .refine((name) => !hasControlCharacter(name), {
-    message: "Use a key name without control characters.",
-  });
+export const projectKeyNameSchema = sharedSchema(
+  v.pipe(
+    v.string(),
+    v.trim(),
+    v.minLength(1, "Enter a name for this key."),
+    v.maxLength(64, "Keep the key name under 65 characters."),
+    v.check((name) => !hasControlCharacter(name), "Use a key name without control characters."),
+  ),
+);
 
-export const createProjectKeyRequestSchema = z.object({ name: projectKeyNameSchema }).strict();
+export const createProjectKeyRequestSchema = sharedSchema(
+  v.strictObject({ name: projectKeyNameSchema }),
+);
 
-export const generatedRecorderKeySchema = z
-  .string()
-  .trim()
-  .regex(generatedRecorderKeyPattern, "Use a generated recorder key that starts with or_live_.");
+export const generatedRecorderKeySchema = sharedSchema(
+  v.pipe(
+    v.string(),
+    v.trim(),
+    v.regex(generatedRecorderKeyPattern, "Use a generated recorder key that starts with or_live_."),
+  ),
+);
 
 function hasControlCharacter(value: string): boolean {
   for (const character of value) {
@@ -26,46 +33,56 @@ function hasControlCharacter(value: string): boolean {
   return false;
 }
 
-const projectKeyTimestampSchema = z.number().int().safe().nonnegative();
+const projectKeyTimestampSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
 
-export const projectKeyAuditSchema = z
-  .object({
-    id: z.string().min(1),
-    name: z.string().min(1).max(64),
-    keyHashPrefix: z.string().min(1).max(64),
-    active: z.boolean(),
-    createdAt: projectKeyTimestampSchema,
-    createdBy: z.string().min(1).nullable(),
-    revokedAt: projectKeyTimestampSchema.nullable(),
-    revokedBy: z.string().min(1).nullable(),
-  })
-  .superRefine((key, context) => {
-    if (key.active && (key.revokedAt !== null || key.revokedBy !== null)) {
-      context.addIssue({
-        code: "custom",
-        message: "an active project key cannot have revocation details",
-        path: ["active"],
-      });
-    }
-  });
-
-export const projectKeysResponseSchema = z.object({
-  keys: z.array(projectKeyAuditSchema),
+const projectKeyAuditObjectSchema = v.object({
+  id: v.pipe(v.string(), v.minLength(1)),
+  name: v.pipe(v.string(), v.minLength(1), v.maxLength(64)),
+  keyHashPrefix: v.pipe(v.string(), v.minLength(1), v.maxLength(64)),
+  active: v.boolean(),
+  createdAt: projectKeyTimestampSchema,
+  createdBy: v.nullable(v.pipe(v.string(), v.minLength(1))),
+  revokedAt: v.nullable(projectKeyTimestampSchema),
+  revokedBy: v.nullable(v.pipe(v.string(), v.minLength(1))),
 });
 
-export const createdProjectKeyResponseSchema = z.object({
-  key: projectKeyAuditSchema,
-  secret: z.string().min(1),
-});
+export const projectKeyAuditSchema = sharedSchema(
+  v.pipe(
+    projectKeyAuditObjectSchema,
+    schemaCheck<v.InferOutput<typeof projectKeyAuditObjectSchema>>((key, context) => {
+      if (key.active && (key.revokedAt !== null || key.revokedBy !== null)) {
+        context.addIssue({
+          message: "an active project key cannot have revocation details",
+          path: ["active"],
+        });
+      }
+    }),
+  ),
+);
 
-export const projectKeyResponseSchema = z.object({
-  key: projectKeyAuditSchema,
-});
+export const projectKeysResponseSchema = sharedSchema(
+  v.object({
+    keys: v.array(projectKeyAuditSchema),
+  }),
+);
 
-export type ProjectKeyAudit = z.output<typeof projectKeyAuditSchema>;
-export type ProjectKeysResponse = z.output<typeof projectKeysResponseSchema>;
-export type CreatedProjectKeyResponse = z.output<typeof createdProjectKeyResponseSchema>;
-export type ProjectKeyResponse = z.output<typeof projectKeyResponseSchema>;
+export const createdProjectKeyResponseSchema = sharedSchema(
+  v.object({
+    key: projectKeyAuditSchema,
+    secret: v.pipe(v.string(), v.minLength(1)),
+  }),
+);
+
+export const projectKeyResponseSchema = sharedSchema(
+  v.object({
+    key: projectKeyAuditSchema,
+  }),
+);
+
+export type ProjectKeyAudit = v.InferOutput<typeof projectKeyAuditSchema>;
+export type ProjectKeysResponse = v.InferOutput<typeof projectKeysResponseSchema>;
+export type CreatedProjectKeyResponse = v.InferOutput<typeof createdProjectKeyResponseSchema>;
+export type ProjectKeyResponse = v.InferOutput<typeof projectKeyResponseSchema>;
 
 export function decodeProjectKeysResponse(value: unknown): ProjectKeysResponse {
   return projectKeysResponseSchema.parse(value);

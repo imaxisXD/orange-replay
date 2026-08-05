@@ -19,6 +19,7 @@ import {
   revokeProjectRecorderKey,
 } from "../project-config/delivery.ts";
 import { readStoredProjectConfig } from "../project-config/storage.ts";
+import { parseStoredWebsiteOrigins } from "../project-config/website-origins.ts";
 import { jsonError, jsonResponse, readJsonBodyCapped } from "../http.ts";
 import type { SessionAuthContext } from "./auth.ts";
 import { keyManagementRateLimitAllows } from "./project-keys.ts";
@@ -507,11 +508,11 @@ function workspaceOriginsAfterWebsiteEdit(
   current: WebsiteRow,
   nextUrl: URL,
 ): string[] {
-  const currentOrigins = new Set(readWebsiteOrigins(current.allowed_origins));
+  const currentOrigins = new Set(parseStoredWebsiteOrigins(current.allowed_origins));
   const originsUsedByOtherWebsites = new Set(
     rows
       .filter((row) => row.id !== current.id)
-      .flatMap((row) => readWebsiteOrigins(row.allowed_origins)),
+      .flatMap((row) => parseStoredWebsiteOrigins(row.allowed_origins)),
   );
   const nextOrigins = workspaceOrigins.filter(
     (origin) => !currentOrigins.has(origin) || originsUsedByOtherWebsites.has(origin),
@@ -533,19 +534,6 @@ function workspaceCookieDomainAfterWebsiteEdit(
     cookieDomain = nextWorkspaceCookieDomain(cookieDomain, websiteUrl) ?? undefined;
   }
   return cookieDomain ?? null;
-}
-
-function readWebsiteOrigins(value: string): string[] {
-  let origins: unknown;
-  try {
-    origins = JSON.parse(value);
-  } catch {
-    throw new Error("The Website origins could not be read.");
-  }
-  if (!Array.isArray(origins) || !origins.every((origin) => typeof origin === "string")) {
-    throw new Error("The Website origins are invalid.");
-  }
-  return origins;
 }
 
 async function readWebsite(

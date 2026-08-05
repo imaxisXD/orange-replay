@@ -8,6 +8,7 @@ export * from "./project-contract.ts";
 export * from "./project-key-contract.ts";
 export * from "./project-website-contract.ts";
 export * from "./project-config-update.ts";
+export * from "./public-page-contract.ts";
 export * from "./rage.ts";
 export * from "./sampling.ts";
 export * from "./schemas.ts";

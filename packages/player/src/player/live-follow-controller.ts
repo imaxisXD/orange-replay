@@ -350,6 +350,15 @@ export class LiveFollowController {
 
       const hello = parseLiveHelloMessage(data);
       if (hello !== null) {
+        if (hello.sessionId !== this.options.request.sessionId) {
+          this.emit({
+            type: "error",
+            message: "Live socket returned a different session.",
+            severity: "warning",
+          });
+          this.liveSocket?.close(1008, "session mismatch");
+          return;
+        }
         const pendingHistoryCount = Math.floor(hello.pendingBatches);
         this.historyFramesRemaining = pendingHistoryCount;
         this.reviewSegments = hello.segments.map(cloneSegment);

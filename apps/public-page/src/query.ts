@@ -1,4 +1,8 @@
-import { PUBLIC_PAGE_REFRESH_MS, type PublicPageData } from "@orange-replay/shared";
+import {
+  decodePublicPageData,
+  PUBLIC_PAGE_REFRESH_MS,
+  type PublicPageData,
+} from "@orange-replay/shared";
 import { QueryClient, queryOptions } from "@tanstack/react-query";
 
 export function makePublicPageQueryClient(): QueryClient {
@@ -38,7 +42,9 @@ async function fetchPublicPage(publicId: string, signal: AbortSignal): Promise<P
   }
   if (!response.ok) throw new Error(publicPageErrorMessage(response.status));
   try {
-    return (await response.json()) as PublicPageData;
+    const data = decodePublicPageData(await response.json());
+    if (data.publicId !== publicId) throw new Error("public page id does not match the request");
+    return data;
   } catch {
     throw new Error("This public page is temporarily unavailable. Refresh the page and try again.");
   }

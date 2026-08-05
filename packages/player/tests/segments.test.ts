@@ -288,6 +288,32 @@ describe("segment logic", () => {
     ).rejects.toMatchObject({ name: "ReplayDataError" });
   });
 
+  it("rejects indexed segment batches whose index fails the shared schema", async () => {
+    const invalidIndex = {
+      v: 1,
+      s: "session",
+      tab: "tab-a",
+      seq: 0,
+      t0: 1_000,
+      t1: 1_000,
+      e: [null],
+    } as never;
+    const segment = buildSegment([encodeIngestBody(invalidIndex, new Uint8Array([1]))]);
+    let decodeCalls = 0;
+    const worker = {
+      decodeBatchWithStats: async () => {
+        decodeCalls += 1;
+        return { events: [], decodedBytes: 0 };
+      },
+    } as unknown as DecodeWorkerHost;
+
+    await expect(decodeSegmentBatches(segment, worker)).rejects.toThrow();
+    await expect(
+      decodeReplayHistorySegment(segment, worker, createReplayHistoryDecodeState("tab-a")),
+    ).rejects.toThrow();
+    expect(decodeCalls).toBe(0);
+  });
+
   it("rejects legacy event times outside the trusted segment envelope", async () => {
     const segmentBytes = buildSegment([new Uint8Array([1])]);
     const trustedSegment: SegmentRef = {

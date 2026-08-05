@@ -12,6 +12,8 @@ export interface CachedAnalyticsResult<Value> {
   warehouseVersion: number;
 }
 
+export type AnalyticsCacheDecoder<Value> = (value: unknown) => Value | null;
+
 interface StoredAnalyticsResult {
   cacheFormat: number;
   warehouseVersion: number;
@@ -25,6 +27,7 @@ interface StoredAnalyticsResult {
  */
 export async function readAnalyticsCache<Value>(
   request: Request,
+  decodeValue: AnalyticsCacheDecoder<Value>,
   expectedWarehouseVersion?: number,
 ): Promise<CachedAnalyticsResult<Value> | null> {
   try {
@@ -40,8 +43,11 @@ export async function readAnalyticsCache<Value>(
       return null;
     }
 
+    const value = decodeValue(stored.value);
+    if (value === null) return null;
+
     return {
-      value: stored.value as Value,
+      value,
       warehouseVersion: stored.warehouseVersion,
     };
   } catch {

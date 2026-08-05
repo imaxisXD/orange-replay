@@ -97,12 +97,19 @@ describe("analytics last-good cache", () => {
     expect(cache.saved.get(requests.lastGood.url)?.headers.get("cache-control")).toBe(
       "public, max-age=86400",
     );
-    await expect(readAnalyticsCache(requests.current, 12)).resolves.toEqual({
+    const decodeSessionCount = (value: unknown): { sessions: number } | null =>
+      typeof value === "object" &&
+      value !== null &&
+      "sessions" in value &&
+      typeof value.sessions === "number"
+        ? { sessions: value.sessions }
+        : null;
+    await expect(readAnalyticsCache(requests.current, decodeSessionCount, 12)).resolves.toEqual({
       value: { sessions: 4 },
       warehouseVersion: 12,
     });
-    await expect(readAnalyticsCache(requests.current, 13)).resolves.toBeNull();
-    await expect(readAnalyticsCache(requests.lastGood)).resolves.toEqual({
+    await expect(readAnalyticsCache(requests.current, decodeSessionCount, 13)).resolves.toBeNull();
+    await expect(readAnalyticsCache(requests.lastGood, decodeSessionCount)).resolves.toEqual({
       value: { sessions: 4 },
       warehouseVersion: 12,
     });
@@ -112,10 +119,12 @@ describe("analytics last-good cache", () => {
     const cache = installCache();
     const requests = testRequests();
 
-    await expect(readAnalyticsCache(requests.lastGood)).resolves.toBeNull();
+    const decodeObject = (value: unknown): object | null =>
+      typeof value === "object" && value !== null ? value : null;
+    await expect(readAnalyticsCache(requests.lastGood, decodeObject)).resolves.toBeNull();
 
     cache.saved.set(requests.lastGood.url, Response.json({ warehouseVersion: 12, value: {} }));
-    await expect(readAnalyticsCache(requests.lastGood)).resolves.toBeNull();
+    await expect(readAnalyticsCache(requests.lastGood, decodeObject)).resolves.toBeNull();
   });
 
   it("shares unpinned stats across data versions but isolates pins and privacy epochs", () => {
@@ -464,6 +473,29 @@ describe("analytics last-good cache", () => {
     );
     expect(wrongProject.status).toBe(503);
     expect(await wrongProject.json()).toEqual({ error: "analytics_unavailable" });
+
+    cache.saved.set(
+      cacheRequests.lastGood.url,
+      Response.json({
+        cacheFormat: 1,
+        warehouseVersion: 12,
+        value: {
+          sessions: [{ ...sessionRow("project_1"), duration_ms: "not-a-number" }],
+          nextBefore: null,
+        },
+      }),
+    );
+    const malformedPage = await listSessions(
+      requestUrl,
+      env,
+      "project_1",
+      "session",
+      "request_sessions_malformed_page",
+      startWideEvent("test", "sessions"),
+      ctx.value,
+    );
+    expect(malformedPage.status).toBe(503);
+    expect(await malformedPage.json()).toEqual({ error: "analytics_unavailable" });
 
     state.pendingDeletion = true;
     const deletionPending = await listSessions(

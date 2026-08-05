@@ -1,4 +1,8 @@
-import { sessionManifestSchema } from "@orange-replay/shared/schemas";
+import {
+  liveTicketResponseSchema,
+  segmentRefSchema,
+  sessionManifestSchema,
+} from "@orange-replay/shared/schemas";
 import { MAX_ENCODED_SEGMENT_BYTES } from "@orange-replay/shared/constants";
 import type { LiveTicketResponse, SegmentRef, SessionManifest } from "@orange-replay/shared/types";
 import type {
@@ -32,13 +36,14 @@ export async function fetchSegmentBytes(
   api: PlayerApiInput,
   options: SessionRequest & { segment: SegmentRef; signal?: AbortSignal },
 ): Promise<Uint8Array> {
-  if (options.segment.bytes > MAX_ENCODED_SEGMENT_BYTES) {
+  const segment = segmentRefSchema.parse(options.segment);
+  if (segment.bytes > MAX_ENCODED_SEGMENT_BYTES) {
     throw new Error("Replay segment is too large to load safely.");
   }
 
   const resolved = resolveApi(api);
-  const segmentName = segmentFileName(options.segment);
-  const request: SegmentRequest = { ...options, segmentName };
+  const segmentName = segmentFileName(segment);
+  const request: SegmentRequest = { ...options, segment, segmentName };
   const response = await resolved.fetchFn(resolved.segmentUrl(request), {
     signal: options.signal,
   });
@@ -47,8 +52,8 @@ export async function fetchSegmentBytes(
     throw new Error(await readApiError(response, "Could not load replay segment."));
   }
 
-  const bytes = await readResponseBytesCapped(response, options.segment.bytes);
-  if (bytes.byteLength !== options.segment.bytes) {
+  const bytes = await readResponseBytesCapped(response, segment.bytes);
+  if (bytes.byteLength !== segment.bytes) {
     throw new Error("Replay segment size does not match the session manifest.");
   }
   return bytes;
@@ -58,7 +63,11 @@ export async function readResponseBytesCapped(
   response: Response,
   maxBytes: number,
 ): Promise<Uint8Array> {
-  const cleanLimit = Math.max(0, Math.min(MAX_ENCODED_SEGMENT_BYTES, Math.floor(maxBytes)));
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 0 || maxBytes > MAX_ENCODED_SEGMENT_BYTES) {
+    await response.body?.cancel();
+    throw new Error("Replay segment byte limit is invalid.");
+  }
+  const cleanLimit = maxBytes;
   const declaredLength = readContentLength(response.headers.get("content-length"));
   if (declaredLength !== null && declaredLength > cleanLimit) {
     await response.body?.cancel();
@@ -117,7 +126,7 @@ export async function mintLiveTicket(
     throw new Error(await readApiError(response, "Could not create a live ticket."));
   }
 
-  return (await response.json()) as LiveTicketResponse;
+  return liveTicketResponseSchema.parse(await response.json());
 }
 
 export function segmentFileName(segment: SegmentRef): string {

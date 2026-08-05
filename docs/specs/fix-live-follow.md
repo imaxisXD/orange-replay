@@ -7,7 +7,7 @@ The fix is **checkpoint-on-join**, now specified in ARCHITECTURE.md §3 "Live jo
 ## 1. Worker (SessionRecorder DO)
 
 - On viewer WebSocket accept (the existing live-WS attach path), set an in-memory + DO-state flag `checkpointRequested = true`. Cold-start safety: persist it in the existing session state row (it already persists state) — no extra writes on the hot path beyond the state you already touch there.
-- In `appendBatch`, when the flag is set: include `checkpoint: true` in the `AppendResult`/ingest ack (add the field to the shared `IngestAck` type + zod schema, optional boolean), then clear the flag. At most one checkpoint per join-burst — if more viewers join before the next append, one checkpoint still suffices.
+- In `appendBatch`, when the flag is set: include `checkpoint: true` in the `AppendResult`/ingest ack (add the field to the shared `IngestAck` type + Valibot schema, optional boolean), then clear the flag. At most one checkpoint per join-burst — if more viewers join before the next append, one checkpoint still suffices.
 - Wide event: add `checkpoint: true` to the existing `do.append` event fields when signaled (no new event).
 - Integration test (`/__test` + unstable_dev pattern): connect a live WS, send an append, assert ack `checkpoint === true`, send another append, assert absent.
 
