@@ -133,6 +133,8 @@ async function renderLive(
     if (url.includes("/install-status")) {
       return jsonResponse({ firstEventAt: options.firstEventAt ?? null });
     }
+    // The subdomain prompt asks for the website list; empty keeps it hidden.
+    if (url.includes("/websites")) return jsonResponse({ websites: [] });
     throw new Error(`Unexpected dashboard request: ${url}`);
   });
   vi.stubGlobal("fetch", fetchMock);

@@ -46,6 +46,7 @@ import {
 } from "@/lib/live-sessions";
 import { carriedDateRangeSearch } from "@/lib/session-filters";
 import { cn } from "@/lib/utils";
+import { LiveSubdomainPrompt } from "./live-subdomain-prompt";
 
 export function LivePage() {
   const { projectId, isDemo } = useDashboardWorkspace();
@@ -85,6 +86,8 @@ export function LivePage() {
           Sessions happening right now.
         </p>
       </header>
+
+      {!isDemo && <LiveSubdomainPrompt projectId={projectId} />}
 
       <section className="lit rounded-lg px-4.5 py-4">
         {rows.length > 0 && (

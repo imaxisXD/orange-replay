@@ -135,22 +135,31 @@ const onboardingWebsiteRoute = createRoute({
   component: OnboardingWebsitePage,
 });
 
-function onboardingWebsiteSearch(search: Record<string, unknown>): { website?: string } {
+function onboardingStepSearch(search: Record<string, unknown>): { website?: string } {
   const website = search["website"];
   return typeof website === "string" && /^[A-Za-z0-9_-]{1,100}$/.test(website) ? { website } : {};
+}
+
+function onboardingWebsiteSearch(search: Record<string, unknown>): {
+  website?: string;
+  draft?: string;
+} {
+  const website = onboardingStepSearch(search);
+  const draft = search["draft"];
+  return typeof draft === "string" && draft.length <= 2_048 ? { ...website, draft } : website;
 }
 
 const onboardingInstallRoute = createRoute({
   getParentRoute: () => onboardingProjectRoute,
   path: "install",
-  validateSearch: onboardingWebsiteSearch,
+  validateSearch: onboardingStepSearch,
   component: OnboardingInstallPage,
 });
 
 const onboardingVerifyRoute = createRoute({
   getParentRoute: () => onboardingProjectRoute,
   path: "verify",
-  validateSearch: onboardingWebsiteSearch,
+  validateSearch: onboardingStepSearch,
   component: OnboardingVerifyPage,
 });
 

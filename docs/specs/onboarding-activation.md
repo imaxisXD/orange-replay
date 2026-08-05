@@ -46,9 +46,40 @@ loading labels, success states, or recoverable errors.
 
 For the untouched Workspace created at first sign-in, step one says **Add your
 first website**. The first valid Website gives that Workspace its default
-hostname name. For an existing Workspace, step one names the destination, such
-as **Add a website to Noodle**, and explains that related subdomains remain in
-one visitor journey.
+hostname name. For a later Website, step one says **Add a website** and states
+the boundary the flow enforces: add related subdomains to keep this visitor
+journey, while a new domain gets its own recordings. The heading no longer names a
+destination Workspace, because the typed domain itself decides the container.
+
+### One noun, one action
+
+The dashboard header speaks only Website. The switcher lists the account's
+Websites (one entry per project, named by its domain) under a **Websites**
+label with a single **Add website** action; the old **Add workspace** action
+and its amber Create section are gone. Where the new Website lands is decided
+by the domain, not by the visitor: `continuesVisitorJourney`
+(`onboarding-website.ts`) compares the new URL against the public-suffix-safe
+journey domain supplied by the Worker's `nextWorkspaceCookieDomain` rule. A
+related HTTPS subdomain is saved into the current project as its own Website
+with an exact origin and recorder key; an unrelated root domain reuses an
+existing empty project or creates one through `POST /api/v1/projects`, then
+continues onboarding there, so failed retries cannot multiply empty projects.
+Public HTTP domains cannot claim a shared HTTPS journey. Hosts without a
+registrable domain (localhost, IP addresses) never force a split, and editing
+an unfinished Website never changes container. The minted recorder key is
+saved under the project that owns the Website, so the install step restores it
+after cross-project navigation. Settings sends its validated draft into this
+same onboarding decision instead of creating a Website directly.
+
+After activation, the Live page shows a dismissible prompt
+(`live-subdomain-prompt.tsx`) while the project records exactly one connected
+Website. It names the likely next subdomain (`app.<domain>`, or the bare domain
+when another subdomain came first) and offers **Add website**, which opens the
+current project's Website step. The person then installs that Website's exact
+snippet; related Websites keep the same visitor journey through their shared
+session scope and cookie domain. Dismissal is stored and read per project even
+when route parameters change without a remount. Members never see it, and the
+manager-gated website list is never requested for them.
 
 ### Step two names the file, per stack
 
@@ -215,9 +246,10 @@ Workspace, stores its exact origin boundary, and gives that Website its own
 recorder key. It also adds those origins to the legacy Workspace-wide union so
 existing settings and older manual keys remain compatible.
 
-The allowlist gets both the typed origin and its `www` sibling. Ingest matches
-origins exactly and the same list drives the CORS response, so a one-entry list
-would leave step 3 waiting on an event the ingest path had already refused.
+The allowlist gets both the typed origin and its `www` sibling. Ingest and the
+CORS response match that list exactly. A related subdomain must be added as
+its own Website and install its own snippet; the shared session scope and
+cookie domain, not a widened origin check, continue the visitor journey.
 
 ### Workspace naming
 
@@ -287,34 +319,31 @@ the real Live page then continues with **Connecting to your live session…** fo
 the short handoff window while its normal query keeps polling. The button remains
 available to leave immediately.
 
-### Adding another Workspace or Website
+### Adding another Website
 
-The Workspace switcher shows the first Website's favicon beside its user-facing
-name. The menu lists Workspaces normally, then places **Add website** and
-**Add workspace** in a separate, quietly tinted **Create** section. Nothing is
-added beside the switcher, so these occasional setup actions stay inside the
-place they affect. Choosing **Add workspace** sends `POST /api/v1/projects` with
-the active account-workspace id. The
-Worker checks that exact workspace membership, creates a project with the same
-safe defaults as account bootstrap (`allowed_origins = "[]"`, no recorder
-keys), and creates the empty analytics bootstrap receipt in the same D1 batch.
-The response contains the new project and refreshed account, so the dashboard
-updates its account cache before navigating to that project's website step.
+The header switcher shows each project's first Website favicon and user-facing
+name under **Websites**. Its only setup action is **Add website**, which opens
+step one inside the current project. The typed domain then decides placement.
+A related HTTPS subdomain continues in that project. An unrelated or public
+HTTP domain uses a confirmed empty project when one exists; otherwise the
+dashboard sends `POST /api/v1/projects` with the active account-workspace id.
+The Worker checks that exact workspace membership and creates the project with
+the same safe defaults as account bootstrap (`allowed_origins = "[]"`, no
+recorder keys) plus its empty analytics bootstrap receipt in one D1 batch.
 
-**Add website** opens the same onboarding flow for the current Workspace
-without creating a new Workspace. The Website API uses a unique
-`(project_id, origin)` row and a unique active Website-key index, so retries and
-parallel tabs cannot create duplicate Websites or recorder keys. The screen
-names the current Workspace so the person knows where the Website will appear.
+The Website API still uses a unique `(project_id, origin)` row and a unique
+active Website-key index, so retries and parallel tabs cannot create duplicate
+Websites or recorder keys. Failed retries keep the selected empty project, and
+the resulting account response refreshes the dashboard cache.
 
 Settings also starts on a **Websites** section. It shows every Website with the
 same favicon, origin, and truthful Connected or Setup needed state. Its Website
 URL field uses the same forgiving URL validation and favicon preview as
-onboarding. Submitting a new Website prepares its one installation key and
-continues directly to the existing install step; retrying an existing pending
-Website reuses its key.
+onboarding. Submitting sends the canonical draft into step one, so Settings
+uses the same related-or-separate decision before preparing the installation
+key. Retrying an existing pending Website reuses its key.
 
-Both actions are hidden for members, the public demo, and the inert dashboard
+The setup action is hidden for members, the public demo, and the inert dashboard
 preview inside onboarding.
 
 ## Cross-subdomain journeys

@@ -1,5 +1,15 @@
 import { getDomain } from "tldts";
 
+/** Canonical public-suffix-safe boundary for one stored Website journey. */
+export function workspaceJourneyDomain(domain: string | undefined): string | null {
+  if (domain === undefined) return null;
+  const cleanDomain = domain.toLowerCase().replace(/^\./, "").replace(/\.$/, "");
+  return getDomain(cleanDomain, {
+    allowPrivateDomains: true,
+    extractHostname: false,
+  });
+}
+
 /**
  * Choose the browser cookie domain used to continue one Workspace journey
  * across related HTTPS Websites. Unrelated root domains keep separate cookies.

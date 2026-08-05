@@ -1,22 +1,15 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { WebsiteFavicon } from "@/components/website-favicon";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { InputField, InputGroup } from "@/components/ui/input-group";
-import {
-  accountQueryKey,
-  ensureProjectWebsite,
-  fetchProjectWebsites,
-  projectWebsitesQueryKey,
-} from "@/lib/api";
+import { fetchProjectWebsites, projectWebsitesQueryKey } from "@/lib/api";
 import { AlertCircle, Global, RotateCcw } from "@/lib/icon-map";
 import { websiteFaviconUrl } from "@/lib/website-identity";
 import { TIMING } from "@/routes/onboarding/onboarding-motion";
-import { saveOnboardingRecorderKey } from "@/routes/onboarding/onboarding-recorder-key";
-import { readWebsiteSetupError } from "@/routes/onboarding/onboarding-setup-error";
 import { readWebsiteUrl, websiteUrlError } from "@/routes/onboarding/onboarding-website";
 import { SettingsCard, SettingsLoading } from "./settings-fields";
 
@@ -24,10 +17,8 @@ const FAVICON_DELAY_MS = 250;
 
 export function WebsitesCard({ projectId }: { projectId: string }) {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const [websiteDraft, setWebsiteDraft] = useState("");
   const [showFieldError, setShowFieldError] = useState(false);
-  const [requestError, setRequestError] = useState("");
   const [faviconUrl, setFaviconUrl] = useState<string | null>(null);
   const websiteUrl = readWebsiteUrl(websiteDraft);
   const expectedFaviconUrl = websiteUrl === null ? null : websiteFaviconUrl(websiteUrl);
@@ -54,32 +45,17 @@ export function WebsitesCard({ projectId }: { projectId: string }) {
     return () => window.clearTimeout(timeout);
   }, [websiteDraft, websiteUrl]);
 
-  const addWebsite = useMutation({
-    mutationFn: (url: URL) => ensureProjectWebsite(projectId, url.href),
-    onSuccess: (result) => {
-      void queryClient.invalidateQueries({ queryKey: projectWebsitesQueryKey(projectId) });
-      void queryClient.invalidateQueries({ queryKey: accountQueryKey });
-      if (result.alreadyConnected || result.secret === null) {
-        setRequestError("That website is already part of this Workspace.");
-        return;
-      }
-      saveOnboardingRecorderKey(projectId, result.website.id, result.secret);
-      void navigate({
-        to: "/onboarding/$projectId/install",
-        params: { projectId },
-        search: { website: result.website.id },
-      });
-    },
-  });
-
   function handleSubmit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
-    setRequestError("");
     if (websiteUrl === null) {
       setShowFieldError(true);
       return;
     }
-    addWebsite.mutate(websiteUrl);
+    void navigate({
+      to: "/onboarding/$projectId/website",
+      params: { projectId },
+      search: { draft: websiteUrl.href },
+    });
   }
 
   if (websitesQuery.isPending) return <SettingsLoading />;
@@ -105,14 +81,9 @@ export function WebsitesCard({ projectId }: { projectId: string }) {
   }
 
   const fieldError = showFieldError ? websiteUrlError(websiteDraft) : "";
-  const mutationError =
-    addWebsite.error === null
-      ? ""
-      : readWebsiteSetupError(addWebsite.error, "Could not add this website. Try again.");
-
   return (
     <SettingsCard
-      body="Websites in this Workspace share one visitor journey."
+      body="These websites share one visitor journey."
       className="flex flex-col"
       title="Websites"
     >
@@ -179,8 +150,6 @@ export function WebsitesCard({ projectId }: { projectId: string }) {
                 onChange={(value) => {
                   setWebsiteDraft(value);
                   setShowFieldError(false);
-                  setRequestError("");
-                  addWebsite.reset();
                 }}
                 onKeyDown={(event) => {
                   if (event.key !== "Enter") return;
@@ -202,7 +171,6 @@ export function WebsitesCard({ projectId }: { projectId: string }) {
               className="sm:mt-5"
               disabled={websiteDraft.trim().length === 0}
               leadingIcon={Global}
-              loading={addWebsite.isPending}
               size="sm"
               type="submit"
               variant="secondary"
@@ -210,11 +178,6 @@ export function WebsitesCard({ projectId }: { projectId: string }) {
               Continue to install
             </Button>
           </div>
-          {(requestError || mutationError).length > 0 && (
-            <p className="mt-2 text-[12px] text-danger" role="alert">
-              {requestError || mutationError}
-            </p>
-          )}
         </form>
       </>
     </SettingsCard>

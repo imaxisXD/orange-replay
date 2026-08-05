@@ -46,7 +46,7 @@ export function ProjectsPage() {
             {accountQuery.isError ? (
               <p>Refresh the page or sign in again.</p>
             ) : (
-              <p>Your account has a workspace but no project. Ask a workspace owner to add one.</p>
+              <p>Your account has no website yet. Ask an owner or admin to add one.</p>
             )}
           </AlertDescription>
         </Alert>

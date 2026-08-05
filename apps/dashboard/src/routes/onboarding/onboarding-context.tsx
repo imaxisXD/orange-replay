@@ -17,10 +17,22 @@ export function onboardingStepIndex(pathname: string): number {
 interface OnboardingState {
   /** Signed-in project being activated. */
   projectId: string;
+  /** Account workspace holding this project, once the account has loaded. */
+  accountWorkspaceId: string | null;
+  /** Existing empty project that can safely receive the next separate Website. */
+  emptyProjectId: string | null;
   /** Display name of the current Workspace once it has a user-facing name. */
   workspaceName: string | null;
   /** True only while this Workspace has no saved Website. */
   isFirstWebsite: boolean;
+  /**
+   * Origins already recorded in this visitor journey. Step one compares a new
+   * domain against these to decide whether it continues this journey or gets
+   * its own recordings.
+   */
+  journeyOrigins: readonly string[];
+  /** Public-suffix-safe boundary supplied by the Worker for related HTTPS Websites. */
+  journeyDomain?: string | null;
   /** Raw text in the website field, kept while moving between steps. */
   websiteDraft: string;
   setWebsiteDraft: (value: string) => void;

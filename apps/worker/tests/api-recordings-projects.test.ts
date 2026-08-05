@@ -596,7 +596,11 @@ describe("dashboard api", () => {
       account.workspaces
         .flatMap((workspace) => workspace.projects)
         .find((project) => project.id === websiteProjectId),
-    ).toMatchObject({ name: "example.com", websiteOrigin: "https://example.com" });
+    ).toMatchObject({
+      name: "example.com",
+      websiteOrigin: "https://example.com",
+      journeyDomain: "example.com",
+    });
 
     const landingAgain = await ensureWebsite(websiteProjectId, "https://example.com/pricing");
     expect(landingAgain.website.id).toBe(landing.website.id);

@@ -28,8 +28,8 @@ export function OnboardingConnectedWebsite({
   } = useOnboarding();
   const workspaceDescription =
     workspaceName === null || workspaceName === website.name
-      ? "This website is already part of your Workspace."
-      : `This website is already connected to ${workspaceName}.`;
+      ? "This website is already connected."
+      : `This website is already connected alongside ${workspaceName}.`;
 
   function openDashboard(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();

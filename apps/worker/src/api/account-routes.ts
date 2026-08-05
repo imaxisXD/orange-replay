@@ -14,6 +14,7 @@ import {
 } from "../analytics/project-bootstrap.ts";
 import type { ProjectRole, SessionAuthContext } from "./auth.ts";
 import { jsonError, jsonResponse, readJsonBodyCapped } from "../http.ts";
+import { workspaceJourneyDomain } from "./project-website-domain.ts";
 
 interface AccountProjectRow {
   [key: string]: unknown;
@@ -25,6 +26,7 @@ interface AccountProjectRow {
   project_name: string | null;
   first_website_name: string | null;
   first_website_origin: string | null;
+  journey_domain: string | null;
 }
 
 interface MembershipCountRow {
@@ -138,6 +140,7 @@ async function readAccount(env: Env, auth: SessionAuthContext): Promise<AccountR
       m.role AS role,
       p.id AS project_id,
       p.name AS project_name,
+      p.session_cookie_domain AS journey_domain,
       (
         SELECT website.name
         FROM project_websites website
@@ -179,6 +182,7 @@ async function readAccount(env: Env, auth: SessionAuthContext): Promise<AccountR
     }
 
     if (row.project_id !== null && row.project_name !== null) {
+      const journeyDomain = workspaceJourneyDomain(row.journey_domain ?? undefined);
       workspace.projects.push({
         id: row.project_id,
         name: readWorkspaceDisplayName({
@@ -188,6 +192,7 @@ async function readAccount(env: Env, auth: SessionAuthContext): Promise<AccountR
         }),
         role,
         websiteOrigin: row.first_website_origin,
+        journeyDomain,
       });
     }
   }

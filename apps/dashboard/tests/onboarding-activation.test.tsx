@@ -23,6 +23,7 @@ vi.mock("@/lib/motion", async (importOriginal) => ({
 }));
 
 const apiMocks = vi.hoisted(() => ({
+  createProject: vi.fn(),
   ensureProjectWebsite: vi.fn(),
   fetchLiveSessions: vi.fn(),
   fetchProjectWebsiteInstallStatus: vi.fn(),
@@ -65,6 +66,7 @@ import {
 } from "../src/routes/onboarding/onboarding-recorder-key";
 import {
   activationAllowedOrigins,
+  continuesVisitorJourney,
   isWebsiteProjectName,
   readWebsiteUrl,
   websitePreviewLabel,
@@ -76,8 +78,10 @@ import {
 import { OnboardingWebsitePage } from "../src/routes/onboarding/onboarding-website-step";
 import { ApiError, liveSessionsQueryKey } from "../src/lib/api";
 import { liveHandoffQueryKey, type LiveHandoffState } from "../src/lib/live-sessions";
+import { findReusableEmptyProjectId } from "../src/lib/website-journey";
 
 const PROJECT_ID = "project_abc";
+const ACCOUNT_WORKSPACE_ID = "org_abc";
 const WEBSITE_ID = "website_abc";
 const FIRST_SESSION_ID = "website-session-0001";
 const RAW_KEY = `or_live_${"a".repeat(32)}`;
@@ -95,6 +99,10 @@ let isLiveConfirmedReported: boolean;
 let isFirstWebsite: boolean;
 let workspaceName: string | null;
 let editingWebsiteId: string | null;
+let journeyOrigins: string[];
+let journeyDomain: string | undefined;
+let emptyProjectId: string | null;
+let accountWorkspaceId: string | null;
 
 beforeEach(() => {
   container = document.createElement("div");
@@ -109,6 +117,10 @@ beforeEach(() => {
   isFirstWebsite = true;
   workspaceName = null;
   editingWebsiteId = null;
+  journeyOrigins = [];
+  journeyDomain = undefined;
+  emptyProjectId = null;
+  accountWorkspaceId = ACCOUNT_WORKSPACE_ID;
   window.sessionStorage.clear();
   navigate.mockReset();
   beginPreviewCut.mockReset();
@@ -182,6 +194,61 @@ describe("activation website identity", () => {
   it("recognises an already activated project name", () => {
     expect(isWebsiteProjectName("acme.com")).toBe(true);
     expect(isWebsiteProjectName("Default project")).toBe(false);
+  });
+
+  it("bounds a visitor journey by the registrable domain", () => {
+    expect(
+      continuesVisitorJourney(new URL("https://app.acme.com"), ["https://acme.com"], "acme.com"),
+    ).toBe(true);
+    expect(
+      continuesVisitorJourney(
+        new URL("https://www.acme.com"),
+        ["https://app.acme.com"],
+        "acme.com",
+      ),
+    ).toBe(true);
+    expect(
+      continuesVisitorJourney(new URL("https://other.io"), ["https://acme.com"], "acme.com"),
+    ).toBe(false);
+    // A newer dashboard fails closed while an older Worker has not supplied
+    // the public-suffix-safe boundary yet.
+    expect(continuesVisitorJourney(new URL("https://app.acme.com"), ["https://acme.com"])).toBe(
+      false,
+    );
+    // Multi-part public suffixes stay separate journeys.
+    expect(
+      continuesVisitorJourney(
+        new URL("https://acme.co.uk"),
+        ["https://other.co.uk"],
+        "other.co.uk",
+      ),
+    ).toBe(false);
+    // The first website and local development never force a split.
+    expect(continuesVisitorJourney(new URL("https://acme.com"), [])).toBe(true);
+    expect(continuesVisitorJourney(new URL("http://localhost:3000"), ["https://acme.com"])).toBe(
+      true,
+    );
+    expect(continuesVisitorJourney(new URL("https://acme.com"), ["http://localhost:3000"])).toBe(
+      true,
+    );
+    // Public HTTP cannot carry the HTTPS cookie journey across subdomains.
+    expect(
+      continuesVisitorJourney(new URL("http://app.acme.com"), ["https://acme.com"], "acme.com"),
+    ).toBe(false);
+    expect(continuesVisitorJourney(new URL("https://acme.com"), ["http://acme.com"])).toBe(false);
+  });
+
+  it("reuses only a confirmed empty project", () => {
+    expect(
+      findReusableEmptyProjectId("project_current", [
+        { id: "project_unknown" },
+        { id: "project_used", websiteOrigin: "https://acme.com" },
+        { id: "project_empty", websiteOrigin: null },
+      ]),
+    ).toBe("project_empty");
+    expect(
+      findReusableEmptyProjectId("project_empty", [{ id: "project_empty", websiteOrigin: null }]),
+    ).toBeNull();
   });
 
   it("rejects a hostname the rename route would refuse, and says why", () => {
@@ -293,14 +360,14 @@ describe("activation step 1: website", () => {
         new ApiError("active_key_limit_reached", 409, "active_key_limit_reached"),
       ),
     ).toBe(
-      "This Workspace has reached its Website limit. Contact support before adding another website.",
+      "You have reached the website limit here. Contact support before adding another website.",
     );
     expect(readWebsiteSetupError(new Error("Recorder-key storage is unavailable."))).toBe(
       "Could not prepare the installation script. Try again.",
     );
     expect(
       readWebsiteSetupError(new ApiError("website_already_exists", 409, "website_already_exists")),
-    ).toBe("That Website is already part of this Workspace.");
+    ).toBe("That website is already added.");
     expect(readWebsiteSetupError(new ApiError("website_changed", 409, "website_changed"))).toBe(
       "This Website changed in another tab. Reload and try again.",
     );
@@ -442,16 +509,165 @@ describe("activation step 1: website", () => {
     });
   });
 
-  it("names the Workspace when adding a later Website", async () => {
+  it("explains the journey rule when adding a later Website", async () => {
     isFirstWebsite = false;
     workspaceName = "Noodle";
     await render(<OnboardingWebsitePage />);
 
-    expect(container.textContent).toContain("Add a website to Noodle");
+    expect(container.textContent).toContain("Add a website");
     expect(container.textContent).toContain(
-      "Related subdomains stay together in one visitor journey.",
+      "Add related subdomains to keep one visitor journey. A new domain gets its own recordings.",
     );
     expect(container.textContent).not.toContain("recorder key");
+  });
+
+  it("keeps a related subdomain in the same journey", async () => {
+    isFirstWebsite = false;
+    journeyOrigins = ["https://acme.com"];
+    journeyDomain = "acme.com";
+    apiMocks.ensureProjectWebsite.mockResolvedValue(
+      websiteSetup({ name: "app.acme.com", origin: "https://app.acme.com" }),
+    );
+    await render(<OnboardingWebsitePage />);
+
+    await setWebsiteInput("app.acme.com");
+    await act(async () => {
+      findButton("Continue").click();
+    });
+
+    await vi.waitFor(() => {
+      expect(apiMocks.ensureProjectWebsite).toHaveBeenCalledWith(
+        PROJECT_ID,
+        "https://app.acme.com/",
+      );
+    });
+    expect(apiMocks.createProject).not.toHaveBeenCalled();
+  });
+
+  it("gives an unrelated domain its own recordings", async () => {
+    isFirstWebsite = false;
+    journeyOrigins = ["https://acme.com"];
+    journeyDomain = "acme.com";
+    apiMocks.createProject.mockResolvedValue({
+      project: { id: "project_new", name: "Default project", role: "owner" },
+      account: { workspaces: [] },
+    });
+    apiMocks.ensureProjectWebsite.mockResolvedValue(
+      websiteSetup({ name: "other.io", origin: "https://other.io" }),
+    );
+    await render(<OnboardingWebsitePage />);
+
+    await setWebsiteInput("other.io");
+    await act(async () => {
+      findButton("Continue").click();
+    });
+
+    await vi.waitFor(() => {
+      expect(apiMocks.createProject).toHaveBeenCalledWith(ACCOUNT_WORKSPACE_ID);
+      expect(apiMocks.ensureProjectWebsite).toHaveBeenCalledWith(
+        "project_new",
+        "https://other.io/",
+      );
+      expect(navigate).toHaveBeenCalledWith({
+        to: "/onboarding/$projectId/install",
+        params: { projectId: "project_new" },
+        search: { website: WEBSITE_ID },
+      });
+    });
+    // The minted key follows the new project so its install step can restore it.
+    expect(readOnboardingRecorderKey("project_new", WEBSITE_ID)).toBe(RAW_KEY);
+  });
+
+  it("reuses the same empty project when Website setup is retried", async () => {
+    isFirstWebsite = false;
+    journeyOrigins = ["https://acme.com"];
+    journeyDomain = "acme.com";
+    apiMocks.createProject.mockResolvedValue({
+      project: { id: "project_new", name: "Default project", role: "owner" },
+      account: { workspaces: [] },
+    });
+    apiMocks.ensureProjectWebsite
+      .mockRejectedValueOnce(new ApiError("Connection lost.", 0, "network_error"))
+      .mockResolvedValueOnce(websiteSetup({ name: "other.io", origin: "https://other.io" }));
+    await render(<OnboardingWebsitePage />);
+
+    await setWebsiteInput("other.io");
+    await act(async () => findButton("Continue").click());
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(container.textContent).toContain("Could not add this website. Try again."),
+      );
+    });
+
+    await act(async () => findButton("Continue").click());
+    await vi.waitFor(() => {
+      expect(apiMocks.ensureProjectWebsite).toHaveBeenCalledTimes(2);
+      expect(navigate).toHaveBeenCalledWith({
+        to: "/onboarding/$projectId/install",
+        params: { projectId: "project_new" },
+        search: { website: WEBSITE_ID },
+      });
+    });
+    expect(apiMocks.createProject).toHaveBeenCalledTimes(1);
+  });
+
+  it("recovers an empty project after reload instead of creating another", async () => {
+    isFirstWebsite = false;
+    emptyProjectId = "project_draft";
+    journeyOrigins = ["https://acme.com"];
+    journeyDomain = "acme.com";
+    apiMocks.ensureProjectWebsite.mockResolvedValue(
+      websiteSetup({ name: "other.io", origin: "https://other.io" }),
+    );
+    await render(<OnboardingWebsitePage />);
+
+    await setWebsiteInput("other.io");
+    await act(async () => findButton("Continue").click());
+    await vi.waitFor(() =>
+      expect(apiMocks.ensureProjectWebsite).toHaveBeenCalledWith(
+        "project_draft",
+        "https://other.io/",
+      ),
+    );
+    expect(apiMocks.createProject).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the account destination is unavailable", async () => {
+    isFirstWebsite = false;
+    accountWorkspaceId = null;
+    journeyOrigins = ["https://acme.com"];
+    journeyDomain = "acme.com";
+    await render(<OnboardingWebsitePage />);
+
+    await setWebsiteInput("other.io");
+    await act(async () => findButton("Continue").click());
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(container.textContent).toContain(
+          "Could not find where to add this website. Reload and try again.",
+        ),
+      );
+    });
+    expect(apiMocks.createProject).not.toHaveBeenCalled();
+    expect(apiMocks.ensureProjectWebsite).not.toHaveBeenCalled();
+  });
+
+  it("waits when the Worker has not supplied the safe journey boundary", async () => {
+    isFirstWebsite = false;
+    journeyOrigins = ["https://acme.com"];
+    await render(<OnboardingWebsitePage />);
+
+    await setWebsiteInput("app.acme.com");
+    await act(async () => findButton("Continue").click());
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(container.textContent).toContain(
+          "Website setup is still loading. Wait a moment and try again.",
+        ),
+      );
+    });
+    expect(apiMocks.createProject).not.toHaveBeenCalled();
+    expect(apiMocks.ensureProjectWebsite).not.toHaveBeenCalled();
   });
 
   it("explains that an existing Website is connected without changing its setup", async () => {
@@ -468,7 +684,7 @@ describe("activation step 1: website", () => {
     await vi.waitFor(() => {
       expect(container.textContent).toContain("acme.com is already connected");
     });
-    expect(container.textContent).toContain("This website is already connected to Noodle.");
+    expect(container.textContent).toContain("This website is already connected alongside Noodle.");
     expect(container.textContent).toContain("No new installation was created.");
     expect(container.textContent).not.toContain("recorder key");
     expect(navigate).not.toHaveBeenCalled();
@@ -1030,6 +1246,7 @@ function Harness({ children }: { children: ReactNode }) {
   return (
     <OnboardingProvider
       value={{
+        accountWorkspaceId,
         act: onboardingAct(0, recording),
         beginPreviewCut,
         isLeaving: false,
@@ -1040,6 +1257,7 @@ function Harness({ children }: { children: ReactNode }) {
         direction: 1,
         editingWebsiteId,
         editingWebsiteOrigin: editingWebsiteId === null ? null : SAVED_WEBSITE.origin,
+        emptyProjectId,
         faviconUrl:
           draftWebsite === null
             ? websiteFaviconUrl(SAVED_WEBSITE)
@@ -1047,6 +1265,8 @@ function Harness({ children }: { children: ReactNode }) {
         isFirstPaint: true,
         isFirstWebsite,
         isLiveConfirmed: liveConfirmed,
+        journeyDomain,
+        journeyOrigins,
         isNamingProject: isNaming,
         isRecording: recording,
         previewProjectLabel: "acme.com",

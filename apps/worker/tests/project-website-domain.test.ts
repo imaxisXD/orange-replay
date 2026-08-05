@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
-import { nextWorkspaceCookieDomain } from "../src/api/project-website-domain.ts";
+import {
+  nextWorkspaceCookieDomain,
+  workspaceJourneyDomain,
+} from "../src/api/project-website-domain.ts";
 
 describe("Workspace Website cookie domain", () => {
   it("shares a journey when sibling subdomains are added first", () => {
@@ -17,6 +20,12 @@ describe("Workspace Website cookie domain", () => {
     expect(nextWorkspaceCookieDomain(undefined, new URL("https://app.noodle.github.io"))).toBe(
       "noodle.github.io",
     );
+  });
+
+  it("normalizes the stored domain before the dashboard uses it", () => {
+    expect(workspaceJourneyDomain(".app.example.co.uk.")).toBe("example.co.uk");
+    expect(workspaceJourneyDomain("app.noodle.github.io")).toBe("noodle.github.io");
+    expect(workspaceJourneyDomain(undefined)).toBeNull();
   });
 
   it("keeps unrelated root domains isolated", () => {

@@ -23,6 +23,9 @@ export const accountProjectSchema = z.object({
   /** First Website identity for user-facing Workspace chrome. Optional keeps
    *  dashboard and Worker rollouts compatible in either order. */
   websiteOrigin: z.string().url().nullable().optional(),
+  /** Public-suffix-safe domain shared by related HTTPS Websites. Optional
+   *  keeps an older Worker compatible with a newer dashboard. */
+  journeyDomain: z.string().min(1).max(253).nullable().optional(),
 });
 
 export const accountWorkspaceSchema = z.object({

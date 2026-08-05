@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+  type CSSProperties,
+} from "react";
 import { LazyMotion, domMax } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { Outlet, useNavigate, useParams, useRouterState } from "@tanstack/react-router";
@@ -13,6 +21,7 @@ import {
 import { findAccountProject } from "@/lib/dashboard-access";
 import { ArrowLeft } from "@/lib/icon-map";
 import { m, useReducedMotion } from "@/lib/motion";
+import { findReusableEmptyProjectId } from "@/lib/website-journey";
 import { ONBOARDING_STEPS, OnboardingProvider, onboardingStepIndex } from "./onboarding-context";
 import { DEFAULT_INSTALL_TARGET, type InstallTargetId } from "./install-targets";
 import { FRAME, PREVIEW_EXIT, RAIL, onboardingAct } from "./onboarding-motion";
@@ -50,9 +59,15 @@ export function OnboardingShell() {
       return typeof value === "string" && /^[A-Za-z0-9_-]{1,100}$/.test(value) ? value : null;
     },
   });
+  const searchedWebsiteDraft = useRouterState({
+    select: (state) => {
+      const value = (state.location.search as { draft?: unknown }).draft;
+      return typeof value === "string" ? value : "";
+    },
+  });
   const stepIndex = onboardingStepIndex(pathname);
 
-  const [websiteDraft, setWebsiteDraft] = useState("");
+  const [websiteDraft, setWebsiteDraft] = useState(searchedWebsiteDraft);
   const [websiteId, setWebsiteId] = useState<string | null>(searchedWebsiteId);
   const [recorderKey, setRecorderKey] = useState<string | null>(null);
   const [isNamingProject, setIsNamingProject] = useState(false);
@@ -180,13 +195,26 @@ export function OnboardingShell() {
   // with it.
   const beginPreviewCut = useCallback(() => setIsLeaving(true), []);
 
+  const accountWorkspace = account?.workspaces.find((workspace) =>
+    workspace.projects.some((accountProject) => accountProject.id === projectId),
+  );
+  const accountWorkspaceId = accountWorkspace?.id ?? null;
+  const journeyDomain = project?.journeyDomain;
+  const emptyProjectId = findReusableEmptyProjectId(projectId, accountWorkspace?.projects ?? []);
+  const journeyOrigins = useMemo(
+    () => websitesQuery.data?.websites.map((website) => website.origin) ?? [],
+    [websitesQuery.data],
+  );
+
   const onboarding = useMemo(
     () => ({
+      accountWorkspaceId,
       act,
       beginPreviewCut,
       direction,
       editingWebsiteId,
       editingWebsiteOrigin,
+      emptyProjectId,
       faviconUrl: visibleFaviconUrl,
       isFirstPaint,
       isFirstWebsite,
@@ -195,6 +223,8 @@ export function OnboardingShell() {
       isRecording,
       isLiveConfirmed,
       installTargetId,
+      journeyDomain,
+      journeyOrigins,
       pollTick,
       registerStatusPoll,
       setInstallTargetId,
@@ -214,11 +244,13 @@ export function OnboardingShell() {
       setWebsiteId,
     }),
     [
+      accountWorkspaceId,
       act,
       beginPreviewCut,
       direction,
       editingWebsiteId,
       editingWebsiteOrigin,
+      emptyProjectId,
       visibleFaviconUrl,
       isFirstPaint,
       isFirstWebsite,
@@ -227,6 +259,8 @@ export function OnboardingShell() {
       isRecording,
       isLiveConfirmed,
       installTargetId,
+      journeyDomain,
+      journeyOrigins,
       pollTick,
       registerStatusPoll,
       setInstallTargetId,
@@ -252,6 +286,42 @@ export function OnboardingShell() {
     });
   }
 
+  return (
+    <OnboardingFrame
+      isLeaving={isLeaving}
+      onBack={goBack}
+      onboarding={onboarding}
+      railFrom={railFrom}
+      railSpan={railSpan}
+      railTo={railTo}
+      reduceMotion={reduceMotion}
+      stepIndex={stepIndex}
+    />
+  );
+}
+
+type OnboardingFrameProps = {
+  isLeaving: boolean;
+  onBack: () => void;
+  onboarding: ComponentProps<typeof OnboardingProvider>["value"];
+  railFrom: number;
+  railSpan: number;
+  railTo: number;
+  reduceMotion: boolean;
+  stepIndex: number;
+};
+
+/** Persistent visual frame around the three routed onboarding steps. */
+function OnboardingFrame({
+  isLeaving,
+  onBack,
+  onboarding,
+  railFrom,
+  railSpan,
+  railTo,
+  reduceMotion,
+  stepIndex,
+}: OnboardingFrameProps) {
   return (
     <OnboardingProvider value={onboarding}>
       <main
@@ -282,7 +352,7 @@ export function OnboardingShell() {
               <Button
                 className="absolute -top-9 left-0 h-7 px-2 text-[13px]"
                 leadingIcon={ArrowLeft}
-                onClick={goBack}
+                onClick={onBack}
                 type="button"
                 variant="ghost"
               >

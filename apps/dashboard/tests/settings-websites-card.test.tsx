@@ -8,7 +8,6 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 Object.assign(Element.prototype, { getAnimations: () => [] });
 
 const apiMocks = vi.hoisted(() => ({
-  ensureProjectWebsite: vi.fn(),
   fetchProjectWebsites: vi.fn(),
 }));
 const navigate = vi.hoisted(() => vi.fn());
@@ -28,7 +27,6 @@ beforeEach(() => {
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
-  apiMocks.ensureProjectWebsite.mockReset();
   apiMocks.fetchProjectWebsites.mockReset();
   navigate.mockReset();
   window.sessionStorage.clear();
@@ -84,27 +82,7 @@ describe("Website settings", () => {
     expect(container.querySelector('img[src*="https%3A%2F%2Fndle.app"]')).not.toBeNull();
   });
 
-  it("hands a corrected Website to installation without creating another key on retry", async () => {
-    apiMocks.ensureProjectWebsite.mockResolvedValue({
-      website: {
-        id: "website_ndle",
-        name: "ndle.app",
-        origin: "https://ndle.app",
-        firstEventAt: null,
-      },
-      key: {
-        id: "key_ndle",
-        name: "ndle.app recorder",
-        active: true,
-        createdAt: 1,
-        createdBy: "user_one",
-        revokedAt: null,
-        revokedBy: null,
-        keyHashPrefix: "abc123",
-      },
-      secret: "or_live_ndle_secret",
-      alreadyConnected: false,
-    });
+  it("hands a corrected Website to onboarding before any key is created", async () => {
     await renderCard();
     const input = websiteInput();
 
@@ -112,30 +90,19 @@ describe("Website settings", () => {
       setInputValue(input, "bad address");
       input.form?.requestSubmit();
     });
-    expect(apiMocks.ensureProjectWebsite).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
     expect(container.textContent).toContain("Enter a website like");
 
     await act(async () => {
       setInputValue(input, "  ndle.app  ");
       input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Enter" }));
     });
-    await waitForUi(() =>
-      expect(apiMocks.ensureProjectWebsite).toHaveBeenCalledWith(
-        "project_one",
-        "https://ndle.app/",
-      ),
-    );
-    expect(apiMocks.ensureProjectWebsite).toHaveBeenCalledTimes(1);
-    expect(
-      window.sessionStorage.getItem(
-        "orange-replay:onboarding-recorder-key:project_one:website_ndle",
-      ),
-    ).toBe("or_live_ndle_secret");
     expect(navigate).toHaveBeenCalledWith({
-      to: "/onboarding/$projectId/install",
+      to: "/onboarding/$projectId/website",
       params: { projectId: "project_one" },
-      search: { website: "website_ndle" },
+      search: { draft: "https://ndle.app/" },
     });
+    expect(window.sessionStorage.length).toBe(0);
   });
 });
 

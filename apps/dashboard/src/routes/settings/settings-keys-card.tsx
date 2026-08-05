@@ -349,7 +349,7 @@ function readKeyError(error: unknown, fallback: string): string {
     case "rate_limited":
       return "Too many key changes. Wait a minute and try again.";
     case "forbidden":
-      return "Only a workspace owner or admin can manage keys.";
+      return "Only an owner or admin can manage keys.";
     default:
       return fallback;
   }

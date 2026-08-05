@@ -12,6 +12,14 @@ describe("browser origin allowlist", () => {
     expect(browserOriginIsAllowed(request, allowedOrigins)).toBe(true);
   });
 
+  it("rejects an unregistered sibling origin", () => {
+    const request = new Request("https://ingest.example/v1/config", {
+      headers: { origin: "https://app.site.example" },
+    });
+
+    expect(browserOriginIsAllowed(request, allowedOrigins)).toBe(false);
+  });
+
   it("accepts a same-origin GET when the browser omits Origin", () => {
     const request = new Request("https://site.example/v1/config", {
       headers: {

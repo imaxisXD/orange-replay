@@ -47,9 +47,8 @@ describe("rendered top-nav date-range carry", () => {
   it("shows demo tabs and carries only the window on every tab", async () => {
     const { container, main, tabs, teardown } = await renderShell(`/demo/sessions${SEEDED_SEARCH}`);
     expect(tabs.map((tab) => tab.text)).toEqual(["Overview", "Sessions", "Live"]);
-    await openWorkspaceMenu(container);
+    await openWebsiteMenu(container);
     expect(document.body.textContent).not.toContain("Add website");
-    expect(document.body.textContent).not.toContain("Add workspace");
     for (const tab of tabs) assertCarriesWindowOnly(tab.href);
     expect(main?.classList).toContain("dashboard-main");
     expect(main?.className).not.toContain("transition-[max-width]");
@@ -127,21 +126,21 @@ describe("rendered top-nav date-range carry", () => {
       "Install",
     ]);
     const header = container.querySelector("header");
-    expect(header?.querySelector('[aria-label="Workspace"]')?.textContent).toContain("Web");
+    expect(header?.querySelector('[aria-label="Website"]')?.textContent).toContain("Web");
     expect(header?.querySelector('img[src*="/api/v1/favicon"]')?.getAttribute("src")).toBe(
       "/api/v1/favicon?website=https%3A%2F%2Fexample.com&v=3",
     );
     expect(header?.textContent).not.toContain("Add");
     expect(header?.textContent).not.toContain("Add website");
-    expect(header?.textContent).not.toContain("Add workspace");
-    await openWorkspaceMenu(container);
+    await openWebsiteMenu(container);
+    expect(document.body.textContent).toContain("Websites");
     expect(document.body.textContent).toContain("Add website");
-    expect(document.body.textContent).toContain("Add workspace");
+    expect(document.body.textContent).not.toContain("Add workspace");
     for (const tab of tabs) assertCarriesWindowOnly(tab.href);
     await teardown();
   });
 
-  it("keeps account names and internal ids out of the Workspace label", async () => {
+  it("keeps account names and internal ids out of the Website label", async () => {
     const accountData = account("owner");
     accountData.workspaces.push({
       id: "org_demo",
@@ -159,17 +158,17 @@ describe("rendered top-nav date-range carry", () => {
     });
 
     const first = await renderShell("/projects/p-1/overview", accountData);
-    const firstWorkspace = first.container.querySelector('[aria-label="Workspace"]');
-    expect(firstWorkspace?.textContent).toContain("Web");
-    expect(firstWorkspace?.textContent).not.toContain("Acme");
+    const firstWebsite = first.container.querySelector('[aria-label="Website"]');
+    expect(firstWebsite?.textContent).toContain("Web");
+    expect(firstWebsite?.textContent).not.toContain("Acme");
     await first.teardown();
 
     const internal = await renderShell("/projects/project_demo/overview", accountData);
-    const internalWorkspace = internal.container.querySelector('[aria-label="Workspace"]');
-    expect(internalWorkspace?.textContent).toContain("Your workspace");
-    expect(internalWorkspace?.textContent).not.toContain("org_demo");
-    expect(internalWorkspace?.textContent).not.toContain("project_demo");
-    expect(internalWorkspace?.querySelector("img")?.getAttribute("src")).toBe(
+    const internalWebsite = internal.container.querySelector('[aria-label="Website"]');
+    expect(internalWebsite?.textContent).toContain("New website");
+    expect(internalWebsite?.textContent).not.toContain("org_demo");
+    expect(internalWebsite?.textContent).not.toContain("project_demo");
+    expect(internalWebsite?.querySelector("img")?.getAttribute("src")).toBe(
       "/api/v1/favicon?website=https%3A%2F%2Fndle.app&v=3",
     );
     await internal.teardown();
@@ -181,45 +180,13 @@ describe("rendered top-nav date-range carry", () => {
       account("member"),
     );
     expect(tabs.map((tab) => tab.text)).toEqual(["Overview", "Sessions", "Live"]);
-    await openWorkspaceMenu(container);
+    await openWebsiteMenu(container);
     expect(document.body.textContent).not.toContain("Add website");
-    expect(document.body.textContent).not.toContain("Add workspace");
     for (const tab of tabs) assertCarriesWindowOnly(tab.href);
     await teardown();
   });
 
-  it("adds a Workspace to the account and opens its onboarding", async () => {
-    const before = account("owner");
-    const after = structuredClone(before);
-    const project = { id: "p-2", name: "Default project", role: "owner" as const };
-    after.workspaces[0]?.projects.push(project);
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-      new Response(JSON.stringify({ project, account: after }), {
-        status: 201,
-        headers: { "content-type": "application/json" },
-      }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    const { container, queryClient, router, teardown } = await renderShell(
-      "/projects/p-1/overview",
-      before,
-    );
-    await chooseAddAction(container, "Add workspace");
-
-    await vi.waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith("/api/v1/projects", {
-        body: JSON.stringify({ workspaceId: "w-1" }),
-        headers: expect.any(Headers),
-        method: "POST",
-      });
-      expect(router.state.location.pathname).toBe("/onboarding/p-2/website");
-    });
-    expect(queryClient.getQueryData(accountQueryKey)).toEqual(after);
-    await teardown();
-  });
-
-  it("opens Website onboarding inside the current Workspace without creating another one", async () => {
+  it("opens Website onboarding without creating another container up front", async () => {
     const fetchMock = vi.fn<typeof fetch>();
     vi.stubGlobal("fetch", fetchMock);
     const { container, router, teardown } = await renderShell(
@@ -247,7 +214,7 @@ function assertCarriesWindowOnly(href: string): void {
 }
 
 async function chooseAddAction(container: HTMLElement, action: string): Promise<void> {
-  await openWorkspaceMenu(container);
+  await openWebsiteMenu(container);
   const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
     (item) => item.textContent?.trim() === action,
   );
@@ -255,9 +222,9 @@ async function chooseAddAction(container: HTMLElement, action: string): Promise<
   await act(async () => option.click());
 }
 
-async function openWorkspaceMenu(container: HTMLElement): Promise<void> {
-  const trigger = container.querySelector<HTMLElement>('[aria-label="Workspace"]');
-  if (trigger === null) throw new Error("Workspace control not found.");
+async function openWebsiteMenu(container: HTMLElement): Promise<void> {
+  const trigger = container.querySelector<HTMLElement>('[aria-label="Website"]');
+  if (trigger === null) throw new Error("Website control not found.");
   if (trigger.getAttribute("aria-expanded") === "true") return;
   await act(async () => trigger.click());
 }

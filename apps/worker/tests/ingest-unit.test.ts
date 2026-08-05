@@ -299,6 +299,17 @@ describe("ingest config row mapping", () => {
 
     expect(headers.get("access-control-allow-origin")).toBeNull();
   });
+
+  it("does not echo CORS for an unregistered sibling origin", () => {
+    const headers = ingestPostHeaders(
+      new Request("https://worker.test/v1/ingest", {
+        headers: { origin: "https://app.site.example" },
+      }),
+      ["https://site.example"],
+    );
+
+    expect(headers.get("access-control-allow-origin")).toBeNull();
+  });
 });
 
 describe("ingest sidecar event sanitizing", () => {

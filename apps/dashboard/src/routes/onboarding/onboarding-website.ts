@@ -5,6 +5,7 @@ import {
   websiteNameFromUrl,
   websiteUrlSchema,
 } from "@orange-replay/shared";
+export { canDecideVisitorJourney, continuesVisitorJourney } from "@/lib/website-journey";
 export { websiteFaviconUrl } from "@/lib/website-identity";
 
 /**

@@ -4,14 +4,29 @@ import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { InputField, InputGroup } from "@/components/ui/input-group";
 import { WebsiteFavicon } from "@/components/website-favicon";
-import { accountQueryKey, ensureProjectWebsite, projectWebsitesQueryKey } from "@/lib/api";
+import {
+  accountQueryKey,
+  createProject,
+  ensureProjectWebsite,
+  projectWebsitesQueryKey,
+} from "@/lib/api";
 import { queryClient } from "@/lib/query";
 import { useOnboarding } from "./onboarding-context";
 import { TIMING } from "./onboarding-motion";
-import { readWebsiteSetupError } from "./onboarding-setup-error";
+import {
+  readWebsiteSetupError,
+  WEBSITE_DESTINATION_MISSING_MESSAGE,
+  WEBSITE_JOURNEY_LOADING_MESSAGE,
+} from "./onboarding-setup-error";
 import { OnboardingStage } from "./onboarding-stage";
 import { OnboardingConnectedWebsite } from "./onboarding-connected-website";
-import { readWebsiteUrl, websiteFaviconUrl, websiteUrlError } from "./onboarding-website";
+import {
+  canDecideVisitorJourney,
+  continuesVisitorJourney,
+  readWebsiteUrl,
+  websiteFaviconUrl,
+  websiteUrlError,
+} from "./onboarding-website";
 import { clearOnboardingRecorderKey, saveOnboardingRecorderKey } from "./onboarding-recorder-key";
 
 /**
@@ -23,10 +38,14 @@ import { clearOnboardingRecorderKey, saveOnboardingRecorderKey } from "./onboard
 export function OnboardingWebsitePage() {
   const navigate = useNavigate();
   const {
+    accountWorkspaceId,
     editingWebsiteId,
     editingWebsiteOrigin,
+    emptyProjectId,
     faviconUrl,
     isFirstWebsite,
+    journeyDomain,
+    journeyOrigins,
     previewProjectLabel,
     projectId,
     setIsNamingProject,
@@ -34,7 +53,6 @@ export function OnboardingWebsitePage() {
     setWebsiteId,
     setWebsiteDraft,
     websiteDraft,
-    workspaceName,
   } = useOnboarding();
   const [showError, setShowError] = useState(false);
   const [connectedWebsite, setConnectedWebsite] = useState<
@@ -43,6 +61,7 @@ export function OnboardingWebsitePage() {
   const inputGroupRef = useRef<HTMLDivElement>(null);
   const shakeFrameRef = useRef<number | null>(null);
   const shakeEndRef = useRef<number | null>(null);
+  const separateWebsiteProjectIdRef = useRef<string | null>(emptyProjectId);
   const websiteUrl = readWebsiteUrl(websiteDraft);
   const hasInvalidWebsite = websiteDraft.trim().length > 0 && websiteUrl === null;
   const expectedFaviconUrl = websiteUrl === null ? null : websiteFaviconUrl(websiteUrl);
@@ -95,24 +114,54 @@ export function OnboardingWebsitePage() {
   useEffect(() => stopErrorShake, [stopErrorShake]);
 
   const activation = useMutation({
-    mutationFn: (url: URL) =>
-      editingWebsiteId === null
-        ? ensureProjectWebsite(projectId, url.href)
-        : ensureProjectWebsite(projectId, url.href, editingWebsiteId),
+    mutationFn: async (url: URL) => {
+      if (editingWebsiteId !== null) {
+        return {
+          targetProjectId: projectId,
+          ...(await ensureProjectWebsite(projectId, url.href, editingWebsiteId)),
+        };
+      }
+      // A domain outside this visitor journey records on its own: it gets a
+      // reusable empty project, or a fresh project, so its sessions and
+      // cookies never pool with an unrelated site. Related subdomains keep
+      // landing in this journey.
+      if (!isFirstWebsite && !canDecideVisitorJourney(journeyOrigins, journeyDomain)) {
+        throw new Error(WEBSITE_JOURNEY_LOADING_MESSAGE);
+      }
+      if (!isFirstWebsite && !continuesVisitorJourney(url, journeyOrigins, journeyDomain)) {
+        if (accountWorkspaceId === null) {
+          throw new Error(WEBSITE_DESTINATION_MISSING_MESSAGE);
+        }
+        let targetProjectId = separateWebsiteProjectIdRef.current ?? emptyProjectId;
+        if (targetProjectId === null) {
+          const created = await createProject(accountWorkspaceId);
+          targetProjectId = created.project.id;
+          separateWebsiteProjectIdRef.current = targetProjectId;
+          queryClient.setQueryData(accountQueryKey, created.account);
+        }
+        return {
+          targetProjectId,
+          ...(await ensureProjectWebsite(targetProjectId, url.href)),
+        };
+      }
+      return { targetProjectId: projectId, ...(await ensureProjectWebsite(projectId, url.href)) };
+    },
     onSuccess: (result) => {
-      void queryClient.invalidateQueries({ queryKey: projectWebsitesQueryKey(projectId) });
+      void queryClient.invalidateQueries({
+        queryKey: projectWebsitesQueryKey(result.targetProjectId),
+      });
       if (result.alreadyConnected || result.secret === null) {
-        clearOnboardingRecorderKey(projectId, result.website.id);
+        clearOnboardingRecorderKey(result.targetProjectId, result.website.id);
         setRecorderKey(null);
         setWebsiteDraft(result.website.origin);
         setWebsiteId(result.website.id);
         setConnectedWebsite(result.website);
         return;
       }
-      saveOnboardingRecorderKey(projectId, result.website.id, result.secret);
+      saveOnboardingRecorderKey(result.targetProjectId, result.website.id, result.secret);
       setRecorderKey(result.secret);
       void queryClient.invalidateQueries({ queryKey: accountQueryKey });
-      continueToInstall(result.website.id);
+      continueToInstall(result.targetProjectId, result.website.id);
     },
   });
 
@@ -128,17 +177,17 @@ export function OnboardingWebsitePage() {
       websiteUrl.origin === editingWebsiteOrigin
     ) {
       activation.reset();
-      continueToInstall(editingWebsiteId);
+      continueToInstall(projectId, editingWebsiteId);
       return;
     }
     activation.mutate(websiteUrl);
   }
 
-  function continueToInstall(nextWebsiteId: string): void {
+  function continueToInstall(targetProjectId: string, nextWebsiteId: string): void {
     setWebsiteId(nextWebsiteId);
     void navigate({
       to: "/onboarding/$projectId/install",
-      params: { projectId },
+      params: { projectId: targetProjectId },
       search: { website: nextWebsiteId },
     });
   }
@@ -163,20 +212,21 @@ export function OnboardingWebsitePage() {
     );
   }
 
+  // The destination is decided by the domain itself (subdomains continue this
+  // journey, new domains start their own), so the heading no longer promises
+  // one container.
   const heading =
     editingWebsiteId !== null
       ? "Edit website"
       : isFirstWebsite
         ? "Add your first website"
-        : workspaceName === null
-          ? "Add your website"
-          : `Add a website to ${workspaceName}`;
+        : "Add a website";
   const support =
     editingWebsiteId !== null
       ? "Update the website you want Orange Replay to record."
       : isFirstWebsite
         ? "Enter the website where you want to start recording."
-        : "Add another website. Related subdomains stay together in one visitor journey.";
+        : "Add related subdomains to keep one visitor journey. A new domain gets its own recordings.";
 
   return (
     <OnboardingStage
