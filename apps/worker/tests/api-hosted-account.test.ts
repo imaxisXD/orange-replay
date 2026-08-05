@@ -1,6 +1,7 @@
 import { accountResponseSchema, projectCreateResponseSchema } from "@orange-replay/shared";
 import { describe, expect, it } from "vite-plus/test";
 import { authHeaders, setupApiTestWorkers, worker } from "./api-test-helpers.ts";
+import { readWorkspaceDisplayName } from "../src/api/account-routes.ts";
 
 setupApiTestWorkers();
 
@@ -14,6 +15,30 @@ interface AnalyticsBootstrapReceipt {
 }
 
 describe("hosted account bootstrap", () => {
+  it("uses a Website name when a stored Workspace name is only an internal id", () => {
+    expect(
+      readWorkspaceDisplayName({
+        projectId: "project_demo",
+        storedName: "project_demo",
+        firstWebsiteName: "ndle.app",
+      }),
+    ).toBe("ndle.app");
+    expect(
+      readWorkspaceDisplayName({
+        projectId: "project_demo",
+        storedName: "Noodle",
+        firstWebsiteName: "ndle.app",
+      }),
+    ).toBe("Noodle");
+    expect(
+      readWorkspaceDisplayName({
+        projectId: "project_demo",
+        storedName: "Default project",
+        firstWebsiteName: null,
+      }),
+    ).toBe("Default project");
+  });
+
   it("adds another empty project to a workspace the user manages", async () => {
     const accountResponse = await worker.fetch("/api/v1/account", { headers: authHeaders() });
     expect(accountResponse.status).toBe(200);

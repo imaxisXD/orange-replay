@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  accountResponseSchema,
   createdProjectKeyResponseSchema,
   ensureProjectWebsiteResponseSchema,
   liveSessionsResponseSchema,
@@ -587,6 +588,15 @@ describe("dashboard api", () => {
     expect(landing.website).toMatchObject({ name: "example.com", origin: "https://example.com" });
     expect(landing.secret).toMatch(/^or_live_[A-Za-z0-9_-]{32}$/);
     expect(landing.alreadyConnected).toBe(false);
+
+    const accountResponse = await worker.fetch("/api/v1/account", { headers: authHeaders() });
+    expect(accountResponse.status).toBe(200);
+    const account = accountResponseSchema.parse(await accountResponse.json());
+    expect(
+      account.workspaces
+        .flatMap((workspace) => workspace.projects)
+        .find((project) => project.id === websiteProjectId),
+    ).toMatchObject({ name: "example.com", websiteOrigin: "https://example.com" });
 
     const landingAgain = await ensureWebsite(websiteProjectId, "https://example.com/pricing");
     expect(landingAgain.website.id).toBe(landing.website.id);

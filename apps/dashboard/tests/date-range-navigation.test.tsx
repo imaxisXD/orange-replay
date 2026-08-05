@@ -45,8 +45,11 @@ describe("rendered top-nav date-range carry", () => {
   });
 
   it("shows demo tabs and carries only the window on every tab", async () => {
-    const { main, tabs, teardown } = await renderShell(`/demo/sessions${SEEDED_SEARCH}`);
+    const { container, main, tabs, teardown } = await renderShell(`/demo/sessions${SEEDED_SEARCH}`);
     expect(tabs.map((tab) => tab.text)).toEqual(["Overview", "Sessions", "Live"]);
+    await openWorkspaceMenu(container);
+    expect(document.body.textContent).not.toContain("Add website");
+    expect(document.body.textContent).not.toContain("Add workspace");
     for (const tab of tabs) assertCarriesWindowOnly(tab.href);
     expect(main?.classList).toContain("dashboard-main");
     expect(main?.className).not.toContain("transition-[max-width]");
@@ -112,7 +115,7 @@ describe("rendered top-nav date-range carry", () => {
   });
 
   it("shows the manager tab set and carries only the window", async () => {
-    const { tabs, teardown } = await renderShell(
+    const { container, tabs, teardown } = await renderShell(
       `/projects/p-1/sessions${SEEDED_SEARCH}`,
       account("owner"),
     );
@@ -123,8 +126,53 @@ describe("rendered top-nav date-range carry", () => {
       "Settings",
       "Install",
     ]);
+    const header = container.querySelector("header");
+    expect(header?.querySelector('[aria-label="Workspace"]')?.textContent).toContain("Web");
+    expect(header?.querySelector('img[src*="/api/v1/favicon"]')?.getAttribute("src")).toBe(
+      "/api/v1/favicon?website=https%3A%2F%2Fexample.com&v=3",
+    );
+    expect(header?.textContent).not.toContain("Add");
+    expect(header?.textContent).not.toContain("Add website");
+    expect(header?.textContent).not.toContain("Add workspace");
+    await openWorkspaceMenu(container);
+    expect(document.body.textContent).toContain("Add website");
+    expect(document.body.textContent).toContain("Add workspace");
     for (const tab of tabs) assertCarriesWindowOnly(tab.href);
     await teardown();
+  });
+
+  it("keeps account names and internal ids out of the Workspace label", async () => {
+    const accountData = account("owner");
+    accountData.workspaces.push({
+      id: "org_demo",
+      name: "org_demo",
+      slug: "org-demo",
+      role: "owner",
+      projects: [
+        {
+          id: "project_demo",
+          name: "project_demo",
+          role: "owner",
+          websiteOrigin: "https://ndle.app",
+        },
+      ],
+    });
+
+    const first = await renderShell("/projects/p-1/overview", accountData);
+    const firstWorkspace = first.container.querySelector('[aria-label="Workspace"]');
+    expect(firstWorkspace?.textContent).toContain("Web");
+    expect(firstWorkspace?.textContent).not.toContain("Acme");
+    await first.teardown();
+
+    const internal = await renderShell("/projects/project_demo/overview", accountData);
+    const internalWorkspace = internal.container.querySelector('[aria-label="Workspace"]');
+    expect(internalWorkspace?.textContent).toContain("Your workspace");
+    expect(internalWorkspace?.textContent).not.toContain("org_demo");
+    expect(internalWorkspace?.textContent).not.toContain("project_demo");
+    expect(internalWorkspace?.querySelector("img")?.getAttribute("src")).toBe(
+      "/api/v1/favicon?website=https%3A%2F%2Fndle.app&v=3",
+    );
+    await internal.teardown();
   });
 
   it("hides Settings/Install for a non-manager and still carries the window", async () => {
@@ -133,8 +181,9 @@ describe("rendered top-nav date-range carry", () => {
       account("member"),
     );
     expect(tabs.map((tab) => tab.text)).toEqual(["Overview", "Sessions", "Live"]);
-    expect(container.textContent).not.toContain("Add website");
-    expect(container.textContent).not.toContain("Add workspace");
+    await openWorkspaceMenu(container);
+    expect(document.body.textContent).not.toContain("Add website");
+    expect(document.body.textContent).not.toContain("Add workspace");
     for (const tab of tabs) assertCarriesWindowOnly(tab.href);
     await teardown();
   });
@@ -156,11 +205,7 @@ describe("rendered top-nav date-range carry", () => {
       "/projects/p-1/overview",
       before,
     );
-    const addProject = [...container.querySelectorAll("button")].find((button) =>
-      button.textContent?.includes("Add workspace"),
-    );
-    expect(addProject).toBeDefined();
-    await act(async () => addProject?.click());
+    await chooseAddAction(container, "Add workspace");
 
     await vi.waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith("/api/v1/projects", {
@@ -181,11 +226,7 @@ describe("rendered top-nav date-range carry", () => {
       "/projects/p-1/overview",
       account("owner"),
     );
-    const addWebsite = [...container.querySelectorAll("button")].find((button) =>
-      button.textContent?.includes("Add website"),
-    );
-    expect(addWebsite).toBeDefined();
-    await act(async () => addWebsite?.click());
+    await chooseAddAction(container, "Add website");
 
     await vi.waitFor(() => {
       expect(router.state.location.pathname).toBe("/onboarding/p-1/website");
@@ -203,6 +244,22 @@ function assertCarriesWindowOnly(href: string): void {
   expect(url.searchParams.has("warehouse_version")).toBe(false);
   expect(url.searchParams.has("selected")).toBe(false);
   expect(url.searchParams.has("sort")).toBe(false);
+}
+
+async function chooseAddAction(container: HTMLElement, action: string): Promise<void> {
+  await openWorkspaceMenu(container);
+  const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+    (item) => item.textContent?.trim() === action,
+  );
+  if (option === undefined) throw new Error(`Add option not found: ${action}`);
+  await act(async () => option.click());
+}
+
+async function openWorkspaceMenu(container: HTMLElement): Promise<void> {
+  const trigger = container.querySelector<HTMLElement>('[aria-label="Workspace"]');
+  if (trigger === null) throw new Error("Workspace control not found.");
+  if (trigger.getAttribute("aria-expanded") === "true") return;
+  await act(async () => trigger.click());
 }
 
 async function renderShell(initialPath: string, accountData?: AccountResponse) {
@@ -343,7 +400,7 @@ function account(role: "owner" | "member"): AccountResponse {
         name: "Acme",
         slug: "acme",
         role,
-        projects: [{ id: "p-1", name: "Web", role }],
+        projects: [{ id: "p-1", name: "Web", role, websiteOrigin: "https://example.com" }],
       },
     ],
     activeWorkspaceId: "w-1",

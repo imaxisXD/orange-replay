@@ -20,6 +20,9 @@ export const accountProjectSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   role: accountProjectRoleSchema,
+  /** First Website identity for user-facing Workspace chrome. Optional keeps
+   *  dashboard and Worker rollouts compatible in either order. */
+  websiteOrigin: z.string().url().nullable().optional(),
 });
 
 export const accountWorkspaceSchema = z.object({

@@ -23,6 +23,8 @@ interface AccountProjectRow {
   role: string;
   project_id: string | null;
   project_name: string | null;
+  first_website_name: string | null;
+  first_website_origin: string | null;
 }
 
 interface MembershipCountRow {
@@ -135,7 +137,21 @@ async function readAccount(env: Env, auth: SessionAuthContext): Promise<AccountR
       o.slug AS org_slug,
       m.role AS role,
       p.id AS project_id,
-      p.name AS project_name
+      p.name AS project_name,
+      (
+        SELECT website.name
+        FROM project_websites website
+        WHERE website.project_id = p.id
+        ORDER BY website.created_at ASC, website.id ASC
+        LIMIT 1
+      ) AS first_website_name,
+      (
+        SELECT website.origin
+        FROM project_websites website
+        WHERE website.project_id = p.id
+        ORDER BY website.created_at ASC, website.id ASC
+        LIMIT 1
+      ) AS first_website_origin
     FROM members m
     JOIN orgs o ON o.id = m.org_id
     LEFT JOIN projects p ON p.org_id = o.id
@@ -163,7 +179,16 @@ async function readAccount(env: Env, auth: SessionAuthContext): Promise<AccountR
     }
 
     if (row.project_id !== null && row.project_name !== null) {
-      workspace.projects.push({ id: row.project_id, name: row.project_name, role });
+      workspace.projects.push({
+        id: row.project_id,
+        name: readWorkspaceDisplayName({
+          projectId: row.project_id,
+          storedName: row.project_name,
+          firstWebsiteName: row.first_website_name,
+        }),
+        role,
+        websiteOrigin: row.first_website_origin,
+      });
     }
   }
 
@@ -183,6 +208,24 @@ async function readAccount(env: Env, auth: SessionAuthContext): Promise<AccountR
       null,
     isAdmin: auth.globalAdmin,
   };
+}
+
+/**
+ * The database still calls a user-facing Workspace a project. Old local and
+ * test data sometimes used the project id as its name. Keep that identity in
+ * the id field and use the first Website name for display once one exists.
+ */
+export function readWorkspaceDisplayName({
+  projectId,
+  storedName,
+  firstWebsiteName,
+}: {
+  projectId: string;
+  storedName: string;
+  firstWebsiteName: string | null;
+}): string {
+  const isInternalName = storedName === projectId || storedName === "Default project";
+  return isInternalName && firstWebsiteName !== null ? firstWebsiteName : storedName;
 }
 
 function readProjectRole(value: string): ProjectRole | null {

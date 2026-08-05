@@ -10,7 +10,7 @@ import { SettingsNav, type SettingsSectionId } from "./settings/settings-nav";
 export function SettingsPage() {
   const { projectId } = useDashboardWorkspace();
   const editor = useProjectSettingsEditor(projectId);
-  const [active, setActive] = useState<SettingsSectionId>("capture");
+  const [active, setActive] = useState<SettingsSectionId>("websites");
 
   return (
     <div className="flex flex-col gap-5">
@@ -20,7 +20,7 @@ export function SettingsPage() {
         <div>
           <h1 className="text-[18px] font-semibold leading-[1.1] tracking-[-0.015em]">Settings</h1>
           <p className="mt-1 text-[12px] leading-normal text-muted-foreground">
-            Project configuration and keys.
+            Websites, recording controls, and access.
           </p>
         </div>
         <span

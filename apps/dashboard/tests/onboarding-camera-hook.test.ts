@@ -6,8 +6,8 @@ import { describe, expect, it } from "vite-plus/test";
 /**
  * Act 0 of activation rings the shell's workspace switcher in amber while the
  * visitor types their website name. The ring lives in `onboarding.css` and the
- * control it styles lives in `AppShell`, so the two are joined only by a
- * selector — nothing type-checks that join.
+ * control it styles lives in `WorkspaceSwitcher`, so the two are joined only
+ * by a selector — nothing type-checks that join.
  *
  * It broke exactly that way once: the trigger's `aria-label` was renamed
  * "Project" → "Workspace" when a workspace grew to hold many websites, and the
@@ -22,7 +22,10 @@ import { describe, expect, it } from "vite-plus/test";
 // happy-dom replaces the global `URL`, and its copy cannot resolve `file:`
 // URLs, so the URL form throws ERR_INVALID_URL_SCHEME inside `readFileSync`.
 const testDir = dirname(fileURLToPath(import.meta.url));
-const shellSource = readFileSync(join(testDir, "../src/routes/app-shell.tsx"), "utf8");
+const workspaceSwitcherSource = readFileSync(
+  join(testDir, "../src/routes/workspace-switcher.tsx"),
+  "utf8",
+);
 const onboardingShellSource = readFileSync(
   join(testDir, "../src/routes/onboarding/onboarding-shell.tsx"),
   "utf8",
@@ -38,7 +41,7 @@ const previewSource = readFileSync(
 
 describe("the activation camera's highlight stays attached to the shell", () => {
   it("marks the workspace switcher with the hook the camera styles", () => {
-    expect(shellSource).toContain("data-shell-switcher");
+    expect(workspaceSwitcherSource).toContain("data-shell-switcher");
   });
 
   it("styles that hook, and keys nothing off the switcher's label", () => {

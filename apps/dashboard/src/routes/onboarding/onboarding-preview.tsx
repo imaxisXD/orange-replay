@@ -14,6 +14,7 @@ import liveSignalWatchSrc from "@/assets/empty-states/signal-watch-winged-receiv
 import { LiveBadge, LiveDot } from "@/components/live-badge";
 import { Badge } from "@/components/ui/badge";
 import { LoadingIndicator } from "@/components/ui/loading-indicator";
+import { WebsiteFavicon } from "@/components/website-favicon";
 import {
   ACT,
   CAMERA,
@@ -35,7 +36,6 @@ import {
   type InstallTargetId,
 } from "./install-targets";
 import { useOnboarding } from "./onboarding-context";
-import { WebsiteFavicon } from "./website-favicon";
 
 /** The stage the camera moves over. Fixed so the framing is not viewport-bound. */
 const STAGE = { width: 1_100, height: 1_080 } as const;

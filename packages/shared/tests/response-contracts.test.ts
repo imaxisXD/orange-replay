@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
+  accountProjectSchema,
   accountResponseSchema,
   createdProjectKeyResponseSchema,
   decodeAccountResponse,
@@ -157,6 +158,15 @@ describe("resource response contracts", () => {
         ...validAccountResponse,
         user: userWithoutVerification,
       }).success,
+    ).toBe(false);
+  });
+
+  it("accepts only a full Website origin for Workspace identity", () => {
+    const project = validAccountResponse.workspaces[0]?.projects[0];
+    expect(project?.websiteOrigin).toBe("https://orange-replay.example");
+    expect(
+      accountProjectSchema.safeParse({ ...project, websiteOrigin: "orange-replay.example" })
+        .success,
     ).toBe(false);
   });
 

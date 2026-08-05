@@ -19,7 +19,7 @@ describe("settings navigation", () => {
     const onSelect = vi.fn();
 
     await act(async () => {
-      root.render(<SettingsNav active="capture" onSelect={onSelect} />);
+      root.render(<SettingsNav active="websites" onSelect={onSelect} />);
     });
 
     expect(container.textContent).toContain("Recording");
@@ -28,6 +28,7 @@ describe("settings navigation", () => {
     expect(
       Array.from(container.querySelectorAll("[data-nav-index]"), (row) => row.textContent),
     ).toEqual([
+      "Websites",
       "Capture",
       "Masking",
       "Allowed origins",
@@ -35,7 +36,7 @@ describe("settings navigation", () => {
       "Public page",
       "Environment",
     ]);
-    expect(findButton(container, "Capture").getAttribute("aria-current")).toBe("true");
+    expect(findButton(container, "Websites").getAttribute("aria-current")).toBe("true");
 
     await act(async () => findButton(container, "Recorder keys").click());
     expect(onSelect).toHaveBeenCalledWith("keys");
@@ -44,7 +45,7 @@ describe("settings navigation", () => {
       root.render(<SettingsNav active="keys" onSelect={onSelect} />);
     });
     expect(findButton(container, "Recorder keys").getAttribute("aria-current")).toBe("true");
-    expect(findButton(container, "Capture").hasAttribute("aria-current")).toBe(false);
+    expect(findButton(container, "Websites").hasAttribute("aria-current")).toBe(false);
 
     await act(async () => root.unmount());
   });
@@ -56,8 +57,11 @@ describe("settings navigation", () => {
     const onSelect = vi.fn();
 
     await act(async () => {
-      root.render(<SettingsNav active="capture" onSelect={onSelect} />);
+      root.render(<SettingsNav active="websites" onSelect={onSelect} />);
     });
+
+    await act(async () => findButton(container, "Recording").click());
+    expect(onSelect).toHaveBeenCalledWith("websites");
 
     await act(async () => findButton(container, "Access & sharing").click());
     expect(onSelect).toHaveBeenCalledWith("keys");

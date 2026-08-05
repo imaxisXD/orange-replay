@@ -45,7 +45,14 @@ export const validAccountResponse = {
       name: "Sunny's workspace",
       slug: "sunny-workspace",
       role: "owner",
-      projects: [{ id: "project_contract", name: "Orange Replay", role: "owner" }],
+      projects: [
+        {
+          id: "project_contract",
+          name: "Orange Replay",
+          role: "owner",
+          websiteOrigin: "https://orange-replay.example",
+        },
+      ],
     },
   ],
   activeWorkspaceId: "workspace_contract",

@@ -1,0 +1,97 @@
+/* Shared transitions.dev favicon reveal used by onboarding, the dashboard
+   Workspace switcher, and Settings. Empty state cancels the parent's 8px gap,
+   so no dark dot or blank slot remains before an icon exists. */
+.website-favicon-slot {
+  display: block;
+  flex: none;
+  width: 0;
+  height: var(--favicon-size);
+  margin-inline-end: calc(var(--favicon-parent-gap) * -1);
+  overflow: hidden;
+  opacity: 0;
+  filter: blur(var(--favicon-enter-blur));
+  transform: translateX(calc(var(--favicon-enter-x) * -1));
+  transition:
+    width var(--favicon-enter-duration) var(--favicon-enter-ease),
+    margin-inline-end var(--favicon-enter-duration) var(--favicon-enter-ease),
+    opacity var(--favicon-enter-duration) var(--favicon-enter-ease),
+    filter var(--favicon-enter-duration) var(--favicon-enter-ease),
+    transform var(--favicon-enter-duration) var(--favicon-enter-ease);
+}
+
+.website-favicon-slot[data-stage="1"],
+.website-favicon-slot[data-stage="2"] {
+  width: var(--favicon-size);
+  margin-inline-end: 0;
+  opacity: 1;
+  filter: blur(0);
+  transform: translateX(0);
+}
+
+.website-favicon-frame {
+  position: relative;
+  display: block;
+  width: var(--favicon-size);
+  height: var(--favicon-size);
+  overflow: hidden;
+  border-radius: 4px;
+}
+
+.website-favicon-layer {
+  position: absolute;
+  inset: 0;
+  transition:
+    opacity 400ms ease-in-out,
+    filter 400ms ease-in-out;
+}
+
+.website-favicon-skeleton {
+  z-index: 1;
+  opacity: 1;
+  filter: blur(0);
+}
+
+.website-favicon-content {
+  z-index: 2;
+  opacity: 0;
+  filter: blur(2px);
+}
+
+.website-favicon-frame.is-revealed .website-favicon-skeleton {
+  opacity: 0;
+  filter: blur(2px);
+}
+
+.website-favicon-frame.is-revealed .website-favicon-content {
+  opacity: 1;
+  filter: blur(0);
+}
+
+.website-favicon-frame.is-resetting .website-favicon-layer {
+  transition: none !important;
+}
+
+.website-favicon-skeleton.is-pulsing > * {
+  animation: website-favicon-pulse 1000ms ease-in-out 1;
+}
+
+@keyframes website-favicon-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .website-favicon-slot,
+  .website-favicon-layer {
+    transition: none !important;
+  }
+
+  .website-favicon-skeleton.is-pulsing > * {
+    animation: none !important;
+  }
+}

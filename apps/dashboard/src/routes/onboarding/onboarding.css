@@ -396,44 +396,6 @@
   }
 }
 
-/* The shared field and Select each own an 8px flex gap. Stage 0 cancels that
-   gap as well as collapsing the icon, so an empty favicon does not leave a
-   dark dot or push the label. Stages 1 and 2 reveal the slot left-to-right. */
-.t-favicon-slot {
-  display: block;
-  flex: none;
-  width: 0;
-  height: var(--favicon-size);
-  margin-inline-end: calc(var(--favicon-parent-gap) * -1);
-  overflow: hidden;
-  opacity: 0;
-  filter: blur(var(--favicon-enter-blur));
-  transform: translateX(calc(var(--favicon-enter-x) * -1));
-  transition:
-    width var(--favicon-enter-duration) var(--favicon-enter-ease),
-    margin-inline-end var(--favicon-enter-duration) var(--favicon-enter-ease),
-    opacity var(--favicon-enter-duration) var(--favicon-enter-ease),
-    filter var(--favicon-enter-duration) var(--favicon-enter-ease),
-    transform var(--favicon-enter-duration) var(--favicon-enter-ease);
-}
-
-.t-favicon-slot[data-stage="1"],
-.t-favicon-slot[data-stage="2"] {
-  width: var(--favicon-size);
-  margin-inline-end: 0;
-  opacity: 1;
-  filter: blur(0);
-  transform: translateX(0);
-}
-
-.t-favicon-frame {
-  display: block;
-  width: var(--favicon-size);
-  height: var(--favicon-size);
-  overflow: hidden;
-  border-radius: 4px;
-}
-
 .t-skel {
   position: relative;
 }

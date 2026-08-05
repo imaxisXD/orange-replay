@@ -3,6 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { InputField, InputGroup } from "@/components/ui/input-group";
+import { WebsiteFavicon } from "@/components/website-favicon";
 import { accountQueryKey, ensureProjectWebsite, projectWebsitesQueryKey } from "@/lib/api";
 import { queryClient } from "@/lib/query";
 import { useOnboarding } from "./onboarding-context";
@@ -11,7 +12,6 @@ import { readWebsiteSetupError } from "./onboarding-setup-error";
 import { OnboardingStage } from "./onboarding-stage";
 import { OnboardingConnectedWebsite } from "./onboarding-connected-website";
 import { readWebsiteUrl, websiteFaviconUrl, websiteUrlError } from "./onboarding-website";
-import { WebsiteFavicon } from "./website-favicon";
 import { clearOnboardingRecorderKey, saveOnboardingRecorderKey } from "./onboarding-recorder-key";
 
 /**

@@ -1,6 +1,17 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { cn } from "@/lib/utils";
-import { FAVICON_SLOT, FAVICON_STAGE } from "./onboarding-motion";
+import "./website-favicon.css";
+
+const FAVICON_STAGE = { empty: 0, loading: 1, revealed: 2 } as const;
+
+const FAVICON_SLOT = {
+  size: 16,
+  parentGap: 8,
+  enterX: 6,
+  enterBlur: 2,
+  enterDuration: 250,
+  enterEase: "cubic-bezier(0.22, 1, 0.36, 1)",
+} as const;
 
 const faviconStyle = {
   "--favicon-size": `${FAVICON_SLOT.size}px`,
@@ -11,7 +22,10 @@ const faviconStyle = {
   "--favicon-enter-ease": FAVICON_SLOT.enterEase,
 } as CSSProperties & Record<`--${string}`, string>;
 
-/** One favicon surface. The Worker always returns either a verified icon or its fallback. */
+/**
+ * Shared Website identity mark. A missing source takes no space; a new source
+ * grows into place and reveals either the fetched icon or its safe initial.
+ */
 export function WebsiteFavicon({
   className,
   fallbackLabel,
@@ -35,15 +49,15 @@ export function WebsiteFavicon({
         ? FAVICON_STAGE.revealed
         : FAVICON_STAGE.loading;
 
-  // transitions.dev skeleton replay: when one valid website replaces another,
-  // reset before paint so the old icon never animates backwards into a loader.
+  // Reset before paint when one Website replaces another. The old icon never
+  // flashes while the next image is loading.
   useLayoutEffect(() => {
     const oldSource = previousSource.current;
     previousSource.current = source;
     if (source === null || oldSource === null || oldSource === source) return;
 
     const reveal = revealRef.current;
-    const skeleton = reveal?.querySelector(".t-skel-skeleton");
+    const skeleton = reveal?.querySelector(".website-favicon-skeleton");
     if (reveal === null || !(skeleton instanceof HTMLElement)) return;
 
     reveal.classList.add("is-resetting");
@@ -57,22 +71,22 @@ export function WebsiteFavicon({
   return (
     <span
       aria-hidden="true"
-      className={cn("t-favicon-slot", className)}
+      className={cn("t-favicon-slot website-favicon-slot", className)}
       data-stage={stage}
       style={faviconStyle}
     >
       {source !== null && (
         <span
           className={cn(
-            "t-skel t-favicon-frame",
+            "t-skel t-favicon-frame website-favicon-frame",
             stage === FAVICON_STAGE.revealed && "is-revealed",
           )}
           ref={revealRef}
         >
-          <span className="t-skel-skeleton is-pulsing grid place-items-center">
+          <span className="t-skel-skeleton website-favicon-layer website-favicon-skeleton is-pulsing grid place-items-center">
             <span className="size-full rounded-[4px] bg-surface-8" />
           </span>
-          <span className="t-skel-content grid place-items-center">
+          <span className="t-skel-content website-favicon-layer website-favicon-content grid place-items-center">
             {hasFailed ? (
               <span className="grid size-full place-items-center rounded-[4px] bg-surface-8 text-[9px] font-bold text-amber">
                 {fallbackLetter}

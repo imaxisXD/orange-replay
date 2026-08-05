@@ -11,6 +11,7 @@ import { SettingsLoading } from "./settings-fields";
 import { KeysCard } from "./settings-keys-card";
 import { PublicPageCard } from "./settings-public-page-card";
 import { SettingsEnvironmentCards } from "./settings-environment";
+import { WebsitesCard } from "./settings-websites-card";
 import type { SettingsSectionId } from "./settings-nav";
 
 type SettingsEditorController = ReturnType<typeof useProjectSettingsEditor>;
@@ -65,6 +66,7 @@ function SectionContent({
   if (draftSections.has(active)) {
     return <DraftSection active={active} editor={editor} />;
   }
+  if (active === "websites") return <WebsitesCard projectId={projectId} />;
   if (active === "keys") return <KeysCard projectId={projectId} />;
   if (active === "public") return <PublicPageCard projectId={projectId} />;
   return <SettingsEnvironmentCards />;

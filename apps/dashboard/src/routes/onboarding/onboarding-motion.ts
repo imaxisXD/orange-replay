@@ -271,19 +271,6 @@ export const PREVIEW_EXIT = {
  * checked, and I will check again" — and the stillness between rings is what
  * makes each one land. The duration is in `onboarding.css` with the keyframes;
  * there is no JS timer to keep it in step with. */
-/** One integer drives the favicon's empty, loading, and revealed sequence. */
-export const FAVICON_STAGE = { empty: 0, loading: 1, revealed: 2 } as const;
-
-/** Favicon entrance shared by the field and preview switcher. */
-export const FAVICON_SLOT = {
-  size: 16, // px, matches the real switcher's compact identity mark
-  parentGap: 8, // px, cancelled while empty so no phantom gap is reserved
-  enterX: 6, // px, clipped by the growing slot for a left-to-right entrance
-  enterBlur: 2, // px, the brief loading blur before the slot settles
-  enterDuration: 250, // ms, quick enough to follow the input's quiet window
-  enterEase: "cubic-bezier(0.22, 1, 0.36, 1)",
-} as const;
-
 /* Progress rail above the form column. One part per step, each drawn in the
    divider's own two-row lattice; the parts fill in CSS (see onboarding.css, THE
    STEP RAIL), so the only value the component needs from here is the height. */

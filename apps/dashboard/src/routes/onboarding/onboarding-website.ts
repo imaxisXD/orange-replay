@@ -1,11 +1,11 @@
 import {
-  FAVICON_API_VERSION,
   PROJECT_NAME_MAX_CHARS,
   WEBSITE_URL_ISSUE,
   websiteAllowedOrigins,
   websiteNameFromUrl,
   websiteUrlSchema,
 } from "@orange-replay/shared";
+export { websiteFaviconUrl } from "@/lib/website-identity";
 
 /**
  * Pure website-identity helpers for activation. The first onboarding step turns
@@ -36,11 +36,6 @@ export function websiteUrlError(value: string): string {
 /** The project name a valid website URL becomes: its bare hostname. */
 export function websiteProjectName(url: URL): string {
   return websiteNameFromUrl(url);
-}
-
-/** Same-origin image endpoint used by both favicon surfaces. */
-export function websiteFaviconUrl(url: URL): string {
-  return `/api/v1/favicon?website=${encodeURIComponent(url.origin)}&v=${FAVICON_API_VERSION}`;
 }
 
 /**

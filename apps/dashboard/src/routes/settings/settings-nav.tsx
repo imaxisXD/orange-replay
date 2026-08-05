@@ -3,6 +3,7 @@ import { LazyMotion, domAnimation } from "framer-motion";
 import { AnimatePresence, m, useReducedMotion } from "@/lib/motion";
 import {
   CameraVideo,
+  BrowserWindow,
   Eye,
   EyeOff,
   Global,
@@ -18,6 +19,7 @@ import { useProximityHover } from "@/hooks/use-proximity-hover";
 import { cn } from "@/lib/utils";
 
 export type SettingsSectionId =
+  | "websites"
   | "capture"
   | "masking"
   | "origins"
@@ -47,6 +49,7 @@ export const settingsNavGroups: SettingsNavGroup[] = [
     icon: CameraVideo,
     color: "var(--danger)",
     sections: [
+      { id: "websites", label: "Websites", icon: BrowserWindow },
       { id: "capture", label: "Capture", icon: PlayCircle },
       { id: "masking", label: "Masking", icon: EyeOff },
       { id: "origins", label: "Allowed origins", icon: Global },

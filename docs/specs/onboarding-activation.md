@@ -289,8 +289,12 @@ available to leave immediately.
 
 ### Adding another Workspace or Website
 
-An owner or admin can choose **Add workspace** beside the Workspace switcher. The
-dashboard sends `POST /api/v1/projects` with the active workspace id. The
+The Workspace switcher shows the first Website's favicon beside its user-facing
+name. The menu lists Workspaces normally, then places **Add website** and
+**Add workspace** in a separate, quietly tinted **Create** section. Nothing is
+added beside the switcher, so these occasional setup actions stay inside the
+place they affect. Choosing **Add workspace** sends `POST /api/v1/projects` with
+the active account-workspace id. The
 Worker checks that exact workspace membership, creates a project with the same
 safe defaults as account bootstrap (`allowed_origins = "[]"`, no recorder
 keys), and creates the empty analytics bootstrap receipt in the same D1 batch.
@@ -302,6 +306,13 @@ without creating a new Workspace. The Website API uses a unique
 `(project_id, origin)` row and a unique active Website-key index, so retries and
 parallel tabs cannot create duplicate Websites or recorder keys. The screen
 names the current Workspace so the person knows where the Website will appear.
+
+Settings also starts on a **Websites** section. It shows every Website with the
+same favicon, origin, and truthful Connected or Setup needed state. Its Website
+URL field uses the same forgiving URL validation and favicon preview as
+onboarding. Submitting a new Website prepares its one installation key and
+continues directly to the existing install step; retrying an existing pending
+Website reuses its key.
 
 Both actions are hidden for members, the public demo, and the inert dashboard
 preview inside onboarding.

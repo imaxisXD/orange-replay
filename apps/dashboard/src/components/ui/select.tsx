@@ -533,13 +533,17 @@ SelectContent.displayName = "SelectContent";
 
 interface SelectItemProps extends HTMLAttributes<HTMLDivElement> {
   icon?: IconComponent;
+  leadingContent?: ReactNode;
   index: number;
   value: string;
   disabled?: boolean;
 }
 
 const SelectItem = forwardRef<HTMLDivElement, SelectItemProps>(
-  ({ className, children, icon: Icon, value, index, disabled = false, ...props }, ref) => {
+  (
+    { className, children, icon: Icon, leadingContent, value, index, disabled = false, ...props },
+    ref,
+  ) => {
     const selectCtx = useSelectContext();
     const contentCtx = useContext(SelectContentContext);
     const internalRef = useRef<HTMLDivElement>(null);
@@ -588,6 +592,7 @@ const SelectItem = forwardRef<HTMLDivElement, SelectItemProps>(
             className="shrink-0 transition-[color,stroke-width] duration-80"
           />
         )}
+        {leadingContent}
 
         {/* py-1/-my-1 keeps truncate's overflow:hidden from clipping
             ascenders/descenders outside the trimmed box. */}
@@ -666,7 +671,7 @@ SelectLabel.displayName = "SelectLabel";
 
 const SelectSeparator = forwardRef<HTMLHRElement, HTMLAttributes<HTMLHRElement>>(
   ({ className, ...props }, ref) => (
-    <hr ref={ref} className={cn("my-1 -mx-1 h-px bg-border/60", className)} {...props} />
+    <hr ref={ref} className={cn("my-1 -mx-1 h-px border-0 bg-border/60", className)} {...props} />
   ),
 );
 

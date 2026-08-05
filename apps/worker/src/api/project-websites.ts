@@ -463,14 +463,15 @@ async function mergeWebsiteIntoWorkspace(
       origins.length !== config.allowedOrigins.length ||
       origins.some((origin, index) => origin !== config.allowedOrigins[index]);
     const cookieDomainChanged = (config.sessionCookieDomain ?? null) !== nextCookieDomain;
-    if (!originsChanged && !cookieDomainChanged && workspace.name !== "Default project") return;
+    const needsWorkspaceName = workspace.name === "Default project" || workspace.name === projectId;
+    if (!originsChanged && !cookieDomainChanged && !needsWorkspaceName) return;
 
     const result = await database
       .prepare(
         `UPDATE projects
         SET allowed_origins = ?,
           session_cookie_domain = ?,
-          name = CASE WHEN name = 'Default project' THEN ? ELSE name END,
+          name = CASE WHEN name = 'Default project' OR name = id THEN ? ELSE name END,
           config_version = config_version + 1
         WHERE id = ? AND config_version = ?`,
       )
