@@ -78,6 +78,41 @@ describe("session alarms", () => {
     expect(fake.writes).toEqual([]);
   });
 
+  it("moves a stale future alarm earlier after normal work resumes", async () => {
+    const fake = fakeStorage(10_000);
+    const alarms = new SessionAlarms(fake.storage, () => 1_000);
+
+    await alarms.load();
+    await alarms.schedule(4_000, 1_000);
+
+    expect(alarms.pendingAt).toBe(4_000);
+    expect(fake.storedAt()).toBe(4_000);
+    expect(fake.writes).toEqual([4_000]);
+  });
+
+  it("does not replace a due alarm while the Durable Object boots", async () => {
+    const fake = fakeStorage(5_000);
+    const alarms = new SessionAlarms(fake.storage, () => 5_000);
+
+    await alarms.load();
+    await alarms.scheduleOnBootIfMissing(9_000);
+
+    expect(alarms.pendingAt).toBe(5_000);
+    expect(fake.storedAt()).toBe(5_000);
+    expect(fake.writes).toEqual([]);
+  });
+
+  it("recovers a missing alarm while the Durable Object boots", async () => {
+    const fake = fakeStorage();
+    const alarms = new SessionAlarms(fake.storage, () => 5_000);
+
+    await alarms.load();
+    await alarms.scheduleOnBootIfMissing(9_000);
+
+    expect(alarms.pendingAt).toBe(9_000);
+    expect(fake.writes).toEqual([9_000]);
+  });
+
   it("schedules again after the alarm fires", async () => {
     const fake = fakeStorage();
     const alarms = new SessionAlarms(fake.storage, () => 1_000);

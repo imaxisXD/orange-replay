@@ -30,6 +30,24 @@ export class SessionAlarms {
   }
 
   /**
+   * Recover a missing alarm while the Durable Object boots.
+   *
+   * Never replace an alarm found in storage here. Cloudflare constructs the
+   * object before delivering a due alarm, and replacing that alarm in the
+   * constructor can restart its retry chain instead of letting the handler run.
+   * Normal session work uses schedule(), which can still move a stale future
+   * alarm after boot completes.
+   */
+  async scheduleOnBootIfMissing(desiredAt: number): Promise<void> {
+    if (this.alarmAt !== null) {
+      return;
+    }
+
+    await this.storage.setAlarm(desiredAt);
+    this.alarmAt = desiredAt;
+  }
+
+  /**
    * Set the alarm toward desiredAt when the gate allows it: nothing pending,
    * the pending alarm already elapsed, or the pending alarm is far later than
    * desired (beyond twice the tail-flush window).
