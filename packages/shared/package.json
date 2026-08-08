@@ -12,6 +12,7 @@
     ".": "./src/index.ts",
     "./analytics-privacy": "./src/analytics-privacy.ts",
     "./constants": "./src/constants.ts",
+    "./error-monitoring-privacy": "./src/error-monitoring-privacy.ts",
     "./insights": "./src/insights.ts",
     "./logger": "./src/logger.ts",
     "./privacy-selector": "./src/privacy-selector.ts",

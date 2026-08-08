@@ -15,6 +15,7 @@
   "dependencies": {
     "@orange-replay/public-page": "workspace:*",
     "@orange-replay/shared": "workspace:*",
+    "@sentry/cloudflare": "catalog:",
     "better-auth": "1.6.23",
     "tldts": "catalog:",
     "valibot": "catalog:"

@@ -16,6 +16,7 @@ export function buildTemplateWrangler(source) {
   if (source.observability !== undefined) {
     appendObject(lines, "observability", source.observability);
   }
+  pushJsonProperty(lines, "upload_source_maps", source.upload_source_maps, 1);
   appendObject(
     lines,
     "version_metadata",

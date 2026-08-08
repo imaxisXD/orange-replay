@@ -41,6 +41,10 @@ One repo. **The canonical deployable is a single combined Worker** (`apps/worker
 
 Inverting the packaging (combined first, split later) means the self-host artifact can never drift: it _is_ the product. All real logic lives in packages; an "app" is only an entry point plus a wrangler config.
 
+### Error monitoring
+
+Sentry is an optional first-party operations layer for the dashboard, public replay page, combined Worker, and both Durable Objects. It captures app failures and a small sample of performance traces when a DSN is configured; without a DSN it sends nothing. Sentry Session Replay stays disabled because Orange Replay already owns replay recording, and the customer recorder SDK never includes the Sentry runtime. Monitoring removes request and response bodies, headers, cookies, query values, user details, private project/session/public-page IDs, database values, stack-frame variables, and AI inputs or outputs before sending. Cloudflare wide events remain the durable operational log; Sentry does not replace or duplicate that logging path. Setup, privacy proof, source maps, smoke testing, and the agent debugging loop live in `docs/runbooks/sentry.md`.
+
 ---
 
 ## 2. SDK (the part users judge us on)

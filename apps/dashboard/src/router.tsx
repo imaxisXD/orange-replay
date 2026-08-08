@@ -20,6 +20,7 @@ import { AppShell } from "@/routes/app-shell";
 import { RouteError } from "@/routes/route-error";
 import { validateSessionSearch } from "@/lib/session-filters";
 import { validateSessionsViewSearch } from "@/lib/sessions-view-search";
+import { reportDashboardRouterError } from "@/lib/sentry";
 
 interface LoginSearch {
   reason?: string;
@@ -330,7 +331,10 @@ const routeTree = rootRoute.addChildren([
   ]),
 ]);
 
-export const router = createRouter({ routeTree });
+export const router = createRouter({
+  routeTree,
+  defaultOnCatch: reportDashboardRouterError,
+});
 
 declare module "@tanstack/react-router" {
   interface Register {

@@ -17,11 +17,13 @@
   "dependencies": {
     "@orange-replay/player": "workspace:*",
     "@orange-replay/shared": "workspace:*",
+    "@sentry/react": "catalog:",
     "@tanstack/react-query": "catalog:",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },
   "devDependencies": {
+    "@sentry/vite-plugin": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",

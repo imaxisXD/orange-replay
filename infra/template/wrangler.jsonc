@@ -1,11 +1,12 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "orange-replay",
-  "main": "../../apps/worker/src/index.ts",
+  "main": "../../apps/worker/src/observability/entry.ts",
   "compatibility_date": "2026-06-01",
   "observability": {
     "enabled": true,
   },
+  "upload_source_maps": true,
   "version_metadata": {
     "binding": "CF_VERSION_METADATA",
   },

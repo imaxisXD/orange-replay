@@ -4,6 +4,7 @@ import path from "node:path";
 import { parseEnv } from "node:util";
 import babel from "@rolldown/plugin-babel";
 import { cloudflare } from "@cloudflare/vite-plugin";
+import { sentryVitePlugin } from "@sentry/vite-plugin";
 import tailwindcss from "@tailwindcss/vite";
 import react, { reactCompilerPreset } from "@vitejs/plugin-react";
 import { defineConfig, lazyPlugins, type Plugin, type UserConfig } from "vite-plus";
@@ -36,11 +37,12 @@ const workerFirstRoutes = [
 ];
 
 export default defineConfig(({ command }) =>
-  dashboardConfig(command === "serve" && requestedIntegratedDevServer),
+  dashboardConfig(command, command === "serve" && requestedIntegratedDevServer),
 );
 
-function dashboardConfig(usesIntegratedDevServer: boolean): UserConfig {
+function dashboardConfig(command: "build" | "serve", usesIntegratedDevServer: boolean): UserConfig {
   const isolatedWorkerUrl = usesIntegratedDevServer ? undefined : process.env["VITE_WORKER_URL"];
+  const uploadsSentrySourceMaps = command === "build" && hasSentrySourceMapCredentials();
 
   return {
     plugins: lazyPlugins(() => [
@@ -70,6 +72,17 @@ function dashboardConfig(usesIntegratedDevServer: boolean): UserConfig {
       react(),
       babel({ presets: [reactCompilerPreset()] }),
       tailwindcss(),
+      ...(uploadsSentrySourceMaps
+        ? sentryVitePlugin({
+            org: process.env["SENTRY_ORG"],
+            project: process.env["SENTRY_PROJECT"],
+            authToken: process.env["SENTRY_AUTH_TOKEN"],
+            telemetry: false,
+            sourcemaps: {
+              filesToDeleteAfterUpload: path.join(import.meta.dirname, "dist", "**", "*.map"),
+            },
+          })
+        : []),
     ]),
     publicDir: usesIntegratedDevServer ? localAssetsDir : "public",
     resolve: {
@@ -79,6 +92,7 @@ function dashboardConfig(usesIntegratedDevServer: boolean): UserConfig {
       },
     },
     build: {
+      sourcemap: uploadsSentrySourceMaps ? "hidden" : false,
       rolldownOptions: {
         output: {
           codeSplitting: {
@@ -129,6 +143,12 @@ function dashboardConfig(usesIntegratedDevServer: boolean): UserConfig {
       environment: "happy-dom",
     },
   };
+}
+
+function hasSentrySourceMapCredentials(): boolean {
+  return ["SENTRY_AUTH_TOKEN", "SENTRY_ORG", "SENTRY_PROJECT"].every((name) =>
+    process.env[name]?.trim(),
+  );
 }
 
 function localLandingPage(): Plugin {

@@ -226,6 +226,12 @@ Add these Workers Builds variables before the first build:
 | `ORANGE_REPLAY_PROD_PROJECT_ID`                      | Project id used by the analytics acceptance gate      |
 | `ORANGE_REPLAY_PROD_WORKER_URL`                      | Exact public Worker origin used by the smoke checks   |
 | `ORANGE_REPLAY_PROD_PUBLIC_PAGE_ORIGIN`              | Exact HTTPS origin used for public project pages      |
+| `VITE_SENTRY_DSN`                                    | Optional public Sentry browser DSN                    |
+| `VITE_SENTRY_ENVIRONMENT`                            | `production` when browser monitoring is enabled       |
+| `SENTRY_ORG`                                         | Sentry organization slug for browser source maps      |
+| `SENTRY_PROJECT`                                     | Sentry project slug for browser source maps           |
+
+The four Sentry rows are optional. Add them only when Sentry monitoring is enabled.
 
 The deploy command generates ignored selected-backend and D1-fallback Wrangler files inside the build machine. It checks that all eleven secret names already exist before it changes the database, then applies migrations, runs the analytics gate, deploys, and runs both smoke checks. Keep `ORANGE_REPLAY_PROD_ANALYTICS_DELETION_READ_VERSION=v1` until the v2 deletion table is provisioned and D1 reports every retained tombstone as visible; only then use `v2`. For `compare` and `r2_sql`, store `ORANGE_REPLAY_PROD_R2_SQL_TOKEN` as a protected build secret; the gate and deployed Worker use the exact same reader token. The Worker must already have these runtime secret names:
 
@@ -246,6 +252,8 @@ The deploy command generates ignored selected-backend and D1-fallback Wrangler f
 The automatic deploy runs a read-only `wrangler secret list` check and stops before migration when a name is missing. Wrangler cannot show secret values. The public smoke catches a missing auth configuration and signed-out routing failures, but it cannot prove that GitHub OAuth credentials or callbacks work; complete the real login canary and explicit retirement step in section 7. The `secrets.required` list in the Wrangler config also keeps generated types and local-development warnings in sync.
 
 The physical-deletion workflow needs the same `ANALYTICS_PURGE_RUNNER_TOKEN` as a GitHub Actions secret. It also needs the catalog writer token as `ORANGE_REPLAY_CATALOG_TOKEN`; never upload that catalog writer token to the Worker. Follow the exact variables and verification steps in [R2 analytics warehouse runbook](./runbooks/r2-analytics.md#physical-deletion-within-24-hours).
+
+When Sentry is enabled, add `SENTRY_DSN` as an optional Worker secret and store `SENTRY_AUTH_TOKEN` as a protected Workers Builds secret. Neither is part of the eleven-secret deployment gate. The full monitoring setup, privacy boundary, source-map behavior, test route, and AI-agent workflow are in the [Sentry runbook](./runbooks/sentry.md).
 
 ## 9. SDK Snippet Values
 

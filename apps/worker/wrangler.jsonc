@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "orange-replay-dev",
-  "main": "src/index.ts",
+  "main": "src/observability/entry.ts",
   "compatibility_date": "2026-06-01",
   "compatibility_flags": ["nodejs_compat"],
   "version_metadata": {
@@ -10,6 +10,7 @@
   "observability": {
     "enabled": true,
   },
+  "upload_source_maps": true,
   "vars": {
     "WORKER_ENV": "development",
     "ANALYTICS_READ_BACKEND": "d1",

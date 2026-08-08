@@ -3,6 +3,7 @@ import { lazy } from "react";
 import { hydrateRoot } from "react-dom/client";
 import { PublicPageDocument, type PublicPageBootstrap } from "./document.tsx";
 import { makePublicPageQueryClient } from "./query.ts";
+import { initializePublicPageSentry } from "./sentry.ts";
 import "./styles.css";
 
 const ReplayPlayer = lazy(() => import("./replay-player.tsx"));
@@ -17,6 +18,7 @@ if (bootstrap !== null) {
     <QueryClientProvider client={queryClient}>
       <PublicPageDocument bootstrap={bootstrap} replayPlayer={ReplayPlayer} />
     </QueryClientProvider>,
+    initializePublicPageSentry(),
   );
 }
 

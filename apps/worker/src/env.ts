@@ -44,6 +44,12 @@ export interface Env {
   /** Limits cache-miss favicon fetches per signed-in user. */
   FAVICON_RATE_LIMITER?: RateLimitBinding;
   CF_VERSION_METADATA?: WorkerVersionMetadata;
+  /** Optional Sentry DSN. Error monitoring stays fully off when this is absent. */
+  SENTRY_DSN?: string;
+  /** Optional label shown in Sentry. Defaults to WORKER_ENV. */
+  SENTRY_ENVIRONMENT?: string;
+  /** Optional number from 0 to 1. Errors are still captured at 100%. */
+  SENTRY_TRACES_SAMPLE_RATE?: string;
   /** Deployment environment name. Production disables all dev-only test gates. */
   WORKER_ENV?: string;
   /** Explicit analytics reader. Hosted production must set compare or r2_sql after provisioning. */

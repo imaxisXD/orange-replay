@@ -9,6 +9,7 @@ import { ShapeProvider } from "@/lib/shape-context";
 import { OrangeToastProvider } from "@/components/ui/orange-toast";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { router } from "@/router";
+import { initializeDashboardSentry } from "@/lib/sentry";
 import "@/index.css";
 
 const root = document.getElementById("root");
@@ -19,7 +20,7 @@ if (root === null) {
 
 removeRetiredAuthStorage();
 
-createRoot(root).render(
+createRoot(root, initializeDashboardSentry(router)).render(
   <StrictMode>
     <MotionProvider>
       <QueryClientProvider client={queryClient}>
