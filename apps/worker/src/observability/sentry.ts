@@ -6,6 +6,22 @@ import {
 import * as Sentry from "@sentry/cloudflare";
 import type { DurableObject as CloudflareDurableObject } from "cloudflare:workers";
 import type { Env } from "../env.ts";
+import type { SdkHealthCode } from "@orange-replay/shared";
+
+export function captureSdkHealthFailure(
+  code: SdkHealthCode,
+  device: { browser?: string; os?: string; device?: string },
+): void {
+  Sentry.captureMessage("Orange Replay SDK health failure", {
+    level: "warning",
+    tags: {
+      health_code: code,
+      ...(device.browser === undefined ? {} : { browser: device.browser }),
+      ...(device.os === undefined ? {} : { os: device.os }),
+      ...(device.device === undefined ? {} : { device: device.device }),
+    },
+  });
+}
 
 export function workerSentryOptions(env: Env): Sentry.CloudflareOptions {
   const dsn = env.SENTRY_DSN?.trim();

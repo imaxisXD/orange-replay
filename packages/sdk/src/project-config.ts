@@ -1,6 +1,7 @@
 import { HDR_KEY } from "@orange-replay/shared/constants";
 import type { CaptureToggles, MaskRule, RecorderProjectConfig } from "@orange-replay/shared/types";
 import type { RecorderConfig } from "./types.ts";
+import type { SdkHealthReporter } from "./health.ts";
 
 const CONFIG_TIMEOUT_MS = 2_000;
 const MAX_MASK_RULES = 200;
@@ -11,6 +12,7 @@ export async function loadRecorderProjectConfig(
   localConfig: RecorderConfig,
   fetchFn: typeof fetch,
   document: Document,
+  health?: SdkHealthReporter,
 ): Promise<RecorderConfig> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), CONFIG_TIMEOUT_MS);
@@ -24,13 +26,19 @@ export async function loadRecorderProjectConfig(
       signal: controller.signal,
     });
     if (response.status === 404) return localConfig;
-    if (!response.ok) return stopRecording(localConfig);
+    if (!response.ok) {
+      health?.("config_failed");
+      return stopRecording(localConfig);
+    }
 
     const remoteConfig = parseRecorderProjectConfig(await response.json());
-    return remoteConfig === null
-      ? stopRecording(localConfig)
-      : mergeRecorderProjectConfig(localConfig, remoteConfig, document);
+    if (remoteConfig === null) {
+      health?.("config_failed");
+      return stopRecording(localConfig);
+    }
+    return mergeRecorderProjectConfig(localConfig, remoteConfig, document);
   } catch {
+    health?.("config_failed");
     return stopRecording(localConfig);
   } finally {
     clearTimeout(timeout);

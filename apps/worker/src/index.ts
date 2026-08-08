@@ -11,6 +11,7 @@ import { sweepProjectKeyCache } from "./consumer/key-cache-sweeper.ts";
 import { sweepExpiredSessions } from "./consumer/sweeper.ts";
 import { isDevTestMode, setWorkerLoggerVersion, type Env, type FinalizeMessage } from "./env.ts";
 import { handleIngest, handleRecorderConfig } from "./ingest/handler.ts";
+import { handleSdkHealth } from "./ingest/sdk-health.ts";
 import { RETENTION_SWEEP_SCHEDULE } from "./schedules.ts";
 import { handlePublicPage, publicPageIdFromPath } from "./public-page/handler.ts";
 import { handleTestRoutes } from "./test/harness-routes.ts";
@@ -29,6 +30,7 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === "/v1/ingest") return handleIngest(request, env, ctx);
     if (url.pathname === "/v1/config") return handleRecorderConfig(request, env, ctx);
+    if (url.pathname === "/v1/sdk-health") return handleSdkHealth(request, env);
     if (isAnalyticsPurgeApiPath(url.pathname)) return handleAnalyticsPurgeApi(request, env);
     if (url.pathname.startsWith("/api/")) return handleApi(request, env, ctx);
     if (publicPageIdFromPath(url.pathname) !== null) return handlePublicPage(request, env, ctx);

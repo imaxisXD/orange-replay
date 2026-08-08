@@ -165,6 +165,18 @@ describe("recorder project config", () => {
     expect((await loadRecorderProjectConfig(localConfig, fetchMock, document)).sampleRate).toBe(0);
   });
 
+  it("reports a config failure without sending the error details", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response("private upstream error", { status: 503 }));
+    const report = vi.fn();
+
+    await loadRecorderProjectConfig(localConfig, fetchMock, document, report);
+
+    expect(report).toHaveBeenCalledWith("config_failed");
+    expect(report).toHaveBeenCalledOnce();
+  });
+
   it("keeps local settings for an older Worker without the config route", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()

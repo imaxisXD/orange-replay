@@ -98,6 +98,38 @@ describe("ingest route", () => {
     });
   });
 
+  it("accepts only a fixed privacy-safe SDK health report", async () => {
+    const key = testRecorderKey("sdk_health");
+    await seedKey(key, makeConfig(), true);
+
+    const accepted = await worker.fetch("/v1/sdk-health", {
+      method: "POST",
+      headers: {
+        [HDR_KEY]: key,
+        origin: "https://site.example",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ version: 1, code: "worker_blocked" }),
+    });
+    expect(accepted.status).toBe(202);
+    expect(await accepted.json()).toEqual({ ok: true });
+
+    const rejected = await worker.fetch("/v1/sdk-health", {
+      method: "POST",
+      headers: {
+        [HDR_KEY]: key,
+        origin: "https://site.example",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        version: 1,
+        code: "worker_blocked",
+        url: "https://private.example/account",
+      }),
+    });
+    expect(rejected.status).toBe(400);
+  });
+
   it("turns remote sampling off when the project quota is exceeded", async () => {
     const key = testRecorderKey("config_quota");
     await seedKey(key, makeConfig({ quotaState: "exceeded", sampleRate: 1, version: 2 }), false);

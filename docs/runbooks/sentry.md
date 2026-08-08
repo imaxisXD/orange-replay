@@ -7,11 +7,13 @@ Orange Replay uses Sentry for first-party app errors and sampled performance tra
 - combined Worker fetch, queue, and scheduled-handler errors;
 - `SessionRecorder` and `PresenceRegistry` Durable Object fetch, alarm, and WebSocket errors.
 
-It does not add Sentry to the customer recorder SDK. It also does not enable Sentry Session Replay or Sentry logs. Cloudflare wide events remain the source for normal operational facts.
+It does not add Sentry to the customer recorder SDK. The SDK sends at most one fixed health code per page to Orange Replay's own Worker when its bundle, config, worker, ingest, or pipeline fails. It also does not enable Sentry Session Replay or Sentry logs. Cloudflare wide events remain the source for normal operational facts.
 
 ## Privacy boundary
 
 The shared filter removes request and response bodies, headers, cookies, query values, user details, project/session/public-page IDs, database values, local stack variables, and AI inputs or outputs. The Worker also replaces Sentry's default request-body integration with `maxRequestBodySize: "none"`, so ingest bodies are never copied for monitoring. This preserves the rule that the server does not inspect replay payloads.
+
+`POST /v1/sdk-health` accepts exactly `{ "version": 1, "code": "..." }`. The code must be one of `bundle_load_failed`, `config_failed`, `worker_blocked`, `ingest_rejected`, or `pipeline_stopped`. Extra fields are rejected, including URLs, messages, and stacks. The route validates the recorder key and exact browser origin, limits reports per project, emits one `sdk.health` wide event, and creates a warning in Sentry with the fixed code and server-derived browser, operating system, and device class. It never receives or forwards replay data.
 
 Errors are sampled at 100%. Traces default to 5% in the dashboard, 2% on public pages, and 2% in the Worker. Set any trace rate to a number from `0` through `1` to change it.
 

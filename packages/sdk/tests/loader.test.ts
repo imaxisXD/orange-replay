@@ -89,6 +89,8 @@ describe("loader", () => {
     expect(snippet).toContain("queueLimit:1");
     expect(snippet).toContain("q.length>=l");
     expect(snippet).toContain("u:w.location.href");
+    expect(snippet).toContain('"code":"bundle_load_failed"');
+    expect(snippet).toContain("/v1/sdk-health");
     expect(snippet).not.toContain("target:e.target");
 
     const scriptTag = buildLoaderScriptTag({
@@ -293,6 +295,7 @@ describe("loader", () => {
 
   it("discards buffered events when a local privacy selector is unsafe", async () => {
     const ingestBodies: Uint8Array[] = [];
+    const healthBodies: string[] = [];
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
       if (url.endsWith("/v1/config")) {
@@ -305,6 +308,10 @@ describe("loader", () => {
             version: 1,
           }),
         );
+      }
+      if (url.endsWith("/v1/sdk-health")) {
+        if (typeof init?.body === "string") healthBodies.push(init.body);
+        return new Response(null, { status: 202 });
       }
       ingestBodies.push(init?.body as Uint8Array);
       return new Response(JSON.stringify({ ok: true, live: false, flushMs: 15_000 }));
@@ -331,6 +338,7 @@ describe("loader", () => {
 
     expect(rrwebMocks.record).not.toHaveBeenCalled();
     expect(ingestBodies).toHaveLength(0);
+    expect(healthBodies).toEqual(['{"version":1,"code":"pipeline_stopped"}']);
     expect(warn).toHaveBeenCalledWith(
       "Orange Replay start failed.",
       expect.objectContaining({ message: "blockSelector must use a stable CSS selector." }),

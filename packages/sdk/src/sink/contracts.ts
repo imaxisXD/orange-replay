@@ -4,6 +4,7 @@ import type { Transport } from "../pipeline/transport.ts";
 import type { WorkerHost } from "../pipeline/worker-host.ts";
 import type { SessionManager } from "../session.ts";
 import type { RecorderConfig } from "../types.ts";
+import type { SdkHealthCode } from "@orange-replay/shared";
 
 export type FlushReason = "timer" | "visibility" | "pagehide" | "manual";
 
@@ -29,5 +30,5 @@ export interface InlineSinkOptions {
 export interface WorkerSinkOptions extends InlineSinkOptions {
   workerHost?: WorkerHost;
   transport?: Transport;
-  onWorkerUnavailable?: () => void;
+  onWorkerUnavailable?: (code: SdkHealthCode) => void;
 }

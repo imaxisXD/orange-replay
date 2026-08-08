@@ -128,6 +128,12 @@
       "namespace_id": "1011",
       "simple": { "limit": 60, "period": 60 },
     },
+    // # created by setup docs: SDK_HEALTH_RATE_LIMITER protects public ingest before Durable Object writes.
+    {
+      "name": "SDK_HEALTH_RATE_LIMITER",
+      "namespace_id": "1012",
+      "simple": { "limit": 300, "period": 60 },
+    },
   ],
   "queues": {
     "producers": [

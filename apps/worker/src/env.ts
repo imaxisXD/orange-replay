@@ -34,6 +34,7 @@ export interface Env {
   INGEST_LOOKUP_RATE_LIMITER?: RateLimitBinding;
   INGEST_PROJECT_RATE_LIMITER?: RateLimitBinding;
   INGEST_SESSION_RATE_LIMITER?: RateLimitBinding;
+  SDK_HEALTH_RATE_LIMITER?: RateLimitBinding;
   DEMO_API_RATE_LIMITER?: RateLimitBinding;
   KEY_MANAGEMENT_RATE_LIMITER?: RateLimitBinding;
   PUBLIC_PAGE_RATE_LIMITER?: RateLimitBinding;

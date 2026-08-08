@@ -1,4 +1,5 @@
 import { FLAG_UNCOMPRESSED, SDK_FLUSH_DEFAULT_MS } from "@orange-replay/shared/constants";
+import type { SdkHealthCode } from "@orange-replay/shared";
 import type { BatchIndex, IndexEvent } from "@orange-replay/shared/types";
 import { encodeIngestBody } from "@orange-replay/shared/wire";
 import {
@@ -40,7 +41,7 @@ export class WorkerSink implements Sink {
   private readonly workerHost: WorkerHost;
   private readonly transport: Transport;
   private readonly onCheckpointRequested: (required?: boolean) => void;
-  private readonly onWorkerUnavailable?: () => void;
+  private readonly onWorkerUnavailable?: (code: SdkHealthCode) => void;
   private readonly encoder = new TextEncoder();
   private readonly indexEvents = new IndexEventBuffer();
   private readonly batcher: Batcher;
@@ -86,7 +87,7 @@ export class WorkerSink implements Sink {
       if (!workerHostReady || this.stopped) return;
       this.stopped = true;
       this.discardPipeline();
-      this.onWorkerUnavailable?.();
+      this.onWorkerUnavailable?.("worker_blocked");
     };
     this.workerHost =
       options.workerHost ??
@@ -643,7 +644,7 @@ export class WorkerSink implements Sink {
     this.stopped = true;
     this.discardPipeline();
     this.workerHost.stop();
-    this.onWorkerUnavailable?.();
+    this.onWorkerUnavailable?.("ingest_rejected");
   }
 
   private disableAfterInternalError(error: unknown): void {
@@ -658,7 +659,7 @@ export class WorkerSink implements Sink {
     this.stopped = true;
     this.discardPipeline();
     this.workerHost.stop();
-    this.onWorkerUnavailable?.();
+    this.onWorkerUnavailable?.("pipeline_stopped");
   }
 
   private discardPipeline(): void {

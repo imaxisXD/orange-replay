@@ -94,6 +94,11 @@
       "namespace_id": "1011",
       "simple": { "limit": 60, "period": 60 },
     },
+    {
+      "name": "SDK_HEALTH_RATE_LIMITER",
+      "namespace_id": "1012",
+      "simple": { "limit": 300, "period": 60 },
+    },
   ],
   "queues": {
     "producers": [{ "binding": "FINALIZE_QUEUE", "queue": "or-session-finalized" }],
@@ -251,6 +256,11 @@
           "name": "FAVICON_RATE_LIMITER",
           "namespace_id": "1011",
           "simple": { "limit": 60, "period": 60 },
+        },
+        {
+          "name": "SDK_HEALTH_RATE_LIMITER",
+          "namespace_id": "1012",
+          "simple": { "limit": 300, "period": 60 },
         },
       ],
       "queues": {

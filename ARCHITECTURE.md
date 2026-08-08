@@ -43,7 +43,7 @@ Inverting the packaging (combined first, split later) means the self-host artifa
 
 ### Error monitoring
 
-Sentry is an optional first-party operations layer for the dashboard, public replay page, combined Worker, and both Durable Objects. It captures app failures and a small sample of performance traces when a DSN is configured; without a DSN it sends nothing. Sentry Session Replay stays disabled because Orange Replay already owns replay recording, and the customer recorder SDK never includes the Sentry runtime. Monitoring removes request and response bodies, headers, cookies, query values, user details, private project/session/public-page IDs, database values, stack-frame variables, and AI inputs or outputs before sending. Cloudflare wide events remain the durable operational log; Sentry does not replace or duplicate that logging path. Setup, privacy proof, source maps, smoke testing, and the agent debugging loop live in `docs/runbooks/sentry.md`.
+Sentry is an optional first-party operations layer for the dashboard, public replay page, combined Worker, and both Durable Objects. It captures app failures and a small sample of performance traces when a DSN is configured; without a DSN it sends nothing. Sentry Session Replay stays disabled because Orange Replay already owns replay recording, and the customer recorder SDK never includes the Sentry runtime. The SDK may send one fixed health code per page to the first-party `/v1/sdk-health` route when its bundle, config, worker, ingest, or pipeline fails. That route accepts no URL, message, stack, DOM, or recording fields; it validates the recorder key and exact origin, rate-limits by project, emits one wide event, and forwards only the fixed code plus server-derived browser class to Sentry. Monitoring removes request and response bodies, headers, cookies, query values, user details, private project/session/public-page IDs, database values, stack-frame variables, and AI inputs or outputs before sending. Cloudflare wide events remain the durable operational log; Sentry does not replace or duplicate that logging path. Setup, privacy proof, source maps, smoke testing, and the agent debugging loop live in `docs/runbooks/sentry.md`.
 
 ---
 
@@ -52,7 +52,7 @@ Sentry is an optional first-party operations layer for the dashboard, public rep
 ### Loading
 
 - **Loader snippet < 2 KB** inline: starts a pre-buffer (captures `error`, `unhandledrejection`, early clicks, nav timing), then async-loads the recorder bundle. No blocking script.
-- **Recorder core: 32 KB gzip target, 35 KB hard CI ceiling** (measured ~33 KB with the full rrweb 2.1.0 record path — lighter than rrweb-based competitors' 40–60 KB; the original 20 KB target resumes as a roadmap item via fork-side stripping of iframe/shadow-DOM/legacy paths), zero runtime dependencies. Canvas capture is opt-in through project config. Console/network capture remain planned lazy plugin chunks and are not collected yet.
+- **Recorder core: 32 KB gzip target, 36 KB hard CI ceiling** for both ESM and script-tag outputs (measured ~33 KB with the full rrweb 2.1.0 record path — lighter than rrweb-based competitors' 40–60 KB; the original 20 KB target resumes as a roadmap item via fork-side stripping of iframe/shadow-DOM/legacy paths), zero runtime dependencies. Canvas capture is opt-in through project config. Console/network capture remain planned lazy plugin chunks and are not collected yet.
 
 ### Recording
 

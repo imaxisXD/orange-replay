@@ -1,6 +1,7 @@
 import type { IndexEvent } from "@orange-replay/shared/types";
 import type { eventWithTime } from "@orange-replay/rrweb-fork";
 import { CheckpointSnapshotLimiter } from "./checkpoint.ts";
+import { createSdkHealthReporter } from "./health.ts";
 import { assertSafePrivacySelectors, loadRecorderProjectConfig } from "./project-config.ts";
 import { Recorder } from "./recorder.ts";
 import { shouldSampleSession } from "./sampling.ts";
@@ -35,6 +36,7 @@ export function init(options: InitOptions): OrangeReplayHandle {
     }
 
     const localConfig = resolveInitOptions(options);
+    const health = createSdkHealthReporter(localConfig, window.fetch.bind(window) as typeof fetch);
     let session: SessionManager | undefined;
     let stopRequested = false;
     let runtime: RecorderRuntime | undefined;
@@ -46,6 +48,7 @@ export function init(options: InitOptions): OrangeReplayHandle {
           localConfig,
           window.fetch.bind(window) as typeof fetch,
           document,
+          health,
         );
         const activeSession = new SessionManager({
           projectRef: config.sessionScope ?? config.projectId ?? localConfig.projectRef,
@@ -88,7 +91,10 @@ export function init(options: InitOptions): OrangeReplayHandle {
                 session: activeSession,
                 window,
                 onCheckpointRequested: requestCheckpointSnapshot,
-                onWorkerUnavailable: () => stopForWorkerFailure(),
+                onWorkerUnavailable: (code) => {
+                  health(code);
+                  stopForWorkerFailure();
+                },
               });
         if (!sink.isAvailable()) {
           discardLoaderPreBuffer(window);
@@ -135,6 +141,7 @@ export function init(options: InitOptions): OrangeReplayHandle {
         }
       })
       .catch(async (error) => {
+        health("pipeline_stopped");
         console.warn("Orange Replay start failed.", error);
         discardLoaderPreBuffer(window);
         runtime?.sidecar.stop();
