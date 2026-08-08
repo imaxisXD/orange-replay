@@ -131,7 +131,7 @@ export class SessionRecorder extends DurableObject<Env> {
           pendingBatches: this.store.pendingBatchCount(),
           timing,
         });
-        await this.alarms.schedule(desiredAt, timing.flushTailMs);
+        await this.alarms.scheduleOnBootIfMissing(desiredAt);
       }
     });
   }
@@ -449,7 +449,7 @@ export class SessionRecorder extends DurableObject<Env> {
     await this.alarm();
   }
 
-  override async alarm(): Promise<void> {
+  override async alarm(alarmInfo?: AlarmInvocationInfo): Promise<void> {
     const event = startWideEvent(
       "worker",
       "do.alarm",
@@ -533,6 +533,8 @@ export class SessionRecorder extends DurableObject<Env> {
     } finally {
       event.set({
         alarm_kind: alarmKind,
+        alarm_is_retry: alarmInfo?.isRetry ?? false,
+        alarm_retry_count: alarmInfo?.retryCount ?? 0,
         ...(projectId === undefined ? {} : { project_id: projectId }),
         ...(orgId === undefined ? {} : { org_id: orgId }),
         ...(sessionId === undefined ? {} : { session_id: sessionId }),
