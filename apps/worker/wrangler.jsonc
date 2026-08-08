@@ -148,6 +148,8 @@
         "R2_SQL_ACCOUNT_ID": "REPLACE_WITH_PRODUCTION_ACCOUNT_ID",
         "R2_SQL_BUCKET": "orange-replay-analytics-prod",
         "PUBLIC_PAGE_ORIGIN": "https://public-page-origin.invalid",
+        "SENTRY_ENVIRONMENT": "production",
+        "SENTRY_TRACES_SAMPLE_RATE": "0.02",
       },
       "assets": {
         "directory": "../dashboard/dist",

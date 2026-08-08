@@ -377,6 +377,8 @@ describe("analytics production deploy safety", () => {
     expect(workerConfig).toContain(
       '"ANALYTICS_DELETION_READ_VERSION": "REPLACE_WITH_PRODUCTION_ANALYTICS_DELETION_READ_VERSION"',
     );
+    expect(workerConfig).toContain('"SENTRY_ENVIRONMENT": "production"');
+    expect(workerConfig).toContain('"SENTRY_TRACES_SAMPLE_RATE": "0.02"');
     expect(workerConfig).toContain('"binding": "ANALYTICS_DELETION_V2_STREAM"');
     expect(workerConfig).toContain(
       '"stream": "REPLACE_WITH_PRODUCTION_ANALYTICS_DELETION_V2_STREAM_ID"',

@@ -37,7 +37,7 @@ VITE_SENTRY_TRACES_SAMPLE_RATE=1
 
 For production:
 
-1. Add `SENTRY_DSN` as a Worker secret. It is optional, so an existing deploy remains valid until the Sentry project is ready.
+1. Add `SENTRY_DSN` as a Worker secret. The production environment label and 2% Worker trace rate are reviewed in `apps/worker/wrangler.jsonc`; do not add them separately in the Cloudflare dashboard.
 2. Add `VITE_SENTRY_DSN`, `VITE_SENTRY_ENVIRONMENT=production`, and the chosen browser trace rate to Workers Builds.
 3. Add `SENTRY_AUTH_TOKEN` as a protected build secret, plus `SENTRY_ORG` and `SENTRY_PROJECT` as build variables. When all three exist, both Vite builds create hidden source maps, upload them to Sentry, then delete the local map files.
 4. Keep `upload_source_maps: true` in Wrangler so Worker builds generate and upload their maps. Follow Sentry's Cloudflare source-map wizard once for the project if Sentry does not show readable Worker frames.
