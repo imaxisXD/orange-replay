@@ -11,6 +11,7 @@ export interface ProjectConfigRow {
   maskPolicyVersion: unknown;
   maskRules?: unknown;
   capture?: unknown;
+  replayAssets?: unknown;
   quotaState: unknown;
   shard: unknown;
   version?: unknown;
@@ -36,13 +37,15 @@ export function mapConfigRowToProjectConfig(row: ProjectConfigRow | null): Proje
   const sessionCookieDomain = nullableString(row.sessionCookieDomain);
   const websiteId = nullableString(row.websiteId);
   const websitePending = optionalBooleanFlag(row.websitePending);
+  const replayAssets = optionalBooleanFlag(row.replayAssets);
 
   if (
     active === null ||
     jurisdiction === null ||
     sessionCookieDomain === null ||
     websiteId === null ||
-    websitePending === null
+    websitePending === null ||
+    replayAssets === null
   ) {
     return null;
   }
@@ -57,6 +60,7 @@ export function mapConfigRowToProjectConfig(row: ProjectConfigRow | null): Proje
     maskPolicyVersion: row.maskPolicyVersion,
     maskRules: parseJsonValue(row.maskRules),
     capture: parseJsonValue(row.capture),
+    ...(replayAssets === undefined ? {} : { replayAssets }),
     quotaState: row.quotaState,
     retentionDays: row.retentionDays,
     version: row.version,

@@ -17,6 +17,7 @@ import type {
   LiveSessionSnapshot,
   LiveTicketResponse,
   ProjectConfig,
+  ReplayAssetCaptureMessage,
   StoredProjectConfig,
   SegmentRef,
   SegmentCheckpoint,
@@ -264,6 +265,7 @@ const projectConfigObject = v.strictObject({
   maskPolicyVersion: nonnegativeSafeIntegerSchema,
   maskRules: v.optional(maskRulesSchema),
   capture: v.optional(captureTogglesSchema),
+  replayAssets: v.optional(v.boolean()),
   quotaState: v.picklist(["ok", "soft", "exceeded"]),
   retentionDays: v.pipe(safeIntegerSchema, v.minValue(1), v.maxValue(365)),
   jurisdiction: v.optional(v.picklist(["eu", "fedramp"])),
@@ -318,6 +320,7 @@ export const storedProjectConfigSchema: SharedSchema<
     ...projectConfigObject.entries,
     maskRules: maskRulesSchema,
     capture: captureTogglesSchema,
+    replayAssets: v.boolean(),
     version: nonnegativeSafeIntegerSchema,
   }),
 );
@@ -467,4 +470,19 @@ export const finalizeMessageSchema: SharedSchema<
       }
     }),
   ),
+);
+
+export const replayAssetCaptureMessageSchema: SharedSchema<
+  v.GenericSchema<ReplayAssetCaptureMessage, ReplayAssetCaptureMessage>
+> = sharedSchema(
+  v.strictObject({
+    type: v.literal("session.replay-assets"),
+    sessionId: pathIdSchema,
+    projectId: pathIdSchema,
+    shard: nonnegativeSafeIntegerSchema,
+    requestId: v.string(),
+    manifestKey: v.string(),
+    endedAt: finiteNumberSchema,
+    retentionDays: nonnegativeSafeIntegerSchema,
+  }),
 );

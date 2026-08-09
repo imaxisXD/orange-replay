@@ -91,3 +91,43 @@ test("renders recorded CSS while the replay frame blocks every network escape", 
   await page.waitForTimeout(500);
   expect(replayEgressRequests).toEqual([]);
 });
+
+test("renders private replay assets as blobs without contacting the recorded site", async ({
+  page,
+}) => {
+  const state = JSON.parse(await readFile(stateFile, "utf8")) as { demoUrl: string };
+  const recordedSiteRequests: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().startsWith("https://assets.customer.test")) {
+      recordedSiteRequests.push(request.url());
+    }
+  });
+
+  await page.goto(`${state.demoUrl}?sampleRate=0`);
+  await page.evaluate(async () => {
+    document.body.replaceChildren();
+    const root = document.createElement("div");
+    root.id = "replay-asset-proof-root";
+    document.body.append(root);
+    const modulePath = "/src/replay-proof.ts";
+    const { mountReplayAssetProof } = await import(/* @vite-ignore */ modulePath);
+    await mountReplayAssetProof(root);
+  });
+
+  const replayFrame = page.frameLocator("#replay-asset-proof-root iframe");
+  await expect(replayFrame.getByText("Replay asset fidelity proof")).toBeVisible();
+  const visualState = await replayFrame.locator(".asset-card").evaluate(async (element) => {
+    await document.fonts.load('16px "Replay asset font"');
+    const style = window.getComputedStyle(element);
+    return {
+      backgroundImage: style.backgroundImage,
+      fontFamily: style.fontFamily,
+      fontReady: document.fonts.check('16px "Replay asset font"'),
+    };
+  });
+
+  expect(visualState.backgroundImage).toContain("blob:");
+  expect(visualState.fontFamily).toContain("Replay asset font");
+  expect(visualState.fontReady).toBe(true);
+  expect(recordedSiteRequests).toEqual([]);
+});

@@ -16,6 +16,8 @@ import { chunkList } from "./helpers.ts";
 
 const SESSION_SELECT_LIMIT = 200;
 const R2_DELETE_LIMIT = 1_000;
+const REPLAY_ASSET_DELETE_GRACE_MS = 24 * 60 * 60 * 1_000;
+const REPLAY_ASSET_BUDGET_HISTORY_DAYS = 7;
 
 export interface ExpiredSessionRow {
   sessionId: string;
@@ -74,6 +76,8 @@ export async function sweepExpiredSessions(env: Env): Promise<void> {
       if (rows.length < SESSION_SELECT_LIMIT || safelyDeleted.length === 0) break;
     }
 
+    totals.objectsDeleted += await sweepOrphanReplayAssets(env, db);
+
     if (firstDeleteError !== undefined) {
       throw firstDeleteError instanceof Error
         ? firstDeleteError
@@ -91,6 +95,89 @@ export async function sweepExpiredSessions(env: Env): Promise<void> {
     });
     wideEvent.emit(outcome);
   }
+}
+
+async function sweepOrphanReplayAssets(env: Env, db: D1Database): Promise<number> {
+  const deleteBefore = Date.now() - REPLAY_ASSET_DELETE_GRACE_MS;
+  await db
+    .prepare(
+      `DELETE FROM replay_project_assets
+      WHERE created_at < ? AND NOT EXISTS (
+        SELECT 1 FROM replay_session_assets s
+        WHERE s.project_id = replay_project_assets.project_id
+          AND s.asset_hash = replay_project_assets.asset_hash
+      )`,
+    )
+    .bind(deleteBefore)
+    .run();
+  await db
+    .prepare(
+      `DELETE FROM replay_asset_urls
+      WHERE NOT EXISTS (
+        SELECT 1 FROM replay_project_assets p
+        WHERE p.project_id = replay_asset_urls.project_id
+          AND p.asset_hash = replay_asset_urls.asset_hash
+      )`,
+    )
+    .run();
+  const oldestBudgetDay = new Date(
+    Date.now() - REPLAY_ASSET_BUDGET_HISTORY_DAYS * 24 * 60 * 60 * 1_000,
+  )
+    .toISOString()
+    .slice(0, 10);
+  await db
+    .prepare(`DELETE FROM replay_asset_fetch_budgets WHERE day < ?`)
+    .bind(oldestBudgetDay)
+    .run();
+  await db.prepare(`DELETE FROM replay_asset_attempts WHERE day < ?`).bind(oldestBudgetDay).run();
+  const rows = await db
+    .prepare(
+      `SELECT asset_hash AS assetHash, r2_key AS r2Key, content_type AS contentType,
+        bytes, created_at AS createdAt
+      FROM replay_asset_objects o
+      WHERE NOT EXISTS (
+        SELECT 1 FROM replay_project_assets p WHERE p.asset_hash = o.asset_hash
+      )
+        AND created_at < ?
+      ORDER BY created_at
+      LIMIT 200`,
+    )
+    .bind(deleteBefore)
+    .all<{
+      assetHash: string;
+      r2Key: string;
+      contentType: string;
+      bytes: number;
+      createdAt: number;
+    }>();
+  let deleted = 0;
+  for (const row of rows.results) {
+    const removed = await db
+      .prepare(
+        `DELETE FROM replay_asset_objects
+        WHERE asset_hash = ? AND NOT EXISTS (
+          SELECT 1 FROM replay_project_assets WHERE asset_hash = ?
+        )`,
+      )
+      .bind(row.assetHash, row.assetHash)
+      .run();
+    if ((removed.meta.changes ?? 0) === 0) continue;
+    try {
+      await env.RECORDINGS.delete(row.r2Key);
+      deleted += 1;
+    } catch (error) {
+      await db
+        .prepare(
+          `INSERT OR IGNORE INTO replay_asset_objects
+            (asset_hash, r2_key, content_type, bytes, created_at)
+          VALUES (?, ?, ?, ?, ?)`,
+        )
+        .bind(row.assetHash, row.r2Key, row.contentType, row.bytes, row.createdAt)
+        .run();
+      throw error;
+    }
+  }
+  return deleted;
 }
 
 export async function selectExpiredSessions(

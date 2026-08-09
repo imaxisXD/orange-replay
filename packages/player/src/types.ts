@@ -20,6 +20,8 @@ export interface PlayerApi {
   segmentUrl?: (params: SegmentRequest) => string;
   liveUrl?: (params: LiveRequest) => string;
   liveTicketUrl?: (params: SessionRequest) => string;
+  assetMapUrl?: (params: SessionRequest) => string;
+  assetUrl?: (params: ReplayAssetRequest) => string;
 }
 
 export interface SessionRequest {
@@ -34,6 +36,26 @@ export interface SegmentRequest extends SessionRequest {
 
 export interface LiveRequest extends SessionRequest {
   ticket: string;
+}
+
+export interface ReplayAssetRequest extends SessionRequest {
+  assetHash: string;
+}
+
+export type ReplayAssetKind = "stylesheet" | "image" | "font";
+
+export interface ReplayAssetMapEntry {
+  sourceUrl: string;
+  parentHash: string;
+  assetHash: string;
+  contentType: string;
+  bytes: number;
+  kind: ReplayAssetKind;
+}
+
+export interface ReplayAssetMap {
+  version: 1;
+  entries: ReplayAssetMapEntry[];
 }
 
 export interface LoadSessionOptions extends SessionRequest {

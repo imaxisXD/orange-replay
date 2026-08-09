@@ -50,6 +50,7 @@ describe("shared client input contracts", () => {
     });
     expect(parsed.allowedOrigins).toEqual(["https://app.example.com"]);
     expect(parsed.maskRules).toEqual([{ selector: ".private", action: "mask" }]);
+    expect(parsed.replayAssets).toBeUndefined();
     expect(
       projectConfigUpdateSchema.safeParse({ ...parsed, allowedOrigins: ["not an origin"] }).success,
     ).toBe(false);

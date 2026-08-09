@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   isSafePrivacySelector,
   loadRecorderProjectConfig,
@@ -35,6 +35,10 @@ const remoteConfig = {
   capture: { heatmaps: true, console: false, network: false, canvas: true },
   version: 7,
 };
+
+afterEach(() => {
+  delete (window as Window & { __orConfig?: unknown }).__orConfig;
+});
 
 describe("recorder project config", () => {
   it("merges dashboard sampling, masking, and capture settings", () => {
@@ -120,6 +124,20 @@ describe("recorder project config", () => {
         credentials: "omit",
       }),
     );
+  });
+
+  it("reuses the loader config instead of making a second request", async () => {
+    (window as Window & { __orConfig?: unknown }).__orConfig = {
+      ...remoteConfig,
+      recorderUrl: "https://ingest.test/or-recorder.0123456789abcdef.js",
+    };
+    const fetchMock = vi.fn<typeof fetch>();
+
+    const loaded = await loadRecorderProjectConfig(localConfig, fetchMock, document);
+
+    expect(loaded.sampleRate).toBe(0.5);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect((window as Window & { __orConfig?: unknown }).__orConfig).toBeDefined();
   });
 
   it("rejects incomplete server config", () => {

@@ -5,6 +5,7 @@ import { buildSegment, encodeIngestBody } from "@orange-replay/shared/wire";
 import {
   fetchSegmentBytes,
   liveSocketUrl,
+  loadReplayAssetMap,
   loadSession,
   MAX_ENCODED_SEGMENT_BYTES,
   mintLiveTicket,
@@ -213,6 +214,19 @@ describe("manifest and segment loading", () => {
       "byte limit is invalid",
     );
     expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  it("rejects an oversized replay asset map before parsing JSON", async () => {
+    await expect(
+      loadReplayAssetMap(
+        {
+          assetMapUrl: () => "/assets",
+          fetch: async () =>
+            new Response("{}", { headers: { "content-length": String(300 * 1024) } }),
+        },
+        { projectId: "project", sessionId: "session" },
+      ),
+    ).rejects.toThrow("exceeds");
   });
 
   it("updates the player timeline with dead clicks after replay data decodes", async () => {

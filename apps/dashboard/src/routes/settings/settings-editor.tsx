@@ -111,6 +111,7 @@ function DraftSection({
         capture={draft.capture}
         error={state.validationErrors.capture}
         retentionDays={draft.retentionDays}
+        replayAssets={draft.replayAssets}
         sampleRate={draft.sampleRate}
         updateDraft={actions.updateDraft}
         onToggle={actions.setCaptureToggle}

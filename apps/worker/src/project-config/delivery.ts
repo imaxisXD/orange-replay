@@ -116,6 +116,7 @@ export async function saveProjectConfig(
           END,
           mask_rules = ?,
           capture_toggles = ?,
+          replay_assets_enabled = ?,
           config_version = config_version + 1
         WHERE id = ? AND config_version = ?`,
     )
@@ -126,6 +127,7 @@ export async function saveProjectConfig(
       serializedMaskRules,
       serializedMaskRules,
       JSON.stringify(update.capture),
+      (update.replayAssets ?? current.replayAssets) ? 1 : 0,
       projectId,
       update.expectedVersion,
     )

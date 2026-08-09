@@ -35,7 +35,13 @@ import {
   patchProjectName,
   putProjectConfig,
 } from "./project-routes.ts";
-import { getManifest, getSegment, listSessions } from "./session-routes.ts";
+import {
+  getManifest,
+  getReplayAsset,
+  getReplayAssetMap,
+  getSegment,
+  listSessions,
+} from "./session-routes.ts";
 import {
   getPublicManifest,
   getPublicPageDataResponse,
@@ -211,6 +217,14 @@ async function executeProjectRoute(
       const { projectId, sessionId, segmentName } = grantedIds(route.params);
       wideEvent.set({ cache_hit: false });
       return getSegment(env, projectId, sessionId, segmentName);
+    }
+    case "replay_asset_map": {
+      const { projectId, sessionId } = grantedIds(route.params);
+      return getReplayAssetMap(env, projectId, sessionId);
+    }
+    case "replay_asset": {
+      const { projectId, sessionId, assetHash } = grantedIds(route.params);
+      return getReplayAsset(env, projectId, sessionId, assetHash);
     }
   }
 }

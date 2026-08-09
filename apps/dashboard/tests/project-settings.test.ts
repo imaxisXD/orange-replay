@@ -166,6 +166,7 @@ function makeConfig(): StoredProjectConfig {
       network: true,
       canvas: false,
     },
+    replayAssets: true,
     quotaState: "ok",
     version: 1,
   };

@@ -107,7 +107,8 @@ async function buildSnippetForBudget() {
       "__BUNDLE_URL__",
       JSON.stringify("https://cdn.orange-replay.test/orange-replay.iife.js"),
     )
-    .replace("__INIT_CONFIG__", "undefined");
+    .replace("__INIT_CONFIG__", "undefined")
+    .replace("__QUEUE_LIMIT__", "100");
 }
 
 function formatBytes(value) {

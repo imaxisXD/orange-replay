@@ -14,8 +14,12 @@ export interface DraftMaskRule extends MaskRule {
   uiId: string;
 }
 
-export type ProjectSettingsDraft = Omit<ProjectConfigUpdate, "expectedVersion" | "maskRules"> & {
+export type ProjectSettingsDraft = Omit<
+  ProjectConfigUpdate,
+  "expectedVersion" | "maskRules" | "replayAssets"
+> & {
   maskRules: DraftMaskRule[];
+  replayAssets: boolean;
 };
 export type MaskRuleActionValue = MaskRule["action"];
 
@@ -49,6 +53,7 @@ export function makeProjectSettingsDraft(config: StoredProjectConfig): ProjectSe
       uiId: `saved-mask-rule-${config.projectId}-${config.version}-${index}`,
     })),
     capture: { ...config.capture },
+    replayAssets: config.replayAssets,
   };
 }
 
@@ -108,6 +113,7 @@ export function parseProjectSettingsDraft(
     maskPolicyVersion: draft.maskPolicyVersion,
     maskRules: draft.maskRules.map(({ selector, action }) => ({ selector, action })),
     capture: draft.capture,
+    replayAssets: draft.replayAssets,
   });
   const errors: ProjectSettingsValidationErrors = { capture: "", masking: "", origins: "" };
   if (parsed.success) return { ok: true, update: parsed.data, errors };
@@ -175,6 +181,7 @@ function stableDraft(draft: ProjectSettingsDraft) {
       network: draft.capture.network,
       canvas: draft.capture.canvas,
     },
+    replayAssets: draft.replayAssets,
   };
 }
 

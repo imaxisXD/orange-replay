@@ -57,6 +57,7 @@ export function CaptureCard({
   capture,
   error,
   onToggle,
+  replayAssets,
   retentionDays,
   sampleRate,
   updateDraft,
@@ -64,6 +65,7 @@ export function CaptureCard({
   capture: CaptureToggles;
   error: string;
   onToggle: (key: keyof CaptureToggles) => void;
+  replayAssets: boolean;
   retentionDays: number;
   sampleRate: number;
   updateDraft: (updater: (currentDraft: ProjectSettingsDraft) => ProjectSettingsDraft) => void;
@@ -97,6 +99,19 @@ export function CaptureCard({
             value={retentionDays}
           />
         </SettingRow>
+        <Switch
+          checked={replayAssets}
+          className="px-4 py-3.5"
+          description="Privately cache public styles, fonts, and background images after recording."
+          label="Preserve replay styling"
+          labelFirst
+          onToggle={() =>
+            updateDraft((currentDraft) => ({
+              ...currentDraft,
+              replayAssets: !currentDraft.replayAssets,
+            }))
+          }
+        />
         {/* The switch owns the whole row rather than sitting inside a SettingRow:
             its title and description are the toggle's own label, so clicking or
             hovering the text works the control like the filter toggles do. */}

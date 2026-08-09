@@ -101,6 +101,9 @@ export const projectConfigUpdateSchema: SharedSchema<
     maskPolicyVersion: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
     maskRules: projectConfigUpdateMaskRulesSchema,
     capture: captureTogglesSchema,
+    // Optional so an older dashboard can still save during a rolling deploy.
+    // The Worker preserves the stored value when this field is absent.
+    replayAssets: v.optional(v.boolean()),
   }),
 );
 

@@ -13,7 +13,7 @@ import {
 import { ingestIpRateLimitAllows } from "./rate-limit.ts";
 
 const CONFIG_READ_QUERY =
-  "SELECT k.project_id AS projectId, k.website_id AS websiteId, k.active AS active, p.org_id AS orgId, p.retention_days AS retentionDays, p.jurisdiction AS jurisdiction, p.sample_rate AS sampleRate, COALESCE(w.allowed_origins, p.allowed_origins) AS allowedOrigins, p.mask_policy_version AS maskPolicyVersion, p.mask_rules AS maskRules, p.capture_toggles AS capture, p.quota_state AS quotaState, p.config_version AS version, p.session_cookie_domain AS sessionCookieDomain, CASE WHEN w.id IS NOT NULL AND w.first_event_at IS NULL THEN 1 ELSE 0 END AS websitePending, o.shard AS shard FROM keys k JOIN projects p ON p.id = k.project_id JOIN orgs o ON o.id = p.org_id LEFT JOIN project_websites w ON w.id = k.website_id AND w.project_id = k.project_id WHERE k.key_hash = ?";
+  "SELECT k.project_id AS projectId, k.website_id AS websiteId, k.active AS active, p.org_id AS orgId, p.retention_days AS retentionDays, p.jurisdiction AS jurisdiction, p.sample_rate AS sampleRate, COALESCE(w.allowed_origins, p.allowed_origins) AS allowedOrigins, p.mask_policy_version AS maskPolicyVersion, p.mask_rules AS maskRules, p.capture_toggles AS capture, p.replay_assets_enabled AS replayAssets, p.quota_state AS quotaState, p.config_version AS version, p.session_cookie_domain AS sessionCookieDomain, CASE WHEN w.id IS NOT NULL AND w.first_event_at IS NULL THEN 1 ELSE 0 END AS websitePending, o.shard AS shard FROM keys k JOIN projects p ON p.id = k.project_id JOIN orgs o ON o.id = p.org_id LEFT JOIN project_websites w ON w.id = k.website_id AND w.project_id = k.project_id WHERE k.key_hash = ?";
 
 export interface ProjectConfigLookupResult {
   config: ProjectConfig | null;

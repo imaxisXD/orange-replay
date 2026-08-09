@@ -66,6 +66,7 @@ describe("project settings editor validation", () => {
         maskPolicyVersion: 1,
         maskRules: [{ selector: ".private", action: "mask" }],
         capture: config.capture,
+        replayAssets: true,
       }),
     );
   });
@@ -127,6 +128,7 @@ const config: StoredProjectConfig = {
   maskPolicyVersion: 1,
   maskRules: [{ selector: ".saved", action: "mask" }],
   capture: { heatmaps: false, console: false, network: true, canvas: false },
+  replayAssets: true,
   quotaState: "ok",
   version: 1,
 };

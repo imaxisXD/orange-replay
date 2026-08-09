@@ -8,11 +8,14 @@ import {
 import { secureReplayEvents } from "../secure-replayer.ts";
 import { eventsFromCheckpoint, mergeReplayEvents, type DecodedReplayBatch } from "../segments.ts";
 import type { ReplayEvent } from "../types.ts";
+import type { ReplayCssUrlRewriter } from "../css.ts";
 
 export class ReplayEventStore {
   private readonly sanitizerState = createReplaySanitizerState();
   private storedEvents: ReplayEvent[] = [];
   private activeReplayTab: string | undefined;
+
+  constructor(private readonly rewriteUrl?: ReplayCssUrlRewriter) {}
 
   get events(): readonly ReplayEvent[] {
     return this.storedEvents;
@@ -23,7 +26,9 @@ export class ReplayEventStore {
       return [];
     }
 
-    const sanitizedEvents = secureReplayEvents(sanitizeReplayEvents(events, this.sanitizerState));
+    const sanitizedEvents = secureReplayEvents(
+      sanitizeReplayEvents(events, this.sanitizerState, { rewriteUrl: this.rewriteUrl }),
+    );
     this.append(sanitizedEvents);
     return sanitizedEvents;
   }
@@ -48,7 +53,7 @@ export class ReplayEventStore {
 
     this.storedEvents = retainedEvents;
     clearReplaySanitizerState(this.sanitizerState);
-    sanitizeReplayEvents(this.storedEvents, this.sanitizerState);
+    sanitizeReplayEvents(this.storedEvents, this.sanitizerState, { rewriteUrl: this.rewriteUrl });
     return true;
   }
 
@@ -95,7 +100,7 @@ export class ReplayEventStore {
 
     this.storedEvents = retainedEvents;
     clearReplaySanitizerState(this.sanitizerState);
-    sanitizeReplayEvents(this.storedEvents, this.sanitizerState);
+    sanitizeReplayEvents(this.storedEvents, this.sanitizerState, { rewriteUrl: this.rewriteUrl });
   }
 
   private chooseActiveReplayTab(batches: readonly DecodedReplayBatch[]): void {

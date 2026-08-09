@@ -34,6 +34,8 @@ export type DashboardRouteName =
   | "session_state"
   | "live_ticket"
   | "segment"
+  | "replay_asset_map"
+  | "replay_asset"
   | "live"
   | "not_found";
 
@@ -53,7 +55,9 @@ export type DashboardProjectRouteName =
   | "project_websites"
   | "manifest"
   | "live_ticket"
-  | "segment";
+  | "segment"
+  | "replay_asset_map"
+  | "replay_asset";
 
 export interface DashboardProjectAccess {
   demoReadable: boolean;
@@ -77,6 +81,8 @@ const PROJECT_ACCESS: Readonly<Record<DashboardProjectRouteName, DashboardProjec
   manifest: { demoReadable: true, minimumRole: "member" },
   live_ticket: { demoReadable: true, minimumRole: "member" },
   segment: { demoReadable: true, minimumRole: "member" },
+  replay_asset_map: { demoReadable: false, minimumRole: "member" },
+  replay_asset: { demoReadable: false, minimumRole: "member" },
 };
 
 export function projectRouteAccess(route: DashboardProjectRouteName): DashboardProjectAccess {
@@ -91,6 +97,9 @@ export interface SessionIds extends ProjectIds {
 }
 export interface SegmentIds extends SessionIds {
   segmentName: string;
+}
+export interface AssetIds extends SessionIds {
+  assetHash: string;
 }
 export interface KeyIds extends ProjectIds {
   keyId: string;
@@ -183,13 +192,17 @@ export type ProjectRoutePlan = ProjectRouteFlags &
         params: ProjectParams<ProjectIds>;
       }
     | { action: "project_config_method_not_allowed"; params: ProjectParams<ProjectIds> }
-    | { action: "manifest" | "session_state" | "live_ticket"; params: ProjectParams<SessionIds> }
+    | {
+        action: "manifest" | "session_state" | "live_ticket" | "replay_asset_map";
+        params: ProjectParams<SessionIds>;
+      }
     | { action: "project_key_revoke"; params: ProjectParams<KeyIds> }
     | {
         action: "project_website_install_status" | "project_website_setup";
         params: ProjectParams<WebsiteIds>;
       }
     | { action: "segment"; params: ProjectParams<SegmentIds> }
+    | { action: "replay_asset"; params: ProjectParams<AssetIds> }
   );
 
 /**
@@ -253,6 +266,8 @@ const MANIFEST_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/mani
 const SESSION_STATE_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/state$/;
 const LIVE_TICKET_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/live-ticket$/;
 const SEGMENT_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/segments\/(.+)$/;
+const REPLAY_ASSET_MAP_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/assets$/;
+const REPLAY_ASSET_PATTERN = /^\/api\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/assets\/([^/]+)$/;
 const PROJECT_ID_PREFIX_PATTERN = /^\/api\/v1\/projects\/([^/]+)/;
 
 const PROJECT_DEFAULTS = {
@@ -630,6 +645,32 @@ export function matchDashboardRequest(method: string, pathname: string): Dashboa
       : unsupported(pathname, "live_ticket");
   }
 
+  match = REPLAY_ASSET_MAP_PATTERN.exec(pathname);
+  if (match !== null) {
+    return method === "GET"
+      ? authed(pathname, "replay_asset_map", {
+          ...PROJECT_DEFAULTS,
+          route: "replay_asset_map",
+          sessionAuthRequired: true,
+          action: "replay_asset_map",
+          params: sessionParams(match[1] ?? null, match[2] ?? null),
+        })
+      : unsupported(pathname, "replay_asset_map");
+  }
+
+  match = REPLAY_ASSET_PATTERN.exec(pathname);
+  if (match !== null) {
+    return method === "GET"
+      ? authed(pathname, "replay_asset", {
+          ...PROJECT_DEFAULTS,
+          route: "replay_asset",
+          sessionAuthRequired: true,
+          action: "replay_asset",
+          params: assetParams(match[1] ?? null, match[2] ?? null, match[3] ?? null),
+        })
+      : unsupported(pathname, "replay_asset");
+  }
+
   match = SEGMENT_PATTERN.exec(pathname);
   if (match !== null) {
     return method === "GET"
@@ -714,6 +755,16 @@ function segmentParams(
     return { ok: false, error: "invalid_segment_name", ids: base.ids };
   }
   return { ok: true, ids: { ...base.ids, segmentName } };
+}
+
+function assetParams(
+  projectId: string | null,
+  sessionId: string | null,
+  assetHash: string | null,
+): ProjectParams<AssetIds> {
+  const base = sessionParams(projectId, sessionId);
+  if (!base.ok || assetHash === null || !/^[a-f0-9]{64}$/.test(assetHash)) return INVALID_PATH;
+  return { ok: true, ids: { ...base.ids, assetHash } };
 }
 
 function publicPageParams(publicId: string | null): PublicPageParams<PublicPageIds> {

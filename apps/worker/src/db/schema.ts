@@ -45,6 +45,9 @@ export const projects = sqliteTable(
     configVersion: integer("config_version").notNull().default(1),
     createdAt: integer("created_at").notNull(),
     sessionCookieDomain: text("session_cookie_domain"),
+    replayAssetsEnabled: integer("replay_assets_enabled", { mode: "boolean" })
+      .notNull()
+      .default(sql`1`),
   },
   (table) => [index("idx_projects_org_id").on(table.orgId)],
 );
@@ -443,6 +446,100 @@ export const sessionEvents = sqliteTable(
     detail: text("detail"),
   },
   (table) => [primaryKey({ columns: [table.projectId, table.sessionId, table.t, table.kind] })],
+);
+
+export const replayAssetObjects = sqliteTable(
+  "replay_asset_objects",
+  {
+    assetHash: text("asset_hash").notNull(),
+    r2Key: text("r2_key").notNull().unique(),
+    contentType: text("content_type").notNull(),
+    bytes: integer("bytes").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.assetHash] })],
+);
+
+export const replayProjectAssets = sqliteTable(
+  "replay_project_assets",
+  {
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    assetHash: text("asset_hash")
+      .notNull()
+      .references(() => replayAssetObjects.assetHash, { onDelete: "cascade" }),
+    bytes: integer("bytes").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.projectId, table.assetHash] })],
+);
+
+export const replayAssetUrls = sqliteTable(
+  "replay_asset_urls",
+  {
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    sourceUrlHash: text("source_url_hash").notNull(),
+    assetHash: text("asset_hash")
+      .notNull()
+      .references(() => replayAssetObjects.assetHash, { onDelete: "cascade" }),
+    fetchedAt: integer("fetched_at").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.projectId, table.sourceUrlHash] })],
+);
+
+export const replaySessionAssets = sqliteTable(
+  "replay_session_assets",
+  {
+    projectId: text("project_id").notNull(),
+    sessionId: text("session_id").notNull(),
+    parentHash: text("parent_hash").notNull().default(""),
+    sourceUrlHash: text("source_url_hash").notNull(),
+    assetHash: text("asset_hash")
+      .notNull()
+      .references(() => replayAssetObjects.assetHash, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    createdAt: integer("created_at").notNull(),
+    expiresAt: integer("expires_at").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.projectId, table.sessionId, table.parentHash, table.sourceUrlHash],
+    }),
+    foreignKey({
+      columns: [table.projectId, table.sessionId],
+      foreignColumns: [sessions.projectId, sessions.sessionId],
+    }).onDelete("cascade"),
+    index("idx_replay_session_assets_hash").on(table.projectId, table.sessionId, table.assetHash),
+    index("idx_replay_session_assets_expiry").on(table.expiresAt, table.projectId, table.sessionId),
+  ],
+);
+
+export const replayAssetFetchBudgets = sqliteTable(
+  "replay_asset_fetch_budgets",
+  {
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    day: text("day").notNull(),
+    fetches: integer("fetches").notNull().default(0),
+  },
+  (table) => [primaryKey({ columns: [table.projectId, table.day] })],
+);
+
+export const replayAssetAttempts = sqliteTable(
+  "replay_asset_attempts",
+  {
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    sourceUrlHash: text("source_url_hash").notNull(),
+    day: text("day").notNull(),
+    attempts: integer("attempts").notNull().default(0),
+  },
+  (table) => [primaryKey({ columns: [table.projectId, table.sourceUrlHash, table.day] })],
 );
 
 export const usageMonthly = sqliteTable(

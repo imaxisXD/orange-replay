@@ -1,7 +1,7 @@
 import * as Sentry from "@sentry/cloudflare";
 import { PresenceRegistry as PresenceRegistryBase } from "../do/presence-registry.ts";
 import { SessionRecorder as SessionRecorderBase } from "../do/session-recorder.ts";
-import { isDevTestMode, type Env, type FinalizeMessage } from "../env.ts";
+import { isDevTestMode, type Env, type WorkerQueueMessage } from "../env.ts";
 import worker from "../index.ts";
 import {
   instrumentDurableObjectWhenSentryEnabled,
@@ -20,9 +20,9 @@ const sentryBoundary = {
     }
     return worker.fetch(request, env, ctx);
   },
-} satisfies ExportedHandler<Env, FinalizeMessage>;
+} satisfies ExportedHandler<Env, WorkerQueueMessage>;
 
-const monitoredWorker = Sentry.withSentry<Env, FinalizeMessage, unknown, typeof sentryBoundary>(
+const monitoredWorker = Sentry.withSentry<Env, WorkerQueueMessage, unknown, typeof sentryBoundary>(
   workerSentryOptions,
   sentryBoundary,
 );
@@ -37,7 +37,7 @@ export default {
   scheduled(controller, env, ctx) {
     return (sentryEnabled(env) ? monitoredWorker : sentryBoundary).scheduled(controller, env, ctx);
   },
-} satisfies ExportedHandler<Env, FinalizeMessage>;
+} satisfies ExportedHandler<Env, WorkerQueueMessage>;
 
 function isSentryTestRequest(request: Request, env: Env): boolean {
   return isDevTestMode(env) && new URL(request.url).pathname === "/__test/sentry-error";

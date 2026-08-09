@@ -12,9 +12,14 @@ import type {
   PlayerApiInput,
   SegmentRequest,
   SessionRequest,
+  ReplayAssetMap,
+  ReplayAssetMapEntry,
+  ReplayAssetRequest,
 } from "./types.ts";
 
 export { MAX_ENCODED_SEGMENT_BYTES };
+
+const MAX_REPLAY_ASSET_MAP_BYTES = 256 * 1024;
 
 export async function loadSession(
   api: PlayerApiInput,
@@ -129,6 +134,35 @@ export async function mintLiveTicket(
   return liveTicketResponseSchema.parse(await response.json());
 }
 
+export async function loadReplayAssetMap(
+  api: PlayerApiInput,
+  options: SessionRequest & { signal?: AbortSignal },
+): Promise<ReplayAssetMap | null> {
+  const resolved = resolveApi(api);
+  const url = resolved.assetMapUrl?.(options);
+  if (url === undefined) return null;
+  const response = await resolved.fetchFn(url, { signal: options.signal });
+  if (response.status === 404 || response.status === 401 || response.status === 403) return null;
+  if (!response.ok) throw new Error(await readApiError(response, "Could not load replay assets."));
+  const bytes = await readResponseBytesCapped(response, MAX_REPLAY_ASSET_MAP_BYTES);
+  return parseReplayAssetMap(JSON.parse(new TextDecoder().decode(bytes)) as unknown);
+}
+
+export async function fetchReplayAssetBytes(
+  api: PlayerApiInput,
+  options: ReplayAssetRequest & { bytes: number; signal?: AbortSignal },
+): Promise<Uint8Array> {
+  const resolved = resolveApi(api);
+  const url = resolved.assetUrl?.(options);
+  if (url === undefined) throw new Error("Replay asset loading is not configured.");
+  const response = await resolved.fetchFn(url, { signal: options.signal });
+  if (!response.ok) throw new Error(await readApiError(response, "Could not load replay asset."));
+  const bytes = await readResponseBytesCapped(response, options.bytes);
+  if (bytes.byteLength !== options.bytes)
+    throw new Error("Replay asset size does not match its map.");
+  return bytes;
+}
+
 export function segmentFileName(segment: SegmentRef): string {
   return segment.key.split("/").at(-1) ?? segment.key;
 }
@@ -139,6 +173,8 @@ interface ResolvedApi {
   segmentUrl: (params: SegmentRequest) => string;
   liveUrl: (params: LiveRequest) => string;
   liveTicketUrl: (params: SessionRequest) => string;
+  assetMapUrl?: (params: SessionRequest) => string;
+  assetUrl?: (params: ReplayAssetRequest) => string;
 }
 
 function readContentLength(value: string | null): number | null {
@@ -181,7 +217,63 @@ function resolveApi(api: PlayerApiInput): ResolvedApi {
         `${baseUrl}/api/v1/projects/${encodePath(params.projectId)}/sessions/${encodePath(
           params.sessionId,
         )}/live-ticket`),
+    assetMapUrl: apiObject.assetMapUrl,
+    assetUrl: apiObject.assetUrl,
   };
+}
+
+function parseReplayAssetMap(value: unknown): ReplayAssetMap {
+  if (!isRecord(value) || value["version"] !== 1 || !Array.isArray(value["entries"])) {
+    throw new Error("Replay asset map is invalid.");
+  }
+  if (value["entries"].length > 64) throw new Error("Replay asset map is too large.");
+  return { version: 1, entries: value["entries"].map(parseReplayAssetMapEntry) };
+}
+
+function parseReplayAssetMapEntry(value: unknown): ReplayAssetMapEntry {
+  if (!isRecord(value)) throw new Error("Replay asset entry is invalid.");
+  const sourceUrl = value["sourceUrl"];
+  const parentHash = value["parentHash"];
+  const assetHash = value["assetHash"];
+  const contentType = value["contentType"];
+  const bytes = value["bytes"];
+  const kind = value["kind"];
+  if (
+    typeof sourceUrl !== "string" ||
+    sourceUrl.length === 0 ||
+    sourceUrl.length > 2_048 ||
+    typeof parentHash !== "string" ||
+    (parentHash !== "" && !/^[a-f0-9]{64}$/.test(parentHash)) ||
+    typeof assetHash !== "string" ||
+    !/^[a-f0-9]{64}$/.test(assetHash) ||
+    typeof contentType !== "string" ||
+    contentType.length === 0 ||
+    contentType.length > 100 ||
+    typeof bytes !== "number" ||
+    !Number.isSafeInteger(bytes) ||
+    bytes < 1 ||
+    bytes > 5 * 1024 * 1024 ||
+    (kind !== "stylesheet" && kind !== "image" && kind !== "font")
+  ) {
+    throw new Error("Replay asset entry is invalid.");
+  }
+  if (!contentTypeMatchesAssetKind(contentType, kind)) {
+    throw new Error("Replay asset entry is invalid.");
+  }
+  return { sourceUrl, parentHash, assetHash, contentType, bytes, kind };
+}
+
+function contentTypeMatchesAssetKind(
+  contentType: string,
+  kind: ReplayAssetMapEntry["kind"],
+): boolean {
+  if (kind === "stylesheet") return contentType === "text/css";
+  if (kind === "image") return contentType.startsWith("image/");
+  return contentType.startsWith("font/") || contentType === "application/font-woff";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 async function readApiError(response: Response, fallback: string): Promise<string> {

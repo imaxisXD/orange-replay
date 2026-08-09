@@ -43,6 +43,7 @@ afterEach(() => {
       __orCleanup?: Array<() => void>;
       __orInit?: unknown;
       __orLoaderStarted?: boolean;
+      __orConfig?: unknown;
     }
   ).__orq;
   delete (
@@ -69,6 +70,7 @@ afterEach(() => {
       __orLoaderStarted?: boolean;
     }
   ).__orLoaderStarted;
+  delete (window as Window & { __orConfig?: unknown }).__orConfig;
 });
 
 describe("loader", () => {
@@ -86,7 +88,8 @@ describe("loader", () => {
 
     expect(snippet).toContain('"key":"recorder-key"');
     expect(snippet).toContain('"blockSelector":".secret-panel"');
-    expect(snippet).toContain("queueLimit:1");
+    expect(snippet).toContain("l=1");
+    expect(snippet).not.toContain("queueLimit");
     expect(snippet).toContain("q.length>=l");
     expect(snippet).toContain("u:w.location.href");
     expect(snippet).toContain('"code":"bundle_load_failed"');
@@ -99,6 +102,8 @@ describe("loader", () => {
     });
     expect(scriptTag).toMatch(/^<script>\n/);
     expect(scriptTag).toMatch(/\n<\/script>$/);
+    expect(scriptTag).toContain("l=100");
+    expect(scriptTag).not.toContain("queueLimit");
   });
 
   it("escapes config values for inline script tags", async () => {
@@ -151,6 +156,86 @@ describe("loader", () => {
 
     expect(snippet).toContain('"https://cdn.test/__INIT_CONFIG__/sdk.js"');
     expect(snippet).toContain('init:{"key":"or_live_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"');
+  });
+
+  it("does not download the recorder for a sampled-out session", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      Response.json({
+        recorderUrl: "https://ingest.test/or-recorder.0123456789abcdef.js",
+        projectId: "project_1",
+        sessionScope: "project_1",
+        sampleRate: 0,
+      }),
+    );
+    Object.defineProperty(window, "fetch", { configurable: true, value: fetchMock });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { installLoaderRuntime } = await import("../src/loader-runtime.ts");
+    installLoaderRuntime({
+      bundleUrl: "https://ingest.test/or-recorder.js",
+      init: { key: "recorder-key", ingestUrl: "https://ingest.test" },
+    });
+
+    await vi.waitFor(() =>
+      expect(Array.isArray((window as Window & { __orq?: unknown }).__orq)).toBe(false),
+    );
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(document.head.querySelector("script")).toBeNull();
+    const queue = (window as Window & { __orq?: unknown }).__orq;
+    expect(Array.isArray(queue)).toBe(false);
+    expect(typeof (queue as { push?: unknown })?.push).toBe("function");
+  });
+
+  it("does not download the recorder when the generated production snippet samples out", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      Response.json({
+        recorderUrl: "https://ingest.test/or-recorder.0123456789abcdef.js",
+        projectId: "project_1",
+        sessionScope: "project_1",
+        sampleRate: 0,
+      }),
+    );
+    Object.defineProperty(window, "fetch", { configurable: true, value: fetchMock });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { buildLoaderSnippet } = await import("../src/loader.ts");
+    const snippet = buildLoaderSnippet({
+      bundleUrl: "https://ingest.test/or-recorder.js",
+      init: { key: "recorder-key", ingestUrl: "https://ingest.test" },
+    });
+    // oxlint-disable-next-line typescript/no-implied-eval -- Execute the exact generated customer snippet in this regression test.
+    window.Function(snippet)();
+
+    await vi.waitFor(() =>
+      expect(Array.isArray((window as Window & { __orq?: unknown }).__orq)).toBe(false),
+    );
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(document.head.querySelector("script")).toBeNull();
+  });
+
+  it("loads the hashed recorder and caches config for a sampled-in session", async () => {
+    const remoteConfig = {
+      recorderUrl: "https://ingest.test/or-recorder.0123456789abcdef.js",
+      projectId: "project_1",
+      sessionScope: "project_1",
+      sampleRate: 1,
+    };
+    const fetchMock = vi.fn<typeof fetch>(async () => Response.json(remoteConfig));
+    Object.defineProperty(window, "fetch", { configurable: true, value: fetchMock });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { installLoaderRuntime } = await import("../src/loader-runtime.ts");
+    installLoaderRuntime({
+      bundleUrl: "https://ingest.test/or-recorder.js",
+      init: { key: "recorder-key", ingestUrl: "https://ingest.test" },
+    });
+
+    await vi.waitFor(() =>
+      expect(document.head.querySelector("script")?.src).toBe(
+        "https://ingest.test/or-recorder.0123456789abcdef.js",
+      ),
+    );
+    expect((window as Window & { __orConfig?: unknown }).__orConfig).toEqual(remoteConfig);
   });
 
   it("drains pre-buffered events into the first SDK batch", async () => {

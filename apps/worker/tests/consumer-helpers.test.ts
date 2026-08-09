@@ -1,4 +1,8 @@
-import { manifestKey, type FinalizeMessage } from "@orange-replay/shared";
+import {
+  manifestKey,
+  type FinalizeMessage,
+  type ReplayAssetCaptureMessage,
+} from "@orange-replay/shared";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { handleFinalizeBatch } from "../src/consumer/queue.ts";
 import {
@@ -35,6 +39,47 @@ describe("consumer helper logic", () => {
 });
 
 describe("consumer wide events", () => {
+  it("acknowledges a replay asset job whose private map already exists", async () => {
+    const log = vi.spyOn(globalThis["console"], "log").mockImplementation(() => undefined);
+    const retry = vi.fn();
+    const ack = vi.fn();
+    const body: ReplayAssetCaptureMessage = {
+      type: "session.replay-assets",
+      sessionId: "session-assets",
+      projectId: "project-assets",
+      shard: 0,
+      requestId: "request-assets",
+      manifestKey: manifestKey("project-assets", "session-assets"),
+      endedAt: Date.now(),
+      retentionDays: 30,
+    };
+    const message = {
+      body,
+      attempts: 1,
+      ack,
+      retry,
+    } as unknown as Parameters<typeof handleFinalizeBatch>[0]["messages"][number];
+    const env = {
+      RECORDINGS: { head: vi.fn(async () => ({ key: "asset-map" })) },
+    } as unknown as Env;
+
+    await handleFinalizeBatch(
+      { messages: [message] } as Parameters<typeof handleFinalizeBatch>[0],
+      env,
+      {} as Parameters<typeof handleFinalizeBatch>[2],
+    );
+
+    expect(ack).toHaveBeenCalledOnce();
+    expect(retry).not.toHaveBeenCalled();
+    const parsed = JSON.parse(String(log.mock.calls[0]?.[0])) as Record<string, unknown>;
+    expect(parsed).toMatchObject({
+      event: "consumer.replay_assets",
+      outcome: "success",
+      already_complete: true,
+      attempts: 1,
+    });
+  });
+
   it("marks the final retry attempt as a DLQ drop", async () => {
     const log = vi.spyOn(globalThis["console"], "log").mockImplementation(() => undefined);
     const error = vi.spyOn(globalThis["console"], "error").mockImplementation(() => undefined);
@@ -107,8 +152,9 @@ function makeFinalizeMessage(name: string): FinalizeMessage {
 
 function makeEmptySweepEnv(): Env {
   const all = vi.fn(async () => ({ results: [] }));
-  const bind = vi.fn(() => ({ all }));
-  const prepare = vi.fn(() => ({ bind }));
+  const run = vi.fn(async () => ({ meta: { changes: 0 } }));
+  const bind = vi.fn(() => ({ all, run }));
+  const prepare = vi.fn(() => ({ all, bind, run }));
 
   return {
     IDX_00: { prepare },

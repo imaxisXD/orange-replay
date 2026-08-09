@@ -8,7 +8,8 @@ const repoRoot = path.resolve(workerRoot, "../..");
 const forbidden = /\b(?:DecompressionStream|gunzip|inflateRaw|inflate)\b/;
 
 describe("analytics privacy boundary", () => {
-  it("does not decompress replay payloads in Worker or analytics backfill code", async () => {
+  it("keeps replay decompression out of hot paths and analytics code", async () => {
+    const boundedAssetCapture = path.join(workerRoot, "src/replay-assets/capture.ts");
     const files = [
       ...(await sourceFiles(path.join(workerRoot, "src"))),
       ...(await matchingFiles(path.join(repoRoot, "scripts"), /analytics|backfill/i)),
@@ -17,12 +18,16 @@ describe("analytics privacy boundary", () => {
 
     for (const file of files) {
       const source = await readFile(file, "utf8");
-      if (forbidden.test(source)) {
+      if (file !== boundedAssetCapture && forbidden.test(source)) {
         violations.push(path.relative(repoRoot, file));
       }
     }
 
     expect(violations).toEqual([]);
+    const assetCaptureSource = await readFile(boundedAssetCapture, "utf8");
+    expect(assetCaptureSource).toContain('new DecompressionStream("gzip")');
+    expect(assetCaptureSource).toContain("MAX_SNAPSHOTS = 3");
+    expect(assetCaptureSource).toContain("MAX_DECODED_BATCH_BYTES = 16 * 1024 * 1024");
   });
 });
 

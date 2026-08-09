@@ -6,6 +6,9 @@ export function dashboardPlayerApi(manifest: SessionManifest, access: DashboardA
   const manifestRequestPath = manifestPath(manifest.projectId, manifest.sessionId);
 
   return {
+    assetMapUrl: () => `${manifestRequestPath.slice(0, -"/manifest".length)}/assets`,
+    assetUrl: ({ assetHash }) =>
+      `${manifestRequestPath.slice(0, -"/manifest".length)}/assets/${encodePathPart(assetHash)}`,
     fetch(input, init) {
       if (matchesPath(input, manifestRequestPath)) {
         return Promise.resolve(

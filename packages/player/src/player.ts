@@ -26,6 +26,7 @@ import type {
 } from "./types.ts";
 import { DecodeWorkerHost } from "./worker-host.ts";
 import { isReplayDataError } from "./worker-core.ts";
+import { ReplayAssetStore } from "./replay-assets.ts";
 
 const DEFAULT_SPEED = 1;
 const MIN_SPEED = 0.1;
@@ -38,7 +39,9 @@ export class OrangePlayer {
   private readonly worker: DecodeWorkerHost;
   private readonly overlay: ReplayOverlay;
   private readonly surface: ReplaySurface;
-  private readonly eventStore = new ReplayEventStore();
+  private readonly eventStore: ReplayEventStore;
+  private readonly assetStore: ReplayAssetStore;
+  private readonly assetLoadPromise: Promise<void>;
   private readonly segmentLoader: RecordedSegmentLoader;
   private readonly liveController: LiveFollowController;
   private readonly abortController = new AbortController();
@@ -71,6 +74,9 @@ export class OrangePlayer {
     this.speed = cleanSpeed(options.speed);
     this.skipInactivity = options.skipInactivity === true;
     this.worker = new DecodeWorkerHost(options.worker);
+    this.assetStore = new ReplayAssetStore(options.api, options, this.abortController.signal);
+    this.assetLoadPromise = this.assetStore.load().catch(() => undefined);
+    this.eventStore = new ReplayEventStore(this.assetStore.rewriteUrl);
     this.segmentLoader = new RecordedSegmentLoader({
       request: options,
       signal: this.abortController.signal,
@@ -360,6 +366,7 @@ export class OrangePlayer {
     this.surface.stop();
     this.overlay.destroy();
     this.worker.stop();
+    this.assetStore.destroy();
     this.segmentLoader.clearLoadingSegments();
     this.emitter.clear();
   }
@@ -430,7 +437,9 @@ export class OrangePlayer {
       this.emitter.emit("ready", manifest);
 
       if (manifest.segments.length > 0) {
-        this.prefetchSegment(0, "Could not prefetch the first replay segment.");
+        void this.assetLoadPromise.then(() => {
+          this.prefetchSegment(0, "Could not prefetch the first replay segment.");
+        });
       }
 
       return manifest;
@@ -447,6 +456,8 @@ export class OrangePlayer {
     if (window === undefined || window.activeIndex < 0) {
       return;
     }
+    await this.assetLoadPromise;
+    if (this.destroyed) return;
 
     if (this.recordedReplayNeedsResetAfterLive) {
       this.recordedReplayNeedsResetAfterLive = false;
@@ -664,11 +675,22 @@ export class OrangePlayer {
       return;
     }
 
-    void this.segmentLoader.loadSegment(index).catch((error) => {
-      if (!this.destroyed) {
-        this.emitError(errorMessage, error, "warning");
-      }
-    });
+    void this.assetLoadPromise
+      .then(async () => {
+        if (
+          this.destroyed ||
+          this.segmentLoader.hasLoaded(index) ||
+          this.segmentLoader.isLoading(index)
+        ) {
+          return;
+        }
+        await this.segmentLoader.loadSegment(index);
+      })
+      .catch((error) => {
+        if (!this.destroyed) {
+          this.emitError(errorMessage, error, "warning");
+        }
+      });
   }
 
   private handleReplayerFinish(): void {

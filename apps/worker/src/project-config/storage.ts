@@ -19,6 +19,7 @@ const projectConfigColumns = [
   "ALTER TABLE projects ADD COLUMN config_version INTEGER NOT NULL DEFAULT 1",
   "ALTER TABLE projects ADD COLUMN mask_rules TEXT NOT NULL DEFAULT '[]'",
   `ALTER TABLE projects ADD COLUMN capture_toggles TEXT NOT NULL DEFAULT '{"heatmaps":false,"console":false,"network":false,"canvas":false}'`,
+  "ALTER TABLE projects ADD COLUMN replay_assets_enabled INTEGER NOT NULL DEFAULT 1 CHECK (replay_assets_enabled IN (0, 1))",
   "ALTER TABLE projects ADD COLUMN session_cookie_domain TEXT",
 ] as const;
 let projectConfigColumnsEnsured = false;
@@ -36,6 +37,7 @@ const projectConfigSelect = `
     p.mask_policy_version AS maskPolicyVersion,
     p.mask_rules AS maskRules,
     p.capture_toggles AS capture,
+    p.replay_assets_enabled AS replayAssets,
     p.quota_state AS quotaState,
     p.config_version AS version,
     p.session_cookie_domain AS sessionCookieDomain,
@@ -57,6 +59,7 @@ interface ProjectConfigRow {
   maskPolicyVersion: unknown;
   maskRules: unknown;
   capture: unknown;
+  replayAssets: unknown;
   quotaState: unknown;
   version: unknown;
   sessionCookieDomain: unknown;
@@ -106,12 +109,14 @@ function mapProjectConfigRow(row: ProjectConfigRow): StoredProjectConfig | null 
   const capture = parseCapture(row.capture);
   const jurisdiction = nullableJurisdiction(row.jurisdiction);
   const sessionCookieDomain = nullableString(row.sessionCookieDomain);
+  const replayAssets = readBooleanFlag(row.replayAssets);
   if (
     allowedOrigins === null ||
     maskRules === null ||
     capture === null ||
     jurisdiction === null ||
-    sessionCookieDomain === null
+    sessionCookieDomain === null ||
+    replayAssets === null
   ) {
     return null;
   }
@@ -126,6 +131,7 @@ function mapProjectConfigRow(row: ProjectConfigRow): StoredProjectConfig | null 
     maskPolicyVersion: row.maskPolicyVersion,
     maskRules,
     capture,
+    replayAssets,
     quotaState: row.quotaState,
     retentionDays: row.retentionDays,
     version: row.version,
@@ -195,6 +201,12 @@ function nullableString(value: unknown): string | undefined | null {
 
 function readActive(value: unknown): boolean {
   return typeof value === "number" && value > 0;
+}
+
+function readBooleanFlag(value: unknown): boolean | null {
+  if (value === 0 || value === false) return false;
+  if (value === 1 || value === true) return true;
+  return null;
 }
 
 function isDuplicateColumnError(error: unknown): boolean {

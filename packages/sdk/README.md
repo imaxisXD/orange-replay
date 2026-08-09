@@ -22,5 +22,5 @@ vp run @orange-replay/sdk#budget
 
 The budget task rebuilds the SDK, gzips the built outputs with Node `zlib`, and fails when:
 
-- `dist/orange-replay.js` is over 20KB gzip
-- `dist/loader-runtime.js` is over 2KB gzip
+- `dist/orange-replay.js` or `dist/orange-replay.iife.js` is over the 36KB gzip hard ceiling (32KB target)
+- the generated inline loader snippet is over 2KB gzip

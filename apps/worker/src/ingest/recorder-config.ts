@@ -83,6 +83,7 @@ export async function handleRecorderConfig(
     }
 
     const recorderConfig: RecorderProjectConfig = {
+      recorderUrl: await recorderAssetUrl(request, env),
       projectId: config.projectId,
       sessionScope: config.projectId,
       ...(config.sessionCookieDomain === undefined
@@ -107,5 +108,23 @@ export async function handleRecorderConfig(
   } finally {
     event.set({ route: "/v1/config", method: request.method, status_code: statusCode });
     event.emit(outcome);
+  }
+}
+
+async function recorderAssetUrl(request: Request, env: Env): Promise<string> {
+  const stableUrl = new URL("/or-recorder.js", request.url).toString();
+  if (env.ASSETS === undefined) return stableUrl;
+
+  try {
+    const manifestUrl = new URL("/or-recorder-manifest.json", request.url);
+    const response = await env.ASSETS.fetch(new Request(manifestUrl));
+    if (!response.ok) return stableUrl;
+    const value = (await response.json()) as { file?: unknown };
+    if (typeof value.file !== "string" || !/^or-recorder\.[a-f0-9]{16}\.js$/.test(value.file)) {
+      return stableUrl;
+    }
+    return new URL(`/${value.file}`, request.url).toString();
+  } catch {
+    return stableUrl;
   }
 }

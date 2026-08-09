@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { copyFile, cp, mkdir, stat } from "node:fs/promises";
+import { copyFile, cp, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import process from "node:process";
 import { spawn } from "node:child_process";
@@ -12,6 +13,7 @@ const dashboardDist = path.join(repoRoot, "apps", "dashboard", "dist");
 const dashboardIndex = path.join(dashboardDist, "index.html");
 const dashboardAppShell = path.join(dashboardDist, "dashboard", "index.html");
 const recorderAsset = path.join(dashboardDist, "or-recorder.js");
+const recorderManifest = path.join(dashboardDist, "or-recorder-manifest.json");
 const publicPageClient = path.join(dashboardDist, "public", "public-page.js");
 const publicPageStyles = path.join(dashboardDist, "public", "public-page.css");
 const landingFiles = [
@@ -48,12 +50,18 @@ await copyLandingAssets();
 await assertFile(sdkBundle, "SDK browser bundle");
 await mkdir(dashboardDist, { recursive: true });
 await copyFile(sdkBundle, recorderAsset);
+const recorderBytes = await readFile(sdkBundle);
+const recorderHash = createHash("sha256").update(recorderBytes).digest("hex").slice(0, 16);
+const recorderHashedName = `or-recorder.${recorderHash}.js`;
+await writeFile(path.join(dashboardDist, recorderHashedName), recorderBytes);
+await writeFile(recorderManifest, `${JSON.stringify({ file: recorderHashedName })}\n`);
 
 console.log(
   [
     `Deploy assets ready: ${path.relative(repoRoot, path.join(dashboardDist, "index.html"))}`,
     `Dashboard shell: ${path.relative(repoRoot, dashboardAppShell)}`,
     `SDK bundle: ${path.relative(repoRoot, recorderAsset)}`,
+    `Hashed SDK bundle: ${recorderHashedName}`,
     `Public page: ${path.relative(repoRoot, publicPageClient)}`,
   ].join("\n"),
 );

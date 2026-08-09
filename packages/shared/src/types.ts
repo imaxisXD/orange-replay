@@ -136,6 +136,8 @@ export interface ProjectConfig {
   maskPolicyVersion: number;
   maskRules?: MaskRule[];
   capture?: CaptureToggles;
+  /** Whether finalized replays may privately cache public page assets for visual fidelity. */
+  replayAssets?: boolean;
   quotaState: ProjectQuotaState;
   retentionDays: number;
   jurisdiction?: ProjectJurisdiction;
@@ -151,11 +153,14 @@ export interface ProjectConfig {
 export interface StoredProjectConfig extends ProjectConfig {
   maskRules: MaskRule[];
   capture: CaptureToggles;
+  replayAssets: boolean;
   version: number;
 }
 
 /** Public capture settings returned to the browser recorder before capture starts. */
 export interface RecorderProjectConfig {
+  /** Content-hashed recorder bundle served by the ingest origin. */
+  recorderUrl?: string;
   /** Stable public project id used to build dashboard session links. */
   projectId?: string;
   /** Stable Workspace scope. Different Website keys in one Workspace receive the same value. */
@@ -179,6 +184,7 @@ export interface ProjectConfigUpdate {
   maskPolicyVersion: number;
   maskRules: MaskRule[];
   capture: CaptureToggles;
+  replayAssets?: boolean;
 }
 
 export interface PublicPageBreakdownItem {
@@ -280,6 +286,20 @@ export interface FinalizeMessage {
   retentionDays: number;
   events: IndexEvent[];
 }
+
+/** Queue work created after a session has been indexed successfully. */
+export interface ReplayAssetCaptureMessage {
+  type: "session.replay-assets";
+  sessionId: string;
+  projectId: string;
+  shard: number;
+  requestId: string;
+  manifestKey: string;
+  endedAt: number;
+  retentionDays: number;
+}
+
+export type WorkerQueueMessage = FinalizeMessage | ReplayAssetCaptureMessage;
 
 export interface IngestAck {
   ok: boolean;

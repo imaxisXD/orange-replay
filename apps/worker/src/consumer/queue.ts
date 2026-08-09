@@ -1,7 +1,10 @@
 import {
   finalizeMessageSchema,
+  replayAssetCaptureMessageSchema,
   startWideEvent,
   type FinalizeMessage,
+  type ReplayAssetCaptureMessage,
+  type WorkerQueueMessage,
   type WideEventOutcome,
 } from "@orange-replay/shared";
 import {
@@ -16,6 +19,7 @@ import { buildFinalizeAnalyticsRecords } from "../analytics/export-record.ts";
 import { maintainAnalyticsWarehouse } from "../analytics/maintenance.ts";
 import { sendPresenceSessionRequest } from "../do/presence-client.ts";
 import { reserveAcceptedUsage } from "../usage/accepted-usage.ts";
+import { captureReplayAssets } from "../replay-assets/capture.ts";
 
 const QUEUE_MAX_RETRIES = 10; // Must match wrangler.jsonc queue max_retries.
 const SESSION_EVENT_INSERT_CHUNK_SIZE = 20;
@@ -27,13 +31,17 @@ interface IndexSessionResult {
 }
 
 export async function handleFinalizeBatch(
-  batch: MessageBatch<FinalizeMessage>,
+  batch: MessageBatch<WorkerQueueMessage>,
   env: Env,
   ctx: ExecutionContext,
 ): Promise<void> {
   setWorkerLoggerVersion(env);
   for (const message of batch.messages) {
-    await handleFinalizeMessage(message, env);
+    if (looksLikeReplayAssetJob(message.body)) {
+      await handleReplayAssetMessage(message, env);
+    } else {
+      await handleFinalizeMessage(message, env);
+    }
   }
   // Finalization remains successful even when analytics delivery is down. The
   // durable outbox and five-minute cron safely retry the same stable records.
@@ -42,7 +50,10 @@ export async function handleFinalizeBatch(
   }
 }
 
-async function handleFinalizeMessage(message: Message<FinalizeMessage>, env: Env): Promise<void> {
+async function handleFinalizeMessage(
+  message: Message<WorkerQueueMessage>,
+  env: Env,
+): Promise<void> {
   const parsed = finalizeMessageSchema.safeParse(message.body);
   const wideEvent = startWideEvent(
     "worker",
@@ -97,6 +108,9 @@ async function handleFinalizeMessage(message: Message<FinalizeMessage>, env: Env
       sessionId: finalizeMessage.sessionId,
     });
     await writeFinalizeTraceForTest(env, finalizeMessage);
+    await env.FINALIZE_QUEUE.send(toReplayAssetCaptureMessage(finalizeMessage), {
+      contentType: "json",
+    });
     message.ack();
   } catch (err) {
     const lastAllowedAttempt = message.attempts >= QUEUE_MAX_RETRIES;
@@ -107,6 +121,57 @@ async function handleFinalizeMessage(message: Message<FinalizeMessage>, env: Env
   } finally {
     wideEvent.emit(outcome);
   }
+}
+
+async function handleReplayAssetMessage(
+  message: Message<WorkerQueueMessage>,
+  env: Env,
+): Promise<void> {
+  const parsed = replayAssetCaptureMessageSchema.safeParse(message.body);
+  if (!parsed.success) {
+    const lastAllowedAttempt = message.attempts >= QUEUE_MAX_RETRIES;
+    const event = startWideEvent("worker", "consumer.replay_assets");
+    event.set({
+      attempts: message.attempts,
+      dlq: lastAllowedAttempt,
+      msg: "invalid replay asset message",
+    });
+    event.emit(lastAllowedAttempt ? "dropped" : "server_error");
+    retryQueueMessage(message);
+    return;
+  }
+
+  try {
+    await captureReplayAssets(parsed.data, env, message.attempts);
+    message.ack();
+  } catch {
+    retryQueueMessage(message);
+  }
+}
+
+function looksLikeReplayAssetJob(value: unknown): boolean {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    (value as { type?: unknown }).type === "session.replay-assets"
+  );
+}
+
+function retryQueueMessage(message: Message<WorkerQueueMessage>): void {
+  message.retry({ delaySeconds: retryDelaySeconds(message.attempts) });
+}
+
+function toReplayAssetCaptureMessage(message: FinalizeMessage): ReplayAssetCaptureMessage {
+  return {
+    type: "session.replay-assets",
+    sessionId: message.sessionId,
+    projectId: message.projectId,
+    shard: message.shard,
+    requestId: message.requestId,
+    manifestKey: message.manifestKey,
+    endedAt: message.endedAt,
+    retentionDays: message.retentionDays,
+  };
 }
 
 function looksLikeFinalizeJob(value: unknown): boolean {

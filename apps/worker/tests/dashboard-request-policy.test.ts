@@ -464,11 +464,43 @@ describe("dashboard request plans", () => {
       manifest: { demoReadable: true, minimumRole: "member" },
       live_ticket: { demoReadable: true, minimumRole: "member" },
       segment: { demoReadable: true, minimumRole: "member" },
+      replay_asset_map: { demoReadable: false, minimumRole: "member" },
+      replay_asset: { demoReadable: false, minimumRole: "member" },
     };
 
     for (const [routeName, access] of Object.entries(expected)) {
       expect(projectRouteAccess(routeName as DashboardProjectRouteName)).toEqual(access);
     }
+  });
+
+  it("keeps replay assets on session-authenticated private routes", () => {
+    const hash = "a".repeat(64);
+    expect(
+      matchDashboardRequest("GET", "/api/v1/projects/project_1/sessions/session_1/assets"),
+    ).toMatchObject({
+      routeName: "replay_asset_map",
+      route: {
+        route: "replay_asset_map",
+        action: "replay_asset_map",
+        sessionAuthRequired: true,
+      },
+    });
+    expect(
+      matchDashboardRequest("GET", `/api/v1/projects/project_1/sessions/session_1/assets/${hash}`),
+    ).toMatchObject({
+      routeName: "replay_asset",
+      route: {
+        route: "replay_asset",
+        action: "replay_asset",
+        sessionAuthRequired: true,
+      },
+    });
+    expect(
+      matchDashboardRequest(
+        "GET",
+        "/api/v1/projects/project_1/sessions/session_1/assets/not-a-hash",
+      ),
+    ).toMatchObject({ route: { params: { ok: false, error: "invalid_path_id" } } });
   });
 });
 

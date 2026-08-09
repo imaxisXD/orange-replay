@@ -8,12 +8,25 @@ const MAX_MASK_RULES = 200;
 const STABLE_PRIVACY_PSEUDO =
   /^(?:empty|first-(?:child|of-type)|has|is|lang|last-(?:child|of-type)|not|nth-(?:child|last-child|last-of-type|of-type)|only-(?:child|of-type)|root|scope|where)$/i;
 
+type ConfigWindow = Window & { __orConfig?: unknown };
+
 export async function loadRecorderProjectConfig(
   localConfig: RecorderConfig,
   fetchFn: typeof fetch,
   document: Document,
   health?: SdkHealthReporter,
 ): Promise<RecorderConfig> {
+  const cachedConfig =
+    typeof window === "undefined" ? undefined : (window as ConfigWindow).__orConfig;
+  if (cachedConfig !== undefined) {
+    const remoteConfig = parseRecorderProjectConfig(cachedConfig);
+    if (remoteConfig === null) {
+      health?.("config_failed");
+      return stopRecording(localConfig);
+    }
+    return mergeRecorderProjectConfig(localConfig, remoteConfig, document);
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), CONFIG_TIMEOUT_MS);
 

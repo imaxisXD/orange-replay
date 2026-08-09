@@ -9,7 +9,7 @@ import { isDashboardAppRoute, serveDashboardAppShell } from "./app-shell.ts";
 import { handleFinalizeBatch } from "./consumer/queue.ts";
 import { sweepProjectKeyCache } from "./consumer/key-cache-sweeper.ts";
 import { sweepExpiredSessions } from "./consumer/sweeper.ts";
-import { isDevTestMode, setWorkerLoggerVersion, type Env, type FinalizeMessage } from "./env.ts";
+import { isDevTestMode, setWorkerLoggerVersion, type Env, type WorkerQueueMessage } from "./env.ts";
 import { handleIngest, handleRecorderConfig } from "./ingest/handler.ts";
 import { handleSdkHealth } from "./ingest/sdk-health.ts";
 import { RETENTION_SWEEP_SCHEDULE } from "./schedules.ts";
@@ -90,7 +90,7 @@ export default {
     }
     ctx.waitUntil(Promise.all([maintainAnalyticsWarehouse(env), sweepProjectKeyCache(env)]));
   },
-} satisfies ExportedHandler<Env, FinalizeMessage>;
+} satisfies ExportedHandler<Env, WorkerQueueMessage>;
 
 function safeRoutePath(pathname: string): string {
   return pathname.length <= 200 ? pathname : pathname.slice(0, 200);

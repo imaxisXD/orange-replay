@@ -83,7 +83,7 @@ Tests must exercise the owner. They must not manually repeat drain, rotate, rese
 
 Do not raise a bundle limit.
 
-- Current active IIFE hard ceiling: `35.50 KiB` in `packages/sdk/scripts/check-budgets.mjs`.
+- Current ESM and IIFE hard ceiling: `36.00 KiB` in `packages/sdk/scripts/check-budgets.mjs`.
 - Starting built IIFE: `36,283` bytes gzipped (`35.43 KiB`).
 - Task no-regression ceiling: `36,283` bytes gzipped. The refactor must be byte-neutral or smaller.
 - The earlier `35.25 KiB` gate in `HANDOFF.md` was superseded by the stylesheet privacy allowance. The current artifact is already 187 bytes above 35.25 KiB, so this task must not describe that historical value as the active gate.

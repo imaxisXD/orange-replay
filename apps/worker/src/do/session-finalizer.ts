@@ -4,7 +4,12 @@ import {
   manifestKey,
   sessionManifestSchema,
 } from "@orange-replay/shared";
-import type { FinalizeMessage, IndexEvent, SessionManifest } from "@orange-replay/shared";
+import type {
+  FinalizeMessage,
+  IndexEvent,
+  SessionManifest,
+  WorkerQueueMessage,
+} from "@orange-replay/shared";
 import {
   capFinalizeMessageToBudget,
   MAX_FINALIZE_ANALYTICS_BATCHES,
@@ -43,7 +48,7 @@ export interface SessionFinalizeMetrics {
 
 export interface SessionFinalizerDependencies {
   recordings: R2Bucket;
-  finalizeQueue: Queue<FinalizeMessage>;
+  finalizeQueue: Queue<WorkerQueueMessage>;
   store: Pick<
     SessionRecorderStore,
     "segmentRowsForManifest" | "storedEventRows" | "finalPageBatches" | "replaceStateWithTombstone"

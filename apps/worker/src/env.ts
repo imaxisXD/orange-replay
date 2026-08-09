@@ -1,12 +1,12 @@
 // Binding surface for the combined Worker. Owned by the Phase 0 seed —
 // tasks extend behavior in their own modules, not here, unless their PLAN.md
 // scope says otherwise.
-import type { FinalizeMessage } from "@orange-replay/shared";
+import type { FinalizeMessage, WorkerQueueMessage } from "@orange-replay/shared";
 import { setWideEventVersion } from "@orange-replay/shared";
 import type { PresenceRegistry } from "./do/presence-registry.ts";
 import type { SessionRecorder } from "./do/session-recorder.ts";
 
-export type { FinalizeMessage };
+export type { FinalizeMessage, WorkerQueueMessage };
 
 export interface RateLimitBinding {
   limit(input: { key: string }): Promise<{ success: boolean }>;
@@ -26,7 +26,7 @@ export interface Env {
   RECORDINGS: R2Bucket;
   CONFIG: KVNamespace;
   IDX_00: D1Database;
-  FINALIZE_QUEUE: Queue<FinalizeMessage>;
+  FINALIZE_QUEUE: Queue<WorkerQueueMessage>;
   /** Structured Cloudflare Pipelines stream. Optional for local/self-host compatibility. */
   ANALYTICS_STREAM?: AnalyticsStreamBinding;
   /** Separate v2 deletion stream. It must never share the v1 structured stream. */

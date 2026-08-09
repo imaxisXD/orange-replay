@@ -88,6 +88,7 @@ describe("ingest route", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("cache-control")).toBe("no-store");
     expect(await res.json()).toEqual({
+      recorderUrl: expect.stringMatching(/\/or-recorder(?:\.[a-f0-9]{16})?\.js$/),
       projectId: config.projectId,
       sessionScope: config.projectId,
       sampleRate: 0.25,
