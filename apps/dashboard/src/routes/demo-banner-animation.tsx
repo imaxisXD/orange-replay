@@ -39,6 +39,7 @@ const NOTCH_LIT_BORDER = {
 };
 
 export const DEMO_BANNER_NOTCH_MAX_VISIBLE_HEIGHT = 52;
+export const DEMO_EDGE_VECTOR_EFFECT = "none" as const;
 
 export type DemoBannerAnimationConfig = {
   timing: {
@@ -492,7 +493,9 @@ function WorkspaceEdge({
           strokeLinejoin="round"
           strokeWidth={edge.strokeWidth + 2}
           transition={transition}
-          vectorEffect="non-scaling-stroke"
+          // A non-scaling stroke breaks Motion's normalized dash length and
+          // paints only half this path, leaving the bottom perimeter missing.
+          vectorEffect={DEMO_EDGE_VECTOR_EFFECT}
         />
       ))}
       {splitPaths.map((path, index) => (
@@ -510,14 +513,14 @@ function WorkspaceEdge({
           strokeLinejoin="round"
           strokeWidth={edge.strokeWidth}
           transition={transition}
-          vectorEffect="non-scaling-stroke"
+          vectorEffect={DEMO_EDGE_VECTOR_EFFECT}
         />
       ))}
     </m.svg>
   );
 }
 
-function createSplitEdgePaths(width: number, height: number): string[] {
+export function createSplitEdgePaths(width: number, height: number): string[] {
   const inset = 1;
   if (width <= inset * 2 || height <= inset * 2) return [];
 
