@@ -130,20 +130,6 @@ export function ReplayControls({
             size="small"
           />
         )}
-
-        {!isFollowing && (
-          <div className="flex gap-1.25">
-            <kbd className="rounded-[5px] border border-border bg-secondary px-1.5 py-0.5 font-mono text-[10.5px] text-muted-foreground">
-              ←
-            </kbd>
-            <kbd className="rounded-[5px] border border-border bg-secondary px-1.5 py-0.5 font-mono text-[10.5px] text-muted-foreground">
-              →
-            </kbd>
-            <kbd className="rounded-[5px] border border-border bg-secondary px-1.5 py-0.5 font-mono text-[10.5px] text-muted-foreground">
-              space
-            </kbd>
-          </div>
-        )}
       </div>
     </ScrollArea>
   );

@@ -1,5 +1,6 @@
 import type { KeyboardEvent, RefObject } from "react";
 import { Button } from "@/components/ui/button";
+import { DataPanel, DataPanelFooter, DataPanelHeader } from "@/components/ui/data-panel";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Empty,
@@ -77,13 +78,8 @@ export function SessionListPane({
   const selectedIsVisible = visibleSessions.some((session) => session.session_id === selected);
 
   return (
-    <section
-      className={cn(
-        "lit min-h-[38rem] w-full min-w-0 shrink-0 flex-col overflow-hidden rounded-lg lg:w-80",
-        className,
-      )}
-    >
-      <div className="flex items-center gap-2 border-b border-dashed border-dash px-4 py-2.5">
+    <DataPanel className={cn("min-h-[38rem] w-full min-w-0 shrink-0 lg:w-80", className)}>
+      <DataPanelHeader className="flex items-center gap-2 px-4 py-2.5">
         <span className="text-[11px] font-medium tracking-[0.06em] text-dim uppercase">Sort</span>
         <Select onValueChange={(value) => onSortChange(value as SessionSort)} value={sort}>
           <SelectTrigger
@@ -111,7 +107,7 @@ export function SessionListPane({
           onToggle={onToggleUnwatched}
           size="small"
         />
-      </div>
+      </DataPanelHeader>
 
       {loadState === "loading" ? (
         <div aria-hidden className="min-h-0 flex-1" />
@@ -148,7 +144,7 @@ export function SessionListPane({
       )}
 
       {hasMore && (
-        <div className="flex justify-center border-t border-dashed border-dash px-4 py-2.5">
+        <DataPanelFooter className="flex justify-center px-4 py-2.5">
           <Button
             className="rounded-lg border border-border bg-card text-[12.5px] font-medium text-foreground"
             disabled={loadState !== "idle"}
@@ -159,9 +155,9 @@ export function SessionListPane({
           >
             Load more
           </Button>
-        </div>
+        </DataPanelFooter>
       )}
-    </section>
+    </DataPanel>
   );
 }
 

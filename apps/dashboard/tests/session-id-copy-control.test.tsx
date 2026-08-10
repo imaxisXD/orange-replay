@@ -39,7 +39,9 @@ describe("Session ID copy control", () => {
     expect(button?.textContent).toContain("Session ID");
     expect(button?.textContent).toContain("session-…6789");
     expect(button?.getAttribute("aria-label")).toBe("Copy session ID");
+    expect(button?.className).toContain("h-8");
     expect(button?.className).toContain("w-48");
+    expect(button?.className).not.toContain("hidden");
     expect(layout?.className).toContain("grid-cols-[3.25rem_minmax(0,1fr)_0.75rem]");
     expect(layout?.className).toContain("gap-2");
     expect(layout?.children[1]?.getAttribute("title")).toBe("session-123456789");

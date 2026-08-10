@@ -7,6 +7,7 @@ import { BrandMark } from "@/components/brand-mark";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DataPanel, DataPanelFooter, DataPanelHeader } from "@/components/ui/data-panel";
 import {
   Dialog,
   DialogContent,
@@ -176,8 +177,8 @@ export function AdminPage() {
           stats={statsQuery.data}
         />
 
-        <section className="lit overflow-hidden rounded-lg">
-          <div className="flex flex-col gap-3 border-b border-dashed border-dash px-5 py-4 sm:flex-row sm:items-end sm:justify-between">
+        <DataPanel>
+          <DataPanelHeader className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h2 className="text-[15px] font-medium leading-tight">Users</h2>
               <p className="mt-1 text-[12px] text-muted-foreground">
@@ -204,7 +205,7 @@ export function AdminPage() {
                 Search
               </Button>
             </form>
-          </div>
+          </DataPanelHeader>
 
           {actionMutation.isError && actionToConfirm === null && (
             <Alert className="m-5 mb-0" variant="destructive">
@@ -275,7 +276,7 @@ export function AdminPage() {
             </ScrollArea>
           )}
 
-          <div className="flex items-center justify-between gap-3 border-t border-dashed border-dash px-5 py-3">
+          <DataPanelFooter className="flex items-center justify-between gap-3 px-5 py-3">
             <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
               {firstShown}–{lastShown} of {total}
             </p>
@@ -297,8 +298,8 @@ export function AdminPage() {
                 Next
               </Button>
             </div>
-          </div>
-        </section>
+          </DataPanelFooter>
+        </DataPanel>
 
         <Dialog
           onOpenChange={(open) => {

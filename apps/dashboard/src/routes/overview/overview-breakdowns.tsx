@@ -16,6 +16,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { DataPanel, DataPanelFooter, DataPanelHeader } from "@/components/ui/data-panel";
 import { TabItem, TabPanel, Tabs, TabsList } from "@/components/ui/tabs";
 import type { ProjectStatsResponse, StatsBreakdownRow, StatsErrorGroup } from "@/lib/api";
 import {
@@ -29,7 +30,6 @@ import {
 import { dimensionDisplay, type BreakdownDimension } from "@/lib/dimension-display";
 import { canonicalSessionFilter } from "@/lib/session-filters";
 import { OverviewBreakdownTooltip } from "./overview-breakdown-tooltip";
-import { OverviewCard, OverviewCardFooter, OverviewCardHeader } from "./overview-card";
 import { SessionDoorway } from "./overview-doorways";
 import { numberFormatter, percentFormatter } from "./overview-format";
 import { CardEmpty, CardTitle } from "./overview-states";
@@ -120,10 +120,10 @@ export function BreakdownCard({
   title: string;
 }) {
   return (
-    <OverviewCard>
-      <OverviewCardHeader>
+    <DataPanel className="overview-lit min-h-88">
+      <DataPanelHeader>
         <CardTitle description={description} title={title} />
-      </OverviewCardHeader>
+      </DataPanelHeader>
       <BreakdownPanel
         dimension="entryPage"
         isDemo={isDemo}
@@ -131,7 +131,7 @@ export function BreakdownCard({
         rows={rows}
         title={title}
       />
-    </OverviewCard>
+    </DataPanel>
   );
 }
 
@@ -145,10 +145,10 @@ export function ErrorsCard({
   projectId: string;
 }) {
   return (
-    <OverviewCard>
-      <OverviewCardHeader>
+    <DataPanel className="overview-lit min-h-88">
+      <DataPanelHeader>
         <CardTitle description="What broke while people were there" title="Browser errors" />
-      </OverviewCardHeader>
+      </DataPanelHeader>
       {errors.length === 0 ? (
         <CardEmpty
           description="No browser errors were recorded in this time range."
@@ -174,7 +174,7 @@ export function ErrorsCard({
           )}
         </>
       )}
-    </OverviewCard>
+    </DataPanel>
   );
 }
 
@@ -198,9 +198,9 @@ function TabbedBreakdownCard({
   title: string;
 }) {
   return (
-    <OverviewCard>
+    <DataPanel className="overview-lit min-h-88">
       <Tabs className="flex flex-1 flex-col" onValueChange={onChange} value={active}>
-        <OverviewCardHeader className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
+        <DataPanelHeader className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
           <CardTitle description={description} title={title} />
           <TabsList surfaceLevel={5}>
             {options.map((option) => (
@@ -212,7 +212,7 @@ function TabbedBreakdownCard({
               />
             ))}
           </TabsList>
-        </OverviewCardHeader>
+        </DataPanelHeader>
         {options.map((option) => (
           <TabPanel className="flex flex-1 flex-col" key={option.value} value={option.value}>
             <BreakdownPanel
@@ -225,12 +225,12 @@ function TabbedBreakdownCard({
           </TabPanel>
         ))}
       </Tabs>
-    </OverviewCard>
+    </DataPanel>
   );
 }
 
 /** Card body for a breakdown list: the top rows, plus a pinned "view all"
- * footer once the list outgrows the card. Composes inside OverviewCard (or a
+ * footer once the list outgrows the card. Composes inside DataPanel (or a
  * TabPanel that continues the card's flex column). */
 function BreakdownPanel({
   dimension,
@@ -297,7 +297,7 @@ function ViewAllFooter({
   title: string;
 }) {
   return (
-    <OverviewCardFooter>
+    <DataPanelFooter>
       <Dialog>
         <DialogTrigger className="flex h-8 w-full items-center justify-center rounded-[4px] font-mono text-[11px] text-muted-foreground outline-none transition-colors duration-100 ease-out hover:bg-hover hover:text-foreground focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-amber motion-reduce:transition-none">
           View all {numberFormatter.format(count)}
@@ -312,7 +312,7 @@ function ViewAllFooter({
           <div className="overflow-y-auto py-1.5">{children}</div>
         </DialogContent>
       </Dialog>
-    </OverviewCardFooter>
+    </DataPanelFooter>
   );
 }
 

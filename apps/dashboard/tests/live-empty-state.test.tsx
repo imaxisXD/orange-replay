@@ -98,6 +98,16 @@ describe("live empty state", () => {
     await teardown();
   });
 
+  it("lets live row interaction states reach the panel edges", async () => {
+    const { container, teardown } = await renderLive({ withLiveSession: true });
+    const row = container.querySelector<HTMLElement>('[data-slot="live-session-row"]');
+
+    expect(row?.className).toContain("px-4.5");
+    expect(row?.parentElement?.className).toContain("-mx-4.5");
+
+    await teardown();
+  });
+
   it("continues the honest connecting state after onboarding reaches its cap", async () => {
     const { container, teardown } = await renderLive({
       firstEventAt: 1_700_000_000_000,
@@ -119,6 +129,7 @@ async function renderLive(
     firstEventAt?: number | null;
     isDemo?: boolean;
     role?: AccountProjectRole;
+    withLiveSession?: boolean;
   } = {},
 ): Promise<{
   container: HTMLElement;
@@ -128,7 +139,27 @@ async function renderLive(
 }> {
   const fetchMock = vi.fn(async (input: string | URL | Request) => {
     const url = requestUrl(input);
-    if (url.includes("/live")) return jsonResponse({ sessions: [], truncated: false });
+    if (url.includes("/live")) {
+      return jsonResponse({
+        sessions: options.withLiveSession
+          ? [
+              {
+                session_id: "live-session-1",
+                started_at: 1_700_000_000_000,
+                last_seen: 1_700_000_030_000,
+                entry_url: "https://example.com/checkout",
+                country: "SG",
+                city: "Singapore",
+                browser: "Chrome",
+                os: "macOS",
+                device: "desktop",
+                duration_ms: 30_000,
+              },
+            ]
+          : [],
+        truncated: false,
+      });
+    }
     if (url.includes("/account")) return jsonResponse(account(options.role ?? "owner"));
     if (url.includes("/install-status")) {
       return jsonResponse({ firstEventAt: options.firstEventAt ?? null });
@@ -165,11 +196,14 @@ async function renderLive(
   // Live sessions, then the account, then install status: each query only starts
   // once the previous render committed, so the empty state arrives over several
   // flushes rather than one.
-  await settleUntil(() =>
-    options.connectingUntil === undefined
+  await settleUntil(() => {
+    if (options.withLiveSession === true) {
+      return container.querySelector('[data-slot="live-session-row"]') !== null;
+    }
+    return options.connectingUntil === undefined
       ? container.querySelector('[data-slot="empty-content"] a') !== null
-      : container.textContent?.includes("Connecting to your live session…") === true,
-  );
+      : container.textContent?.includes("Connecting to your live session…") === true;
+  });
 
   return {
     container,

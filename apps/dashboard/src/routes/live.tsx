@@ -9,6 +9,7 @@ import liveSignalBirdSrc from "@/assets/empty-states/layers/live-signal-bird.web
 import liveTabPigeonSrc from "@/assets/empty-states/layers/live-tab-pigeon.webp";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { DataPanel, DataPanelBody, DataPanelHeader } from "@/components/ui/data-panel";
 import { CountryFlag } from "@/components/country-flag";
 import { LiveBadge, LiveDot } from "@/components/live-badge";
 import {
@@ -89,16 +90,16 @@ export function LivePage() {
 
       {!isDemo && <LiveSubdomainPrompt projectId={projectId} />}
 
-      <section className="lit rounded-lg px-4.5 py-4">
+      <DataPanel className="px-4.5 py-4">
         {rows.length > 0 && (
-          <div className="mb-3.5 flex items-baseline justify-between">
+          <DataPanelHeader className="mb-3.5 flex items-baseline justify-between border-b-0 px-0 py-0">
             <h2>
               <LiveBadge />
             </h2>
             <span className="text-[11.5px] text-muted-foreground">
               {truncated ? "showing newest 100 · " : ""}updates every 5s
             </span>
-          </div>
+          </DataPanelHeader>
         )}
 
         {error.length > 0 && (
@@ -120,24 +121,26 @@ export function LivePage() {
           </Alert>
         )}
 
-        {loading && !connectingFromOnboarding ? (
-          <LiveLoadingRows />
-        ) : rows.length > 0 ? (
-          <div>
-            {rows.map((row) => (
-              <LiveRow isDemo={isDemo} key={row.sessionId} projectId={projectId} row={row} />
-            ))}
-          </div>
-        ) : (
-          error.length === 0 && (
-            <LiveEmptyState
-              isConnecting={connectingFromOnboarding}
-              isDemo={isDemo}
-              projectId={projectId}
-            />
-          )
-        )}
-      </section>
+        <DataPanelBody>
+          {loading && !connectingFromOnboarding ? (
+            <LiveLoadingRows />
+          ) : rows.length > 0 ? (
+            <div className="-mx-4.5">
+              {rows.map((row) => (
+                <LiveRow isDemo={isDemo} key={row.sessionId} projectId={projectId} row={row} />
+              ))}
+            </div>
+          ) : (
+            error.length === 0 && (
+              <LiveEmptyState
+                isConnecting={connectingFromOnboarding}
+                isDemo={isDemo}
+                projectId={projectId}
+              />
+            )
+          )}
+        </DataPanelBody>
+      </DataPanel>
     </div>
   );
 }
@@ -177,9 +180,10 @@ function LiveRow({
   return (
     <div
       className={cn(
-        "flex cursor-pointer items-center gap-2.5 border-b border-dashed border-dash py-2.25 outline-none transition-colors last:border-b-0 hover:bg-hover",
+        "flex cursor-pointer items-center gap-2.5 border-b border-dashed border-dash px-4.5 py-2.25 outline-none transition-colors last:border-b-0 hover:bg-hover",
         "focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-[-2px] focus-visible:outline-amber",
       )}
+      data-slot="live-session-row"
       onClick={openSession}
       onKeyDown={handleKeyDown}
       role="link"

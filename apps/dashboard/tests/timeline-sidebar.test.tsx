@@ -25,6 +25,12 @@ describe("timeline sidebar rendering", () => {
     const root = createRoot(container);
 
     flushSync(() => root.render(<TimelineSidebar disabled={false} onSeek={onSeek} rows={rows} />));
+    const rowElement = container.querySelector<HTMLElement>('[data-slot="timeline-event-row"]');
+    const scrollViewport = rowElement?.parentElement;
+
+    expect(rowElement?.className).toContain("px-4");
+    expect(rowElement?.className).not.toContain("rounded-md");
+    expect(scrollViewport?.className).not.toContain("px-1");
     const readsAfterFirstRender = rowReads;
 
     flushSync(() => root.render(<TimelineSidebar disabled={false} onSeek={onSeek} rows={rows} />));

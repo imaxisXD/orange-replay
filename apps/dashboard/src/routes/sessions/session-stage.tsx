@@ -23,11 +23,10 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { LoadingArea } from "@/components/ui/loading-indicator";
-import { Tooltip } from "@/components/ui/tooltip";
 import { ApiError, type SessionActivity, type SessionDetailsState } from "@/lib/api";
-import { formatCompactSessionId, formatDuration } from "@/lib/format";
+import { formatCompactSessionId } from "@/lib/format";
 import { IconSwap } from "@/components/ui/icon-swap";
-import { AlertCircle, Check, ChevronRight, Clock, Copy, EyeOff } from "@/lib/icon-map";
+import { AlertCircle, Check, Copy, Expand, EyeOff } from "@/lib/icon-map";
 import { ReplayWorkspace } from "../session-detail/replay-playback";
 import { useSessionView } from "../session-detail/use-session-view";
 import { entryPath } from "@/lib/entry-path";
@@ -244,7 +243,6 @@ function SelectedSession({
         detailsState={sessionView.detailsState}
         manifest={manifest}
         mode={mode}
-        navigation={navigation}
         onMarkUnwatched={onMarkUnwatched}
         projectId={projectId}
         sessionId={sessionId}
@@ -299,7 +297,6 @@ function StageHeader({
   detailsState,
   manifest,
   mode,
-  navigation,
   onMarkUnwatched,
   projectId,
   sessionId,
@@ -308,7 +305,6 @@ function StageHeader({
   detailsState: SessionDetailsState | null;
   manifest: SessionManifest;
   mode: "demo" | "project";
-  navigation: SessionStageNavigation;
   onMarkUnwatched?: () => void;
   projectId: string;
   sessionId: string;
@@ -322,45 +318,14 @@ function StageHeader({
         >
           {entryPath(manifest.attrs.entryUrl ?? null)}
         </span>
-        <span className="flex shrink-0 items-center gap-1.5" title="Session duration">
-          <Clock aria-hidden className="size-3.5 shrink-0 text-amber" />
-          <span className="text-[11px] text-dim">Duration</span>
-          <span className="font-mono text-[12px] tabular-nums text-foreground">
-            {formatDuration(manifest.durationMs)}
-          </span>
-        </span>
         {activity === "live" ? (
           <StatusPill kind="ok">Live</StatusPill>
         ) : detailsState === "provisional" ? (
           <StatusPill kind="neutral">Final details pending</StatusPill>
         ) : null}
-        <SessionIdCopyControl sessionId={sessionId} />
       </div>
       <div className="flex w-full shrink-0 items-center justify-between gap-1 sm:w-auto sm:justify-start">
-        <Tooltip content="Previous session (↑ or k in the list)">
-          <Button
-            aria-label="Previous session"
-            className="text-muted-foreground hover:text-foreground"
-            disabled={navigation.previous === undefined}
-            onClick={navigation.previous}
-            size="icon-sm"
-            variant="secondary"
-          >
-            <ChevronRight aria-hidden className="size-4 rotate-180" />
-          </Button>
-        </Tooltip>
-        <Tooltip content="Next session (↓ or j in the list)">
-          <Button
-            aria-label="Next session"
-            className="text-muted-foreground hover:text-foreground"
-            disabled={navigation.next === undefined}
-            onClick={navigation.next}
-            size="icon-sm"
-            variant="secondary"
-          >
-            <ChevronRight aria-hidden className="size-4" />
-          </Button>
-        </Tooltip>
+        <SessionIdCopyControl sessionId={sessionId} />
         {onMarkUnwatched !== undefined && (
           <Button
             className="hidden text-muted-foreground hover:text-foreground sm:inline-flex"
@@ -371,7 +336,7 @@ function StageHeader({
             Mark unwatched
           </Button>
         )}
-        <Button asChild size="sm" variant="secondary">
+        <Button asChild size="sm" trailingIcon={Expand} variant="secondary">
           {mode === "demo" ? (
             <Link params={{ sessionId }} to="/demo/sessions/$sessionId">
               Open full view
@@ -410,7 +375,7 @@ export function SessionIdCopyControl({ sessionId }: { sessionId: string }) {
   return (
     <Button
       aria-label={copied ? "Session ID copied" : "Copy session ID"}
-      className="hidden h-6 w-48 shrink-0 gap-0 px-2 font-mono text-[11px] text-muted-foreground lg:inline-flex"
+      className="h-8 w-48 shrink-0 gap-0 px-2 font-mono text-[11px] text-muted-foreground"
       onClick={() => void copySessionId()}
       size="sm"
       variant="secondary"

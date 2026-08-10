@@ -4,6 +4,7 @@ import Add01Icon from "@hugeicons/core-free-icons/Add01Icon";
 import AlertCircleIcon from "@hugeicons/core-free-icons/AlertCircleIcon";
 import AiProgrammingIcon from "@hugeicons/core-free-icons/AiProgrammingIcon";
 import ArrowLeft01Icon from "@hugeicons/core-free-icons/ArrowLeft01Icon";
+import ArrowExpandIcon from "@hugeicons/core-free-icons/ArrowExpandIcon";
 import Cancel01Icon from "@hugeicons/core-free-icons/Cancel01Icon";
 import CheckIcon from "@hugeicons/core-free-icons/CheckIcon";
 import Clock01Icon from "@hugeicons/core-free-icons/Clock01Icon";
@@ -116,6 +117,7 @@ export function Linux({ size = 16, strokeWidth: _strokeWidth, ...props }: IconCo
   );
 }
 export const ArrowLeft = createHugeIcon(ArrowLeft01Icon);
+export const Expand = createHugeIcon(ArrowExpandIcon);
 export const ArrowUpRight = createHugeIcon(ArrowUpRight01Icon);
 export const MousePointer = createHugeIcon(MouseLeftClick06Icon);
 export const MouseScroll = createHugeIcon(MouseScroll01Icon);
