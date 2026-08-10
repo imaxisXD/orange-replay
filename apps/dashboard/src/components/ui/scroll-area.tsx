@@ -27,12 +27,24 @@ type Orientation = "vertical" | "horizontal" | "both";
 
 interface ScrollAreaProps extends ComponentPropsWithoutRef<"div"> {
   viewportClassName?: string;
+  /** Use `-1` when focusable descendants already provide the keyboard path. */
+  viewportTabIndex?: 0 | -1;
   /** Which axes get scrollbars. Defaults to `"vertical"`. */
   orientation?: Orientation;
 }
 
 const ScrollArea = forwardRef<ComponentRef<typeof ScrollAreaPrimitive.Root>, ScrollAreaProps>(
-  ({ className, children, viewportClassName, orientation = "vertical", ...props }, ref) => {
+  (
+    {
+      className,
+      children,
+      viewportClassName,
+      viewportTabIndex = 0,
+      orientation = "vertical",
+      ...props
+    },
+    ref,
+  ) => {
     const isTouch = useTouchPrimary();
 
     return (
@@ -55,7 +67,7 @@ const ScrollArea = forwardRef<ComponentRef<typeof ScrollAreaPrimitive.Root>, Scr
                 orientation === "both" && "overflow-auto",
                 viewportClassName,
               )}
-              tabIndex={0}
+              tabIndex={viewportTabIndex}
             >
               {children}
             </div>
@@ -70,6 +82,7 @@ const ScrollArea = forwardRef<ComponentRef<typeof ScrollAreaPrimitive.Root>, Scr
             <ScrollAreaPrimitive.Viewport
               data-slot="scroll-area-viewport"
               className={cn("size-full rounded-[inherit]", viewportClassName)}
+              tabIndex={viewportTabIndex}
             >
               {/* Content gives Base UI an intrinsic size to measure
                   horizontal overflow against. */}

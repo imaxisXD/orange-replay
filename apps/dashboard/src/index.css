@@ -227,6 +227,13 @@
     min-height: 100vh;
   }
 
+  /* Keep browser-provided keyboard outlines in the same Diagnostic Amber as
+     the component focus rings. Components with `outline-none` continue to use
+     their more specific inset/ring treatment. */
+  :focus-visible {
+    outline-color: var(--focus-ring);
+  }
+
   * {
     box-sizing: border-box;
     font-variant-numeric: tabular-nums;

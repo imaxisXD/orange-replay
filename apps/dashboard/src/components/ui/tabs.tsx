@@ -310,7 +310,7 @@ const TabsList = forwardRef<HTMLDivElement, TabsListProps>(
                   top: focusRect.top - 2,
                 }}
                 className={cn(
-                  "pointer-events-none absolute z-20 border border-[color:var(--focus-ring,#6B97FF)]",
+                  "pointer-events-none absolute z-20 border border-[color:var(--focus-ring)]",
                   shape.focusRing,
                 )}
                 exit={{ opacity: 0, transition: travel(spring.fast.exit) }}

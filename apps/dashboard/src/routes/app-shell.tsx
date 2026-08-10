@@ -100,7 +100,7 @@ export function AppShell({
 
   const workspaceContent = (
     <>
-      <ScrollArea orientation="horizontal" viewportClassName="scroll-fade-x">
+      <ScrollArea orientation="horizontal" viewportClassName="scroll-fade-x" viewportTabIndex={-1}>
         <TopNav
           isDemo={isDemo}
           items={dashboardNavItems(isDemo, canManageProject(activeProject))}
@@ -109,7 +109,7 @@ export function AppShell({
         />
       </ScrollArea>
 
-      <ScrollArea className="min-h-0 flex-1" viewportClassName="scroll-fade">
+      <ScrollArea className="min-h-0 flex-1" viewportClassName="scroll-fade" viewportTabIndex={-1}>
         <main
           className={cn(
             "dashboard-main mx-auto w-full max-w-full px-4 py-5 sm:px-7 sm:py-6",
@@ -126,7 +126,11 @@ export function AppShell({
   return (
     <div className={cn("flex h-screen flex-col overflow-hidden text-foreground", rootClassName)}>
       <header className="z-40 shrink-0">
-        <ScrollArea orientation="horizontal" viewportClassName="scroll-fade-x">
+        <ScrollArea
+          orientation="horizontal"
+          viewportClassName="scroll-fade-x"
+          viewportTabIndex={-1}
+        >
           <nav className="flex min-w-max items-center gap-3.5 px-4 pt-2.5 pb-4 sm:px-7">
             <Link
               className="flex items-center gap-2.5 text-[14px] font-semibold tracking-[-0.01em] text-foreground"

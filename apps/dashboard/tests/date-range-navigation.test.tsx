@@ -52,6 +52,10 @@ describe("rendered top-nav date-range carry", () => {
     for (const tab of tabs) assertCarriesWindowOnly(tab.href);
     expect(main?.classList).toContain("dashboard-main");
     expect(main?.className).not.toContain("transition-[max-width]");
+    const scrollViewports = container.querySelectorAll<HTMLElement>(
+      '[data-slot="scroll-area-viewport"]',
+    );
+    expect([...scrollViewports].map((viewport) => viewport.tabIndex)).toEqual([-1, -1, -1]);
     // Active-tab reset: clicking the current Sessions tab also drops the lenses.
     const active = tabs.find((tab) => tab.text === "Sessions");
     expect(active?.href).toContain("/demo/sessions?");
