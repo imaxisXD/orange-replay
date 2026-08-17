@@ -9,6 +9,10 @@ if [ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]; then
   # shellcheck source=/dev/null
   . "$NVM_DIR/nvm.sh"
   nvm use 22.22.2 2>/dev/null || nvm use 22 2>/dev/null || true
+  NVM_NODE="$(nvm which current 2>/dev/null || nvm which node 2>/dev/null || true)"
+  if [ -n "$NVM_NODE" ] && [ -x "$NVM_NODE" ]; then
+    export PATH="$(dirname "$NVM_NODE"):$PATH"
+  fi
 elif [ -x /usr/local/bin/node ]; then
   export PATH="/usr/local/bin:$PATH"
 fi
