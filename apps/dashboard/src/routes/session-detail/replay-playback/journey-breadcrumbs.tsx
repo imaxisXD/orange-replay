@@ -25,7 +25,7 @@ export function JourneyBreadcrumbs({
   return (
     <ScrollArea
       aria-label="Page journey"
-      className="border-b border-dashed border-dash"
+      className="min-w-0 border-b border-dashed border-dash"
       data-testid="journey-breadcrumbs"
       orientation="horizontal"
       viewportClassName="scroll-fade-x"

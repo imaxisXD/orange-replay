@@ -85,7 +85,7 @@ export function ReplayWorkspace(props: ReplayWorkspaceProps) {
   ]);
 
   return (
-    <section className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-[minmax(0,1fr)_304px]">
+    <section className="grid min-w-0 grid-cols-[minmax(0,1fr)] items-stretch gap-5 lg:grid-cols-[minmax(0,1fr)_304px]">
       <ReplayPlayerCard
         activityBuckets={staticPlaybackData.activityBuckets}
         breadcrumbs={staticPlaybackData.breadcrumbs}
@@ -122,7 +122,7 @@ function ReplayPlayerCard({
   rageMarkers: RageMarker[];
 }) {
   return (
-    <section className="lit overflow-hidden rounded-lg">
+    <section className="lit min-w-0 max-w-full overflow-hidden rounded-lg">
       <JourneyBreadcrumbs breadcrumbs={breadcrumbs} player={player} />
       <ReplayStage
         containerRef={player.containerRef}

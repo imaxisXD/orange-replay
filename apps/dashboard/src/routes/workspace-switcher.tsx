@@ -93,7 +93,7 @@ export function WorkspaceSwitcher({
     <Select onValueChange={handleValueChange} value={projectId}>
       <SelectTrigger
         aria-label="Website"
-        className="h-7.5 min-w-33 bg-transparent rounded-lg border-none hover:bg-secondary px-2.75 py-1.25 text-[12.5px] hover:text-foreground text-muted-foreground"
+        className="h-7.5 min-w-0 max-w-36 bg-transparent rounded-lg border-none hover:bg-secondary px-2.75 py-1.25 text-[12.5px] hover:text-foreground text-muted-foreground sm:min-w-33 sm:max-w-none"
         /* The onboarding camera rings this control in amber when it is about
            to say the visitor's Website name. The dedicated hook keeps that
            visual contract independent from its accessible label. */
