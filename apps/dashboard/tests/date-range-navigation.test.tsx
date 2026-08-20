@@ -47,15 +47,18 @@ describe("rendered top-nav date-range carry", () => {
   it("shows demo tabs and carries only the window on every tab", async () => {
     const { container, main, tabs, teardown } = await renderShell(`/demo/sessions${SEEDED_SEARCH}`);
     expect(tabs.map((tab) => tab.text)).toEqual(["Overview", "Sessions", "Live"]);
+    const tabNav = container.querySelector("nav.flex.min-w-0.items-end");
+    expect(tabNav?.className).not.toContain("min-w-max");
+    expect(container.querySelector("header nav")?.className).not.toContain("min-w-max");
+    expect(container.querySelector("header nav")?.className).toContain("min-w-0");
+    expect(tabs[0]?.className).toContain("flex-1");
+    expect(tabs[0]?.className).toContain("sm:w-28");
     await openWebsiteMenu(container);
     expect(document.body.textContent).not.toContain("Add website");
     for (const tab of tabs) assertCarriesWindowOnly(tab.href);
     expect(main?.classList).toContain("dashboard-main");
     expect(main?.className).not.toContain("transition-[max-width]");
-    const scrollViewports = container.querySelectorAll<HTMLElement>(
-      '[data-slot="scroll-area-viewport"]',
-    );
-    expect([...scrollViewports].map((viewport) => viewport.tabIndex)).toEqual([-1, -1, -1]);
+    expect(container.querySelectorAll('[data-slot="scroll-area"]').length).toBe(1);
     // Active-tab reset: clicking the current Sessions tab also drops the lenses.
     const active = tabs.find((tab) => tab.text === "Sessions");
     expect(active?.href).toContain("/demo/sessions?");
@@ -305,6 +308,7 @@ async function renderShell(initialPath: string, accountData?: AccountResponse) {
   const tabs = [...(tabNav?.querySelectorAll("a[href]") ?? [])].map((anchor) => ({
     text: (anchor.textContent ?? "").trim(),
     href: anchor.getAttribute("href") ?? "",
+    className: anchor.className,
   }));
   const main = container.querySelector("main");
 

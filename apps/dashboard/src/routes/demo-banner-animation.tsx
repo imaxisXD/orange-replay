@@ -200,7 +200,7 @@ export function DemoBannerAnimatedAppShell({
               y: config.entry.offsetY,
             },
         transition: workspaceTransition,
-        style: { overflow: "visible" },
+        className: "overflow-hidden sm:overflow-visible",
       }}
       workspaceOverlay={
         <>
@@ -277,14 +277,15 @@ function DemoBannerNotch({
 
   return (
     <div
-      className="pointer-events-none absolute right-0 bottom-[calc(100%-1px)] z-20 overflow-hidden"
+      className="pointer-events-none absolute inset-x-0 top-0 z-20 min-w-0 overflow-hidden sm:inset-x-auto sm:top-auto sm:right-0 sm:bottom-[calc(100%-1px)] sm:min-w-[280px] sm:w-[var(--demo-banner-width)] sm:translate-x-[var(--demo-banner-offset)]"
       data-demo-banner-notch
-      style={{
-        height: visibleHeight,
-        minWidth: 280,
-        transform: `translateX(${notch.offsetX}px)`,
-        width: `${notch.widthPercent}%`,
-      }}
+      style={
+        {
+          "--demo-banner-offset": `${notch.offsetX}px`,
+          "--demo-banner-width": `${notch.widthPercent}%`,
+          height: visibleHeight,
+        } as CSSProperties
+      }
     >
       <m.div
         animate={{ y: visible ? 0 : visibleHeight }}
@@ -350,7 +351,7 @@ function DemoBannerNotch({
           className="pointer-events-auto absolute inset-x-0 top-0 flex items-center gap-3 pr-4"
           style={{ height: visibleHeight, paddingLeft: notch.slantWidth + 16 }}
         >
-          <p className="relative min-w-0 flex-1 text-[12px] leading-[1.3] font-medium tracking-[-0.005em] text-foreground">
+          <p className="relative hidden min-w-0 flex-1 text-[12px] leading-[1.3] font-medium tracking-[-0.005em] text-foreground sm:block">
             Our own landing page, recorded with our own product.{" "}
             <span className="text-teal">Look closely. You might spot yourself.</span>
           </p>

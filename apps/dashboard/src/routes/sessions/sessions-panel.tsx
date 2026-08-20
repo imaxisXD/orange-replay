@@ -26,15 +26,15 @@ import { SessionsDateRangeEmptyState } from "./sessions-date-range-empty-state";
 import { SessionsToolbar } from "./sessions-toolbar";
 import { useSessionsPanelData } from "./use-sessions-panel-data";
 
-const SESSION_WORKSPACE_HEIGHT = 690;
-
 /**
- * The results layout needs a fixed 690px so the list rail and the replay stage
- * keep a stable height while sessions stream in. The date-range empty state has
- * no such constraint — it is one centered block inside a parallax field — so
- * pinning it to 690px pushed the card, and on narrow screens its only action,
- * past the fold. It instead takes the smaller of 690px and what the viewport
- * has left, with a floor that still fits the collage and the message.
+ * The results layout uses a fixed 690px on wide screens so the list rail and
+ * the replay stage keep a stable height while sessions stream in. Narrow
+ * screens drop that pin so the player can use the available width instead of
+ * overflowing. The date-range empty state has no such constraint — it is one
+ * centered block inside a parallax field — so pinning it to 690px pushed the
+ * card, and on narrow screens its only action, past the fold. It instead takes
+ * the smaller of 690px and what the viewport has left, with a floor that still
+ * fits the collage and the message.
  *
  * The subtracted values are the measured chrome above the workspace: ~210px on
  * `sm` and up (top nav, tabs, page title, filter row) and ~365px below that,
@@ -230,13 +230,13 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
         className={cn(
           "flex min-w-0 items-stretch gap-5",
           isConfirmedDateRangeEmpty && EMPTY_WORKSPACE_HEIGHT_CLASS,
+          !isConfirmedDateRangeEmpty && "max-lg:h-auto lg:h-[690px]",
         )}
         data-session-layout-state={
           isLoadingWorkspace ? "loading" : isConfirmedDateRangeEmpty ? "empty" : "results"
         }
         data-session-workspace
         aria-busy={isLoadingWorkspace}
-        style={isConfirmedDateRangeEmpty ? undefined : { height: SESSION_WORKSPACE_HEIGHT }}
       >
         {isConfirmedDateRangeEmpty ? (
           <SessionsDateRangeEmptyState

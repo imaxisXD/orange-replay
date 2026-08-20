@@ -1,6 +1,5 @@
 import type { ActivityBucket } from "@orange-replay/player";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip } from "@/components/ui/tooltip";
 import { formatDuration } from "@/lib/format";
@@ -32,106 +31,103 @@ export function ReplayControls({
   const { isFollowing, playheadPercent, timelineDurationMs } = values;
 
   return (
-    <ScrollArea
-      className="border-t border-dashed border-dash"
-      orientation="horizontal"
-      viewportClassName="scroll-fade-x"
+    <div
+      className="flex w-full min-w-0 flex-wrap items-center gap-x-3 gap-y-2 border-t border-dashed border-dash px-3 py-3 sm:gap-3.5 sm:px-4 sm:py-3.25"
+      data-testid="replay-controls"
     >
-      <div className="flex min-w-full w-max items-center gap-3.5 px-4 py-3.25">
-        {!isFollowing && (
-          <ReplayPlayPauseControl onToggle={actions.togglePlayback} playing={playing} />
-        )}
+      {!isFollowing && (
+        <ReplayPlayPauseControl onToggle={actions.togglePlayback} playing={playing} />
+      )}
 
-        <span className="font-mono text-[12px] tabular-nums text-muted-foreground">
-          {formatDuration(currentMs)}
-        </span>
+      <span className="font-mono text-[12px] tabular-nums text-muted-foreground">
+        {formatDuration(currentMs)}
+      </span>
 
+      <div
+        aria-label="Replay timeline"
+        aria-disabled={isFollowing}
+        aria-valuemax={Math.round(timelineDurationMs)}
+        aria-valuemin={0}
+        aria-valuenow={Math.round(currentMs)}
+        aria-valuetext={`${formatDuration(currentMs)} of ${formatDuration(timelineDurationMs)}`}
+        className={`group relative h-10 min-w-0 flex-1 basis-40 touch-none ${isFollowing ? "cursor-default" : "cursor-pointer"}`}
+        onKeyDown={(event) => {
+          if (isFollowing) return;
+          if (event.key === "ArrowLeft") {
+            event.preventDefault();
+            actions.seekTo(currentMs - 5_000);
+          } else if (event.key === "ArrowRight") {
+            event.preventDefault();
+            actions.seekTo(currentMs + 5_000);
+          } else if (event.key === "Home") {
+            event.preventDefault();
+            actions.seekTo(0);
+          } else if (event.key === "End") {
+            event.preventDefault();
+            actions.seekTo(timelineDurationMs);
+          } else if (event.key === " " || event.key === "Spacebar") {
+            event.preventDefault();
+            actions.togglePlayback();
+          }
+        }}
+        onPointerCancel={isFollowing ? undefined : actions.stopTimelineDrag}
+        onPointerDown={isFollowing ? undefined : actions.startTimelineDrag}
+        onPointerMove={isFollowing ? undefined : actions.moveTimelineDrag}
+        onPointerUp={isFollowing ? undefined : actions.stopTimelineDrag}
+        ref={timelineRef}
+        role="slider"
+        style={{ "--playhead": `${playheadPercent}%` } as React.CSSProperties}
+        tabIndex={0}
+      >
+        <div className="absolute right-0 left-0 top-5 border-t border-dashed border-dash" />
         <div
-          aria-label="Replay timeline"
-          aria-disabled={isFollowing}
-          aria-valuemax={Math.round(timelineDurationMs)}
-          aria-valuemin={0}
-          aria-valuenow={Math.round(currentMs)}
-          aria-valuetext={`${formatDuration(currentMs)} of ${formatDuration(timelineDurationMs)}`}
-          className={`group relative h-10 min-w-40 flex-1 touch-none ${isFollowing ? "cursor-default" : "cursor-pointer"}`}
-          onKeyDown={(event) => {
-            if (isFollowing) return;
-            if (event.key === "ArrowLeft") {
-              event.preventDefault();
-              actions.seekTo(currentMs - 5_000);
-            } else if (event.key === "ArrowRight") {
-              event.preventDefault();
-              actions.seekTo(currentMs + 5_000);
-            } else if (event.key === "Home") {
-              event.preventDefault();
-              actions.seekTo(0);
-            } else if (event.key === "End") {
-              event.preventDefault();
-              actions.seekTo(timelineDurationMs);
-            } else if (event.key === " " || event.key === "Spacebar") {
-              event.preventDefault();
-              actions.togglePlayback();
-            }
-          }}
-          onPointerCancel={isFollowing ? undefined : actions.stopTimelineDrag}
-          onPointerDown={isFollowing ? undefined : actions.startTimelineDrag}
-          onPointerMove={isFollowing ? undefined : actions.moveTimelineDrag}
-          onPointerUp={isFollowing ? undefined : actions.stopTimelineDrag}
-          ref={timelineRef}
-          role="slider"
-          style={{ "--playhead": `${playheadPercent}%` } as React.CSSProperties}
-          tabIndex={0}
-        >
-          <div className="absolute right-0 left-0 top-5 border-t border-dashed border-dash" />
-          <div
-            aria-hidden
-            className="pointer-events-none absolute top-[17px] left-0 h-1.5 rounded-full bg-amber/15"
-            style={{ width: "var(--playhead, 0%)" }}
-          />
-          <ActivityHeatStrip buckets={activityBuckets} />
-          <ErrorMarkers markers={errorMarkers} />
-          <RageMarkers markers={rageMarkers} />
-          <DeadClickMarkers markers={deadClickMarkers} />
-          <Playhead flashKey={flashKey} />
-        </div>
-
-        <TimelineEnd isFollowing={isFollowing} timelineDurationMs={timelineDurationMs} />
-
-        {!isFollowing && firstErrorSeekMs !== null && (
-          <Button
-            className="h-7 gap-1.5 px-2 text-[11.5px] text-muted-foreground hover:text-foreground"
-            data-testid="first-error-button"
-            onClick={() => actions.seekAndPlay(firstErrorSeekMs, true)}
-            size="sm"
-            variant="ghost"
-          >
-            <span aria-hidden className="size-1.5 rounded-full bg-danger" />
-            First error
-          </Button>
-        )}
-
-        {!isFollowing && (
-          <Button
-            className="font-mono text-[12.5px] text-muted-foreground hover:text-foreground"
-            onClick={actions.cycleSpeed}
-            size="sm"
-            variant="secondary"
-          >
-            {speed}x
-          </Button>
-        )}
-
-        {!isFollowing && (
-          <Switch
-            checked={skipIdle}
-            className="px-0 py-0 [&>span:last-child]:text-[11.5px]"
-            label="Skip idle"
-            onToggle={actions.toggleSkipIdle}
-            size="small"
-          />
-        )}
+          aria-hidden
+          className="pointer-events-none absolute top-[17px] left-0 h-1.5 rounded-full bg-amber/15"
+          style={{ width: "var(--playhead, 0%)" }}
+        />
+        <ActivityHeatStrip buckets={activityBuckets} />
+        <ErrorMarkers markers={errorMarkers} />
+        <RageMarkers markers={rageMarkers} />
+        <DeadClickMarkers markers={deadClickMarkers} />
+        <Playhead flashKey={flashKey} />
       </div>
-    </ScrollArea>
+
+      <TimelineEnd isFollowing={isFollowing} timelineDurationMs={timelineDurationMs} />
+
+      {!isFollowing && firstErrorSeekMs !== null && (
+        <Button
+          className="h-7 gap-1.5 px-2 text-[11.5px] text-muted-foreground hover:text-foreground"
+          data-testid="first-error-button"
+          onClick={() => actions.seekAndPlay(firstErrorSeekMs, true)}
+          size="sm"
+          variant="ghost"
+        >
+          <span aria-hidden className="size-1.5 rounded-full bg-danger" />
+          First error
+        </Button>
+      )}
+
+      {!isFollowing && (
+        <Button
+          className="font-mono text-[12.5px] text-muted-foreground hover:text-foreground"
+          onClick={actions.cycleSpeed}
+          size="sm"
+          variant="secondary"
+        >
+          {speed}x
+        </Button>
+      )}
+
+      {!isFollowing && (
+        <Switch
+          checked={skipIdle}
+          className="px-0 py-0 [&>span:last-child]:text-[11.5px]"
+          label="Skip idle"
+          onToggle={actions.toggleSkipIdle}
+          size="small"
+        />
+      )}
+    </div>
   );
 }
 

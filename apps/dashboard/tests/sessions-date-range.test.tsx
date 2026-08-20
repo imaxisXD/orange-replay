@@ -244,7 +244,9 @@ describe("sessions date range and pin lifecycle", () => {
 
     const loadingWorkspace = container.querySelector<HTMLElement>("[data-session-workspace]");
     expect(loadingWorkspace?.dataset.sessionLayoutState).toBe("loading");
-    expect(loadingWorkspace?.style.height).toBe("690px");
+    expect(loadingWorkspace?.style.height).toBe("");
+    expect(loadingWorkspace?.className).toContain("lg:h-[690px]");
+    expect(loadingWorkspace?.className).toContain("max-lg:h-auto");
     expect(loadingWorkspace?.getAttribute("aria-busy")).toBe("true");
     expect(container.querySelectorAll('[data-slot="loading-indicator"]')).toHaveLength(0);
     expect(container.querySelector('img[src*="date-range-owl"]')).toBeNull();
@@ -262,7 +264,8 @@ describe("sessions date range and pin lifecycle", () => {
     const resultsWorkspace = container.querySelector<HTMLElement>("[data-session-workspace]");
     expect(resultsWorkspace).toBe(loadingWorkspace);
     expect(resultsWorkspace?.dataset.sessionLayoutState).toBe("results");
-    expect(resultsWorkspace?.style.height).toBe("690px");
+    expect(resultsWorkspace?.style.height).toBe("");
+    expect(resultsWorkspace?.className).toContain("lg:h-[690px]");
     expect(resultsWorkspace?.getAttribute("aria-busy")).toBe("false");
     expect(container.querySelectorAll('[data-slot="loading-indicator"]')).toHaveLength(0);
     expect(container.textContent).toContain("Choose a session to watch");

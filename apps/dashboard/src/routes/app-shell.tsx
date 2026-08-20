@@ -100,19 +100,17 @@ export function AppShell({
 
   const workspaceContent = (
     <>
-      <ScrollArea orientation="horizontal" viewportClassName="scroll-fade-x" viewportTabIndex={-1}>
-        <TopNav
-          isDemo={isDemo}
-          items={dashboardNavItems(isDemo, canManageProject(activeProject))}
-          pathnameOverride={navigationPathname}
-          projectId={projectId}
-        />
-      </ScrollArea>
+      <TopNav
+        isDemo={isDemo}
+        items={dashboardNavItems(isDemo, canManageProject(activeProject))}
+        pathnameOverride={navigationPathname}
+        projectId={projectId}
+      />
 
       <ScrollArea className="min-h-0 flex-1" viewportClassName="scroll-fade" viewportTabIndex={-1}>
         <main
           className={cn(
-            "dashboard-main mx-auto w-full max-w-full px-4 py-5 sm:px-7 sm:py-6",
+            "dashboard-main mx-auto w-full min-w-0 max-w-full px-4 py-5 sm:px-7 sm:py-6",
             wideMain ? "max-w-475" : "max-w-300",
           )}
           ref={mainRef}
@@ -126,71 +124,65 @@ export function AppShell({
   return (
     <div className={cn("flex h-screen flex-col overflow-hidden text-foreground", rootClassName)}>
       <header className="z-40 shrink-0">
-        <ScrollArea
-          orientation="horizontal"
-          viewportClassName="scroll-fade-x"
-          viewportTabIndex={-1}
-        >
-          <nav className="flex min-w-max items-center gap-3.5 px-4 pt-2.5 pb-4 sm:px-7">
-            <Link
-              className="flex items-center gap-2.5 text-[14px] font-semibold tracking-[-0.01em] text-foreground"
-              {...(isDemo
-                ? { to: "/demo/overview" as const }
-                : { params: { projectId }, to: "/projects/$projectId/overview" as const })}
-            >
-              <BrandMark />
-              <span>Orange Replay</span>
-            </Link>
+        <nav className="flex min-w-0 items-center gap-2 px-4 pt-2.5 pb-4 sm:gap-3.5 sm:px-7">
+          <Link
+            className="flex min-w-0 shrink items-center gap-2.5 text-[14px] font-semibold tracking-[-0.01em] text-foreground"
+            {...(isDemo
+              ? { to: "/demo/overview" as const }
+              : { params: { projectId }, to: "/projects/$projectId/overview" as const })}
+          >
+            <BrandMark />
+            <span className="truncate">Orange Replay</span>
+          </Link>
 
-            <span className="text-divider">/</span>
+          <span className="text-divider">/</span>
 
-            <WorkspaceSwitcher
-              account={account}
-              isDemo={isDemo}
-              projectId={projectId}
-              projectLabel={projectLabel}
-              projectLeadingContent={projectLeadingContent}
-            />
+          <WorkspaceSwitcher
+            account={account}
+            isDemo={isDemo}
+            projectId={projectId}
+            projectLabel={projectLabel}
+            projectLeadingContent={projectLeadingContent}
+          />
 
-            <Badge color="amber" size="sm">
-              {environmentLabel}
-            </Badge>
+          <Badge color="amber" size="sm">
+            {environmentLabel}
+          </Badge>
 
-            <div className="ml-auto flex items-center gap-4">
-              {!isDemo && account?.isAdmin === true && (
-                <Button asChild leadingIcon={ShieldUser} size="sm" variant="ghost">
-                  <Link to="/_admin">Operator</Link>
+          <div className="ml-auto flex min-w-0 shrink-0 items-center gap-2 sm:gap-4">
+            {!isDemo && account?.isAdmin === true && (
+              <Button asChild leadingIcon={ShieldUser} size="sm" variant="ghost">
+                <Link to="/_admin">Operator</Link>
+              </Button>
+            )}
+            {!isDemo && (
+              <div className="flex items-center gap-2">
+                {signOutError.length > 0 && (
+                  <p className="max-w-48 text-right text-[11.5px] text-danger" role="alert">
+                    {signOutError}
+                  </p>
+                )}
+                <Button
+                  className="h-auto px-0 py-0 text-[12.5px] text-muted-foreground hover:text-foreground"
+                  loading={isSigningOut}
+                  onClick={() => void handleLogout()}
+                  variant="ghost"
+                >
+                  Sign out
                 </Button>
-              )}
-              {!isDemo && (
-                <div className="flex items-center gap-2">
-                  {signOutError.length > 0 && (
-                    <p className="max-w-48 text-right text-[11.5px] text-danger" role="alert">
-                      {signOutError}
-                    </p>
-                  )}
-                  <Button
-                    className="h-auto px-0 py-0 text-[12.5px] text-muted-foreground hover:text-foreground"
-                    loading={isSigningOut}
-                    onClick={() => void handleLogout()}
-                    variant="ghost"
-                  >
-                    Sign out
-                  </Button>
-                </div>
-              )}
-              {showAccountAvatar &&
-                (isDemo ? (
-                  <span
-                    aria-hidden="true"
-                    className="size-6.5 rounded-full border border-border bg-[linear-gradient(135deg,var(--teal-soft),var(--teal))]"
-                  />
-                ) : (
-                  <AccountAvatar image={account?.user.image} name={account?.user.name} />
-                ))}
-            </div>
-          </nav>
-        </ScrollArea>
+              </div>
+            )}
+            {showAccountAvatar &&
+              (isDemo ? (
+                <span
+                  aria-hidden="true"
+                  className="size-6.5 rounded-full border border-border bg-[linear-gradient(135deg,var(--teal-soft),var(--teal))]"
+                />
+              ) : (
+                <AccountAvatar image={account?.user.image} name={account?.user.name} />
+              ))}
+          </div>
+        </nav>
       </header>
 
       {/* The dock host sits beside the workspace card, not inside it: the card
@@ -208,14 +200,16 @@ export function AppShell({
                 surfaceClasses(DASHBOARD_SURFACE_LEVEL),
                 // The demo notch overflows into the project-header row. Lift the
                 // transformed workspace layer above that transparent header so
-                // the notch CTA can receive pointer events.
-                workspaceOverlay !== undefined && "relative z-50",
+                // the notch CTA can receive pointer events. On a narrow screen
+                // the notch stays inside the card, so the header keeps its row.
+                workspaceOverlay !== undefined && "relative z-50 max-sm:overflow-hidden",
+                workspaceMotion?.className,
               )}
             >
               {workspaceOverlay === undefined ? (
                 workspaceContent
               ) : (
-                <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl">
+                <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl max-sm:pt-[42px]">
                   {workspaceContent}
                 </div>
               )}
@@ -293,7 +287,7 @@ function TopNav({
     <LazyMotion features={domMax}>
       {/* 6px inset on top and sides + 6px tab radius nests concentrically inside
           the container's 12px corner (outer radius = inner radius + gap). */}
-      <nav className="flex min-w-max items-end gap-1 border-b border-border px-1.5 pt-1.5">
+      <nav className="flex min-w-0 items-end gap-1 border-b border-border px-1.5 pt-1.5">
         {items.map((item, index) => (
           <TopNavTab
             isActive={index === activeIndex}
@@ -332,7 +326,7 @@ function TopNavTab({
   const reduceMotion = useReducedMotion() === true;
 
   const className = cn(
-    "relative -mb-px flex w-28 items-center justify-center gap-2 rounded-t-md py-2.75 text-[13px] text-muted-foreground transition-[color,background-color,gap,font-weight] duration-200 sm:py-2.25",
+    "relative -mb-px flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-t-md px-1 py-2.75 text-[13px] text-muted-foreground transition-[color,background-color,gap,font-weight] duration-200 sm:w-28 sm:flex-none sm:gap-2 sm:px-0 sm:py-2.25",
     isActive
       ? "text-[14px] font-medium text-foreground"
       : "hover:gap-2.5 hover:bg-secondary/60 hover:font-medium hover:text-foreground",
@@ -362,7 +356,7 @@ function TopNavTab({
       >
         <Icon size={12} strokeWidth={1.75} />
       </span>
-      <span className="relative">{item.label}</span>
+      <span className="relative truncate">{item.label}</span>
     </>
   );
 

@@ -310,7 +310,7 @@ function StageHeader({
   sessionId: string;
 }) {
   return (
-    <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+    <div className="flex min-w-0 flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
       <div className="flex min-w-0 flex-wrap items-center gap-x-3.5 gap-y-1">
         <span
           className="truncate text-[13px] font-medium text-foreground"
@@ -324,7 +324,7 @@ function StageHeader({
           <StatusPill kind="neutral">Final details pending</StatusPill>
         ) : null}
       </div>
-      <div className="flex w-full shrink-0 items-center justify-between gap-1 sm:w-auto sm:justify-start">
+      <div className="flex w-full min-w-0 shrink-0 items-center justify-between gap-1 sm:w-auto sm:justify-start">
         <SessionIdCopyControl sessionId={sessionId} />
         {onMarkUnwatched !== undefined && (
           <Button
@@ -375,13 +375,13 @@ export function SessionIdCopyControl({ sessionId }: { sessionId: string }) {
   return (
     <Button
       aria-label={copied ? "Session ID copied" : "Copy session ID"}
-      className="h-8 w-48 shrink-0 gap-0 px-2 font-mono text-[11px] text-muted-foreground"
+      className="h-8 min-w-0 max-w-full shrink gap-0 px-2 font-mono text-[11px] text-muted-foreground sm:w-48 sm:shrink-0"
       onClick={() => void copySessionId()}
       size="sm"
       variant="secondary"
     >
       <span
-        className="grid w-44 grid-cols-[3.25rem_minmax(0,1fr)_0.75rem] items-center gap-2"
+        className="grid w-full min-w-0 grid-cols-[3.25rem_minmax(0,1fr)_0.75rem] items-center gap-2 sm:w-44"
         data-slot="session-id-layout"
       >
         <span className="whitespace-nowrap text-start font-sans text-[11px] text-dim">
