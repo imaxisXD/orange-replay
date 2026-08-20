@@ -27,3 +27,7 @@ Docs are local at `node_modules/vite-plus/docs` or online at https://viteplus.de
 - **UI visual authority**: `design-final.html` (repo root, static mock — never modify, never reformat). All dashboard UI carries its language: dark-only `#0a0a0c` dotted-grid canvas, `.lit` grain+dashed-bloom cards (defined in `apps/dashboard/src/index.css`), two-tier top nav, amber accent, status pills, mono tabular numerals. Judge new UI by screenshot comparison against it.
 - **Quality gates**: `vp check` and `vp test` must pass before any task is considered done.
 - Workers code: no new dependencies without justification; prepared statements only for D1; validate R2 keys; authz on every API route.
+
+## Cursor Cloud specific instructions
+
+Cloud Agent install is `.cursor/install.sh`: it installs the `vp` CLI when missing (`curl -fsSL https://vite.plus | bash`), puts `$HOME/.vite-plus/bin` on `PATH`, and runs `vp install`. Do not point the environment `install` field at a path that is not in this repository. Run only one `vp run dev` server and reuse its port when one is already running.
