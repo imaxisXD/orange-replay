@@ -109,5 +109,5 @@ function stubPlayer(): ReplayPlayerState {
       togglePlayback: vi.fn(),
       toggleSkipIdle: vi.fn(),
     },
-  } as ReplayPlayerState;
+  } as unknown as ReplayPlayerState;
 }
