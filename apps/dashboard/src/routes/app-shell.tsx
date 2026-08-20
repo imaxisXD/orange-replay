@@ -100,14 +100,12 @@ export function AppShell({
 
   const workspaceContent = (
     <>
-      <ScrollArea orientation="horizontal" viewportClassName="scroll-fade-x" viewportTabIndex={-1}>
-        <TopNav
-          isDemo={isDemo}
-          items={dashboardNavItems(isDemo, canManageProject(activeProject))}
-          pathnameOverride={navigationPathname}
-          projectId={projectId}
-        />
-      </ScrollArea>
+      <TopNav
+        isDemo={isDemo}
+        items={dashboardNavItems(isDemo, canManageProject(activeProject))}
+        pathnameOverride={navigationPathname}
+        projectId={projectId}
+      />
 
       <ScrollArea className="min-h-0 flex-1" viewportClassName="scroll-fade" viewportTabIndex={-1}>
         <main
@@ -126,71 +124,65 @@ export function AppShell({
   return (
     <div className={cn("flex h-screen flex-col overflow-hidden text-foreground", rootClassName)}>
       <header className="z-40 shrink-0">
-        <ScrollArea
-          orientation="horizontal"
-          viewportClassName="scroll-fade-x"
-          viewportTabIndex={-1}
-        >
-          <nav className="flex min-w-0 items-center gap-2 px-4 pt-2.5 pb-4 sm:gap-3.5 sm:px-7">
-            <Link
-              className="flex min-w-0 shrink items-center gap-2.5 text-[14px] font-semibold tracking-[-0.01em] text-foreground"
-              {...(isDemo
-                ? { to: "/demo/overview" as const }
-                : { params: { projectId }, to: "/projects/$projectId/overview" as const })}
-            >
-              <BrandMark />
-              <span className="truncate">Orange Replay</span>
-            </Link>
+        <nav className="flex min-w-0 items-center gap-2 px-4 pt-2.5 pb-4 sm:gap-3.5 sm:px-7">
+          <Link
+            className="flex min-w-0 shrink items-center gap-2.5 text-[14px] font-semibold tracking-[-0.01em] text-foreground"
+            {...(isDemo
+              ? { to: "/demo/overview" as const }
+              : { params: { projectId }, to: "/projects/$projectId/overview" as const })}
+          >
+            <BrandMark />
+            <span className="truncate">Orange Replay</span>
+          </Link>
 
-            <span className="text-divider">/</span>
+          <span className="text-divider">/</span>
 
-            <WorkspaceSwitcher
-              account={account}
-              isDemo={isDemo}
-              projectId={projectId}
-              projectLabel={projectLabel}
-              projectLeadingContent={projectLeadingContent}
-            />
+          <WorkspaceSwitcher
+            account={account}
+            isDemo={isDemo}
+            projectId={projectId}
+            projectLabel={projectLabel}
+            projectLeadingContent={projectLeadingContent}
+          />
 
-            <Badge color="amber" size="sm">
-              {environmentLabel}
-            </Badge>
+          <Badge color="amber" size="sm">
+            {environmentLabel}
+          </Badge>
 
-            <div className="ml-auto flex min-w-0 shrink-0 items-center gap-2 sm:gap-4">
-              {!isDemo && account?.isAdmin === true && (
-                <Button asChild leadingIcon={ShieldUser} size="sm" variant="ghost">
-                  <Link to="/_admin">Operator</Link>
+          <div className="ml-auto flex min-w-0 shrink-0 items-center gap-2 sm:gap-4">
+            {!isDemo && account?.isAdmin === true && (
+              <Button asChild leadingIcon={ShieldUser} size="sm" variant="ghost">
+                <Link to="/_admin">Operator</Link>
+              </Button>
+            )}
+            {!isDemo && (
+              <div className="flex items-center gap-2">
+                {signOutError.length > 0 && (
+                  <p className="max-w-48 text-right text-[11.5px] text-danger" role="alert">
+                    {signOutError}
+                  </p>
+                )}
+                <Button
+                  className="h-auto px-0 py-0 text-[12.5px] text-muted-foreground hover:text-foreground"
+                  loading={isSigningOut}
+                  onClick={() => void handleLogout()}
+                  variant="ghost"
+                >
+                  Sign out
                 </Button>
-              )}
-              {!isDemo && (
-                <div className="flex items-center gap-2">
-                  {signOutError.length > 0 && (
-                    <p className="max-w-48 text-right text-[11.5px] text-danger" role="alert">
-                      {signOutError}
-                    </p>
-                  )}
-                  <Button
-                    className="h-auto px-0 py-0 text-[12.5px] text-muted-foreground hover:text-foreground"
-                    loading={isSigningOut}
-                    onClick={() => void handleLogout()}
-                    variant="ghost"
-                  >
-                    Sign out
-                  </Button>
-                </div>
-              )}
-              {showAccountAvatar &&
-                (isDemo ? (
-                  <span
-                    aria-hidden="true"
-                    className="size-6.5 rounded-full border border-border bg-[linear-gradient(135deg,var(--teal-soft),var(--teal))]"
-                  />
-                ) : (
-                  <AccountAvatar image={account?.user.image} name={account?.user.name} />
-                ))}
-            </div>
-          </nav>
-        </ScrollArea>
+              </div>
+            )}
+            {showAccountAvatar &&
+              (isDemo ? (
+                <span
+                  aria-hidden="true"
+                  className="size-6.5 rounded-full border border-border bg-[linear-gradient(135deg,var(--teal-soft),var(--teal))]"
+                />
+              ) : (
+                <AccountAvatar image={account?.user.image} name={account?.user.name} />
+              ))}
+          </div>
+        </nav>
       </header>
 
       {/* The dock host sits beside the workspace card, not inside it: the card
