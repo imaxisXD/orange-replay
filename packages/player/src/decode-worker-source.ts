@@ -1,13 +1,14 @@
-import { REPLAY_EVENT_VALIDATOR_SOURCE } from "./replay-event-validation.ts";
+import { makeReplayEventValidatorSource } from "./replay-event-validation.ts";
 import { REPLAY_DATA_LIMITS } from "@orange-replay/shared/constants";
 import { MAX_REPLAY_JSON_TRAILING_WHITESPACE_CHARS } from "./worker-core.ts";
 
-export const WORKER_CORE_SOURCE = `
+export function makeWorkerCoreSource(): string {
+  return `
 const MAX_DECODED_BATCH_BYTES = ${REPLAY_DATA_LIMITS.bytes};
 const MAX_REPLAY_JSON_TRAILING_WHITESPACE_CHARS = ${MAX_REPLAY_JSON_TRAILING_WHITESPACE_CHARS};
 const textDecoder = new TextDecoder("utf-8", { fatal: true });
 
-${REPLAY_EVENT_VALIDATOR_SOURCE}
+${makeReplayEventValidatorSource()}
 
 async function decodeBatchBytes(payload) {
   return (await decodeBatchWithStats(payload)).events;
@@ -85,3 +86,4 @@ function isJsonWhitespace(charCode) {
   return charCode === 0x20 || charCode === 0x0a || charCode === 0x0d || charCode === 0x09;
 }
 `;
+}

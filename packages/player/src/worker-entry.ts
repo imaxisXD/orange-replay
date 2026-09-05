@@ -1,4 +1,4 @@
-import { WORKER_CORE_SOURCE } from "./decode-worker-source.ts";
+import { makeWorkerCoreSource } from "./decode-worker-source.ts";
 import { decodeBatchWithStats, type DecodedReplayEvents } from "./worker-core.ts";
 import type { ReplayEvent } from "./types.ts";
 
@@ -38,7 +38,9 @@ interface WorkerScope {
 
 type DecodeBatch = (payload: Uint8Array) => Promise<DecodedReplayEvents>;
 
-export function makeDecodeWorkerSource(workerCoreSource = WORKER_CORE_SOURCE): string {
+// Build the source when a player starts, after all application chunks have loaded.
+// Eager strings can capture an uninitialized shared helper across a chunk cycle.
+export function makeDecodeWorkerSource(workerCoreSource = makeWorkerCoreSource()): string {
   return `
 ${workerCoreSource}
 

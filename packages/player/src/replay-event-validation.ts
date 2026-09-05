@@ -566,10 +566,12 @@ function createReplayEventValidator(
   return validateReplayEvents;
 }
 
-export const validateReplayEvents = createReplayEventValidator(
-  VALIDATION_LIMITS,
-  countReplayValues,
-);
+let replayEventValidator: ReplayEventValidator | undefined;
+
+export function validateReplayEvents(events: unknown[]): ReplayEvent[] {
+  replayEventValidator ??= createReplayEventValidator(VALIDATION_LIMITS, countReplayValues);
+  return replayEventValidator(events);
+}
 
 /**
  * The Worker clamps every accepted index against server time before storage.
@@ -598,9 +600,11 @@ function replayDataError(message: string): Error {
   return error;
 }
 
-export const REPLAY_EVENT_VALIDATOR_SOURCE = `
+export function makeReplayEventValidatorSource(): string {
+  return `
 ${REPLAY_VALUE_COUNTER_SOURCE}
 const validateReplayEvents = (${createReplayEventValidator.toString()})(${JSON.stringify(
-  VALIDATION_LIMITS,
-)}, countReplayValues);
+    VALIDATION_LIMITS,
+  )}, countReplayValues);
 `;
+}

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "e2e": "playwright test --config playwright.config.ts",
+    "e2e:production": "vp run @orange-replay/dashboard#build && vp run @orange-replay/public-page#build && playwright test --config playwright.production.config.ts",
     "e2e:sdk": "playwright test --config playwright.sdk.config.ts",
     "profile:dashboard": "node scripts/profile-dashboard.mjs"
   },
