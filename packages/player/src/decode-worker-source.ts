@@ -1,10 +1,10 @@
 import { REPLAY_EVENT_VALIDATOR_SOURCE } from "./replay-event-validation.ts";
+import { REPLAY_DATA_LIMITS } from "@orange-replay/shared/constants";
+import { MAX_REPLAY_JSON_TRAILING_WHITESPACE_CHARS } from "./worker-core.ts";
 
 export const WORKER_CORE_SOURCE = `
-const MAX_DECODED_BATCH_BYTES = 16 * 1024 * 1024;
-const MAX_REPLAY_JSON_TRAILING_WHITESPACE_CHARS = 4096;
-const MIN_DECODED_BATCH_BYTES = 1024 * 1024;
-const MAX_DECODED_EXPANSION_RATIO = 32;
+const MAX_DECODED_BATCH_BYTES = ${REPLAY_DATA_LIMITS.bytes};
+const MAX_REPLAY_JSON_TRAILING_WHITESPACE_CHARS = ${MAX_REPLAY_JSON_TRAILING_WHITESPACE_CHARS};
 const textDecoder = new TextDecoder("utf-8", { fatal: true });
 
 ${REPLAY_EVENT_VALIDATOR_SOURCE}
@@ -15,7 +15,7 @@ async function decodeBatchBytes(payload) {
 
 async function decodeBatchWithStats(payload) {
   const plainBytes = await gunzipOrPlain(payload);
-  assertDecodedSize(payload, plainBytes.byteLength);
+  assertDecodedSize(plainBytes.byteLength);
   const text = textDecoder.decode(plainBytes);
   assertJsonTrailingWhitespace(text);
   const parsed = JSON.parse(text);
@@ -28,23 +28,30 @@ async function gunzipOrPlain(payload) {
   try {
     const body = new Response(payload).body;
     if (body === null) return payload;
-    return await readDecodedStream(body.pipeThrough(new DecompressionStream("gzip")), payload);
+    return await readDecodedStream(body.pipeThrough(new DecompressionStream("gzip")));
   } catch (error) {
     if (isDecodeLimitError(error)) throw error;
     return payload;
   }
 }
 
-async function readDecodedStream(stream, compressedPayload) {
+async function readDecodedStream(stream) {
   const reader = stream.getReader();
   const chunks = [];
   let totalBytes = 0;
-  for (;;) {
-    const read = await reader.read();
-    if (read.done) break;
-    totalBytes += read.value.byteLength;
-    assertDecodedSize(compressedPayload, totalBytes);
-    chunks.push(read.value);
+  try {
+    for (;;) {
+      const read = await reader.read();
+      if (read.done) break;
+      totalBytes += read.value.byteLength;
+      assertDecodedSize(totalBytes);
+      chunks.push(read.value);
+    }
+  } catch (error) {
+    await reader.cancel().catch(() => undefined);
+    throw error;
+  } finally {
+    reader.releaseLock();
   }
   const decoded = new Uint8Array(totalBytes);
   let offset = 0;
@@ -55,18 +62,11 @@ async function readDecodedStream(stream, compressedPayload) {
   return decoded;
 }
 
-function assertDecodedSize(compressedPayload, decodedBytes) {
-  if (decodedBytes <= decodedByteLimit(compressedPayload)) return;
+function assertDecodedSize(decodedBytes) {
+  if (decodedBytes <= MAX_DECODED_BATCH_BYTES) return;
   const error = new Error("Replay batch is too large after decoding.");
   error.name = "ReplayDecodeLimitError";
   throw error;
-}
-
-function decodedByteLimit(payload) {
-  return Math.min(
-    MAX_DECODED_BATCH_BYTES,
-    Math.max(MIN_DECODED_BATCH_BYTES, payload.byteLength * MAX_DECODED_EXPANSION_RATIO),
-  );
 }
 
 function isDecodeLimitError(error) {

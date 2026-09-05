@@ -71,7 +71,7 @@ export interface LiveReviewHistory {
 }
 
 interface LiveFollowControllerOptions {
-  request: Pick<OrangePlayerOptions, "api" | "projectId" | "sessionId">;
+  request: Pick<OrangePlayerOptions, "api" | "projectId" | "sessionId" | "replayTab">;
   signal: AbortSignal;
   worker: DecodeWorkerHost;
   host: LiveFollowHost;
@@ -87,6 +87,7 @@ export class LiveFollowController {
   private reconnectAttempt = 0;
   private connectedValue = false;
   private connectionGeneration = 0;
+  private historyAbort = new AbortController();
   private finalMessageReceived = false;
   private historyFramesRemaining = 0;
   private historyReady = true;
@@ -100,9 +101,47 @@ export class LiveFollowController {
   private activeEventCount = 0;
   private activeDecodedBytes = 0;
   private queuedEncodedBytes = 0;
+  private replayTab: string | undefined;
 
   constructor(options: LiveFollowControllerOptions) {
     this.options = options;
+    this.replayTab = options.request.replayTab;
+  }
+
+  get replaySegments(): readonly SegmentRef[] {
+    return this.reviewSegments;
+  }
+
+  selectTab(tab: string): void {
+    this.replayTab = tab;
+  }
+
+  /** Fetch another tab's pending tail without mixing it into the visible tab. */
+  async readTabHistory(tab: string, signal: AbortSignal): Promise<LiveReviewHistory> {
+    const reader = new LiveFollowController({
+      ...this.options,
+      request: { ...this.options.request, replayTab: tab },
+      signal,
+      host: {
+        acceptsReplayTab: (candidate) => candidate === tab,
+        onEvent: (event) => {
+          if (event.type === "error") this.emit(event);
+        },
+      },
+    });
+    const stop = () => {
+      reader.stopFollowing();
+      reader.releaseHistoryWait();
+    };
+    signal.addEventListener("abort", stop, { once: true });
+    try {
+      reader.startFollowing();
+      await reader.refreshHistoryForReview();
+      return await reader.stopAndTakeReviewHistory();
+    } finally {
+      signal.removeEventListener("abort", stop);
+      stop();
+    }
   }
 
   get connected(): boolean {
@@ -134,6 +173,8 @@ export class LiveFollowController {
   }
 
   connect(reconnecting = false): void {
+    this.historyAbort.abort();
+    this.historyAbort = new AbortController();
     const generation = ++this.connectionGeneration;
     void this.connectWithTicket(reconnecting, generation);
   }
@@ -199,7 +240,10 @@ export class LiveFollowController {
   }
 
   private closeConnection(invalidateQueuedFrames = true): void {
-    if (invalidateQueuedFrames) this.connectionGeneration += 1;
+    if (invalidateQueuedFrames) {
+      this.connectionGeneration += 1;
+      this.historyAbort.abort();
+    }
     this.connectedValue = false;
     this.historyFramesRemaining = 0;
     stopWaitingForKeyframe(this.liveKeyframes);
@@ -329,7 +373,7 @@ export class LiveFollowController {
         this.finalMessageReceived = true;
         this.liveDecodeQueue = this.liveDecodeQueue
           .then(() => {
-            if (!this.options.signal.aborted) {
+            if (!this.options.signal.aborted && generation === this.connectionGeneration) {
               this.emit({ type: "finalized", manifest: finalized.manifest });
             }
           })
@@ -369,8 +413,9 @@ export class LiveFollowController {
         // frames that follow hello be accepted again after the replay reset.
         this.liveFrames.seen.clear();
         this.liveDecodeQueue = this.liveDecodeQueue
-          .then(() => this.loadHelloReplay(hello))
+          .then(() => this.loadHelloReplay(hello, generation))
           .catch((error) => {
+            if (generation !== this.connectionGeneration || this.isStopped()) return;
             this.emit({
               type: "error",
               message: isReplayDataError(error)
@@ -424,8 +469,13 @@ export class LiveFollowController {
     }
   }
 
-  private async loadHelloReplay(hello: LiveHelloMessage): Promise<void> {
-    if (hello.segments.length === 0 || this.isStopped()) {
+  private async loadHelloReplay(hello: LiveHelloMessage, generation: number): Promise<void> {
+    const historySignal = AbortSignal.any([this.options.signal, this.historyAbort.signal]);
+    if (
+      hello.segments.length === 0 ||
+      this.isStopped() ||
+      generation !== this.connectionGeneration
+    ) {
       return;
     }
 
@@ -435,7 +485,7 @@ export class LiveFollowController {
       return;
     }
 
-    const replayTab = findPrimaryReplayTab(hello.segments);
+    const replayTab = this.replayTab ?? findPrimaryReplayTab(hello.segments);
     const window = chooseSegmentWindow(hello.segments, lastSegmentIndex, {
       targetTimestamp: lastSegment.t1,
       replayTab,
@@ -443,6 +493,7 @@ export class LiveFollowController {
     const decodeState = createReplayHistoryDecodeState(window.checkpoint?.tab ?? replayTab);
 
     for (const segmentIndex of window.neededIndexes) {
+      if (generation !== this.connectionGeneration || this.isStopped()) return;
       const segment = hello.segments[segmentIndex];
       if (segment === undefined) continue;
 
@@ -450,8 +501,9 @@ export class LiveFollowController {
         projectId: this.options.request.projectId,
         sessionId: this.options.request.sessionId,
         segment,
-        signal: this.options.signal,
+        signal: historySignal,
       });
+      if (generation !== this.connectionGeneration || this.isStopped()) return;
       const decoded = await decodeReplayHistorySegment(
         bytes,
         this.options.worker,
@@ -461,7 +513,7 @@ export class LiveFollowController {
       validateSegmentCheckpoints(segment, decoded, decodeState.activeTab);
     }
 
-    if (this.isStopped()) {
+    if (this.isStopped() || generation !== this.connectionGeneration) {
       return;
     }
 
@@ -541,7 +593,11 @@ export class LiveFollowController {
   }
 
   private async decodeAndApplyLiveFrame(frame: LiveFrame, generation: number): Promise<void> {
-    if (this.isStopped()) {
+    if (
+      this.isStopped() ||
+      generation !== this.connectionGeneration ||
+      (this.replayTab !== undefined && frame.index.tab !== this.replayTab)
+    ) {
       return;
     }
 
@@ -630,6 +686,7 @@ export class LiveFollowController {
 
   private reconnectAfterLiveBudgetOverflow(message: string): void {
     if (this.isStopped()) return;
+    this.historyAbort.abort();
     this.connectionGeneration += 1;
     this.activeEventCount = 0;
     this.activeDecodedBytes = 0;

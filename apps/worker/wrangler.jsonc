@@ -16,6 +16,7 @@
     "ANALYTICS_READ_BACKEND": "d1",
     "ANALYTICS_EXPORT_ENABLED": "0",
     "ACCEPTED_USAGE_RESERVATIONS": "1",
+    "REPLAY_ASSET_QUEUE_NAME": "or-replay-assets",
     "ANALYTICS_DELETION_READ_VERSION": "v1",
   },
   "durable_objects": {
@@ -101,7 +102,10 @@
     },
   ],
   "queues": {
-    "producers": [{ "binding": "FINALIZE_QUEUE", "queue": "or-session-finalized" }],
+    "producers": [
+      { "binding": "FINALIZE_QUEUE", "queue": "or-session-finalized" },
+      { "binding": "REPLAY_ASSET_QUEUE", "queue": "or-replay-assets" },
+    ],
     "consumers": [
       {
         "queue": "or-session-finalized",
@@ -109,6 +113,14 @@
         "max_batch_timeout": 5,
         "max_retries": 10,
         "dead_letter_queue": "or-dlq",
+      },
+      {
+        "queue": "or-replay-assets",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 10,
+        "max_concurrency": 5,
+        "dead_letter_queue": "or-replay-assets-dlq",
       },
     ],
   },
@@ -149,6 +161,7 @@
         "ANALYTICS_READ_BACKEND": "REPLACE_WITH_PRODUCTION_ANALYTICS_READ_BACKEND",
         "ANALYTICS_EXPORT_ENABLED": "1",
         "ACCEPTED_USAGE_RESERVATIONS": "0",
+        "REPLAY_ASSET_QUEUE_NAME": "or-replay-assets-prod",
         "ANALYTICS_DELETION_READ_VERSION": "REPLACE_WITH_PRODUCTION_ANALYTICS_DELETION_READ_VERSION",
         "R2_SQL_ACCOUNT_ID": "REPLACE_WITH_PRODUCTION_ACCOUNT_ID",
         "R2_SQL_BUCKET": "orange-replay-analytics-prod",
@@ -264,7 +277,10 @@
         },
       ],
       "queues": {
-        "producers": [{ "binding": "FINALIZE_QUEUE", "queue": "or-session-finalized-prod" }],
+        "producers": [
+          { "binding": "FINALIZE_QUEUE", "queue": "or-session-finalized-prod" },
+          { "binding": "REPLAY_ASSET_QUEUE", "queue": "or-replay-assets-prod" },
+        ],
         "consumers": [
           {
             "queue": "or-session-finalized-prod",
@@ -272,6 +288,14 @@
             "max_batch_timeout": 5,
             "max_retries": 10,
             "dead_letter_queue": "or-dlq-prod",
+          },
+          {
+            "queue": "or-replay-assets-prod",
+            "max_batch_size": 1,
+            "max_batch_timeout": 1,
+            "max_retries": 10,
+            "max_concurrency": 5,
+            "dead_letter_queue": "or-replay-assets-dlq-prod",
           },
         ],
       },

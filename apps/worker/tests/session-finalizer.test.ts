@@ -11,6 +11,70 @@ import { SessionLiveHub, type SessionLiveHubDependencies } from "../src/do/sessi
 import type { SessionState } from "../src/do/session-state.ts";
 
 describe("session final handoff", () => {
+  it("retains the exact finalization receipt across queue failure and a changed retry", async () => {
+    const state = finalizingState();
+    let receipt: FinalizeMessage | null = null;
+    const sent: FinalizeMessage[] = [];
+    const order: string[] = [];
+    const dependencies = {
+      recordings: {
+        get: async () => null,
+        put: async () => ({ etag: "manifest-written" }),
+        head: async () => ({ etag: "sidecar-exists" }),
+      },
+      finalizeQueue: {
+        send: async (message: FinalizeMessage) => {
+          order.push("send");
+          sent.push(structuredClone(message));
+          if (sent.length === 1) throw new Error("Queue unavailable.");
+        },
+      },
+      store: {
+        finalPageBatches: () => [],
+        segmentRowsForManifest: () => [],
+        storedEventRows: () => [],
+        readFinalizationReceipt: () => receipt,
+        saveFinalizationReceipt: (message: FinalizeMessage) => {
+          receipt = structuredClone(message);
+          order.push("receipt");
+        },
+        replaceStateWithTombstone: () => {
+          order.push("tombstone");
+        },
+      },
+      segmentWriter: {
+        assertRecordingMatches: async () => undefined,
+        assertRecordingStreamMatches: async () => undefined,
+      },
+      getSessionState: () => state,
+      flushPendingBatches: async () => undefined,
+      acceptedUsageReservationsEnabled: false,
+      reserveAcceptedUsage: async () => undefined,
+      markFinalizationReady: async () => {
+        order.push("ready");
+      },
+      markPresenceFinalizing: async () => undefined,
+      finalizeViewers: () => undefined,
+      rememberTombstone: () => undefined,
+      alarms: { schedulePurge: async () => undefined },
+    } as unknown as SessionFinalizerDependencies;
+    const finalizer = new SessionFinalizer(dependencies);
+
+    await expect(finalizer.finalize(createSessionFinalizeMetrics())).rejects.toThrow(
+      "Queue unavailable.",
+    );
+    expect(receipt).toEqual(sent[0]);
+    expect(order).toEqual(["receipt", "ready", "tombstone", "send"]);
+    state.attrs.country = "CA";
+    state.batchCount = MAX_SESSION_BATCHES;
+    await finalizer.finalize(createSessionFinalizeMetrics());
+
+    expect(sent).toHaveLength(2);
+    expect(sent[1]).toEqual(sent[0]);
+    expect(receipt).toEqual(sent[0]);
+    expect(order.at(-1)).toBe("send");
+  });
+
   it("hands the immutable manifest to viewers before a held queue", async () => {
     const state = finalizingState();
     let releaseQueue = (): void => undefined;
@@ -37,6 +101,8 @@ describe("session final handoff", () => {
         },
       },
       store: {
+        readFinalizationReceipt: () => null,
+        saveFinalizationReceipt: () => undefined,
         finalPageBatches: () => [
           {
             tab: "tab-a",
@@ -80,6 +146,7 @@ describe("session final handoff", () => {
       flushPendingBatches: async () => undefined,
       acceptedUsageReservationsEnabled: true,
       reserveAcceptedUsage: async () => undefined,
+      markFinalizationReady: async () => undefined,
       markPresenceFinalizing: async () => undefined,
       finalizeViewers: (_manifest: SessionManifest) => {
         handoffCount += 1;
@@ -94,19 +161,19 @@ describe("session final handoff", () => {
     const finalizer = new SessionFinalizer(dependencies);
 
     const completion = finalizer.finalize(createSessionFinalizeMetrics());
-    for (let tick = 0; tick < 10 && !queueStarted; tick += 1) {
+    for (let tick = 0; tick < 20 && !queueStarted; tick += 1) {
       await Promise.resolve();
     }
 
     expect(queueStarted).toBe(true);
     expect(handoffCount).toBe(1);
-    expect(tombstoneWritten).toBe(false);
+    expect(tombstoneWritten).toBe(true);
 
     releaseQueue();
     await completion;
     expect(handoffCount).toBe(2);
     expect(tombstoneWritten).toBe(true);
-    expect(scheduledPurgeAt).toBeGreaterThan(Date.now());
+    expect(scheduledPurgeAt).toBe(1_200 + 30 * 86_400_000);
     expect(queuedMessage?.attrs).toMatchObject({ entryUrl: "/a", urlCount: 3, pageCount: 3 });
     expect(queuedMessage?.insights?.quickBacks).toBe(1);
     expect(queuedMessage?.bytes).toBe(0);
@@ -130,6 +197,8 @@ describe("session final handoff", () => {
         },
       },
       store: {
+        readFinalizationReceipt: () => null,
+        saveFinalizationReceipt: () => undefined,
         finalPageBatches: () => [],
         segmentRowsForManifest: () => [
           {
@@ -154,6 +223,7 @@ describe("session final handoff", () => {
       reserveAcceptedUsage: async (_state: SessionState, bytes: number) => {
         reservedBytes = bytes;
       },
+      markFinalizationReady: async () => undefined,
       markPresenceFinalizing: async () => undefined,
       finalizeViewers: () => undefined,
       rememberTombstone: () => undefined,
@@ -182,6 +252,8 @@ describe("session final handoff", () => {
         },
       },
       store: {
+        readFinalizationReceipt: () => null,
+        saveFinalizationReceipt: () => undefined,
         finalPageBatches: () => [],
         segmentRowsForManifest: () => [],
         storedEventRows: () => [],
@@ -197,6 +269,7 @@ describe("session final handoff", () => {
       reserveAcceptedUsage: async () => {
         reservationCalls += 1;
       },
+      markFinalizationReady: async () => undefined,
       markPresenceFinalizing: async () => undefined,
       finalizeViewers: () => undefined,
       rememberTombstone: () => undefined,
@@ -254,6 +327,8 @@ describe("session final handoff", () => {
         },
       },
       store: {
+        readFinalizationReceipt: () => null,
+        saveFinalizationReceipt: () => undefined,
         finalPageBatches: () => [],
         segmentRowsForManifest: () => ({
           [Symbol.iterator]() {
@@ -273,6 +348,7 @@ describe("session final handoff", () => {
       reserveAcceptedUsage: async (_state: SessionState, bytes: number) => {
         reservedBytes = bytes;
       },
+      markFinalizationReady: async () => undefined,
       markPresenceFinalizing: async () => undefined,
       finalizeViewers: () => undefined,
       rememberTombstone: () => undefined,
@@ -316,6 +392,8 @@ describe("session final handoff", () => {
         },
       },
       store: {
+        readFinalizationReceipt: () => null,
+        saveFinalizationReceipt: () => undefined,
         finalPageBatches: () => ({
           [Symbol.iterator]() {
             finalPageReads += 1;
@@ -341,6 +419,7 @@ describe("session final handoff", () => {
       flushPendingBatches: async () => undefined,
       acceptedUsageReservationsEnabled: true,
       reserveAcceptedUsage: async () => undefined,
+      markFinalizationReady: async () => undefined,
       markPresenceFinalizing: async () => undefined,
       finalizeViewers: () => undefined,
       rememberTombstone: () => undefined,
@@ -369,6 +448,8 @@ describe("session final handoff", () => {
         send: async () => undefined,
       },
       store: {
+        readFinalizationReceipt: () => null,
+        saveFinalizationReceipt: () => undefined,
         finalPageBatches: () => [],
         segmentRowsForManifest: () => [],
         storedEventRows: () => [],
@@ -382,6 +463,7 @@ describe("session final handoff", () => {
       flushPendingBatches: async () => undefined,
       acceptedUsageReservationsEnabled: false,
       reserveAcceptedUsage: async () => undefined,
+      markFinalizationReady: async () => undefined,
       markPresenceFinalizing: async () => undefined,
       finalizeViewers: () => undefined,
       rememberTombstone: () => undefined,

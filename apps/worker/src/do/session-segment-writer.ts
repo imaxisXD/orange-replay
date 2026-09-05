@@ -171,7 +171,9 @@ export class SessionSegmentWriter {
       const segment = buildSegment(bodies);
       const events = capTimelineEventsToBudget(
         batchMetadata
-          .flatMap((metadata) => metadata.events)
+          .flatMap((metadata, batch) =>
+            metadata.events.map((event) => ({ ...event, tab: chunk[batch]!.tab })),
+          )
           .toSorted((left, right) => left.t - right.t),
         MAX_MANIFEST_TIMELINE_EVENTS,
       );

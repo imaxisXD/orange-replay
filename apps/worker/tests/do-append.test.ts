@@ -18,6 +18,55 @@ import {
 import type { AppendInput } from "./do-test-helpers.ts";
 
 describe("SessionRecorder Durable Object", () => {
+  it("saves masking changes once per accepted batch and keeps authoritative tab identity", async () => {
+    const projectId = "project-masking-tabs";
+    const sessionId = "session-masking-tabs";
+    const t0 = Date.now();
+    const input: AppendInput = {
+      projectId,
+      sessionId,
+      tab: "tab-a",
+      seq: 0,
+      t0,
+      payload: bytes("old-capture"),
+    };
+    await append(input);
+    const policy = {
+      v: 1 as const,
+      defaultsVersion: 1 as const,
+      inputs: "all" as const,
+      text: "selected" as const,
+      localRules: { text: true, block: false, ignore: false },
+      rulesFingerprint: "a".repeat(64),
+      canvas: false,
+    };
+    const next = {
+      ...input,
+      seq: 1,
+      appliedDomMasking: policy,
+      events: [{ t: t0 + 1, k: "custom" as const, tab: "spoofed-tab", d: "Known action" }],
+    };
+    await append(next);
+    await append(next);
+    await append({ ...input, tab: "tab-b", appliedDomMasking: { ...policy, canvas: true } });
+    await forceFinalize(projectId, sessionId);
+    const manifest = JSON.parse(
+      new TextDecoder().decode(await readR2Bytes(manifestKey(projectId, sessionId))),
+    ) as SessionManifest;
+    expect(manifest.counts.batches).toBe(3);
+    expect(manifest.domMasking).toMatchObject({
+      unknownBatches: 1,
+      overflowBatches: 0,
+      policies: [
+        { batches: 1, policy },
+        { batches: 1, policy: { ...policy, canvas: true } },
+      ],
+    });
+    expect(manifest.timeline.find((event) => event.d === "Known action")?.tab).toBe("tab-a");
+    expect(manifest.timeline.map((event) => event.tab)).toContain("tab-b");
+    const storedSegment = await readR2Bytes(manifest.segments[0]!.key);
+    expect(new TextDecoder().decode(storedSegment)).not.toContain("rulesFingerprint");
+  });
   it("charges accepted bytes before finalization and does not charge a duplicate twice", async () => {
     const projectId = "project-accepted-usage";
     const sessionId = "session-accepted-usage";
@@ -105,6 +154,8 @@ describe("SessionRecorder Durable Object", () => {
       hasState: true,
       schemaReady: true,
       finalized: false,
+      finalizationRegistered: true,
+      hasFinalizationReceipt: false,
       firstRequestId: expect.any(String),
       bufferedBytes: payloadA.byteLength + payloadB.byteLength + payloadC.byteLength,
       pendingBatches: 3,

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "e2e": "playwright test --config playwright.config.ts",
+    "e2e:sdk": "playwright test --config playwright.sdk.config.ts",
     "profile:dashboard": "node scripts/profile-dashboard.mjs"
   },
   "dependencies": {

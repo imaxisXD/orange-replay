@@ -34,6 +34,7 @@ export function OverviewSummary({
   const coveredSessions = stats?.pagesPerSession.includedSessions.value;
   const totalSessions = stats?.pagesPerSession.totalSessions.value;
   const coverageLabel = pageCoverageLabel(coveredSessions, totalSessions);
+  const liveNow = stats?.liveNow.value;
 
   return (
     <>
@@ -72,12 +73,24 @@ export function OverviewSummary({
           detail={coverageLabel}
         />
         <LiveKpiDoorway
-          active={(stats?.liveNow.value ?? 0) > 0}
+          active={liveNow != null && liveNow > 0}
           isDemo={isDemo}
           label="Live now"
           projectId={projectId}
-          value={<AnimatedNumber value={stats?.liveNow.value ?? 0} />}
-          detail="Active in the last minute"
+          value={
+            liveNow == null ? (
+              <span aria-label="Live count unavailable">—</span>
+            ) : (
+              <AnimatedNumber value={liveNow} />
+            )
+          }
+          detail={
+            stats === undefined
+              ? "Waiting for live count"
+              : liveNow === null
+                ? "Live count temporarily unavailable"
+                : "Active in the last minute"
+          }
         />
       </section>
 

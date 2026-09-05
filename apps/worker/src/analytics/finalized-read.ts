@@ -5,6 +5,8 @@ import {
   startWideEvent,
   withDefaultAnalyticsDateRange,
   type AnalyticsState,
+  type AnalyticsDelivery,
+  type AnalyticsView,
   type FinalizedProjectStats,
   type SessionFilter,
   type SessionListItem,
@@ -28,6 +30,7 @@ import {
   type AnalyticsCompareEvent,
 } from "./compare.ts";
 import { AnalyticsReadError } from "./r2-sql-client.ts";
+import { checkWarehouseReadCapacity } from "./read-rate-limit.ts";
 import { projectAnalyticsReadMode } from "./residency.ts";
 import { r2SqlSettingsFromEnv, readWarehouseSnapshot } from "./runtime.ts";
 import type { AnalyticsDeletionTableVersion } from "./warehouse-query.ts";
@@ -55,6 +58,8 @@ export type FinalizedAnalyticsRead<Value> =
       value: Value;
       analyticsState: FinalizedAnalyticsState;
       warehouseVersion?: number;
+      analyticsDelivery?: AnalyticsDelivery;
+      analyticsView?: AnalyticsView;
     }
   | {
       ok: false;
@@ -187,6 +192,7 @@ async function readComparedSessionPage(input: {
         return;
       }
 
+      await requireWarehouseReadCapacity(env, compareEvent);
       const warehousePage = await readWarehouseSessionPage(
         {
           ...r2SqlSettingsFromEnv(env),
@@ -246,12 +252,18 @@ async function readR2SessionPage(input: {
       analytics_cache_state: "current",
       warehouse_version: currentCache.warehouseVersion,
     });
-    return successfulRead(currentCache.value, "fresh", currentCache.warehouseVersion);
+    return successfulRead(
+      currentCache.value,
+      "fresh",
+      currentCache.warehouseVersion,
+      deliveryMetadata(snapshot.analyticsDelivery, options.warehouse_version),
+    );
   }
 
   wideEvent.set({ cache_hit: false, analytics_cache_state: "miss" });
 
   try {
+    await requireWarehouseReadCapacity(env, wideEvent);
     const warehousePage = await readWarehouseSessionPage(
       r2SqlSettingsFromEnv(env),
       projectId,
@@ -264,7 +276,12 @@ async function readR2SessionPage(input: {
       nextBefore: warehousePage.nextBefore,
     };
     writeAnalyticsCache(ctx, cacheRequests, page, snapshot.version);
-    return successfulRead(page, "fresh", snapshot.version);
+    return successfulRead(
+      page,
+      "fresh",
+      snapshot.version,
+      deliveryMetadata(snapshot.analyticsDelivery, options.warehouse_version),
+    );
   } catch (error) {
     if (!(error instanceof AnalyticsReadError)) throw error;
 
@@ -281,7 +298,12 @@ async function readR2SessionPage(input: {
       analytics_cache_state: "stale",
       warehouse_version: lastGood.warehouseVersion,
     });
-    return successfulRead(lastGood.value, "stale", lastGood.warehouseVersion);
+    return successfulRead(
+      lastGood.value,
+      "stale",
+      lastGood.warehouseVersion,
+      deliveryMetadata(snapshot.analyticsDelivery, options.warehouse_version),
+    );
   }
 }
 
@@ -378,6 +400,7 @@ async function readR2Stats(input: {
 
   try {
     if (finalized === null) {
+      await requireWarehouseReadCapacity(env, wideEvent);
       const warehouse = await readWarehouseProjectStats(
         r2SqlSettingsFromEnv(env),
         projectId,
@@ -411,7 +434,12 @@ async function readR2Stats(input: {
     });
   }
 
-  return successfulRead(finalized, analyticsState, responseWarehouseVersion);
+  return successfulRead(
+    finalized,
+    analyticsState,
+    responseWarehouseVersion,
+    deliveryMetadata(snapshot.analyticsDelivery, filter.warehouse_version),
+  );
 }
 
 async function compareProjectStats(
@@ -435,6 +463,7 @@ async function compareProjectStats(
     ...r2SqlSettingsFromEnv(env),
     timeoutMs: ANALYTICS_COMPARE_QUERY_TIMEOUT_MS,
   };
+  await requireWarehouseReadCapacity(env, compareEvent);
   const warehouse = await readWarehouseProjectStats(
     compareSettings,
     projectId,
@@ -468,6 +497,20 @@ async function compareProjectStats(
     analytics_bytes_scanned: bytesScanned,
     analytics_files_scanned: filesScanned,
   });
+}
+
+async function requireWarehouseReadCapacity(
+  env: Env,
+  event: ReturnType<typeof startWideEvent>,
+): Promise<void> {
+  const result = await checkWarehouseReadCapacity(env);
+  if (result.allowed) return;
+  event.set({ rate_limit: `analytics_${result.scope}` });
+  throw new AnalyticsReadError(
+    result.scope === "configuration" ? "analytics_not_configured" : "analytics_busy",
+    "Analytics query capacity is temporarily unavailable.",
+    { canRetry: true, retryAfterSeconds: 60 },
+  );
 }
 
 async function readD1SessionPage(
@@ -659,12 +702,24 @@ function successfulRead<Value>(
   value: Value,
   analyticsState: FinalizedAnalyticsState,
   warehouseVersion?: number,
+  metadata?: { analyticsDelivery?: AnalyticsDelivery; analyticsView: AnalyticsView },
 ): FinalizedAnalyticsRead<Value> {
   return {
     ok: true,
     value,
     analyticsState,
     ...(warehouseVersion === undefined ? {} : { warehouseVersion }),
+    ...metadata,
+  };
+}
+
+function deliveryMetadata(
+  analyticsDelivery: AnalyticsDelivery | undefined,
+  requestedVersion: number | undefined,
+): { analyticsDelivery?: AnalyticsDelivery; analyticsView: AnalyticsView } {
+  return {
+    analyticsView: requestedVersion === undefined ? "latest" : "pinned",
+    ...(analyticsDelivery === undefined ? {} : { analyticsDelivery }),
   };
 }
 

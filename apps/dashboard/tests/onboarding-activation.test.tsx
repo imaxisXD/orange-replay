@@ -65,7 +65,6 @@ import {
   saveOnboardingRecorderKey,
 } from "../src/routes/onboarding/onboarding-recorder-key";
 import {
-  activationAllowedOrigins,
   continuesVisitorJourney,
   isWebsiteProjectName,
   readWebsiteUrl,
@@ -162,21 +161,6 @@ describe("activation website identity", () => {
   it("names the project after the bare hostname", () => {
     expect(websiteProjectName(new URL("https://www.acme.com/pricing"))).toBe("acme.com");
     expect(websiteProjectName(new URL("https://shop.acme.co.uk"))).toBe("shop.acme.co.uk");
-  });
-
-  it("allows the typed origin and its www sibling so ingest is not refused", () => {
-    expect(activationAllowedOrigins(new URL("https://acme.com"))).toEqual([
-      "https://acme.com",
-      "https://www.acme.com",
-    ]);
-    expect(activationAllowedOrigins(new URL("https://www.acme.com"))).toEqual([
-      "https://www.acme.com",
-      "https://acme.com",
-    ]);
-    // A port belongs to the origin and must survive on both spellings.
-    expect(activationAllowedOrigins(new URL("http://localhost:3000"))).toEqual([
-      "http://localhost:3000",
-    ]);
   });
 
   it("tracks partial typing for the preview label", () => {

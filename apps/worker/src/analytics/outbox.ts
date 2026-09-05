@@ -46,14 +46,14 @@ export interface AnalyticsOutboxCompactionResult {
 }
 
 export interface AnalyticsOutboxStore {
-  listPending(limit: number): Promise<AnalyticsOutboxRow[]>;
+  listPending(limit: number, now?: number): Promise<AnalyticsOutboxRow[]>;
   canSendRecord(
     projectId: string,
     sessionId: string,
     recordKind: AnalyticsRecordKind,
   ): Promise<boolean>;
   markSent(exportSequences: readonly number[], sentAt: number): Promise<void>;
-  markFailed(exportSequences: readonly number[], error: string): Promise<void>;
+  markFailed(exportSequences: readonly number[], error: string, retryAt: number): Promise<void>;
   markQuarantined(
     exportSequences: readonly number[],
     reason: string,
@@ -97,7 +97,7 @@ interface D1WarehouseStateRow {
 
 export function createD1AnalyticsOutboxStore(db: D1Database): AnalyticsOutboxStore {
   return {
-    async listPending(limit) {
+    async listPending(limit, now = Date.now()) {
       const result = await db
         .prepare(
           `SELECT o.export_sequence, o.export_id, o.project_id, o.session_id, o.record_kind,
@@ -107,10 +107,11 @@ export function createD1AnalyticsOutboxStore(db: D1Database): AnalyticsOutboxSto
           FROM analytics_export_outbox o
           WHERE o.sent_at IS NULL
             AND o.quarantined_at IS NULL
+            AND o.next_retry_at <= ?
           ORDER BY o.export_sequence
           LIMIT ?`,
         )
-        .bind(safeBatchSize(limit))
+        .bind(safeNow(now), safeBatchSize(limit))
         .all<D1OutboxRow>();
       return result.results.map(toOutboxRow);
     },
@@ -175,15 +176,15 @@ export function createD1AnalyticsOutboxStore(db: D1Database): AnalyticsOutboxSto
         .run();
     },
 
-    async markFailed(exportSequences, error) {
+    async markFailed(exportSequences, error, retryAt) {
       if (exportSequences.length === 0) return;
       await db
         .prepare(
           `UPDATE analytics_export_outbox
-          SET attempt_count = attempt_count + 1, last_error = ?
+          SET attempt_count = attempt_count + 1, last_error = ?, next_retry_at = ?
           WHERE export_sequence IN (${placeholders(exportSequences.length)})`,
         )
-        .bind(safeError(error), ...exportSequences)
+        .bind(safeError(error), safeNow(retryAt), ...exportSequences)
         .run();
     },
 
@@ -279,7 +280,7 @@ export function createD1AnalyticsOutboxStore(db: D1Database): AnalyticsOutboxSto
       await db
         .prepare(
           `UPDATE analytics_export_outbox
-          SET sent_at = NULL, last_error = ?
+          SET sent_at = NULL, last_error = ?, next_retry_at = 0
           WHERE export_sequence IN (${placeholders(exportSequences.length)})`,
         )
         .bind(safeError(error), ...exportSequences)

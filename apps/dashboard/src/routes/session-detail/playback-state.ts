@@ -1,4 +1,4 @@
-import type { DeadClick, LiveEvent, PlayerErrorEvent } from "@orange-replay/player";
+import type { DeadClick, LiveEvent, PlayerErrorEvent, ReplayTab } from "@orange-replay/player";
 import type { ReplayMode } from "./session-detail-data";
 
 export interface PlaybackState {
@@ -14,9 +14,12 @@ export interface PlaybackState {
   waitingForKeyframe: boolean;
   flashKey: number;
   deadClicks: DeadClick[];
+  tabs: ReplayTab[];
+  selectedTab?: string;
 }
 
 export type PlaybackAction =
+  | { type: "tabs"; tabs: ReplayTab[]; selectedTab?: string }
   | { type: "ready"; durationMs: number }
   | { type: "timeline"; durationMs: number; deadClicks: DeadClick[] }
   | { type: "progress"; currentMs: number; durationMs: number }
@@ -32,6 +35,13 @@ export type PlaybackAction =
 
 export function playbackReducer(state: PlaybackState, action: PlaybackAction): PlaybackState {
   switch (action.type) {
+    case "tabs":
+      if (
+        state.selectedTab === action.selectedTab &&
+        JSON.stringify(state.tabs) === JSON.stringify(action.tabs)
+      )
+        return state;
+      return { ...state, tabs: action.tabs, selectedTab: action.selectedTab };
     case "ready": {
       if (state.ready && state.durationMs === action.durationMs && !state.buffering) return state;
       return { ...state, ready: true, durationMs: action.durationMs, buffering: false };
@@ -113,6 +123,7 @@ export function initialPlaybackState(durationMs: number, mode: ReplayMode): Play
     waitingForKeyframe: mode === "live",
     flashKey: 0,
     deadClicks: [],
+    tabs: [],
   };
 }
 

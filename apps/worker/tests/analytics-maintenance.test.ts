@@ -9,103 +9,169 @@ afterEach(() => {
 });
 
 describe("analytics warehouse maintenance", () => {
-  it("reconciles healthy projects and reports bad stored data without throwing", async () => {
-    const database = await createDatabase();
-    seedExport(database, {
-      exportId: "session:bad-project:bad-session",
-      projectId: "bad-project",
-      sessionId: "bad-session",
-      payload: sessionPayload("bad-project", "bad-session", "complete"),
-    });
-    seedExport(database, {
-      exportId: "session:healthy-project:healthy-session",
-      projectId: "healthy-project",
-      sessionId: "healthy-session",
-      payload: sessionPayload("healthy-project", "healthy-session", "sparse"),
-    });
+  it.each(["missing", "temporarily unreadable"] as const)(
+    "reconciles healthy projects when another project's sidecar is %s",
+    async (failure) => {
+      const database = await createDatabase();
+      seedExport(database, {
+        exportId: "session:bad-project:bad-session",
+        projectId: "bad-project",
+        sessionId: "bad-session",
+        payload: sessionPayload("bad-project", "bad-session", "complete"),
+      });
+      seedExport(database, {
+        exportId: "session:healthy-project:healthy-session",
+        projectId: "healthy-project",
+        sessionId: "healthy-session",
+        payload: sessionPayload("healthy-project", "healthy-session", "sparse"),
+      });
 
-    const acceptedExportIds: string[] = [];
-    const log = vi.spyOn(globalThis.console, "log").mockImplementation(() => undefined);
-    const errorLog = vi.spyOn(globalThis.console, "error").mockImplementation(() => undefined);
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      Response.json({
-        success: true,
-        result: {
-          rows: [
-            {
-              project_id: "healthy-project",
-              export_id: "session:healthy-project:healthy-session",
+      const acceptedExportIds: string[] = [];
+      const log = vi.spyOn(globalThis.console, "log").mockImplementation(() => undefined);
+      const errorLog = vi.spyOn(globalThis.console, "error").mockImplementation(() => undefined);
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        Response.json({
+          success: true,
+          result: {
+            rows: [
+              {
+                project_id: "healthy-project",
+                export_id: "session:healthy-project:healthy-session",
+              },
+            ],
+            schema: [],
+            metrics: { bytes_scanned: 1, files_scanned: 1 },
+          },
+        }),
+      );
+
+      await expect(
+        maintainAnalyticsWarehouse({
+          ANALYTICS_EXPORT_ENABLED: "1",
+          ANALYTICS_READ_BACKEND: "d1",
+          ANALYTICS_STREAM: {
+            async send(records: readonly Record<string, unknown>[]) {
+              acceptedExportIds.push(
+                ...records.map((record) =>
+                  typeof record["export_id"] === "string" ? record["export_id"] : "missing",
+                ),
+              );
             },
-          ],
-          schema: [],
-          metrics: { bytes_scanned: 1, files_scanned: 1 },
-        },
-      }),
-    );
+          },
+          RECORDINGS: {
+            async get() {
+              if (failure === "temporarily unreadable") throw new Error("R2 read unavailable");
+              return null;
+            },
+          },
+          IDX_00: database,
+          R2_SQL_ACCOUNT_ID: "account",
+          R2_SQL_BUCKET: "bucket",
+          R2_SQL_TOKEN: "token",
+          WORKER_ENV: "test",
+        } as unknown as Env),
+      ).resolves.toBeUndefined();
 
-    await expect(
-      maintainAnalyticsWarehouse({
+      expect(acceptedExportIds).toEqual([
+        "session:bad-project:bad-session",
+        "session:healthy-project:healthy-session",
+      ]);
+      expect(
+        database.value(
+          "SELECT verified_sequence FROM analytics_warehouse_state WHERE project_id = ?",
+          "healthy-project",
+        ),
+      ).toBe(2);
+      expect(
+        database.row(
+          `SELECT sent_at, attempt_count, last_error, quarantined_at, next_retry_at
+        FROM analytics_export_outbox WHERE project_id = ?`,
+          "bad-project",
+        ),
+      ).toMatchObject({
+        sent_at: null,
+        attempt_count: 1,
+        last_error: expect.stringContaining(
+          failure === "missing" ? "missing its analytics sidecar" : "R2 read unavailable",
+        ),
+        quarantined_at: failure === "missing" ? expect.any(Number) : null,
+        next_retry_at: failure === "missing" ? 0 : expect.any(Number),
+      });
+      if (failure === "temporarily unreadable") {
+        expect(
+          database.value(
+            "SELECT next_retry_at FROM analytics_export_outbox WHERE project_id = ?",
+            "bad-project",
+          ),
+        ).toBeGreaterThan(Date.now());
+      }
+      expect(
+        database.value(
+          "SELECT verified_sequence FROM analytics_warehouse_state WHERE project_id = ?",
+          "bad-project",
+        ),
+      ).toBe(0);
+
+      expect(log).not.toHaveBeenCalled();
+      expect(errorLog).toHaveBeenCalledTimes(1);
+      const wideEvent = JSON.parse(String(errorLog.mock.calls[0]?.[0])) as Record<string, unknown>;
+      expect(wideEvent).toMatchObject({
+        event: "consumer.analytics_warehouse",
+        outcome: "server_error",
+        exports_selected: 2,
+        exports_sent: 1,
+        exports_failed: 1,
+        projects_checked: 1,
+        projects_failed: 0,
+        projects_advanced: 1,
+      });
+      database.close();
+    },
+  );
+
+  it.each(["sparse", "complete"] as const)(
+    "shares a delivery cooldown after a %s Pipeline failure",
+    async (coverage) => {
+      const database = await createDatabase();
+      seedExport(database, {
+        exportId: "session:project:session",
+        projectId: "project",
+        sessionId: "session",
+        payload: sessionPayload("project", "session", coverage),
+      });
+      const send = vi.fn(async () => {
+        throw new Error("Pipeline is unavailable");
+      });
+      const env = {
         ANALYTICS_EXPORT_ENABLED: "1",
         ANALYTICS_READ_BACKEND: "d1",
-        ANALYTICS_STREAM: {
-          async send(records: readonly Record<string, unknown>[]) {
-            acceptedExportIds.push(
-              ...records.map((record) =>
-                typeof record["export_id"] === "string" ? record["export_id"] : "missing",
-              ),
-            );
-          },
-        },
-        RECORDINGS: {
-          async get() {
-            return null;
-          },
-        },
+        ANALYTICS_STREAM: { send },
         IDX_00: database,
-        R2_SQL_ACCOUNT_ID: "account",
-        R2_SQL_BUCKET: "bucket",
-        R2_SQL_TOKEN: "token",
         WORKER_ENV: "test",
-      } as unknown as Env),
-    ).resolves.toBeUndefined();
-
-    expect(acceptedExportIds).toEqual([
-      "session:bad-project:bad-session",
-      "session:healthy-project:healthy-session",
-    ]);
-    expect(
-      database.value(
-        "SELECT verified_sequence FROM analytics_warehouse_state WHERE project_id = ?",
-        "healthy-project",
-      ),
-    ).toBe(2);
-    expect(
-      database.row(
-        `SELECT sent_at, attempt_count, last_error
-        FROM analytics_export_outbox WHERE project_id = ?`,
-        "bad-project",
-      ),
-    ).toMatchObject({
-      sent_at: null,
-      attempt_count: 1,
-      last_error: expect.stringContaining("missing its analytics sidecar"),
-    });
-
-    expect(log).not.toHaveBeenCalled();
-    expect(errorLog).toHaveBeenCalledTimes(1);
-    const wideEvent = JSON.parse(String(errorLog.mock.calls[0]?.[0])) as Record<string, unknown>;
-    expect(wideEvent).toMatchObject({
-      event: "consumer.analytics_warehouse",
-      outcome: "server_error",
-      exports_selected: 2,
-      exports_sent: 1,
-      exports_failed: 1,
-      projects_checked: 1,
-      projects_failed: 0,
-      projects_advanced: 1,
-    });
-    database.close();
-  });
+      } as unknown as Env;
+      vi.spyOn(globalThis.console, "log").mockImplementation(() => undefined);
+      vi.spyOn(globalThis.console, "error").mockImplementation(() => undefined);
+      await expect(maintainAnalyticsWarehouse(env)).rejects.toThrow("Pipeline is unavailable");
+      expect(send).toHaveBeenCalledTimes(1);
+      const availableAt = database.value(
+        "SELECT send_available_at FROM analytics_export_lease WHERE shard = 0",
+      );
+      expect(availableAt).toBeGreaterThan(Date.now());
+      // A different ready job would normally trigger another Pipeline call.
+      seedExport(database, {
+        exportId: "session:other:session",
+        projectId: "other",
+        sessionId: "session",
+        payload: sessionPayload("other", "session", "sparse"),
+      });
+      await expect(maintainAnalyticsWarehouse(env)).resolves.toBeUndefined();
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(
+        database.value("SELECT sent_at FROM analytics_export_outbox WHERE project_id = ?", "other"),
+      ).toBeNull();
+      database.close();
+    },
+  );
 });
 
 type SqlValue = string | number | bigint | Uint8Array | null;
@@ -177,8 +243,12 @@ interface TestD1Result {
 async function createDatabase(): Promise<TestD1Database> {
   const database = new TestD1Database();
   const migrations = await Promise.all(
-    ["0009_analytics_warehouse.sql", "0016_analytics_deletion_started_at.sql"].map(
-      async (fileName) => readFile(new URL(`../migrations/${fileName}`, import.meta.url), "utf8"),
+    [
+      "0009_analytics_warehouse.sql",
+      "0016_analytics_deletion_started_at.sql",
+      "0029_analytics_export_retry.sql",
+    ].map(async (fileName) =>
+      readFile(new URL(`../migrations/${fileName}`, import.meta.url), "utf8"),
     ),
   );
   for (const migration of migrations) database.sqlite.exec(migration);

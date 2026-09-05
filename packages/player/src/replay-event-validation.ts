@@ -1,7 +1,13 @@
 import type { BatchIndex } from "@orange-replay/shared/types";
 import type { ReplayEvent } from "./types.ts";
+import { REPLAY_DATA_LIMITS } from "@orange-replay/shared/constants";
+import {
+  countReplayValues,
+  REPLAY_VALUE_COUNTER_SOURCE,
+  type ReplayValueCounter,
+} from "@orange-replay/shared/replay-limits";
 
-export const MAX_DECODED_BATCH_EVENTS = 25_000;
+export const MAX_DECODED_BATCH_EVENTS = REPLAY_DATA_LIMITS.events;
 export const MAX_REPLAY_FUTURE_TIMESTAMP_MS = 60_000;
 export const MAX_STORED_REPLAY_DELAY_MS = 24 * 60 * 60_000;
 export const MAX_MOVEMENT_PAST_OFFSET_MS = 5 * 60_000;
@@ -11,10 +17,10 @@ export const REPLAY_INDEX_TIMESTAMP_TOLERANCE_MS = 1_000;
 
 const VALIDATION_LIMITS = {
   maxEvents: MAX_DECODED_BATCH_EVENTS,
-  maxDepth: 128,
-  maxKeys: 200,
-  maxArrayItems: 10_000,
-  maxShapeNodes: 250_000,
+  maxDepth: REPLAY_DATA_LIMITS.depth,
+  maxKeys: REPLAY_DATA_LIMITS.fields,
+  maxArrayItems: REPLAY_DATA_LIMITS.arrayItems,
+  maxShapeNodes: REPLAY_DATA_LIMITS.values,
   maxTagNameChars: 128,
   maxAttributeNameChars: 256,
   maxFutureTimestampMs: MAX_REPLAY_FUTURE_TIMESTAMP_MS,
@@ -31,7 +37,10 @@ type ReplayEventValidator = (events: unknown[]) => ReplayEvent[];
  * embedded in the browser decode worker, so the main-thread fallback and the
  * generated worker cannot acquire different validation rules.
  */
-function createReplayEventValidator(limits: typeof VALIDATION_LIMITS): ReplayEventValidator {
+function createReplayEventValidator(
+  limits: typeof VALIDATION_LIMITS,
+  countValues: ReplayValueCounter,
+): ReplayEventValidator {
   const EVENT_TYPE_FULL_SNAPSHOT = 2;
   const EVENT_TYPE_INCREMENTAL_SNAPSHOT = 3;
   const EVENT_TYPE_META = 4;
@@ -74,7 +83,7 @@ function createReplayEventValidator(limits: typeof VALIDATION_LIMITS): ReplayEve
     let shapeNodes = 0;
     for (const event of events) {
       validateReplayEvent(event);
-      shapeNodes += countBoundedJsonShape(event, limits.maxShapeNodes - shapeNodes);
+      shapeNodes += countValues(event, 0, limits.maxShapeNodes - shapeNodes);
       if (shapeNodes > limits.maxShapeNodes) {
         fail("Replay batch is too complex.");
       }
@@ -548,35 +557,6 @@ function createReplayEventValidator(limits: typeof VALIDATION_LIMITS): ReplayEve
     return typeof value === "string" && value.length > 0;
   }
 
-  function countBoundedJsonShape(root: unknown, remainingNodes: number): number {
-    const stack: Array<{ value: unknown; depth: number }> = [{ value: root, depth: 0 }];
-    let nodes = 0;
-    while (stack.length > 0) {
-      const next = stack.pop();
-      if (next === undefined) continue;
-      nodes += 1;
-      if (nodes > remainingNodes) fail("Replay batch is too complex.");
-      if (next.depth > limits.maxDepth) fail("Replay event is too deeply nested.");
-      if (Array.isArray(next.value)) {
-        if (
-          next.value.length > limits.maxArrayItems ||
-          nodes + stack.length + next.value.length > remainingNodes
-        ) {
-          fail("Replay batch is too complex.");
-        }
-        for (const item of next.value) stack.push({ value: item, depth: next.depth + 1 });
-      } else if (isPlainRecord(next.value)) {
-        const values = Object.values(next.value);
-        if (values.length > limits.maxKeys) fail("Replay event has too many fields.");
-        if (nodes + stack.length + values.length > remainingNodes) {
-          fail("Replay batch is too complex.");
-        }
-        for (const value of values) stack.push({ value, depth: next.depth + 1 });
-      }
-    }
-    return nodes;
-  }
-
   function isPlainRecord(value: unknown): value is Record<string, unknown> {
     if (value === null || typeof value !== "object") return false;
     const prototype = Object.getPrototypeOf(value);
@@ -586,7 +566,10 @@ function createReplayEventValidator(limits: typeof VALIDATION_LIMITS): ReplayEve
   return validateReplayEvents;
 }
 
-export const validateReplayEvents = createReplayEventValidator(VALIDATION_LIMITS);
+export const validateReplayEvents = createReplayEventValidator(
+  VALIDATION_LIMITS,
+  countReplayValues,
+);
 
 /**
  * The Worker clamps every accepted index against server time before storage.
@@ -616,7 +599,8 @@ function replayDataError(message: string): Error {
 }
 
 export const REPLAY_EVENT_VALIDATOR_SOURCE = `
+${REPLAY_VALUE_COUNTER_SOURCE}
 const validateReplayEvents = (${createReplayEventValidator.toString()})(${JSON.stringify(
   VALIDATION_LIMITS,
-)});
+)}, countReplayValues);
 `;

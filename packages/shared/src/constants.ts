@@ -10,6 +10,15 @@ export const PERSISTED_REPLAY_FLAG_MASK = 0;
 export const INGEST_HEADER_FLAG_MASK = FLAG_UNCOMPRESSED | PERSISTED_REPLAY_FLAG_MASK;
 
 export const MAX_COMPRESSED_BATCH_BYTES = 1024 * 1024;
+// Recorders and players must agree on which compressed batches are playable.
+export const REPLAY_DATA_LIMITS = {
+  bytes: 16 * 1024 * 1024,
+  events: 25_000,
+  depth: 128,
+  fields: 200,
+  arrayItems: 10_000,
+  values: 250_000,
+} as const;
 export const MAX_INDEX_JSON_BYTES = 64 * 1024;
 export const MAX_CONFIG_UPDATE_BODY_BYTES = 64 * 1024;
 // Covers every valid presence ping and a 100-session head lookup while still

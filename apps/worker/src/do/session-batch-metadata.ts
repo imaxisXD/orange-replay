@@ -14,13 +14,14 @@ export interface StoredSegmentMetadata {
 }
 
 export function encodeStoredBatchMetadata(
-  index: Pick<BatchIndex, "e" | "checkpointTimestamps" | "u">,
+  index: Pick<BatchIndex, "e" | "checkpointTimestamps" | "u"> & Partial<Pick<BatchIndex, "tab">>,
 ): string {
   const checkpointTimestamps = index.checkpointTimestamps ?? [];
   const url = nonEmptyText(index.u);
   return JSON.stringify({
     pageAnalyticsVersion: 1,
-    events: index.e,
+    events:
+      index.tab === undefined ? index.e : index.e.map((event) => ({ ...event, tab: index.tab })),
     ...(checkpointTimestamps.length === 0 ? {} : { checkpointTimestamps }),
     ...(url === undefined ? {} : { url }),
   });

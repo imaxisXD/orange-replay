@@ -2,13 +2,16 @@
 import { act, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRoot } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import type { SessionHead } from "../src/lib/api";
+import type { ListSessionsResponse } from "@orange-replay/shared";
+import type { SessionsViewSearch } from "../src/lib/sessions-view-search";
 import { clearDashboardAccess } from "../src/lib/dashboard-access";
 import { ShapeProvider } from "../src/lib/shape-context";
 import { SessionsPanel } from "../src/routes/sessions/sessions-panel";
 
 const navigate = vi.fn();
-let routeSearch: { selected?: string } = {};
+let routeSearch: SessionsViewSearch = {};
 
 // Number Flow relies on browser custom-element animation hooks that happy-dom
 // does not implement. Keep this integration test focused on session continuity.
@@ -44,13 +47,162 @@ vi.mock("@tanstack/react-router", async (importOriginal) => ({
 }));
 
 describe("sessions panel continuity", () => {
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.spyOn(Date, "now").mockReturnValue(1_800_000_030_000);
+  });
   afterEach(() => {
     navigate.mockClear();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     clearDashboardAccess();
     routeSearch = {};
     window.history.replaceState({}, "", "/");
     document.body.replaceChildren();
+  });
+
+  it("shows delivery waiting beside healthy session rows", async () => {
+    const panel = await renderCountedPanel([finalizedSession()], {
+      analyticsState: "fresh",
+      analyticsView: "latest",
+      analyticsDelivery: {
+        state: "pending",
+        pendingExports: 2,
+        oldestPendingAt: Date.now() - 600_000,
+        checkedAt: Date.now(),
+      },
+    });
+    try {
+      expect(panel.container.textContent).toContain("Recent analytics are still arriving");
+      expect(panel.container.textContent).toContain("2 analytics updates waiting to appear");
+      expect(panel.container.querySelector("[data-session-id='session-final-1']")).not.toBeNull();
+    } finally {
+      await panel.close();
+    }
+  });
+
+  it("keeps a metric snapshot pinned until Show latest results is pressed", async () => {
+    routeSearch = { warehouse_version: 12, country: "US" };
+    const panel = await renderCountedPanel([finalizedSession()], {
+      analyticsState: "fresh",
+      analyticsView: "pinned",
+      analyticsDelivery: { state: "pending", pendingExports: 2, oldestPendingAt: 1, checkedAt: 2 },
+    });
+    try {
+      expect(panel.sessionRequests[0]?.searchParams.get("warehouse_version")).toBe("12");
+      expect(panel.container.textContent).toContain("Fixed analytics snapshot");
+      expect(panel.container.textContent).not.toContain("waiting to appear");
+      expect(navigate).not.toHaveBeenCalled();
+      const button = Array.from(panel.container.querySelectorAll("button")).find((candidate) =>
+        candidate.textContent?.includes("Show latest results"),
+      );
+      expect(button).toBeDefined();
+      await act(async () => button?.click());
+      expect(navigate).toHaveBeenLastCalledWith({
+        to: "/projects/$projectId/sessions",
+        params: { projectId: "project-1" },
+        replace: true,
+        search: expect.objectContaining({ country: "US", warehouse_version: undefined }),
+      });
+    } finally {
+      await panel.close();
+    }
+  });
+
+  it("keeps three loaded pages without refetching when an exact head is already present", async () => {
+    const session = finalizedSession();
+    const panel = await renderCountedPanel([session]);
+    try {
+      await panel.loadThreePages();
+      panel.setHeads([exactSessionHead(session)]);
+      const requestsBeforePoll = panel.sessionRequests.length;
+
+      await panel.pollHeads();
+      await panel.pollHeads();
+      await panel.pollHeads();
+
+      expect(panel.sessionRequests).toHaveLength(requestsBeforePoll);
+      expect(panel.container.querySelectorAll("[data-session-id]")).toHaveLength(3);
+      expect(
+        panel.container.querySelector(`[data-session-id="${session.session_id}"]`),
+      ).not.toBeNull();
+    } finally {
+      await panel.close();
+    }
+  });
+
+  it("refreshes a missing exact head once, then stops when warehouse rows include it", async () => {
+    const session = finalizedSession();
+    const panel = await renderCountedPanel([]);
+    try {
+      panel.setWarehouseSessions([session]);
+      panel.setWarehouseVersion(13);
+      panel.setHeads([exactSessionHead(session)]);
+      const requestsBeforePoll = panel.sessionRequests.length;
+
+      await panel.pollHeads();
+      expect(panel.sessionRequests).toHaveLength(requestsBeforePoll + 1);
+      expect(
+        panel.container.querySelector(`[data-session-id="${session.session_id}"]`),
+      ).not.toBeNull();
+      await panel.pollHeads();
+      await panel.pollHeads();
+      expect(panel.sessionRequests).toHaveLength(requestsBeforePoll + 1);
+      expect(panel.headRequests.at(-1)?.searchParams.getAll("tracked_session_id")).toEqual([]);
+      expect(panel.headRequests.at(-1)?.searchParams.get("warehouse_version")).toBe("13");
+    } finally {
+      await panel.close();
+    }
+  });
+
+  it("lets a slow warehouse refresh finish across repeated head polls", async () => {
+    const session = finalizedSession();
+    const panel = await renderCountedPanel([]);
+    const release = panel.holdNextWarehouseResponse();
+    try {
+      panel.setWarehouseSessions([session]);
+      panel.setHeads([exactSessionHead(session)]);
+      const requestsBeforePoll = panel.sessionRequests.length;
+
+      await panel.pollHeads(false);
+      expect(panel.sessionRequests).toHaveLength(requestsBeforePoll + 1);
+      await panel.pollHeads(false);
+      expect(panel.sessionRequests).toHaveLength(requestsBeforePoll + 1);
+      expect(panel.cancelledRequests).toHaveLength(0);
+      await release();
+      expect(
+        panel.container.querySelector(`[data-session-id="${session.session_id}"]`),
+      ).not.toBeNull();
+    } finally {
+      await release();
+      await panel.close();
+    }
+  });
+
+  it("keeps a newer exact head visible without refetching a date snapshot that cannot contain it", async () => {
+    const panel = await renderCountedPanel([]);
+    try {
+      const warehouseTo = Number(panel.sessionRequests[0]?.searchParams.get("to"));
+      const session = { ...finalizedSession(), started_at: warehouseTo + 1 };
+      panel.setHeads([exactSessionHead(session)]);
+      const requestsBeforePoll = panel.sessionRequests.length;
+
+      await panel.pollHeads();
+      await panel.pollHeads();
+
+      expect(panel.sessionRequests).toHaveLength(requestsBeforePoll);
+      expect(
+        panel.container.querySelector(`[data-session-id="${session.session_id}"]`),
+      ).not.toBeNull();
+      expect(panel.headRequests.at(-1)?.searchParams.getAll("tracked_session_id")).toEqual([
+        session.session_id,
+      ]);
+      panel.setHeads([]);
+      await panel.pollHeads();
+      expect(panel.container.querySelector(`[data-session-id="${session.session_id}"]`)).toBeNull();
+    } finally {
+      await panel.close();
+    }
   });
 
   it("keeps a provisional session head visible when the warehouse is unavailable", async () => {
@@ -183,6 +335,156 @@ describe("sessions panel continuity", () => {
     queryClient.clear();
   });
 });
+
+function exactSessionHead(session = finalizedSession()) {
+  return {
+    ...session,
+    activity: "complete",
+    details_state: "exact",
+    replay_source: "recorded",
+  } satisfies SessionHead;
+}
+
+async function renderCountedPanel(
+  initialSessions: ReturnType<typeof finalizedSession>[],
+  analyticsMetadata: Pick<
+    ListSessionsResponse,
+    "analyticsDelivery" | "analyticsView" | "analyticsState"
+  > = {},
+) {
+  let warehouseSessions = initialSessions;
+  let pageCount = 1;
+  let warehouseVersion = 12;
+  let heldResponse: Promise<void> | undefined;
+  let heads: ReturnType<typeof exactSessionHead>[] = [];
+  let now = Date.now();
+  vi.spyOn(Date, "now").mockImplementation(() => now);
+  const sessionRequests: URL[] = [];
+  const headRequests: URL[] = [];
+  const cancelledRequests: URL[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: string | URL | Request, options?: RequestInit) => {
+      const url = new URL(requestUrl(input), "https://dashboard.test");
+      if (url.pathname.endsWith("/session-heads")) {
+        headRequests.push(url);
+        return jsonResponse({ sessions: heads });
+      }
+      if (url.pathname.endsWith("/sessions")) {
+        sessionRequests.push(url);
+        options?.signal?.addEventListener("abort", () => cancelledRequests.push(url), {
+          once: true,
+        });
+        const wait = heldResponse;
+        heldResponse = undefined;
+        if (wait !== undefined) await wait;
+        const cursor = url.searchParams.get("before");
+        const page = cursor === "page-3" ? 2 : cursor === "page-2" ? 1 : 0;
+        return jsonResponse({
+          sessions:
+            page === 0
+              ? warehouseSessions
+              : [{ ...warehouseSessions[0]!, session_id: `session-final-${page + 1}` }],
+          nextBefore: page + 1 < pageCount ? `page-${page + 2}` : null,
+          warehouseVersion,
+          ...analyticsMetadata,
+        });
+      }
+      if (url.pathname.endsWith("/stats")) return jsonResponse({ breakdowns: { country: [] } });
+      throw new Error(`Unexpected dashboard request: ${url.pathname}`);
+    }),
+  );
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
+  });
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  const settle = async () => {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await vi.waitFor(() => expect(queryClient.isFetching()).toBe(0));
+    });
+  };
+  await act(async () =>
+    root.render(
+      <QueryClientProvider client={queryClient}>
+        <ShapeProvider defaultShape="rounded">
+          <SessionsPanel isDemo={false} projectId="project-1" />
+        </ShapeProvider>
+      </QueryClientProvider>,
+    ),
+  );
+  await settle();
+
+  return {
+    container,
+    sessionRequests,
+    headRequests,
+    cancelledRequests,
+    setHeads(next: typeof heads) {
+      heads = next;
+    },
+    setWarehouseSessions(next: typeof warehouseSessions) {
+      warehouseSessions = next;
+    },
+    setWarehouseVersion(next: number) {
+      warehouseVersion = next;
+    },
+    holdNextWarehouseResponse() {
+      let resolve = () => {};
+      heldResponse = new Promise<void>((done) => {
+        resolve = done;
+      });
+      return async () => {
+        await act(async () => resolve());
+        await settle();
+      };
+    },
+    async loadThreePages() {
+      pageCount = 3;
+      const query = queryClient.getQueryCache().find({ queryKey: ["sessions"], exact: false });
+      expect(query).toBeDefined();
+      const first = initialSessions[0]!;
+      await act(async () =>
+        queryClient.setQueryData(query!.queryKey, {
+          pages: [
+            { sessions: [first], nextBefore: "page-2", warehouseVersion: 12 },
+            {
+              sessions: [{ ...first, session_id: "session-final-2" }],
+              nextBefore: "page-3",
+              warehouseVersion: 12,
+            },
+            {
+              sessions: [{ ...first, session_id: "session-final-3" }],
+              nextBefore: null,
+              warehouseVersion: 12,
+            },
+          ],
+          pageParams: [
+            { before: null },
+            { before: "page-2", warehouseVersion: 12 },
+            { before: "page-3", warehouseVersion: 12 },
+          ],
+        }),
+      );
+      await settle();
+    },
+    async pollHeads(waitForWarehouse = true) {
+      now += 5_000;
+      await act(async () => queryClient.refetchQueries({ queryKey: ["session-heads"] }));
+      if (waitForWarehouse) await settle();
+      else
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+    },
+    async close() {
+      await act(async () => root.unmount());
+      queryClient.clear();
+    },
+  };
+}
 
 function finalizedSession() {
   const endedAt = Date.now() - 5_000;

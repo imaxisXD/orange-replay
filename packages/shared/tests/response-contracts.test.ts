@@ -31,6 +31,43 @@ import {
 } from "./response-contract-fixtures.ts";
 
 describe("resource response contracts", () => {
+  it("keeps delivery unknown for old responses and accepts an unavailable live count", () => {
+    const legacy = decodeProjectStatsResponse(validProjectStatsResponse);
+    expect(legacy.analyticsDelivery).toBeUndefined();
+    expect(legacy.liveNowState).toBeUndefined();
+    const response = {
+      ...validProjectStatsResponse,
+      liveNow: { value: null, filter: validProjectStatsResponse.filter },
+      liveNowState: "unavailable",
+      analyticsDelivery: {
+        state: "pending",
+        pendingExports: 2,
+        oldestPendingAt: 10,
+        checkedAt: 20,
+      },
+      analyticsView: "pinned",
+    };
+    expect(decodeProjectStatsResponse(response)).toEqual(response);
+    expect(
+      projectStatsResponseSchema.safeParse({
+        ...response,
+        liveNow: { ...response.liveNow, value: 0 },
+      }).success,
+    ).toBe(false);
+    expect(
+      projectStatsResponseSchema.safeParse({
+        ...response,
+        analyticsDelivery: { ...response.analyticsDelivery, state: "current" },
+      }).success,
+    ).toBe(false);
+    expect(
+      decodeListSessionsResponse({
+        ...validListSessionsResponse,
+        analyticsDelivery: response.analyticsDelivery,
+        analyticsView: "pinned",
+      }),
+    ).toMatchObject({ analyticsView: "pinned", analyticsDelivery: response.analyticsDelivery });
+  });
   it("decodes valid project keys, accounts, stats, and sessions", () => {
     expect(decodeProjectKeysResponse(validProjectKeysResponse)).toEqual(validProjectKeysResponse);
     expect(decodeCreatedProjectKeyResponse(validCreatedProjectKeyResponse)).toEqual(

@@ -44,6 +44,18 @@ describe("mirror-template", () => {
       expect(wrangler).toContain('"crons": ["*/5 * * * *", "7,22,37,52 * * * *"]');
       expect(wrangler).not.toContain("DEV_TEST_ROUTES");
       expect(wrangler).not.toContain("TEST_TIMINGS");
+      const assetQueue = wranglerConfig.queues.producers.find(
+        (producer) => producer.binding === "REPLAY_ASSET_QUEUE",
+      )?.queue;
+      expect(assetQueue).toBe("or-replay-assets");
+      expect(wranglerConfig.vars.REPLAY_ASSET_QUEUE_NAME).toBe(assetQueue);
+      expect(
+        wranglerConfig.queues.consumers.find((consumer) => consumer.queue === assetQueue),
+      ).toMatchObject({
+        max_batch_size: 1,
+        max_retries: 10,
+        dead_letter_queue: "or-replay-assets-dlq",
+      });
       expect(wranglerConfig.assets).toEqual({
         directory: "../../apps/dashboard/dist",
         binding: "ASSETS",

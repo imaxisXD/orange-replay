@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { maintainAnalyticsWarehouse } from "../src/analytics/maintenance.ts";
 import { sweepProjectKeyCache } from "../src/consumer/key-cache-sweeper.ts";
 import { sweepExpiredSessions } from "../src/consumer/sweeper.ts";
+import { repairSessionFinalizations } from "../src/consumer/finalization-recovery.ts";
 import type { Env } from "../src/env.ts";
 import worker from "../src/index.ts";
 import { RETENTION_SWEEP_SCHEDULE } from "../src/schedules.ts";
@@ -20,6 +21,11 @@ vi.mock("../src/consumer/sweeper.ts", () => ({
 
 vi.mock("../src/consumer/key-cache-sweeper.ts", () => ({
   sweepProjectKeyCache: vi.fn(async () => undefined),
+}));
+
+vi.mock("../src/consumer/finalization-recovery.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/consumer/finalization-recovery.ts")>()),
+  repairSessionFinalizations: vi.fn(async () => undefined),
 }));
 
 afterEach(() => {
@@ -43,6 +49,7 @@ describe("scheduled Worker jobs", () => {
     await runSchedule("*/5 * * * *");
 
     expect(sweepExpiredSessions).not.toHaveBeenCalled();
+    expect(repairSessionFinalizations).toHaveBeenCalledOnce();
     expect(maintainAnalyticsWarehouse).toHaveBeenCalledTimes(1);
     expect(sweepProjectKeyCache).toHaveBeenCalledTimes(1);
   });

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   fetchPublicReplayAsset,
   hostnameResolvesPublicly,
@@ -112,5 +112,264 @@ describe("replay asset network boundary", () => {
         timeoutMs: 1,
       }),
     ).rejects.toMatchObject({ name: "AbortError" });
+  });
+});
+
+describe("replay asset download deadline", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("cancels and unlocks a stalled asset body after its headers arrive", async () => {
+    let bodyController: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        bodyController = controller;
+      },
+      cancel,
+    });
+    const result = fetchPublicReplayAsset("https://cdn.customer.com/a.css", {
+      fetchFn: async () => new Response(body, { headers: { "content-type": "text/css" } }),
+      resolveHost: async () => ["1.1.1.1"],
+      timeoutMs: 20,
+    }).catch((error: unknown) => error);
+
+    try {
+      await vi.advanceTimersByTimeAsync(20);
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(body.locked).toBe(false);
+      await expect(result).resolves.toMatchObject({ name: "AbortError" });
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      if (body.locked) bodyController?.close();
+      await result;
+    }
+  });
+
+  it("cancels stalled DNS response bodies within the same download deadline", async () => {
+    const bodies: ReadableStream<Uint8Array>[] = [];
+    const controllers: ReadableStreamDefaultController<Uint8Array>[] = [];
+    const cancel = vi.fn();
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controllers.push(controller);
+        },
+        cancel,
+      });
+      bodies.push(body);
+      return new Response(body, { headers: { "content-type": "application/dns-json" } });
+    });
+    const result = fetchPublicReplayAsset("https://cdn.customer.com/a.css", {
+      fetchFn: fetchMock,
+      timeoutMs: 20,
+    }).catch((error: unknown) => error);
+
+    try {
+      await vi.advanceTimersByTimeAsync(20);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(cancel).toHaveBeenCalledTimes(2);
+      expect(bodies.every((body) => !body.locked)).toBe(true);
+      await expect(result).resolves.toMatchObject({ name: "AbortError" });
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      bodies.forEach((body, index) => {
+        if (body.locked) controllers[index]?.close();
+      });
+      await result;
+    }
+  });
+
+  it("uses one deadline across DNS checks and redirects", async () => {
+    let bodyController: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        bodyController = controller;
+      },
+      cancel,
+    });
+    const resolveHost = vi.fn(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      return ["1.1.1.1"];
+    });
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = new URL(input instanceof Request ? input.url : input);
+      if (url.pathname === "/start.css") {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return new Response(null, { status: 302, headers: { location: "/final.css" } });
+      }
+      return new Response(body, { headers: { "content-type": "text/css" } });
+    });
+    const result = fetchPublicReplayAsset("https://cdn.customer.com/start.css", {
+      fetchFn: fetchMock,
+      resolveHost,
+      timeoutMs: 100,
+    }).catch((error: unknown) => error);
+
+    try {
+      await vi.advanceTimersByTimeAsync(99);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(resolveHost).toHaveBeenCalledTimes(2);
+      expect(cancel).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(cancel).toHaveBeenCalledOnce();
+      await expect(result).resolves.toMatchObject({ name: "AbortError" });
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      if (body.locked) bodyController?.close();
+      await result;
+    }
+  });
+
+  it("finishes public DNS validation and a safe redirect without leaving a timer or locked body", async () => {
+    const bodies: ReadableStream<Uint8Array>[] = [];
+    const redirectCancelled = vi.fn();
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = new URL(input instanceof Request ? input.url : input);
+      if (url.hostname === "cloudflare-dns.com") {
+        const response = Response.json({ Answer: [{ data: "1.1.1.1" }] });
+        if (response.body !== null) bodies.push(response.body);
+        return response;
+      }
+      if (url.pathname === "/start.css") {
+        const body = new ReadableStream<Uint8Array>({ cancel: redirectCancelled });
+        bodies.push(body);
+        return new Response(body, {
+          status: 302,
+          headers: { location: "https://assets.customer.com/final.css" },
+        });
+      }
+      const response = new Response("body { color: black; }", {
+        headers: { "content-type": "text/css" },
+      });
+      if (response.body !== null) bodies.push(response.body);
+      return response;
+    });
+
+    const result = await fetchPublicReplayAsset("https://cdn.customer.com/start.css", {
+      fetchFn: fetchMock,
+      timeoutMs: 100,
+    });
+
+    expect(result).toMatchObject({
+      kind: "stylesheet",
+      finalUrl: "https://assets.customer.com/final.css",
+    });
+    expect(new TextDecoder().decode(result?.bytes)).toBe("body { color: black; }");
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(redirectCancelled).toHaveBeenCalledOnce();
+    expect(bodies.every((body) => !body.locked)).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("bounds a stalled custom DNS resolver without starting an asset request", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const result = fetchPublicReplayAsset("https://cdn.customer.com/a.css", {
+      fetchFn: fetchMock,
+      resolveHost: async () => await new Promise<readonly string[]>(() => {}),
+      timeoutMs: 20,
+    }).catch((error: unknown) => error);
+
+    await vi.advanceTimersByTimeAsync(20);
+    await expect(result).resolves.toMatchObject({ name: "AbortError" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("does not let stalled stream cancellation extend the deadline", async () => {
+    const cancel = vi.fn(async () => await new Promise<void>(() => {}));
+    const body = new ReadableStream<Uint8Array>({ cancel });
+    const result = fetchPublicReplayAsset("https://cdn.customer.com/a.css", {
+      fetchFn: async () => new Response(body, { headers: { "content-type": "text/css" } }),
+      resolveHost: async () => ["1.1.1.1"],
+      timeoutMs: 20,
+    }).catch((error: unknown) => error);
+
+    await vi.advanceTimersByTimeAsync(20);
+    await expect(result).resolves.toMatchObject({ name: "AbortError" });
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(body.locked).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([
+    { status: 404, contentType: "text/css" },
+    { status: 200, contentType: "text/html" },
+  ])(
+    "cancels a rejected response body for $status and $contentType",
+    async ({ status, contentType }) => {
+      const cancel = vi.fn();
+      const body = new ReadableStream<Uint8Array>({ cancel });
+
+      await expect(
+        fetchPublicReplayAsset("https://cdn.customer.com/a.css", {
+          fetchFn: async () =>
+            new Response(body, { status, headers: { "content-type": contentType } }),
+          resolveHost: async () => ["1.1.1.1"],
+        }),
+      ).resolves.toBeNull();
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(body.locked).toBe(false);
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
+  it("bounds a rejected response whose stream cancellation never finishes", async () => {
+    const cancel = vi.fn(async () => await new Promise<void>(() => {}));
+    const body = new ReadableStream<Uint8Array>({ cancel });
+    const result = fetchPublicReplayAsset("https://cdn.customer.com/a.css", {
+      fetchFn: async () => new Response(body, { status: 404 }),
+      resolveHost: async () => ["1.1.1.1"],
+      timeoutMs: 20,
+    }).catch((error: unknown) => error);
+
+    await vi.advanceTimersByTimeAsync(20);
+    await expect(result).resolves.toMatchObject({ name: "AbortError" });
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(body.locked).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("cancels the other DNS lookup when an address lookup fails", async () => {
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({ cancel });
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = new URL(input instanceof Request ? input.url : input);
+      return url.searchParams.get("type") === "A"
+        ? new Response(null, { status: 503 })
+        : new Response(body, { headers: { "content-type": "application/dns-json" } });
+    });
+
+    await expect(
+      fetchPublicReplayAsset("https://cdn.customer.com/a.css", { fetchFn: fetchMock }),
+    ).resolves.toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(body.locked).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("still cancels an oversized streamed asset and releases its reader", async () => {
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(2 * 1024 * 1024 + 1));
+      },
+      cancel,
+    });
+
+    await expect(
+      fetchPublicReplayAsset("https://cdn.customer.com/a.css", {
+        fetchFn: async () => new Response(body, { headers: { "content-type": "text/css" } }),
+        resolveHost: async () => ["1.1.1.1"],
+      }),
+    ).rejects.toMatchObject({
+      name: "ReplayAssetRejectedError",
+      message: expect.stringContaining("too large"),
+    });
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(body.locked).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

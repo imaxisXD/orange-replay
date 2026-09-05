@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import type { SessionFilter } from "@orange-replay/shared";
-import { AnalyticsStaleAlert } from "@/components/analytics-stale-alert";
+import { AnalyticsStatusNotice } from "@/components/analytics-stale-alert";
 import {
   Select,
   SelectContent,
@@ -42,8 +42,7 @@ export function OverviewPage() {
     queryFn: ({ signal }) => fetchProjectStats(projectId, filter, { signal }),
   });
 
-  function changeDateRange(value: string): void {
-    const nextFilter = dateRangeFilter(filter, value as DateRangeValue, Date.now());
+  function changeFilter(nextFilter: SessionFilter): void {
     if (isDemo) {
       void navigate({ to: "/demo/overview", search: nextFilter, replace: true });
       return;
@@ -54,6 +53,10 @@ export function OverviewPage() {
       search: nextFilter,
       replace: true,
     });
+  }
+
+  function changeDateRange(value: string): void {
+    changeFilter(dateRangeFilter(filter, value as DateRangeValue, Date.now()));
   }
 
   return (
@@ -84,7 +87,16 @@ export function OverviewPage() {
         </Select>
       </div>
 
-      {statsQuery.data?.analyticsState === "stale" && <AnalyticsStaleAlert />}
+      {statsQuery.data !== undefined && (
+        <AnalyticsStatusNotice
+          analyticsDelivery={statsQuery.data.analyticsDelivery}
+          analyticsState={statsQuery.data.analyticsState}
+          analyticsView={
+            filter.warehouse_version === undefined ? statsQuery.data.analyticsView : "pinned"
+          }
+          onShowLatest={() => changeFilter({ ...filter, warehouse_version: undefined })}
+        />
+      )}
 
       {(statsQuery.data !== undefined || !statsQuery.isError) && (
         <OverviewSummary

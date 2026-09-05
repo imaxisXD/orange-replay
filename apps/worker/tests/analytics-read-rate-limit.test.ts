@@ -4,11 +4,28 @@ import {
   ANALYTICS_GLOBAL_BUDGET_SQL,
   ANALYTICS_GLOBAL_REQUESTS_PER_MINUTE,
   checkAnalyticsReadRateLimit,
+  checkWarehouseReadCapacity,
 } from "../src/analytics/read-rate-limit.ts";
 
 type BudgetDatabase = NonNullable<Parameters<typeof checkAnalyticsReadRateLimit>[0]["IDX_00"]>;
 
 describe("analytics read rate limit", () => {
+  it("leaves warehouse capacity untouched until the response cache has been checked", async () => {
+    const budget = makeBudgetDatabase(null);
+    const locationLimit = denyLimiter();
+
+    await expect(
+      checkAnalyticsReadRateLimit(
+        warehouseEnvironment(allowLimiter(), allowLimiter(), locationLimit, budget.database),
+        "user:one",
+        "project-one",
+      ),
+    ).resolves.toEqual({ allowed: true });
+
+    expect(locationLimit).not.toHaveBeenCalled();
+    expect(budget.prepare).not.toHaveBeenCalled();
+  });
+
   it("checks hashed actor and project budgets", async () => {
     const actorLimit = allowLimiter();
     const projectLimit = allowLimiter();
@@ -77,10 +94,8 @@ describe("analytics read rate limit", () => {
     const budget = makeBudgetDatabase({ requestCount: 1 });
 
     await expect(
-      checkAnalyticsReadRateLimit(
+      checkWarehouseReadCapacity(
         warehouseEnvironment(allowLimiter(), allowLimiter(), allowLimiter(), budget.database),
-        "user:one",
-        "project-one",
         120_001,
       ),
     ).resolves.toEqual({ allowed: true });
@@ -93,10 +108,8 @@ describe("analytics read rate limit", () => {
     const budget = makeBudgetDatabase(null);
 
     await expect(
-      checkAnalyticsReadRateLimit(
+      checkWarehouseReadCapacity(
         warehouseEnvironment(allowLimiter(), allowLimiter(), allowLimiter(), budget.database),
-        "user:one",
-        "project-one",
       ),
     ).resolves.toEqual({ allowed: false, scope: "global" });
   });
@@ -155,8 +168,8 @@ describe("analytics read rate limit", () => {
     }
 
     expect(projectLimit).toHaveBeenCalledTimes(201);
-    expect(locationLimit).toHaveBeenCalledTimes(201);
-    expect(budget.prepare).toHaveBeenCalledTimes(201);
+    expect(locationLimit).not.toHaveBeenCalled();
+    expect(budget.prepare).not.toHaveBeenCalled();
   });
 
   it("fails closed outside explicit local test mode", async () => {

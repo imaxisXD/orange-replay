@@ -106,6 +106,7 @@ export function buildSessionManifest(
     },
     bytes: segments.reduce((total, segment) => total + segment.bytes, 0),
     flags: state.flags,
+    ...(state.domMasking === undefined ? {} : { domMasking: state.domMasking }),
     attrs,
   };
 

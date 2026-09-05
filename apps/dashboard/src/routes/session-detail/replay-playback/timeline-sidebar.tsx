@@ -16,10 +16,12 @@ export const TimelineSidebar = memo(function TimelineSidebar({
   disabled,
   onSeek,
   rows,
+  tabLabels,
 }: {
   disabled: boolean;
-  onSeek: (timeMs: number) => void;
+  onSeek: (timeMs: number, tab?: string) => void;
   rows: TimelineSidebarRow[];
+  tabLabels?: ReadonlyMap<string, string>;
 }) {
   return (
     <DataPanelAside className="h-full min-h-0 px-4 py-4 max-lg:max-h-90">
@@ -45,7 +47,7 @@ export const TimelineSidebar = memo(function TimelineSidebar({
                   data-slot="timeline-event-row"
                   disabled={disabled}
                   key={row.id}
-                  onClick={() => onSeek(row.offsetMs)}
+                  onClick={() => onSeek(row.offsetMs, row.tab)}
                   style={{ contentVisibility: "auto", containIntrinsicSize: "auto 44px" }}
                   title={row.detail === undefined ? row.label : `${row.label}: ${row.detail}`}
                   type="button"
@@ -55,6 +57,9 @@ export const TimelineSidebar = memo(function TimelineSidebar({
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[12.5px] text-foreground">
                       {row.label}
+                      {row.tab !== undefined && tabLabels?.has(row.tab) && (
+                        <span className="ml-2 text-[11px] text-dim">{tabLabels.get(row.tab)}</span>
+                      )}
                     </span>
                     {row.detail !== undefined && (
                       <span className="block truncate font-mono text-[11px] text-muted-foreground">

@@ -1,4 +1,5 @@
-import { FLAG_UNCOMPRESSED } from "@orange-replay/shared/constants";
+import { FLAG_UNCOMPRESSED, REPLAY_DATA_LIMITS } from "@orange-replay/shared/constants";
+import { countReplayValues } from "@orange-replay/shared/replay-limits";
 import type { BatchIndex, IndexEvent } from "@orange-replay/shared/types";
 import { encodeIngestBody } from "@orange-replay/shared/wire";
 import type { eventWithTime } from "@orange-replay/rrweb-fork";
@@ -23,6 +24,7 @@ interface PagehideBatchOptions {
   eventMetas: readonly EventMeta[];
   indexEvents: readonly IndexEvent[];
   maxBodyBytes: number;
+  appliedDomMasking?: BatchIndex["appliedDomMasking"];
 }
 
 export function buildPagehideBatch(options: PagehideBatchOptions): {
@@ -38,7 +40,7 @@ export function buildPagehideBatch(options: PagehideBatchOptions): {
   let encoded = encodeNewestPagehideBody(options, keptEventCount, keptIndexCount);
 
   if (encoded.body.byteLength > options.maxBodyBytes) {
-    keptEventCount = findLargestEventCount(options, keptIndexCount);
+    keptEventCount = findLargestEventCount(options, keptIndexCount, keptEventCount);
     encoded = encodeNewestPagehideBody(options, keptEventCount, keptIndexCount);
   }
 
@@ -52,6 +54,26 @@ export function buildPagehideBatch(options: PagehideBatchOptions): {
     (keptEventCount === 0 && keptIndexCount === 0) ||
     dropsRequiredBaseline(options.eventMetas, keptEventCount)
   ) {
+    return { batch: null, droppedEventCount: options.rrwebEvents.length };
+  }
+
+  // Byte size alone does not bound nesting or object complexity. Validate the
+  // final selection once, after the byte search, before sending it on pagehide.
+  try {
+    if (keptEventCount > REPLAY_DATA_LIMITS.events) throw new Error("Too many replay events.");
+    let values = 0;
+    for (
+      let index = options.rrwebEvents.length - keptEventCount;
+      index < options.rrwebEvents.length;
+      index += 1
+    ) {
+      values += countReplayValues(
+        options.rrwebEvents[index],
+        0,
+        REPLAY_DATA_LIMITS.values - values,
+      );
+    }
+  } catch {
     return { batch: null, droppedEventCount: options.rrwebEvents.length };
   }
 
@@ -87,14 +109,21 @@ function encodeNewestPagehideBody(
     currentUrl: options.currentUrl,
     rrwebEvents: keptMetas,
     indexEvents: keptIndexEvents,
+    appliedDomMasking: options.appliedDomMasking,
   });
   const payload = options.encoder.encode(JSON.stringify(keptEvents));
   return { body: encodeIngestBody(index, payload), index };
 }
 
-function findLargestEventCount(options: PagehideBatchOptions, indexCount: number): number {
+function findLargestEventCount(
+  options: PagehideBatchOptions,
+  indexCount: number,
+  failedEventCount: number,
+): number {
   let low = 0;
-  let high = options.rrwebEvents.length;
+  // This count was already encoded and did not fit. Only smaller counts can
+  // help; larger counts would repeat work on events excluded by the estimate.
+  let high = failedEventCount - 1;
   let best = 0;
 
   while (low <= high) {

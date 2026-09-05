@@ -26,6 +26,11 @@ import type {
   SessionManifest,
 } from "./types.ts";
 import { schemaCheck, sharedSchema, type SharedSchema } from "./validation.ts";
+import {
+  appliedDomMaskingSchema,
+  domMaskingSchema,
+  domMaskingSummarySchema,
+} from "./dom-masking.ts";
 
 const indexEventKindSchema = v.picklist([
   "click",
@@ -133,6 +138,7 @@ const replayUrlSchema = v.pipe(
 const indexEventSchema = v.strictObject({
   t: finiteNumberSchema,
   k: indexEventKindSchema,
+  tab: v.optional(pathIdSchema),
   d: v.optional(v.pipe(v.string(), v.maxLength(MAX_EVENT_DETAIL_CHARS))),
   m: v.optional(eventMetaSchema),
 }) satisfies v.GenericSchema<IndexEvent, IndexEvent>;
@@ -217,6 +223,7 @@ const liveSessionSnapshotSchema = v.pipe(
     durationMs: v.pipe(finiteNumberSchema, v.minValue(0)),
     timeline: v.pipe(v.array(indexEventSchema), v.maxLength(MAX_MANIFEST_TIMELINE_EVENTS)),
     counts: sessionCountsSchema,
+    domMasking: v.optional(domMaskingSchema),
   }),
   schemaCheck<LiveSessionSnapshot>((snapshot, context) => {
     if (snapshot.startedAt > snapshot.endedAt) {
@@ -290,6 +297,7 @@ export const batchIndexSchema: SharedSchema<v.GenericSchema<BatchIndex, BatchInd
       ),
       u: v.optional(replayUrlSchema),
       enc: v.optional(encSchema),
+      appliedDomMasking: v.fallback(v.optional(appliedDomMaskingSchema), undefined),
     }),
     schemaCheck<BatchIndex>((value, context) => {
       if (value.t0 > value.t1) {
@@ -342,6 +350,8 @@ export const sessionManifestSchema: SharedSchema<
     counts: sessionCountsSchema,
     bytes: nonnegativeSafeIntegerSchema,
     flags: nonnegativeSafeIntegerSchema,
+    domMasking: v.optional(domMaskingSchema),
+    domMaskingSummary: v.optional(domMaskingSummarySchema),
     enc: v.optional(encSchema),
     attrs: sessionAttrsSchema,
   }),

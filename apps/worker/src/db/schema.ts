@@ -1,5 +1,6 @@
 import { desc, sql } from "drizzle-orm";
 import {
+  check,
   foreignKey,
   index,
   integer,
@@ -33,7 +34,9 @@ export const projects = sqliteTable(
     orgId: text("org_id").notNull(),
     name: text("name").notNull(),
     jurisdiction: text("jurisdiction"),
-    retentionDays: integer("retention_days").notNull().default(90),
+    // Existing databases use this physical default. Project creation explicitly
+    // supplies DEFAULT_RECORDING_RETENTION_DAYS (90); no stored values change.
+    retentionDays: integer("retention_days").notNull().default(30),
     sampleRate: real("sample_rate").notNull().default(1),
     allowedOrigins: text("allowed_origins").notNull(),
     maskPolicyVersion: integer("mask_policy_version").notNull().default(1),
@@ -579,7 +582,10 @@ export const sessionDeletions = sqliteTable(
     attempts: integer("attempts").notNull().default(0),
     lastError: text("last_error"),
   },
-  (table) => [primaryKey({ columns: [table.projectId, table.sessionId] })],
+  (table) => [
+    primaryKey({ columns: [table.projectId, table.sessionId] }),
+    check("session_deletions_delete_analytics", sql`${table.deleteAnalytics} IN (0, 1)`),
+  ],
 );
 
 export const analyticsExportOutbox = sqliteTable(
@@ -598,6 +604,7 @@ export const analyticsExportOutbox = sqliteTable(
     quarantinedAt: integer("quarantined_at"),
     quarantineReason: text("quarantine_reason"),
     sidecarEventOffset: integer("sidecar_event_offset").notNull().default(0),
+    nextRetryAt: integer("next_retry_at").notNull().default(0),
   },
   (table) => [
     index("idx_analytics_export_outbox_pending")
@@ -728,3 +735,35 @@ export const analyticsBackfillCompletions = sqliteTable("analytics_backfill_comp
   reportId: text("report_id").notNull(),
   completedAt: integer("completed_at").notNull(),
 });
+
+export const sessionFinalizationJobs = sqliteTable(
+  "session_finalization_jobs",
+  {
+    projectId: text("project_id").notNull(),
+    sessionId: text("session_id").notNull(),
+    orgId: text("org_id").notNull(),
+    objectId: text("object_id").notNull(),
+    shard: integer("shard").notNull(),
+    retentionDays: integer("retention_days").notNull(),
+    startedAt: integer("started_at").notNull(),
+    createdAt: integer("created_at").notNull(),
+    state: text("state").notNull().default("recording"),
+    receiptHash: text("receipt_hash"),
+    endedAt: integer("ended_at"),
+    expiresAt: integer("expires_at"),
+    analyticsSidecarKey: text("analytics_sidecar_key"),
+    nextAttemptAt: integer("next_attempt_at").notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    leaseOwner: text("lease_owner"),
+    leaseExpiresAt: integer("lease_expires_at"),
+  },
+  (table) => [
+    primaryKey({ columns: [table.projectId, table.sessionId] }),
+    index("idx_session_finalization_jobs_due").on(
+      table.nextAttemptAt,
+      table.projectId,
+      table.sessionId,
+    ),
+  ],
+);

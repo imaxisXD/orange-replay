@@ -55,10 +55,17 @@ export function PublicPageApp({ publicId, replayPlayer: ReplayPlayer }: PublicPa
       <section className="hero" aria-labelledby="page-title">
         <p className="eyebrow">PUBLIC PROJECT OVERVIEW</p>
         <h1 id="page-title">{page.data.projectName}</h1>
-        <p className="hero-copy">
-          A live view of product usage, with sessions chosen by the project owner.
+        <p className="hero-copy">Product usage and sessions chosen by the project owner.</p>
+        <p className="updated">Page loaded {formatDateTime(page.data.generatedAt)}</p>
+        <p className="updated" role="status">
+          {page.data.analyticsStatus === "current"
+            ? "Analytics delivery is current."
+            : page.data.analyticsStatus === "pending"
+              ? "Analytics are still arriving. Recent sessions may not appear yet."
+              : page.data.analyticsStatus === "stale"
+                ? "Saved analytics are shown. Recent sessions or changes may not appear yet."
+                : "Analytics delivery status is unavailable."}
         </p>
-        <p className="updated">Updated {formatDateTime(page.data.generatedAt)}</p>
       </section>
 
       <MetricGrid page={page.data} />

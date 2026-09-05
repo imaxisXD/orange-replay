@@ -1,6 +1,10 @@
 import * as v from "valibot";
 import { sessionManifestSchema } from "./schemas.ts";
-import { analyticsStateSchema } from "./stats-contract.ts";
+import {
+  analyticsDeliverySchema,
+  analyticsStateSchema,
+  analyticsViewSchema,
+} from "./stats-contract.ts";
 import type { SessionManifest } from "./types.ts";
 import { schemaCheck, sharedSchema } from "./validation.ts";
 
@@ -92,6 +96,8 @@ const listSessionsResponseBaseSchema = v.object({
   nextBefore: v.nullable(v.string()),
   warehouseVersion: v.optional(sessionWholeNumberSchema),
   analyticsState: v.optional(analyticsStateSchema),
+  analyticsDelivery: v.optional(analyticsDeliverySchema),
+  analyticsView: v.optional(analyticsViewSchema),
 });
 export const listSessionsResponseSchema = sharedSchema(
   v.pipe(
@@ -182,6 +188,8 @@ function stripUnknownManifestFields(value: unknown): unknown {
     "counts",
     "bytes",
     "flags",
+    "domMasking",
+    "domMaskingSummary",
     "enc",
     "attrs",
   ]);
@@ -194,7 +202,7 @@ function stripUnknownManifestFields(value: unknown): unknown {
   }
   if (Array.isArray(manifest["timeline"])) {
     manifest["timeline"] = manifest["timeline"].map((event) =>
-      pickKnownFields(event, ["t", "k", "d", "m"]),
+      pickKnownFields(event, ["t", "k", "tab", "d", "m"]),
     );
   }
   manifest["counts"] = pickKnownFields(manifest["counts"], [

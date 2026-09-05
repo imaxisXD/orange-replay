@@ -76,6 +76,38 @@ describe("analytics export records", () => {
 });
 
 describe("analytics export delivery", () => {
+  it("leaves later jobs pending when the export pass runs out of time", async () => {
+    const store = new MemoryOutboxStore([
+      outboxRow(1, "session:project:first"),
+      outboxRow(2, "session:project:second"),
+    ]);
+    const send = vi.fn(async () => undefined);
+    let now = 0;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const canSend = vi.spyOn(store, "canSendRecord").mockImplementation(async () => {
+      // The first job used the pass budget while checking its saved state.
+      now += 20;
+      return true;
+    });
+    try {
+      await expect(
+        drainAnalyticsExports(store, { send }, { now: 1, maxDurationMs: 10 }),
+      ).resolves.toMatchObject({ selected: 1, sent: 1, firstSequence: 1, lastSequence: 1 });
+      expect(store.rows[0]?.sentAt).toBe(1);
+      expect(store.rows[1]?.sentAt).toBeNull();
+      expect(store.rows[1]?.attemptCount).toBe(0);
+    } finally {
+      canSend.mockRestore();
+      clock.mockRestore();
+    }
+    await expect(drainAnalyticsExports(store, { send }, { now: 2 })).resolves.toMatchObject({
+      selected: 1,
+      sent: 1,
+      firstSequence: 2,
+      lastSequence: 2,
+    });
+  });
+
   it("resends the same stable row after a crash between send and sent status", async () => {
     const store = new MemoryOutboxStore([outboxRow(1, "session:project:session")]);
     const accepted: AnalyticsWarehouseRecord[][] = [];

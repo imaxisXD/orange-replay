@@ -103,6 +103,7 @@ export const publicPageDataSchema: SharedSchema<v.GenericSchema<PublicPageData, 
       publicUrl: publicUrlSchema,
       projectName: v.pipe(v.string(), v.minLength(1), v.maxLength(PROJECT_NAME_MAX_CHARS)),
       generatedAt: nonnegativeSafeIntegerSchema,
+      analyticsStatus: v.optional(v.picklist(["current", "pending", "stale", "unknown"])),
       analytics: publicPageAnalyticsObjectSchema,
       recordings: v.pipe(
         v.array(publicPageRecordingObjectSchema),

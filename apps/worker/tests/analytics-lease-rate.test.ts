@@ -1,6 +1,7 @@
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
+  deferAnalyticsDelivery,
   releaseAnalyticsLease,
   renewAnalyticsLease,
   reserveAnalyticsSendWindow,
@@ -35,6 +36,15 @@ describe("analytics export lease", () => {
     await expect(tryAcquireAnalyticsLease(db, loser, 250, 100)).resolves.toBe(true);
     await releaseAnalyticsLease(db, winner, 251);
     await expect(renewAnalyticsLease(db, loser, 260, 100)).resolves.toBe(true);
+
+    await deferAnalyticsDelivery(db, loser, 270);
+    await releaseAnalyticsLease(db, loser, 280);
+    await expect(tryAcquireAnalyticsLease(db, winner, 60_269, 100)).resolves.toBe(false);
+    await expect(tryAcquireAnalyticsLease(db, winner, 60_270, 100)).resolves.toBe(true);
+    // An old sender cannot extend the new sender's cooldown.
+    await deferAnalyticsDelivery(db, loser, 60_271);
+    await releaseAnalyticsLease(db, winner, 60_280);
+    await expect(tryAcquireAnalyticsLease(db, "worker-c", 60_281, 100)).resolves.toBe(true);
 
     database.sqlite.close();
   });

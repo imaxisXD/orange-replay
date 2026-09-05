@@ -13,6 +13,7 @@ import {
 } from "../segments.ts";
 import type { OrangePlayerOptions, SegmentWindow } from "../types.ts";
 import type { DecodeWorkerHost } from "../worker-host.ts";
+import { listReplayTabs, type ReplayTab } from "../tabs.ts";
 
 export interface LoadedRecordedSegment {
   index: number;
@@ -41,9 +42,10 @@ export interface ActiveReplayWindowSize {
 }
 
 export interface RecordedSegmentLoaderOptions {
-  request: Pick<OrangePlayerOptions, "api" | "projectId" | "sessionId">;
+  request: Pick<OrangePlayerOptions, "api" | "projectId" | "sessionId" | "replayTab">;
   signal: AbortSignal;
   worker: DecodeWorkerHost;
+  replayAssetsReady?: Promise<void>;
   isDestroyed: () => boolean;
   isFollowing: () => boolean;
   onSegmentLoaded: (loaded: LoadedRecordedSegment) => void;
@@ -60,11 +62,14 @@ export class RecordedSegmentLoader {
   private orderedLoadPlan = 0;
   private windowStartIndex = 0;
   private activeReplayTab: string | undefined;
+  private selectedReplayTab: string | undefined;
+  private manifestReplayTab: string | undefined;
   private activeEventCount = 0;
   private activeDecodedBytes = 0;
 
   constructor(options: RecordedSegmentLoaderOptions) {
     this.options = options;
+    this.selectedReplayTab = options.request.replayTab;
   }
 
   loadManifest(): Promise<SessionManifest> {
@@ -83,11 +88,24 @@ export class RecordedSegmentLoader {
         ? {}
         : { checkpoints: segment.checkpoints.map((checkpoint) => ({ ...checkpoint })) }),
     }));
-    this.activeReplayTab = findPrimaryReplayTab(this.segments);
+    this.manifestReplayTab = this.selectedReplayTab ?? findPrimaryReplayTab(this.segments);
+    this.activeReplayTab = this.manifestReplayTab;
   }
 
   get replayTab(): string | undefined {
     return this.activeReplayTab;
+  }
+
+  get replayTabs(): ReplayTab[] {
+    return this.manifest === undefined ? [] : listReplayTabs(this.manifest, this.segments);
+  }
+
+  selectTab(tab: string): void {
+    if (this.selectedReplayTab === tab) return;
+    this.clearLoadedSegments();
+    this.selectedReplayTab = tab;
+    this.manifestReplayTab = tab;
+    this.activeReplayTab = tab;
   }
 
   segmentWindowAt(timeMs: number): SegmentWindow | undefined {
@@ -258,12 +276,26 @@ export class RecordedSegmentLoader {
       return;
     }
 
-    const batches = await decodeSegmentBatches(bytes, this.options.worker, segment);
+    // Fetch while assets load, then keep rewriting and rendering behind their
+    // readiness. Waiting before decode retains only the bounded encoded bytes.
+    await waitForReplayAssets(this.options.replayAssetsReady, signal);
     if (this.isStaleLoad(index, generation, signal)) {
       return;
     }
 
-    validateSegmentCheckpoints(segment, batches);
+    const batches = await decodeSegmentBatches(
+      bytes,
+      this.options.worker,
+      segment,
+      // Legacy tab selection happens after decoding in the event store. Only
+      // skip a tab when the manifest chose it before that store was initialized.
+      this.manifestReplayTab,
+    );
+    if (this.isStaleLoad(index, generation, signal)) {
+      return;
+    }
+
+    validateSegmentCheckpoints(segment, batches, this.manifestReplayTab);
     if ((segment.checkpoints?.length ?? 0) === 0) {
       const discovered = discoverSegmentCheckpoints(batches);
       if (discovered.length > 0) {
@@ -376,4 +408,20 @@ function createLinkedAbortController(rootSignal: AbortSignal): {
     controller,
     detach: () => rootSignal.removeEventListener("abort", abort),
   };
+}
+
+function waitForReplayAssets(ready: Promise<void> | undefined, signal: AbortSignal): Promise<void> {
+  if (ready === undefined) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const finish = () => {
+      signal.removeEventListener("abort", finish);
+      resolve();
+    };
+    signal.addEventListener("abort", finish, { once: true });
+    if (signal.aborted) finish();
+    void ready.then(finish, (error) => {
+      signal.removeEventListener("abort", finish);
+      reject(error);
+    });
+  });
 }

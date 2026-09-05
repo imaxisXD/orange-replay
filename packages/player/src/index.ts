@@ -18,6 +18,7 @@ export {
 export { applyLiveIndexToSnapshot } from "./live-metadata.ts";
 export { ReplayOverlay } from "./overlay.ts";
 export { OrangePlayer } from "./player.ts";
+export { listReplayTabs, timelineForReplayTab, type ReplayTab } from "./tabs.ts";
 export {
   RAGE_CLICK_MIN_CLICKS,
   RAGE_CLICK_RADIUS_PX,

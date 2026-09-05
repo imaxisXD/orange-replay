@@ -40,10 +40,6 @@ export interface LiveSessionRow {
   elapsedTime: string;
 }
 
-export function activeSessionHeads(sessions: readonly SessionHead[]): SessionHead[] {
-  return sessions.filter((session) => session.activity === "live");
-}
-
 export function formatLiveSessionRow(
   session: Pick<
     SessionHead,

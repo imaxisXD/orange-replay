@@ -160,16 +160,23 @@ export async function getProjectStats(
       ctx,
       now,
     }),
-    includeLive ? listProjectPresence(env, projectId, requestId, now) : Promise.resolve(null),
+    includeLive
+      ? listProjectPresence(env, projectId, requestId, now).catch(() => null)
+      : Promise.resolve(null),
   ]);
   if (!finalizedRead.ok) return jsonError(finalizedRead.error, finalizedRead.status);
-  if (includeLive && presence === null) return jsonError("presence_unavailable", 503);
 
   const responseFields = {
     ...(finalizedRead.warehouseVersion === undefined
       ? {}
       : { warehouseVersion: finalizedRead.warehouseVersion }),
     analyticsState: finalizedRead.analyticsState,
+    ...(finalizedRead.analyticsDelivery === undefined
+      ? {}
+      : { analyticsDelivery: finalizedRead.analyticsDelivery }),
+    ...(finalizedRead.analyticsView === undefined
+      ? {}
+      : { analyticsView: finalizedRead.analyticsView }),
   };
 
   if (!includeLive) {
@@ -180,11 +187,21 @@ export async function getProjectStats(
     return jsonResponse(response, { headers: { "cache-control": "private, no-store" } });
   }
 
-  if (presence === null) return jsonError("presence_unavailable", 503);
-  const liveNow = countFilteredLiveSessions(presence.sessions, finalizedRead.value.filter, now);
+  const liveNow =
+    presence === null
+      ? null
+      : countFilteredLiveSessions(presence.sessions, finalizedRead.value.filter, now);
+  const liveNowState = liveNow === null ? "unavailable" : "available";
+  wideEvent.set({ live_count_state: liveNowState });
 
   const response = {
-    ...withLiveNow(finalizedRead.value, liveNow),
+    ...(liveNow === null
+      ? {
+          ...finalizedRead.value,
+          liveNow: { value: null, filter: finalizedRead.value.filter },
+        }
+      : withLiveNow(finalizedRead.value, liveNow)),
+    liveNowState,
     ...responseFields,
   } satisfies ProjectStatsResponse;
   return jsonResponse(response, {

@@ -361,6 +361,37 @@ footer {
   border: 0;
 }
 
+.public-player-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  color: #a8a59c;
+  font-size: 12px;
+}
+
+.public-player-tabs select {
+  max-width: 100%;
+  padding: 8px 12px;
+  color: #e9e6df;
+  background: #131316;
+  border: 1px solid #35353b;
+  border-radius: 8px;
+}
+
+.public-player-tabs select:focus-visible {
+  outline: 2px solid #f5a623;
+  outline-offset: 3px;
+}
+
+.public-player-masking {
+  margin-top: 14px;
+  color: #a8a59c;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .public-player-controls {
   display: grid;
   grid-template-columns: auto minmax(160px, 1fr) auto auto;

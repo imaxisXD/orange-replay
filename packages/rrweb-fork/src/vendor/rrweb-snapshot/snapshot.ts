@@ -1133,6 +1133,7 @@ export function serializeNodeWithId(
     if (shadowRootEl && isNativeShadowDom(shadowRootEl)) serializedNode.isShadowHost = true;
   }
   if (
+    !isOrangeReplaySdk &&
     (serializedNode.type === NodeType.Document || serializedNode.type === NodeType.Element) &&
     recordChild
   ) {
@@ -1225,7 +1226,7 @@ export function serializeNodeWithId(
       if (!skipIframeInitialLoad && iframeDoc?.readyState === "complete") {
         onIframeReady(iframeDoc);
       }
-    } else {
+    } else if (!isOrangeReplaySdk) {
       onceIframeLoaded(
         iframe,
         () => {
@@ -1285,12 +1286,17 @@ export function serializeNodeWithId(
           const serializedLinkNode = serializeNodeWithId(n, {
             doc,
             mirror,
+            // Chunked capture releases its temporary mirror after committing.
+            // The stylesheet update must still target the link already sent.
+            reservedId: id,
             blockClass,
             blockSelector,
             needsMask,
             maskTextClass,
             maskTextSelector,
-            skipChild: false,
+            // The SDK sends only the updated link attributes. Its chunked
+            // capture and mutation observer already own the link's children.
+            skipChild: isOrangeReplaySdk,
             inlineStylesheet,
             maskInputOptions,
             maskTextFn,

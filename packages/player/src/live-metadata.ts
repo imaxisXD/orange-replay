@@ -1,4 +1,5 @@
 import { deriveRageEvents } from "@orange-replay/shared/insights";
+import { addDomMaskingBatch } from "@orange-replay/shared/dom-masking";
 import type { BatchIndex, IndexEvent, LiveSessionSnapshot } from "@orange-replay/shared/types";
 
 const MAX_LIVE_TIMELINE_EVENTS = 10_000;
@@ -7,7 +8,9 @@ export function applyLiveIndexToSnapshot(
   snapshot: LiveSessionSnapshot,
   index: BatchIndex,
 ): LiveSessionSnapshot {
-  const incomingEvents = index.e.filter((event) => event.k !== "rage");
+  const incomingEvents = index.e
+    .filter((event) => event.k !== "rage")
+    .map((event) => ({ ...event, tab: index.tab }));
   const sourceTimeline = snapshot.timeline.filter((event) => event.k !== "rage");
   const nextSourceTimeline = [...sourceTimeline, ...incomingEvents].toSorted(
     (left, right) => left.t - right.t,
@@ -25,6 +28,11 @@ export function applyLiveIndexToSnapshot(
     endedAt,
     durationMs: Math.max(snapshot.durationMs, endedAt - snapshot.startedAt),
     timeline,
+    domMasking: addDomMaskingBatch(
+      snapshot.domMasking,
+      index.appliedDomMasking,
+      snapshot.counts.batches,
+    ),
     counts: {
       batches: snapshot.counts.batches + 1,
       events: snapshot.counts.events + incomingEvents.length + addedRageCount,

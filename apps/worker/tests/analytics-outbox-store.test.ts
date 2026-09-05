@@ -3,7 +3,40 @@ import { DatabaseSync, type StatementSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createD1AnalyticsOutboxStore } from "../src/analytics/outbox.ts";
 
+const retryMigration = await readFile(
+  new URL("../migrations/0029_analytics_export_retry.sql", import.meta.url),
+  "utf8",
+);
+
 describe("analytics outbox project selection", () => {
+  it("skips a deferred export for delivery but keeps it in the watermark proof", async () => {
+    const database = new TestD1Database();
+    try {
+      database.sqlite.exec("CREATE TABLE projects (id TEXT PRIMARY KEY, jurisdiction TEXT)");
+      database.sqlite.exec(
+        await readFile(
+          new URL("../migrations/0009_analytics_warehouse.sql", import.meta.url),
+          "utf8",
+        ),
+      );
+      database.sqlite.exec(retryMigration);
+      seedExport(database, 1, "temporarily-unavailable");
+      seedExport(database, 2, "healthy");
+      const store = createD1AnalyticsOutboxStore(
+        database as unknown as Parameters<typeof createD1AnalyticsOutboxStore>[0],
+      );
+
+      await store.markFailed([1], "Sidecar temporarily unavailable.", 500);
+      expect((await store.listPending(90, 499)).map((row) => row.exportSequence)).toEqual([2]);
+      expect((await store.listPending(90, 500)).map((row) => row.exportSequence)).toEqual([1, 2]);
+      expect(await store.listProjectRowsAfter("temporarily-unavailable", 0, 90)).toMatchObject([
+        { exportSequence: 1, sentAt: null, quarantinedAt: null, attemptCount: 1 },
+      ]);
+    } finally {
+      database.sqlite.close();
+    }
+  });
+
   it("checks never-tried and oldest-tried projects before recently-tried projects", async () => {
     const database = new TestD1Database();
     const migration = await readFile(
@@ -11,7 +44,7 @@ describe("analytics outbox project selection", () => {
       "utf8",
     );
     database.sqlite.exec("CREATE TABLE projects (id TEXT PRIMARY KEY, jurisdiction TEXT)");
-    database.sqlite.exec(migration);
+    database.sqlite.exec(migration + retryMigration);
 
     seedExport(database, 1, "old-a");
     seedExport(database, 2, "recent");
@@ -58,7 +91,7 @@ describe("analytics outbox project selection", () => {
       "utf8",
     );
     database.sqlite.exec("CREATE TABLE projects (id TEXT PRIMARY KEY, jurisdiction TEXT)");
-    database.sqlite.exec(migration);
+    database.sqlite.exec(migration + retryMigration);
     seedExport(database, 1, "project");
     seedExport(database, 2, "project");
     const store = createD1AnalyticsOutboxStore(
@@ -108,6 +141,7 @@ describe("analytics outbox project selection", () => {
       delete_analytics INTEGER NOT NULL DEFAULT 1,
       PRIMARY KEY (project_id, session_id)
     )`);
+    database.sqlite.exec(retryMigration);
     seedExport(database, 1, "project");
     const store = createD1AnalyticsOutboxStore(
       database as unknown as Parameters<typeof createD1AnalyticsOutboxStore>[0],
@@ -139,6 +173,7 @@ describe("analytics outbox project selection", () => {
       delete_analytics INTEGER NOT NULL DEFAULT 1,
       PRIMARY KEY (project_id, session_id)
     )`);
+    database.sqlite.exec(retryMigration);
     seedExport(database, 1, "project");
     database.sqlite
       .prepare(

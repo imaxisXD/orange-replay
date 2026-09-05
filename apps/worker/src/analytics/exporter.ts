@@ -23,6 +23,7 @@ const MAX_EVENT_META_KEYS = 16;
 const MAX_EVENT_META_KEY_CHARS = 200;
 const MAX_EVENT_META_VALUE_CHARS = 200;
 const DEFAULT_SIDECAR_READ_TIMEOUT_MS = 15_000;
+const EXPORT_RETRY_DELAY_MS = 5 * 60_000;
 const MAX_SIDECAR_READ_TIMEOUT_MS = 60_000;
 const ANALYTICS_SIDECAR_HEADER_VERSION = 1;
 const COMPLETE_COVERAGE_EVENT_KIND = "coverage_complete";
@@ -84,16 +85,23 @@ export async function drainAnalyticsExports(
     now?: number;
     sidecarReader?: AnalyticsSidecarReader;
     sidecarReadTimeoutMs?: number;
+    maxDurationMs?: number;
   } = {},
 ): Promise<DrainAnalyticsExportsResult> {
   const now = options.now ?? Date.now();
+  const maxDurationMs = options.maxDurationMs ?? 45_000;
+  if (!Number.isSafeInteger(maxDurationMs) || maxDurationMs <= 0 || maxDurationMs > 60_000) {
+    throw new Error("Analytics export pass duration must be between 1 and 60000 milliseconds.");
+  }
+  const stopAt = Date.now() + maxDurationMs;
   const sidecarReadTimeoutMs = checkedSidecarReadTimeout(options.sidecarReadTimeoutMs);
-  const rows = await store.listPending(safeOutboxBatchSize(options.limit));
+  const rows = await store.listPending(safeOutboxBatchSize(options.limit), now);
   if (rows.length === 0) {
     return { selected: 0, sent: 0, failed: 0, firstSequence: null, lastSequence: null };
   }
 
-  const sequences = rows.map((row) => row.exportSequence);
+  let selected = 0;
+  let lastSequence: number | null = null;
   let sent = 0;
   let failed = 0;
   let legacyRows: AnalyticsOutboxRow[] = [];
@@ -109,6 +117,11 @@ export async function drainAnalyticsExports(
   };
 
   for (const row of rows) {
+    // Check between jobs. A slow job is already bounded by its stream timeout;
+    // several independent failures must not consume the whole maintenance run.
+    if (Date.now() >= stopAt) break;
+    selected += 1;
+    lastSequence = row.exportSequence;
     if (!(await store.canSendRecord(row.projectId, row.sessionId, row.recordKind))) {
       await store.markQuarantined([row.exportSequence], blockedRecordReason(row), now);
       failed += 1;
@@ -152,13 +165,25 @@ export async function drainAnalyticsExports(
         failed += 1;
         continue;
       }
+      if (error instanceof AnalyticsPipelineError) {
+        await store.markFailed(
+          [row.exportSequence],
+          storedFailureMessage(error),
+          exportRetryAt(row.attemptCount, now),
+        );
+        throw exposedFailure(error);
+      }
       if (
-        error instanceof AnalyticsPipelineError ||
         error instanceof AnalyticsSidecarReadError ||
         error instanceof AnalyticsSidecarProgressError
       ) {
-        await store.markFailed([row.exportSequence], storedFailureMessage(error));
-        throw exposedFailure(error);
+        await store.markFailed(
+          [row.exportSequence],
+          storedFailureMessage(error),
+          exportRetryAt(row.attemptCount, now),
+        );
+        failed += 1;
+        continue;
       }
       await store.markQuarantined([row.exportSequence], storedFailureMessage(error), now);
       failed += 1;
@@ -174,11 +199,11 @@ export async function drainAnalyticsExports(
   await flushLegacy();
 
   return {
-    selected: rows.length,
+    selected,
     sent,
     failed,
-    firstSequence: sequences[0] ?? null,
-    lastSequence: sequences.at(-1) ?? null,
+    firstSequence: selected === 0 ? null : (rows[0]?.exportSequence ?? null),
+    lastSequence,
   };
 }
 
@@ -225,8 +250,12 @@ async function sendLegacyRows(
   try {
     await pipeline.send(records);
   } catch (error) {
-    await store.markFailed(sequences, errorMessage(error));
-    throw new Error(`analytics export delivery failed: ${errorMessage(error)}`, { cause: error });
+    await store.markFailed(
+      sequences,
+      errorMessage(error),
+      exportRetryAt(Math.max(...rows.map((row) => row.attemptCount)), now ?? Date.now()),
+    );
+    throw new AnalyticsPipelineError(errorMessage(error), error);
   }
 
   // This write intentionally happens after Pipeline acceptance. If the Worker
@@ -739,7 +768,7 @@ class AnalyticsSidecarProgressError extends Error {
   }
 }
 
-class AnalyticsPipelineError extends Error {
+export class AnalyticsPipelineError extends Error {
   readonly failureMessage: string;
 
   constructor(failureMessage: string, cause?: unknown) {
@@ -761,6 +790,11 @@ class AnalyticsResidencyChangedError extends Error {
 
 function storedFailureMessage(error: unknown): string {
   return error instanceof AnalyticsPipelineError ? error.failureMessage : errorMessage(error);
+}
+
+function exportRetryAt(previousAttempts: number, now: number): number {
+  const attempts = Math.max(0, Math.min(previousAttempts, 4));
+  return now + Math.min(EXPORT_RETRY_DELAY_MS * 2 ** attempts, 60 * 60_000);
 }
 
 function exposedFailure(error: unknown): Error {

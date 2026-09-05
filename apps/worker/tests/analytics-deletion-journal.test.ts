@@ -30,6 +30,12 @@ describe("analytics deletion journal", () => {
         "utf8",
       ),
     );
+    database.sqlite.exec(
+      await readFile(
+        new URL("../migrations/0029_analytics_export_retry.sql", import.meta.url),
+        "utf8",
+      ),
+    );
     database.sqlite
       .prepare("INSERT INTO projects (id, jurisdiction) VALUES (?, ?), (?, ?), (?, ?)")
       .run("default-project", null, "eu-project", "eu", "empty-project", "");

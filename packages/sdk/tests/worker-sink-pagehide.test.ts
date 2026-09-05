@@ -12,6 +12,7 @@ import {
 import { snapshotInChunks } from "../../rrweb-fork/src/vendor/rrweb-snapshot/index.ts";
 import { PAGEHIDE_RAW_FLUSH_BYTES } from "../src/pipeline/batcher.ts";
 import { WorkerHost } from "../src/pipeline/worker-host.ts";
+import { buildPagehideBatch } from "../src/sink/pagehide-batch.ts";
 import {
   config,
   decoder,
@@ -37,6 +38,30 @@ class PendingWorker {
 }
 
 describe("WorkerSink pagehide final flush", () => {
+  it("does not send a small batch whose event exceeds the player's shape limit", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const sink = makeWorkerSink({
+      config,
+      session: makeSession(["session-one", "tab-one"]),
+      window,
+      fetch: fetchMock,
+      workerHost: makeWorkerHost(),
+    });
+    const event = {
+      type: 5,
+      timestamp: 10,
+      data: {
+        tag: "complex",
+        payload: Object.fromEntries(Array.from({ length: 201 }, (_, index) => [String(index), 1])),
+      },
+    } as eventWithTime;
+    expect(JSON.stringify(event).length).toBeLessThan(PAGEHIDE_RAW_FLUSH_BYTES);
+    sink.addRrwebEvent(event);
+    await sink.flush("pagehide");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(droppedEventCount(sink)).toBe(1);
+  });
+
   it("restarts timed flushes after a BFCache restore", async () => {
     vi.useFakeTimers();
     const fetchMock = vi.fn<typeof fetch>(async () => {
@@ -168,6 +193,61 @@ describe("WorkerSink pagehide final flush", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(stringifySpy.mock.calls.length).toBeLessThanOrEqual(20);
     expect(droppedEventCount(sink)).toBeGreaterThan(0);
+  });
+
+  it("does not serialize excluded images while shrinking an oversized sidecar", () => {
+    const events = Array.from(
+      { length: 100 },
+      (_, index): eventWithTime => ({
+        type: EventType.IncrementalSnapshot,
+        timestamp: index + 1,
+        data: {
+          source: IncrementalSource.Mutation,
+          adds: [],
+          removes: [],
+          texts: [],
+          attributes: [
+            {
+              id: 1,
+              attributes: {
+                src: `data:image/png;base64,${"x".repeat(index === 99 ? 1_000_000 : 100)}`,
+              },
+            },
+          ],
+        },
+      }),
+    );
+    const indexEvents = Array.from({ length: 100 }, (_, index) => ({
+      t: index + 1,
+      k: "custom" as const,
+      d: "button",
+      m: { value: "x".repeat(1_000) },
+    }));
+    const stringifySpy = vi.spyOn(JSON, "stringify");
+
+    const result = buildPagehideBatch({
+      encoder: new TextEncoder(),
+      session: makeSession(["session-one", "tab-one"]),
+      seq: 1,
+      currentUrl: "https://example.test",
+      rrwebEvents: events,
+      eventMetas: events.map((event, index) => ({
+        timestamp: event.timestamp,
+        rawBytes: index === 99 ? 2_000_000 : 500,
+      })),
+      indexEvents,
+      maxBodyBytes: PAGEHIDE_RAW_FLUSH_BYTES,
+    });
+
+    expect(result.batch).not.toBeNull();
+    expect(result.batch!.body.byteLength).toBeLessThanOrEqual(PAGEHIDE_RAW_FLUSH_BYTES);
+    expect(result.droppedEventCount).toBe(100);
+    const decoded = decodeIngestBody(result.batch!.body);
+    expect(JSON.parse(decoder.decode(decoded.payload))).toEqual([]);
+    expect(decoded.index.e).toEqual(indexEvents.slice(-58));
+    expect(
+      stringifySpy.mock.calls.some(([value]) => Array.isArray(value) && value.includes(events[99])),
+    ).toBe(false);
   });
 
   it("keeps total pagehide sync bodies under one keepalive budget", async () => {

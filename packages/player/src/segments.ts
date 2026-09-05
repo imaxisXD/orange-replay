@@ -65,6 +65,7 @@ export async function decodeSegmentBatches(
   segmentBytes: Uint8Array,
   worker: DecodeWorkerHost,
   trustedTimeRange?: Pick<SegmentRef, "t0" | "t1">,
+  replayTab?: string,
 ): Promise<DecodedReplayBatch[]> {
   const batches = sliceSegmentBatches(segmentBytes);
   const decoded: DecodedReplayBatch[] = [];
@@ -75,7 +76,17 @@ export async function decodeSegmentBatches(
     if (batch === undefined) {
       continue;
     }
-    const decodedBatch = await decodeSegmentBatch(batch, index, worker, trustedTimeRange);
+    const encoded = tryDecodeIndexedBatch(batch);
+    // Recorded playback displays one tab. Keep background payloads compressed,
+    // but still decode legacy batches whose tab is not available in an index.
+    if (encoded !== undefined && replayTab !== undefined && encoded.index.tab !== replayTab) {
+      continue;
+    }
+    const decodedBatch = await decodeInspectedBatch(
+      { batch, segmentBatchIndex: index, encoded },
+      worker,
+      trustedTimeRange,
+    );
     addToSegmentBudget(budget, decodedBatch);
     decoded.push(decodedBatch);
   }
@@ -311,36 +322,6 @@ export function discoverSegmentCheckpoints(
 
 export function mergeReplayEvents(events: readonly ReplayEvent[]): ReplayEvent[] {
   return [...events].sort((left, right) => left.timestamp - right.timestamp);
-}
-
-async function decodeSegmentBatch(
-  batch: Uint8Array,
-  batchNumber: number,
-  worker: DecodeWorkerHost,
-  trustedTimeRange?: Pick<SegmentRef, "t0" | "t1">,
-): Promise<DecodedReplayBatch> {
-  const encoded = tryDecodeReplayIngestBody(batch);
-
-  if (encoded !== undefined) {
-    const decoded = await worker.decodeBatchWithStats(encoded.payload);
-    validateReplayEventTimesAgainstIndex(decoded.events, encoded.index);
-    return {
-      index: encoded.index,
-      segmentBatchIndex: batchNumber,
-      ...decoded,
-    };
-  }
-
-  const decoded = await worker.decodeBatchWithStats(batch);
-  if (trustedTimeRange !== undefined) {
-    validateReplayEventTimesAgainstIndex(decoded.events, trustedTimeRange);
-  }
-  return {
-    decodedBytes: decoded.decodedBytes,
-    events: decoded.events,
-    index: legacyBatchIndex(decoded.events, batchNumber),
-    segmentBatchIndex: batchNumber,
-  };
 }
 
 interface InspectedSegmentBatch {

@@ -426,6 +426,14 @@ interface CompareEnvOptions {
 
 function compareEnv(queries: D1Query[], options: CompareEnvOptions = {}): Env {
   const database = {
+    async batch(statements: { first(): Promise<unknown> }[]) {
+      return Promise.all(
+        statements.map(async (statement) => {
+          const row = await statement.first();
+          return { results: row === null ? [] : [row] };
+        }),
+      );
+    },
     prepare(sql: string) {
       return {
         bind(...bindings: unknown[]) {
@@ -458,6 +466,9 @@ function compareEnv(queries: D1Query[], options: CompareEnvOptions = {}): Env {
   return {
     ANALYTICS_EXPORT_ENABLED: "1",
     ANALYTICS_READ_BACKEND: "compare",
+    ANALYTICS_GLOBAL_RATE_LIMITER: {
+      limit: vi.fn(async () => ({ success: true })),
+    } as Env["ANALYTICS_GLOBAL_RATE_LIMITER"],
     ANALYTICS_STREAM: { async send() {} } as Env["ANALYTICS_STREAM"],
     R2_SQL_ACCOUNT_ID: "account_1",
     R2_SQL_BUCKET: "analytics_bucket",
@@ -476,6 +487,7 @@ function compareEnv(queries: D1Query[], options: CompareEnvOptions = {}): Env {
 }
 
 function firstD1Row(sql: string, options: CompareEnvOptions): Record<string, unknown> | null {
+  if (sql.includes("INSERT INTO analytics_read_budget")) return { requestCount: 1 };
   if (sql.includes("FROM projects")) return { jurisdiction: null };
   if (sql.includes("MAX(j.deletion_export_sequence)")) return { privacy_version: 0 };
   if (sql.includes("analytics_deletion_jobs")) return null;

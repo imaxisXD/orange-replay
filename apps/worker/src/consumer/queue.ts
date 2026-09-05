@@ -20,6 +20,12 @@ import { maintainAnalyticsWarehouse } from "../analytics/maintenance.ts";
 import { sendPresenceSessionRequest } from "../do/presence-client.ts";
 import { reserveAcceptedUsage } from "../usage/accepted-usage.ts";
 import { captureReplayAssets } from "../replay-assets/capture.ts";
+import {
+  acknowledgeSessionFinalization,
+  confirmIndexedFinalizationStatement,
+  finalizationReceiptHash,
+  readFinalizationJob,
+} from "./finalization-recovery.ts";
 
 const QUEUE_MAX_RETRIES = 10; // Must match wrangler.jsonc queue max_retries.
 const SESSION_EVENT_INSERT_CHUNK_SIZE = 20;
@@ -28,6 +34,7 @@ interface IndexSessionResult {
   inserted: boolean;
   eventsWritten: number;
   exportsWritten: number;
+  recordingAvailable: boolean;
 }
 
 export async function handleFinalizeBatch(
@@ -36,16 +43,18 @@ export async function handleFinalizeBatch(
   ctx: ExecutionContext,
 ): Promise<void> {
   setWorkerLoggerVersion(env);
+  let hasFinalizationWork = false;
   for (const message of batch.messages) {
     if (looksLikeReplayAssetJob(message.body)) {
-      await handleReplayAssetMessage(message, env);
+      await handleReplayAssetMessage(message, env, batch.queue === env.REPLAY_ASSET_QUEUE_NAME);
     } else {
+      hasFinalizationWork = true;
       await handleFinalizeMessage(message, env);
     }
   }
   // Finalization remains successful even when analytics delivery is down. The
   // durable outbox and five-minute cron safely retry the same stable records.
-  if (analyticsExportEnabled(env)) {
+  if (hasFinalizationWork && analyticsExportEnabled(env)) {
     ctx.waitUntil(maintainAnalyticsWarehouse(env));
   }
 }
@@ -108,9 +117,12 @@ async function handleFinalizeMessage(
       sessionId: finalizeMessage.sessionId,
     });
     await writeFinalizeTraceForTest(env, finalizeMessage);
-    await env.FINALIZE_QUEUE.send(toReplayAssetCaptureMessage(finalizeMessage), {
-      contentType: "json",
-    });
+    if (result.recordingAvailable) {
+      await env.REPLAY_ASSET_QUEUE.send(toReplayAssetCaptureMessage(finalizeMessage), {
+        contentType: "json",
+      });
+    }
+    await acknowledgeSessionFinalization(env, finalizeMessage);
     message.ack();
   } catch (err) {
     const lastAllowedAttempt = message.attempts >= QUEUE_MAX_RETRIES;
@@ -126,6 +138,7 @@ async function handleFinalizeMessage(
 async function handleReplayAssetMessage(
   message: Message<WorkerQueueMessage>,
   env: Env,
+  isAssetQueue: boolean,
 ): Promise<void> {
   const parsed = replayAssetCaptureMessageSchema.safeParse(message.body);
   if (!parsed.success) {
@@ -142,10 +155,35 @@ async function handleReplayAssetMessage(
   }
 
   try {
-    await captureReplayAssets(parsed.data, env, message.attempts);
+    if (isAssetQueue) {
+      await captureReplayAssets(parsed.data, env, message.attempts);
+    } else {
+      // Drain jobs produced by an older deployment without letting third-party
+      // downloads delay the remaining finalization messages in that batch.
+      await moveReplayAssetJob(parsed.data, env, message.attempts);
+    }
     message.ack();
   } catch {
     retryQueueMessage(message);
+  }
+}
+
+async function moveReplayAssetJob(
+  message: ReplayAssetCaptureMessage,
+  env: Env,
+  attempts: number,
+): Promise<void> {
+  const event = startWideEvent("worker", "consumer.move_replay_assets", message.requestId);
+  let outcome: WideEventOutcome = "success";
+  event.set({ project_id: message.projectId, session_id: message.sessionId, attempts });
+  try {
+    await env.REPLAY_ASSET_QUEUE.send(message, { contentType: "json" });
+  } catch (error) {
+    outcome = "server_error";
+    event.fail(error);
+    throw error;
+  } finally {
+    event.emit(outcome);
   }
 }
 
@@ -212,6 +250,11 @@ export async function indexSession(
     throw new Error("Analytics export is enabled, but its stream is not configured.");
   }
   const db = shardDb(env, finalizeMessage.shard);
+  const receiptHash = await finalizationReceiptHash(finalizeMessage);
+  const job = await readFinalizationJob(db, finalizeMessage);
+  if (job?.receipt_hash != null && job.receipt_hash !== receiptHash) {
+    throw new Error("The finalization message does not match its saved receipt.");
+  }
   const expiresAt = expiresAtFromEndedAt(finalizeMessage.endedAt, finalizeMessage.retentionDays);
   const indexedAt = Date.now();
   const usageMonth = usageMonthFromStartedAt(finalizeMessage.startedAt);
@@ -427,6 +470,21 @@ export async function indexSession(
       ),
   );
 
+  statements.push(confirmIndexedFinalizationStatement(db, finalizeMessage, receiptHash));
+  const availabilityIndex = statements.length;
+  statements.push(
+    db
+      .prepare(`SELECT 1 AS available FROM sessions
+    WHERE project_id = ? AND session_id = ? AND expires_at > ?
+      AND NOT EXISTS (SELECT 1 FROM session_deletions WHERE project_id = ? AND session_id = ?)`)
+      .bind(
+        finalizeMessage.projectId,
+        finalizeMessage.sessionId,
+        indexedAt,
+        finalizeMessage.projectId,
+        finalizeMessage.sessionId,
+      ),
+  );
   const results = await db.batch(statements);
   const inserted = results[0]?.meta.changes ?? 0;
   const eventsWritten = eventStatementIndexes.reduce(
@@ -440,6 +498,7 @@ export async function indexSession(
     inserted: inserted > 0,
     eventsWritten,
     exportsWritten,
+    recordingAvailable: (results[availabilityIndex]?.results.length ?? 0) > 0,
   };
 }
 

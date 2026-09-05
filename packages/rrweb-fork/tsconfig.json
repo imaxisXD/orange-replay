@@ -8,6 +8,7 @@
     "resolveJsonModule": true,
     "types": ["node"],
     "strict": false,
+    "strictNullChecks": true,
     "noUnusedLocals": false,
     "noUncheckedIndexedAccess": false,
     "declaration": true,

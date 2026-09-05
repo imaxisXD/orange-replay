@@ -297,9 +297,15 @@ describe("a session lives and is replayed", () => {
 
     expect(indexed.session?.["session_id"]).toBe(hostileSessionId);
     expect(manifest.timeline).toEqual([
-      { t: hostileBase + 10, k: "error", d: "E".repeat(200), m: { code: "E_BAD", count: 1 } },
-      { t: hostileBase + 20, k: "custom", d: "ok" },
-      { t: hostileBase + 30, k: "custom", d: "deep-meta" },
+      {
+        t: hostileBase + 10,
+        k: "error",
+        tab: "hostileTab",
+        d: "E".repeat(200),
+        m: { code: "E_BAD", count: 1 },
+      },
+      { t: hostileBase + 20, k: "custom", tab: "hostileTab", d: "ok" },
+      { t: hostileBase + 30, k: "custom", tab: "hostileTab", d: "deep-meta" },
     ]);
     expect(indexed.events.map((event) => event["kind"])).toEqual(["error", "custom", "custom"]);
   }, 45_000);

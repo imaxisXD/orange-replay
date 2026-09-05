@@ -30,25 +30,28 @@ Public share pages do not receive the asset map or bytes in this release.
 
 ## Hard limits
 
-| Work                     |                       Limit |
-| ------------------------ | --------------------------: |
-| Full snapshots read      |               3 per session |
-| Snapshot nodes inspected |                     100,000 |
-| CSS text inspected       |           2 MiB per session |
-| Candidate URLs           |              64 per session |
-| Manifest read            |                       2 MiB |
-| Segment read             |                  8 MiB each |
-| Decoded batch            |                      16 MiB |
-| Public fetches           | 256 per project per UTC day |
-| Attempts for one URL     |               2 per UTC day |
-| Stylesheet response      |                       2 MiB |
-| Image or font response   |                       5 MiB |
-| Stored asset bytes       |         512 MiB per project |
-| Player asset bytes       |      20 MiB per replay view |
-| Player fetch concurrency |                           6 |
-| Nested stylesheet depth  |                           8 |
+| Work                      |                       Limit |
+| ------------------------- | --------------------------: |
+| Full snapshots read       |               3 per session |
+| Snapshot nodes inspected  |                     100,000 |
+| CSS text inspected        |           2 MiB per session |
+| Candidate URLs            |              64 per session |
+| Manifest read             |                       2 MiB |
+| Segment read              |                  8 MiB each |
+| Decoded batch             |                      16 MiB |
+| Public fetches            | 256 per project per UTC day |
+| Attempts for one URL      |               2 per UTC day |
+| Stylesheet response       |                       2 MiB |
+| Image or font response    |                       5 MiB |
+| Stored asset bytes        |         512 MiB per project |
+| Player asset bytes        |      20 MiB per replay view |
+| Player fetch concurrency  |                           6 |
+| Player map and asset wait |             5 seconds total |
+| Nested stylesheet depth   |                           8 |
 
 The storage and daily-fetch limits are project-wide. A project can contain several Websites, so this is stricter than a separate limit for every Website.
+
+The player downloads recording segments while assets load, then waits before decoding and applying asset URLs. After five seconds it uses only completed assets and continues playback with safe fallbacks. Late assets are ignored for that replay view. This deadline does not cancel the recording download.
 
 ## Security and privacy rules
 

@@ -26,10 +26,10 @@ export class Batcher {
   private readonly pagehideRawFlushBytes: number;
   private readonly eventRawBytes: number[] = [];
   private totalRawBytes = 0;
-  private flushMs: number;
+  private flushIntervalMs: number;
 
   constructor(options: BatcherOptions = {}) {
-    this.flushMs = cleanPositiveNumber(options.flushMs, SDK_FLUSH_DEFAULT_MS);
+    this.flushIntervalMs = cleanPositiveNumber(options.flushMs, SDK_FLUSH_DEFAULT_MS);
     this.rawFlushBytes = cleanPositiveNumber(options.rawFlushBytes, BATCH_RAW_FLUSH_BYTES);
     this.pagehideRawFlushBytes = cleanPositiveNumber(
       options.pagehideRawFlushBytes,
@@ -53,7 +53,7 @@ export class Batcher {
       ack.live ? Math.min(ack.flushMs, SDK_FLUSH_LIVE_MS) : ack.flushMs,
       ack.live ? SDK_FLUSH_LIVE_MS : SDK_FLUSH_DEFAULT_MS,
     );
-    this.flushMs = nextFlushMs;
+    this.flushIntervalMs = nextFlushMs;
   }
 
   takeBatch(eventCount?: number): TakenBatch {
@@ -75,7 +75,7 @@ export class Batcher {
   }
 
   getFlushMs(): number {
-    return this.flushMs;
+    return this.flushIntervalMs;
   }
 
   getPagehideRawFlushBytes(): number {

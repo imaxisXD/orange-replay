@@ -9,6 +9,7 @@ import { parseStoredSidecarEvents } from "./session-batch-metadata.ts";
 
 export interface FinalizeEventRow {
   events: string;
+  tab?: string;
 }
 
 export interface FinalizeTimelineData {
@@ -30,6 +31,7 @@ export function buildFinalizeTimelineData(
   rows: Iterable<FinalizeEventRow>,
   startedAt: number,
   endedAt: number,
+  preserveLegacyTabs = false,
 ): FinalizeTimelineData {
   const insights = new TimelineInsightsAccumulator();
   const activityHist = new ActivityHistAccumulator(startedAt, endedAt);
@@ -43,7 +45,15 @@ export function buildFinalizeTimelineData(
   let navs = 0;
 
   for (const row of rows) {
-    const batchEvents = parseStoredEvents(row.events).toSorted((left, right) => left.t - right.t);
+    const batchEvents = parseStoredEvents(row.events)
+      .map((event) => {
+        if (preserveLegacyTabs) {
+          const { tab: _tab, ...legacyEvent } = event;
+          return legacyEvent;
+        }
+        return row.tab === undefined ? event : { ...event, tab: row.tab };
+      })
+      .toSorted((left, right) => left.t - right.t);
     for (const event of batchEvents) {
       insights.add(event);
       activityHist.add(event.t, event.k);

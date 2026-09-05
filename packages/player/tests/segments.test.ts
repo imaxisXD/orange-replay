@@ -156,6 +156,57 @@ describe("segment logic", () => {
     ]);
   });
 
+  it("decodes only the selected recorded tab while preserving original batch positions", async () => {
+    const events = [{ type: EventType.Load, timestamp: 1_000, data: {} } as ReplayEvent];
+    const segment = buildSegment(
+      ["tab-background", "tab-selected"].map((tab, position) =>
+        encodeIngestBody(
+          { v: 1, s: "session", tab, seq: 0, t0: 1_000, t1: 1_000, e: [] },
+          new Uint8Array([position]),
+        ),
+      ),
+    );
+    const decodedPayloads: number[] = [];
+    const worker = {
+      decodeBatchWithStats: async (payload: Uint8Array) => {
+        decodedPayloads.push(payload[0]!);
+        return { events, decodedBytes: 10 };
+      },
+    } as unknown as DecodeWorkerHost;
+
+    const decoded = await decodeSegmentBatches(segment, worker, undefined, "tab-selected");
+
+    expect(decodedPayloads).toEqual([1]);
+    expect(decoded).toHaveLength(1);
+    expect(decoded[0]).toMatchObject({
+      events,
+      index: { tab: "tab-selected" },
+      segmentBatchIndex: 1,
+    });
+  });
+
+  it("still decodes legacy batches when their tab cannot be checked before decoding", async () => {
+    const events = [{ type: EventType.Load, timestamp: 1_000, data: {} } as ReplayEvent];
+    let decodeCalls = 0;
+    const worker = {
+      decodeBatchWithStats: async () => {
+        decodeCalls += 1;
+        return { events, decodedBytes: 10 };
+      },
+    } as unknown as DecodeWorkerHost;
+
+    const decoded = await decodeSegmentBatches(
+      buildSegment([new Uint8Array([1])]),
+      worker,
+      { t0: 1_000, t1: 1_000 },
+      "tab-selected",
+    );
+
+    expect(decodeCalls).toBe(1);
+    expect(decoded[0]?.events).toEqual(events);
+    expect(decoded[0]?.index.tab).toBe("legacy");
+  });
+
   it("bounds legacy live-history decoding while searching for a starting snapshot", async () => {
     const segment = buildSegment([new Uint8Array([1])]);
     const state = createReplayHistoryDecodeState();
@@ -308,6 +359,9 @@ describe("segment logic", () => {
     } as unknown as DecodeWorkerHost;
 
     await expect(decodeSegmentBatches(segment, worker)).rejects.toThrow();
+    await expect(
+      decodeSegmentBatches(segment, worker, undefined, "a-different-tab"),
+    ).rejects.toThrow();
     await expect(
       decodeReplayHistorySegment(segment, worker, createReplayHistoryDecodeState("tab-a")),
     ).rejects.toThrow();

@@ -1,4 +1,5 @@
 export const ANALYTICS_LEASE_DURATION_MS = 2 * 60 * 1_000;
+export const ANALYTICS_DELIVERY_RETRY_MS = 60_000;
 
 interface LeaseOwnerRow {
   owner_id: string;
@@ -104,6 +105,23 @@ export async function releaseAnalyticsLease(
       WHERE shard = 0 AND owner_id = ?`,
     )
     .bind(now, ownerId)
+    .run();
+}
+
+/** Keep an unavailable Pipeline from being retried by every finalization batch. */
+export async function deferAnalyticsDelivery(
+  db: D1Database,
+  ownerId: string,
+  now = Date.now(),
+): Promise<void> {
+  const lease = checkedLease(ownerId, now, ANALYTICS_DELIVERY_RETRY_MS);
+  await db
+    .prepare(
+      `UPDATE analytics_export_lease
+      SET send_available_at = MAX(send_available_at, ?)
+      WHERE shard = 0 AND owner_id = ?`,
+    )
+    .bind(lease.expiresAt, ownerId)
     .run();
 }
 

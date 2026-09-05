@@ -1,5 +1,5 @@
 import { SDK_FLUSH_DEFAULT_MS } from "@orange-replay/shared/constants";
-import type { CaptureToggles } from "@orange-replay/shared/types";
+import type { AppliedDomMasking, CaptureToggles } from "@orange-replay/shared/types";
 
 const DEFAULT_CAPTURE: CaptureToggles = {
   heatmaps: false,
@@ -21,6 +21,9 @@ export interface InitOptions {
 }
 
 export interface RecorderConfig {
+  domMaskingVersion?: 1;
+  configVersion?: number;
+  appliedDomMasking?: AppliedDomMasking;
   key: string;
   ingestUrl: string;
   projectRef: string;

@@ -21,6 +21,10 @@ export interface TimelineInsights {
   interactionTimeMs: number;
 }
 
+interface TabClickPoint extends ClickPoint {
+  tab?: string;
+}
+
 export function deriveTimelineInsights(events: readonly IndexEvent[]): TimelineInsights {
   const accumulator = new TimelineInsightsAccumulator();
   for (const event of events) {
@@ -31,7 +35,7 @@ export function deriveTimelineInsights(events: readonly IndexEvent[]): TimelineI
 
 /** Collects only bounded inputs so finalize can stream batches without retaining the session. */
 export class TimelineInsightsAccumulator {
-  private readonly clicks: ClickPoint[] = [];
+  private readonly clicks: TabClickPoint[] = [];
   private readonly interactionTimes: number[] = [];
   private maxScrollDepth = 0;
 
@@ -67,7 +71,7 @@ export class TimelineInsightsAccumulator {
 }
 
 export function deriveRageEvents(events: readonly IndexEvent[]): IndexEvent[] {
-  const clicks: ClickPoint[] = [];
+  const clicks: TabClickPoint[] = [];
   for (const event of events) {
     const click = clickPoint(event);
     if (click !== null) {
@@ -78,16 +82,29 @@ export function deriveRageEvents(events: readonly IndexEvent[]): IndexEvent[] {
   return rageEventsFromClicks(clicks);
 }
 
-function rageEventsFromClicks(clicks: readonly ClickPoint[]): IndexEvent[] {
-  return detectRageClickBursts(clicks).map((burst) => ({
-    t: burst.timeMs,
-    k: "rage",
-    d: "Rage click burst",
-    m: { x: burst.x, y: burst.y, clicks: burst.clickCount },
-  }));
+function rageEventsFromClicks(clicks: readonly TabClickPoint[]): IndexEvent[] {
+  const tabs = new Map<string | undefined, ClickPoint[]>();
+  for (const click of clicks) {
+    const tab = tabs.get(click.tab) ?? [];
+    tab.push(click);
+    tabs.set(click.tab, tab);
+  }
+  return [...tabs]
+    .flatMap(([tab, tabClicks]) =>
+      detectRageClickBursts(tabClicks).map(
+        (burst): IndexEvent => ({
+          t: burst.timeMs,
+          k: "rage",
+          ...(tab === undefined ? {} : { tab }),
+          d: "Rage click burst",
+          m: { x: burst.x, y: burst.y, clicks: burst.clickCount },
+        }),
+      ),
+    )
+    .toSorted((left, right) => left.t - right.t);
 }
 
-function clickPoint(event: IndexEvent): ClickPoint | null {
+function clickPoint(event: IndexEvent): TabClickPoint | null {
   if (event.k !== "click") return null;
 
   const x = normalizedNumber(event.m?.["x"]);
@@ -96,7 +113,12 @@ function clickPoint(event: IndexEvent): ClickPoint | null {
   const height = positiveNumber(event.m?.["h"]);
   if (x === null || y === null || width === null || height === null) return null;
 
-  return { timeMs: event.t, x: x * width, y: y * height };
+  return {
+    timeMs: event.t,
+    x: x * width,
+    y: y * height,
+    ...(event.tab === undefined ? {} : { tab: event.tab }),
+  };
 }
 
 export function deriveMaxScrollDepth(events: readonly IndexEvent[]): number {

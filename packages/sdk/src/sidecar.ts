@@ -39,26 +39,26 @@ type LoaderWindow = Window & {
 };
 
 export class IndexEventBuffer {
-  private readonly events: IndexEvent[] = [];
+  private readonly capturedIndexEvents: IndexEvent[] = [];
   private dropped = 0;
 
   add(event: IndexEvent): void {
-    if (this.events.length >= MAX_INDEX_EVENTS_PER_BATCH) {
+    if (this.capturedIndexEvents.length >= MAX_INDEX_EVENTS_PER_BATCH) {
       this.dropped += 1;
       return;
     }
 
-    this.events.push(event);
+    this.capturedIndexEvents.push(event);
   }
 
   drain(): IndexEvent[] {
-    const events = this.events.splice(0);
+    const events = this.capturedIndexEvents.splice(0);
     this.dropped = 0;
     return events;
   }
 
   count(): number {
-    return this.events.length;
+    return this.capturedIndexEvents.length;
   }
 
   droppedCount(): number {
@@ -77,8 +77,8 @@ export class Sidecar {
   private readonly config: RecorderConfig;
   private readonly sink: Sink;
   private readonly now: () => number;
-  private readonly window: Window;
-  private readonly blockSelector: string;
+  private readonly pageWindow: Window;
+  private readonly blockedElementSelector: string;
   private readonly removers: Array<() => void> = [];
   private lastScrollAt = 0;
   private originalPushState?: History["pushState"];
@@ -88,17 +88,17 @@ export class Sidecar {
     this.config = options.config;
     this.sink = options.sink;
     this.now = options.now;
-    this.window = options.window;
-    this.blockSelector = mergeBlockSelector(options.config.blockSelector);
+    this.pageWindow = options.window;
+    this.blockedElementSelector = mergeBlockSelector(options.config.blockSelector);
   }
 
   start(): void {
-    this.addDomListener(this.window.document, "click", this.onClick, true);
-    this.addDomListener(this.window, "scroll", this.onScroll, true);
-    this.addDomListener(this.window, "error", this.onError, true);
-    this.addDomListener(this.window, "unhandledrejection", this.onUnhandledRejection, true);
+    this.addDomListener(this.pageWindow.document, "click", this.onClick, true);
+    this.addDomListener(this.pageWindow, "scroll", this.onScroll, true);
+    this.addDomListener(this.pageWindow, "error", this.onError, true);
+    this.addDomListener(this.pageWindow, "unhandledrejection", this.onUnhandledRejection, true);
     this.patchHistory();
-    this.addDomListener(this.window, "popstate", this.onNavigation, true);
+    this.addDomListener(this.pageWindow, "popstate", this.onNavigation, true);
     this.drainPreBuffer();
   }
 
@@ -109,12 +109,12 @@ export class Sidecar {
     }
 
     if (this.originalPushState !== undefined) {
-      this.window.history.pushState = this.originalPushState;
+      this.pageWindow.history.pushState = this.originalPushState;
       this.originalPushState = undefined;
     }
 
     if (this.originalReplaceState !== undefined) {
-      this.window.history.replaceState = this.originalReplaceState;
+      this.pageWindow.history.replaceState = this.originalReplaceState;
       this.originalReplaceState = undefined;
     }
   }
@@ -131,7 +131,7 @@ export class Sidecar {
   }
 
   drainPreBuffer(): void {
-    const win = this.window as LoaderWindow;
+    const win = this.pageWindow as LoaderWindow;
     const queue = Array.isArray(win.__orq) ? win.__orq.splice(0) : [];
     let hasPageLoadEvent = false;
 
@@ -141,7 +141,7 @@ export class Sidecar {
 
     if (!hasPageLoadEvent) {
       const timestamp = this.now();
-      this.addPageLoadEvent(timestamp, timestamp, this.window.location.href);
+      this.addPageLoadEvent(timestamp, timestamp, this.pageWindow.location.href);
     }
 
     detachLoaderPreBuffer(win);
@@ -155,7 +155,7 @@ export class Sidecar {
     this.sink.addIndexEvent({
       t: this.now(),
       k: "click",
-      d: isBlockedElement(target, this.blockSelector)
+      d: isBlockedElement(target, this.blockedElementSelector)
         ? BLOCKED_CLICK_DETAIL
         : buildClickDetail(target),
       m: {
@@ -209,7 +209,7 @@ export class Sidecar {
   };
 
   private readonly onNavigation = (): void => {
-    this.recordNavigation(this.window.location.href);
+    this.recordNavigation(this.pageWindow.location.href);
   };
 
   private recordNavigation(url: string): void {
@@ -223,19 +223,19 @@ export class Sidecar {
   }
 
   private patchHistory(): void {
-    const history = this.window.history;
+    const history = this.pageWindow.history;
     this.originalPushState = Reflect.get(history, "pushState") as History["pushState"];
     this.originalReplaceState = Reflect.get(history, "replaceState") as History["replaceState"];
 
     history.pushState = ((...args: Parameters<History["pushState"]>) => {
       const result = this.originalPushState?.apply(history, args);
-      this.recordNavigation(String(this.window.location.href));
+      this.recordNavigation(String(this.pageWindow.location.href));
       return result;
     }) as History["pushState"];
 
     history.replaceState = ((...args: Parameters<History["replaceState"]>) => {
       const result = this.originalReplaceState?.apply(history, args);
-      this.recordNavigation(String(this.window.location.href));
+      this.recordNavigation(String(this.pageWindow.location.href));
       return result;
     }) as History["replaceState"];
   }
@@ -249,8 +249,8 @@ export class Sidecar {
 
     if (item.k === "click") {
       const target = this.asElement(item.target);
-      const width = cleanNumber(item.w, this.window.innerWidth);
-      const height = cleanNumber(item.h, this.window.innerHeight);
+      const width = cleanNumber(item.w, this.pageWindow.innerWidth);
+      const height = cleanNumber(item.h, this.pageWindow.innerHeight);
       const coords = normalizedCoords(
         {
           clientX: cleanNumber(item.x, 0),
@@ -261,7 +261,7 @@ export class Sidecar {
       const detail =
         typeof item.d === "string"
           ? truncateDetail(item.d)
-          : isBlockedElement(target, this.blockSelector)
+          : isBlockedElement(target, this.blockedElementSelector)
             ? BLOCKED_CLICK_DETAIL
             : buildClickDetail(target);
       this.sink.addIndexEvent({
@@ -291,7 +291,7 @@ export class Sidecar {
       this.addPageLoadEvent(
         timestamp,
         cleanNumber(item.start, timestamp),
-        typeof item.u === "string" ? item.u : this.window.location.href,
+        typeof item.u === "string" ? item.u : this.pageWindow.location.href,
       );
       return true;
     }
@@ -313,21 +313,21 @@ export class Sidecar {
 
   private viewport(): { width: number; height: number } {
     return {
-      width: this.window.innerWidth,
-      height: this.window.innerHeight,
+      width: this.pageWindow.innerWidth,
+      height: this.pageWindow.innerHeight,
     };
   }
 
   private asElement(value: unknown): Element | null {
-    const elementCtor = (this.window as Window & typeof globalThis).Element;
+    const elementCtor = (this.pageWindow as Window & typeof globalThis).Element;
     return value instanceof elementCtor ? value : null;
   }
 
   private scrollDepth(): number {
-    const doc = this.window.document.documentElement;
-    const body = this.window.document.body;
-    const scrollTop = this.window.scrollY || doc.scrollTop || body.scrollTop || 0;
-    const viewportHeight = this.window.innerHeight || doc.clientHeight || 0;
+    const doc = this.pageWindow.document.documentElement;
+    const body = this.pageWindow.document.body;
+    const scrollTop = this.pageWindow.scrollY || doc.scrollTop || body.scrollTop || 0;
+    const viewportHeight = this.pageWindow.innerHeight || doc.clientHeight || 0;
     const scrollHeight = Math.max(doc.scrollHeight, body.scrollHeight, viewportHeight);
     const depth = scrollHeight > 0 ? ((scrollTop + viewportHeight) / scrollHeight) * 100 : 0;
     return Math.round(Math.min(100, Math.max(0, depth)) * 100) / 100;

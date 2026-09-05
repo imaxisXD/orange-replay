@@ -28,7 +28,7 @@ export function JourneyBreadcrumbs({
       className="border-b border-dashed border-dash"
       data-testid="journey-breadcrumbs"
       orientation="horizontal"
-      viewportClassName="scroll-fade-x"
+      viewportClassName="h-auto scroll-fade-x"
     >
       <div className="flex w-max items-center gap-2 px-4 py-2.5">
         <span className="shrink-0 text-[11px] font-medium uppercase tracking-[0.06em] text-dim">

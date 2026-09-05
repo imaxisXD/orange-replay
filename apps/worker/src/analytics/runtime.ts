@@ -1,3 +1,4 @@
+import { analyticsDeliverySchema, type AnalyticsDelivery } from "@orange-replay/shared";
 import type { Env } from "../env.ts";
 import type { AnalyticsDeletionReadVersion } from "../env.ts";
 import type { R2SqlSettings } from "./r2-sql-client.ts";
@@ -5,6 +6,8 @@ import type { AnalyticsDeletionTableVersion } from "./warehouse-query.ts";
 
 interface WarehouseStateRow {
   verified_sequence: number;
+  pending_exports?: number;
+  oldest_pending_at?: number | null;
 }
 
 interface BackfillCompletionRow {
@@ -24,6 +27,7 @@ export type WarehouseSnapshotResult =
       version: number;
       privacyVersion: number;
       deletionTableVersion: AnalyticsDeletionTableVersion;
+      analyticsDelivery?: AnalyticsDelivery;
     }
   | {
       ok: false;
@@ -52,27 +56,32 @@ export async function readWarehouseSnapshot(
   requestedDeletionVersion: AnalyticsDeletionReadVersion = "v1",
 ): Promise<WarehouseSnapshotResult> {
   const now = Date.now();
-  const [state, backfillCompletion, pendingDeletion, privacyState, quarantinedExport] =
-    await Promise.all([
-      db
-        .prepare(
-          `SELECT verified_sequence
-        FROM analytics_warehouse_state
-        WHERE project_id = ?`,
-        )
-        .bind(projectId)
-        .first<WarehouseStateRow>(),
-      db
-        .prepare(
-          `SELECT completed_at, required_sequence, source_session_count, report_id
+  // These checks run even on a cache hit. Keep them in one D1 request and
+  // transaction so the data version and privacy checks share the same read.
+  const results = await db.batch([
+    db
+      .prepare(
+        `SELECT COALESCE(s.verified_sequence, 0) AS verified_sequence,
+          COUNT(o.export_sequence) AS pending_exports,
+          MIN(o.created_at) AS oldest_pending_at
+        FROM (SELECT ? AS project_id) p
+        LEFT JOIN analytics_warehouse_state s ON s.project_id = p.project_id
+        LEFT JOIN analytics_export_outbox o
+          ON o.project_id = p.project_id
+          AND o.export_sequence > COALESCE(s.verified_sequence, 0)
+        GROUP BY p.project_id, s.verified_sequence`,
+      )
+      .bind(projectId),
+    db
+      .prepare(
+        `SELECT completed_at, required_sequence, source_session_count, report_id
         FROM analytics_backfill_completions
         WHERE project_id = ?`,
-        )
-        .bind(projectId)
-        .first<BackfillCompletionRow>(),
-      db
-        .prepare(
-          `SELECT 1 AS present
+      )
+      .bind(projectId),
+    db
+      .prepare(
+        `SELECT 1 AS present
         FROM analytics_deletion_jobs j
         LEFT JOIN analytics_warehouse_state s ON s.project_id = j.project_id
         WHERE j.project_id = ?
@@ -82,39 +91,41 @@ export async function readWarehouseSnapshot(
             OR j.deletion_export_sequence > COALESCE(s.verified_sequence, 0)
           )
         LIMIT 1`,
-        )
-        .bind(projectId, now)
-        .first<{ present: number }>(),
-      db
-        .prepare(
-          `SELECT COALESCE(MAX(j.deletion_export_sequence), 0) AS privacy_version
+      )
+      .bind(projectId, now),
+    db
+      .prepare(
+        `SELECT COALESCE(MAX(j.deletion_export_sequence), 0) AS privacy_version
         FROM analytics_deletion_jobs j
         LEFT JOIN analytics_warehouse_state s ON s.project_id = j.project_id
         WHERE j.project_id = ?
           AND j.deletion_export_sequence <= COALESCE(s.verified_sequence, 0)`,
-        )
-        .bind(projectId)
-        .first<PrivacyVersionRow>(),
-      db
-        .prepare(
-          `SELECT 1 AS present
+      )
+      .bind(projectId),
+    db
+      .prepare(
+        `SELECT 1 AS present
         FROM analytics_export_outbox
         WHERE project_id = ? AND quarantined_at IS NOT NULL
         LIMIT 1`,
-        )
-        .bind(projectId)
-        .first<{ present: number }>(),
-    ]);
+      )
+      .bind(projectId),
+  ]);
+  const state = results[0]?.results[0] as WarehouseStateRow | undefined;
+  const backfillCompletion = results[1]?.results[0] as BackfillCompletionRow | undefined;
+  const pendingDeletion = results[2]?.results[0];
+  const privacyState = results[3]?.results[0] as PrivacyVersionRow | undefined;
+  const quarantinedExport = results[4]?.results[0];
   const verified = state?.verified_sequence ?? 0;
   const privacyVersion = privacyState?.privacy_version ?? 0;
 
-  if (quarantinedExport !== null) {
+  if (quarantinedExport !== undefined) {
     return { ok: false, error: "analytics_export_quarantined", status: 503 };
   }
-  if (pendingDeletion !== null) {
+  if (pendingDeletion !== undefined) {
     return { ok: false, error: "analytics_deletion_pending", status: 503 };
   }
-  if (backfillCompletion === null || !isValidBackfillCompletion(backfillCompletion)) {
+  if (backfillCompletion === undefined || !isValidBackfillCompletion(backfillCompletion)) {
     return { ok: false, error: "analytics_backfill_pending", status: 503 };
   }
   if (verified < backfillCompletion.required_sequence) {
@@ -128,6 +139,14 @@ export async function readWarehouseSnapshot(
   }
   const deletionTableVersion =
     requestedDeletionVersion === "v2" && (await deletionV2IsReady(db)) ? "v2" : "v1";
+  // Sent exports remain pending until the warehouse has proved them visible.
+  // Watermark age alone says nothing about an inactive project's delivery.
+  const delivery = analyticsDeliverySchema.safeParse({
+    state: state?.pending_exports === 0 ? "current" : "pending",
+    pendingExports: state?.pending_exports,
+    oldestPendingAt: state?.oldest_pending_at,
+    checkedAt: now,
+  });
   return {
     ok: true,
     version: requestedVersion ?? verified,
@@ -136,6 +155,7 @@ export async function readWarehouseSnapshot(
     // privacy epoch, including for an explicitly requested old data version.
     privacyVersion,
     deletionTableVersion,
+    ...(delivery.success ? { analyticsDelivery: delivery.data } : {}),
   };
 }
 

@@ -39,6 +39,42 @@ describe("consumer helper logic", () => {
 });
 
 describe("consumer wide events", () => {
+  it("moves legacy styling jobs off the finalization queue before doing asset work", async () => {
+    vi.spyOn(globalThis["console"], "log").mockImplementation(() => undefined);
+    const ack = vi.fn();
+    const retry = vi.fn();
+    const send = vi.fn(async () => undefined);
+    const head = vi.fn(async () => ({ key: "asset-map" }));
+    const body: ReplayAssetCaptureMessage = {
+      type: "session.replay-assets",
+      sessionId: "session-assets",
+      projectId: "project-assets",
+      shard: 0,
+      requestId: "request-assets",
+      manifestKey: manifestKey("project-assets", "session-assets"),
+      endedAt: Date.now(),
+      retentionDays: 30,
+    };
+    const message = { body, attempts: 1, ack, retry };
+
+    await handleFinalizeBatch(
+      { queue: "or-session-finalized", messages: [message] } as unknown as Parameters<
+        typeof handleFinalizeBatch
+      >[0],
+      {
+        RECORDINGS: { head },
+        REPLAY_ASSET_QUEUE: { send },
+        REPLAY_ASSET_QUEUE_NAME: "or-replay-assets",
+      } as unknown as Env,
+      {} as Parameters<typeof handleFinalizeBatch>[2],
+    );
+
+    expect(send).toHaveBeenCalledExactlyOnceWith(body, { contentType: "json" });
+    expect(head).not.toHaveBeenCalled();
+    expect(ack).toHaveBeenCalledOnce();
+    expect(retry).not.toHaveBeenCalled();
+  });
+
   it("acknowledges a replay asset job whose private map already exists", async () => {
     const log = vi.spyOn(globalThis["console"], "log").mockImplementation(() => undefined);
     const retry = vi.fn();
@@ -61,16 +97,22 @@ describe("consumer wide events", () => {
     } as unknown as Parameters<typeof handleFinalizeBatch>[0]["messages"][number];
     const env = {
       RECORDINGS: { head: vi.fn(async () => ({ key: "asset-map" })) },
+      REPLAY_ASSET_QUEUE_NAME: "or-replay-assets",
+      ANALYTICS_EXPORT_ENABLED: "1",
     } as unknown as Env;
+    const waitUntil = vi.fn();
 
     await handleFinalizeBatch(
-      { messages: [message] } as Parameters<typeof handleFinalizeBatch>[0],
+      { queue: "or-replay-assets", messages: [message] } as Parameters<
+        typeof handleFinalizeBatch
+      >[0],
       env,
-      {} as Parameters<typeof handleFinalizeBatch>[2],
+      { waitUntil } as unknown as Parameters<typeof handleFinalizeBatch>[2],
     );
 
     expect(ack).toHaveBeenCalledOnce();
     expect(retry).not.toHaveBeenCalled();
+    expect(waitUntil).not.toHaveBeenCalled();
     const parsed = JSON.parse(String(log.mock.calls[0]?.[0])) as Record<string, unknown>;
     expect(parsed).toMatchObject({
       event: "consumer.replay_assets",
@@ -78,6 +120,42 @@ describe("consumer wide events", () => {
       already_complete: true,
       attempts: 1,
     });
+  });
+
+  it("retries a legacy styling job when its destination queue is unavailable", async () => {
+    vi.spyOn(globalThis["console"], "log").mockImplementation(() => undefined);
+    const ack = vi.fn();
+    const retry = vi.fn();
+    const head = vi.fn();
+    const finalized = makeFinalizeMessage("move-failure");
+    const body: ReplayAssetCaptureMessage = {
+      type: "session.replay-assets",
+      sessionId: finalized.sessionId,
+      projectId: finalized.projectId,
+      shard: finalized.shard,
+      requestId: finalized.requestId,
+      manifestKey: finalized.manifestKey,
+      endedAt: finalized.endedAt,
+      retentionDays: finalized.retentionDays,
+    };
+    await handleFinalizeBatch(
+      {
+        queue: "or-session-finalized",
+        messages: [{ body, attempts: 1, ack, retry }],
+      } as unknown as Parameters<typeof handleFinalizeBatch>[0],
+      {
+        RECORDINGS: { head },
+        REPLAY_ASSET_QUEUE: {
+          send: vi.fn().mockRejectedValue(new Error("Queue temporarily unavailable.")),
+        },
+        REPLAY_ASSET_QUEUE_NAME: "custom-styling-queue",
+      } as unknown as Env,
+      {} as Parameters<typeof handleFinalizeBatch>[2],
+    );
+
+    expect(ack).not.toHaveBeenCalled();
+    expect(retry).toHaveBeenCalledExactlyOnceWith({ delaySeconds: 60 });
+    expect(head).not.toHaveBeenCalled();
   });
 
   it("marks the final retry attempt as a DLQ drop", async () => {

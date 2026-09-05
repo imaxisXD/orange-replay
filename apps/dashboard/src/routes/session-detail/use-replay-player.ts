@@ -46,10 +46,12 @@ export interface ReplayPlayerState {
   state: PlaybackState;
   values: {
     isFollowing: boolean;
+    canReadLiveHistory: boolean;
     playheadPercent: number;
     timelineDurationMs: number;
   };
   actions: {
+    selectTab: (tab: string, timeMs?: number) => void;
     cycleSpeed: () => void;
     seekAndPlay: (timeMs: number, flash?: boolean) => void;
     retryPlayer: () => void;
@@ -85,6 +87,7 @@ export function useReplayPlayer({
   const draggingTimeline = useRef(false);
   const progressFrameRef = useRef<number | null>(null);
   const pendingProgressRef = useRef<{ currentMs: number; durationMs: number } | null>(null);
+  const latestProgressRef = useRef<{ currentMs: number; durationMs: number } | null>(null);
   // Playback commits to React only when the displayed second changes; the
   // smooth per-frame needle runs through the --playhead CSS var instead.
   const lastCommittedSecondRef = useRef(-1);
@@ -133,6 +136,22 @@ export function useReplayPlayer({
       });
       dispatch({ type: "buffering", buffering: false });
     });
+  }
+
+  function selectTab(tab: string, timeMs?: number): void {
+    dispatch({ type: "error", error: null });
+    const player = playerRef.current;
+    void player
+      ?.selectTab(tab, timeMs)
+      .then(() => {
+        if (playerRef.current !== player || player.getSelectedTab() !== tab) return;
+        const progress = latestProgressRef.current;
+        if (progress !== null) dispatch({ type: "progress", ...progress });
+      })
+      .catch((error: unknown) => {
+        dispatch({ type: "error", error: { message: readErrorMessage(error), error } });
+        dispatch({ type: "playing", playing: false });
+      });
   }
 
   function seekTo(nextTimeMs: number, flash = false): void {
@@ -381,6 +400,7 @@ export function useReplayPlayer({
     };
 
     const stopListening = [
+      player.on("tabs", (tabs) => dispatch({ type: "tabs", ...tabs })),
       player.on("ready", (loadedManifest) => {
         dispatch({ type: "ready", durationMs: loadedManifest.durationMs });
       }),
@@ -392,6 +412,7 @@ export function useReplayPlayer({
         });
       }),
       player.on("progress", (progress) => {
+        latestProgressRef.current = progress;
         pendingProgressRef.current = {
           currentMs: progress.currentMs,
           durationMs: progress.durationMs,
@@ -439,6 +460,7 @@ export function useReplayPlayer({
         dragSeekTimeoutRef.current = null;
       }
       pendingProgressRef.current = null;
+      latestProgressRef.current = null;
       pendingDragMsRef.current = null;
       lastCommittedSecondRef.current = -1;
       lastCommittedDurationRef.current = -1;
@@ -485,10 +507,12 @@ export function useReplayPlayer({
     state,
     values: {
       isFollowing,
+      canReadLiveHistory: mode === "live",
       playheadPercent,
       timelineDurationMs,
     },
     actions: {
+      selectTab,
       cycleSpeed,
       seekAndPlay,
       retryPlayer,

@@ -8,6 +8,7 @@ import type {
 } from "@orange-replay/shared/types";
 import type { eventWithTime } from "rrweb";
 import type { DeadClick } from "./friction.ts";
+import type { ReplayTab } from "./tabs.ts";
 
 export type ReplayEvent = eventWithTime;
 
@@ -118,6 +119,7 @@ export interface OverlayOptions {
 
 export interface OrangePlayerOptions extends SessionRequest {
   api: PlayerApiInput;
+  replayTab?: string;
   speed?: number;
   skipInactivity?: boolean;
   overlay?: OverlayOptions;
@@ -164,6 +166,7 @@ export interface PlayerErrorEvent {
 }
 
 export interface OrangePlayerEventMap {
+  tabs: { tabs: ReplayTab[]; selectedTab?: string };
   ready: SessionManifest;
   timeline: PlayerTimeline;
   progress: ProgressEvent;

@@ -22,6 +22,7 @@ interface BatchIndexOptions {
   currentUrl: string;
   rrwebEvents: readonly TimestampedEvent[];
   indexEvents: readonly IndexEvent[];
+  appliedDomMasking?: BatchIndex["appliedDomMasking"];
 }
 
 export function buildBatchIndex(options: BatchIndexOptions): BatchIndex {
@@ -45,6 +46,7 @@ export function buildBatchIndex(options: BatchIndexOptions): BatchIndex {
     e: [...options.indexEvents],
     ...(checkpointTimestamps.length > 0 ? { checkpointTimestamps } : {}),
     u: options.currentUrl,
+    appliedDomMasking: options.appliedDomMasking,
   };
 }
 

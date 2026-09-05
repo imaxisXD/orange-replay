@@ -897,7 +897,7 @@ describe("record", () => {
       recordAfter: "DOMContentLoaded",
       snapshotTimeSliceMs: Number.MIN_VALUE,
     });
-    const cachedGetId = publicMirror.getId;
+    const cachedGetId = publicMirror.getId.bind(publicMirror);
     await startChunkedSnapshot(frameCallbacks);
     stopFirst?.();
 
@@ -1790,7 +1790,7 @@ describe("record", () => {
     document.body.appendChild(iframe);
     iframe.contentDocument!.body.textContent = "stale-waiting-frame";
 
-    let releaseCapacity = () => undefined;
+    let releaseCapacity: () => void = () => undefined;
     const capacity = new Promise<void>((resolve) => {
       releaseCapacity = resolve;
     });

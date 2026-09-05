@@ -42,6 +42,8 @@ wrangler r2 bucket create orange-replay-recordings
 wrangler kv namespace create CONFIG
 wrangler queues create or-session-finalized
 wrangler queues create or-dlq
+wrangler queues create or-replay-assets
+wrangler queues create or-replay-assets-dlq
 ```
 
 The template expects these bindings:
@@ -57,6 +59,11 @@ The template expects these bindings:
 | `FINALIZE_QUEUE`              | Queue producer      | `or-session-finalized`       |
 | `or-session-finalized`        | Queue consumer      | `or-session-finalized`       |
 | `or-dlq`                      | Dead-letter queue   | `or-dlq`                     |
+| `REPLAY_ASSET_QUEUE`          | Queue producer      | `or-replay-assets`           |
+| `or-replay-assets`            | Queue consumer      | `or-replay-assets`           |
+| `or-replay-assets-dlq`        | Dead-letter queue   | `or-replay-assets-dlq`       |
+
+Styling downloads use a separate queue so a slow website cannot hold up finalized recordings. When upgrading, create both styling queues before deploying the new Worker. Existing styling jobs in the old finalization queue are forwarded safely. If you rename the styling queue, update its producer, consumer, and `REPLAY_ASSET_QUEUE_NAME` together.
 
 Durable Object classes are declared in `wrangler.jsonc`; Wrangler creates their namespaces during deploy.
 
@@ -122,7 +129,7 @@ From `infra/template`:
 wrangler deploy
 ```
 
-For playback caching, use a custom domain. Workers served only on `workers.dev` still play sessions, but Cache API is a no-op there, so repeated playback is uncached.
+Private replay segments use a five-minute private browser cache. Replay delivery does not currently use a shared Cache API entry, so this cache also works on `workers.dev`. Public replay responses keep their separate cache restrictions.
 
 ## 7. Connect the SDK
 
@@ -131,6 +138,14 @@ Use the install guide: [Install the SDK](./install-sdk.md).
 Set `ingestUrl` to your deployed Worker URL or custom domain. Set `key` to the recorder key shown for that Website during onboarding.
 
 ## Upgrade
+
+For the architecture recovery update, create `or-replay-assets` and `or-replay-assets-dlq` before deploying the Worker. Apply migrations `0028_session_finalization_jobs.sql` and `0029_analytics_export_retry.sql` before running the new Worker. Hosted production uses the corresponding `-prod` queue names in `apps/worker/wrangler.jsonc`.
+
+Publish the compatible Worker and player before publishing the new SDK. The SDK sends masking evidence only when recorder config advertises `domMaskingVersion: 1`; older configs keep recording without that optional evidence. Keep the old finalization queue while existing styling messages drain through its forwarding path.
+
+The new SQL is additive. A Worker rollback should keep the new tables, column, and queues so retained recovery work is not discarded. Do not delete recovery records or replay objects to clear a failed delivery. Check the finalization repair event, oldest pending recovery job, analytics delivery delay, and both dead-letter queues after an upgrade. Recordings already orphaned before this update need a separate inventory of their saved DO state, immutable manifests, and retained messages; this update does not claim to reconstruct missing receipts.
+
+Apply only numbered files from `apps/worker/migrations` (or their mirrored copies). `apps/worker/drizzle/20260905050826_architecture_recovery_checkpoint` updates Drizzle's schema history for future generation; its combined historical SQL must not be applied separately.
 
 When `apps/worker/wrangler.jsonc` or `apps/worker/migrations` changes:
 

@@ -64,6 +64,10 @@ describe("website URL schema", () => {
       "https://example.com",
       "https://www.example.com",
     ]);
+    expect(websiteAllowedOrigins(new URL("https://www.example.com/path"))).toEqual([
+      "https://www.example.com",
+      "https://example.com",
+    ]);
     expect(websiteAllowedOrigins(new URL("http://localhost:3000"))).toEqual([
       "http://localhost:3000",
     ]);

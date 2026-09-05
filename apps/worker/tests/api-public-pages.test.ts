@@ -86,6 +86,26 @@ describe.sequential("public project pages", () => {
       { name: segmentName, bytes: segmentBytes },
     ]);
     privateManifest.websiteIds = ["website_private_source"];
+    privateManifest.domMasking = {
+      v: 1,
+      policies: [
+        {
+          batches: 1,
+          policy: {
+            v: 1,
+            defaultsVersion: 1,
+            inputs: "all",
+            text: "selected",
+            localRules: { text: true, block: false, ignore: false },
+            remoteConfigVersion: 7,
+            rulesFingerprint: "a".repeat(64),
+            canvas: true,
+          },
+        },
+      ],
+      unknownBatches: 0,
+      overflowBatches: 0,
+    };
     await seedSession(privateSession, privateManifest, [
       { name: segmentName, bytes: segmentBytes },
     ]);
@@ -117,6 +137,7 @@ describe.sequential("public project pages", () => {
     const data = JSON.parse(dataText) as PublicPageData;
     expect(data.publicId).toBe(publicId);
     expect(data.analytics.sessions).toBe(2);
+    expect(data.analyticsStatus).toBe("current");
     expect(data.analytics.entryPages).toContainEqual(
       expect.objectContaining({ label: "/checkout/complete" }),
     );
@@ -134,6 +155,8 @@ describe.sequential("public project pages", () => {
     expect(dataText).not.toContain('"liveNow"');
     expect(dataText).not.toContain('"analyticsState"');
     expect(dataText).not.toContain('"warehouseVersion"');
+    expect(dataText).not.toContain('"pendingExports"');
+    expect(dataText).not.toContain('"oldestPendingAt"');
 
     const htmlResponse = await worker.fetch(`/p/${publicId}`);
     expect(htmlResponse.status).toBe(200);
@@ -183,6 +206,17 @@ describe.sequential("public project pages", () => {
     expect(manifestText).not.toContain("api_org");
     expect(manifestText).not.toContain("website_private_source");
     expect(manifest).not.toHaveProperty("websiteIds");
+    expect(manifest).not.toHaveProperty("domMasking");
+    expect(manifest).toHaveProperty("domMaskingSummary", {
+      coverage: "complete",
+      policyCount: 1,
+      canvas: true,
+      inputs: "all",
+      text: "selected",
+    });
+    expect(manifestText).not.toContain("rulesFingerprint");
+    expect(manifestText).not.toContain("remoteConfigVersion");
+    expect(manifestText).not.toContain("localRules");
 
     const segmentResponse = await worker.fetch(
       `/api/v1/public-pages/${publicId}/replays/${publicReplayId}/segments/${segmentName}`,

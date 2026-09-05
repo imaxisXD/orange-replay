@@ -1,3 +1,9 @@
+import {
+  confirmFinalizationRegistration,
+  finalizationRegistrationStatements,
+  type FinalizationRegistration,
+} from "../consumer/finalization-recovery.ts";
+
 interface AcceptedUsageRow {
   [key: string]: string | number | null;
   bytes: number | null;
@@ -16,6 +22,7 @@ export interface AcceptedUsageReservation {
   bytes: number;
   updatedAt: number;
   source: "append" | "finalize";
+  finalizationRegistration?: FinalizationRegistration;
 }
 
 /**
@@ -161,7 +168,14 @@ export async function reserveAcceptedUsage(
         reservation.orgId,
         reservation.month,
       ),
+    ...(reservation.finalizationRegistration === undefined
+      ? []
+      : finalizationRegistrationStatements(db, reservation.finalizationRegistration)),
   ]);
+
+  if (reservation.finalizationRegistration !== undefined) {
+    confirmFinalizationRegistration(results.at(-1), reservation.finalizationRegistration);
+  }
 
   const result = results[4]?.results[0];
   const reservedBytes = result?.bytes;

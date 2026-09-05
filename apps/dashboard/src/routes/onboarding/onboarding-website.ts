@@ -1,7 +1,6 @@
 import {
   PROJECT_NAME_MAX_CHARS,
   WEBSITE_URL_ISSUE,
-  websiteAllowedOrigins,
   websiteNameFromUrl,
   websiteUrlSchema,
 } from "@orange-replay/shared";
@@ -10,8 +9,8 @@ export { websiteFaviconUrl } from "@/lib/website-identity";
 
 /**
  * Pure website-identity helpers for activation. The first onboarding step turns
- * one typed URL into three things: the project name, the preview label that
- * follows every keystroke, and the ingest origin allowlist.
+ * one typed URL into the project name and the preview label that follows
+ * every keystroke. The Worker owns the ingest origin allowlist.
  */
 
 /** Parses common website input into the canonical URL activation can use. */
@@ -68,17 +67,6 @@ export function websitePreviewSource(
 ): string {
   if (websiteDraft.trim().length > 0) return websiteDraft;
   return allowSavedWebsite ? (savedWebsiteName ?? "") : "";
-}
-
-/**
- * The ingest allowlist a website URL earns. Both the typed origin and its
- * www sibling are allowed: the recorder is rejected on an exact origin match,
- * and a site reached at one spelling routinely serves pages from the other. A
- * one-entry list would make the verification step wait for an event the ingest
- * path had already refused.
- */
-export function activationAllowedOrigins(url: URL): string[] {
-  return websiteAllowedOrigins(url);
 }
 
 /** True when a stored project name already looks like an activated website. */

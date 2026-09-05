@@ -1,4 +1,4 @@
-import type { SessionManifest } from "@orange-replay/shared/types";
+import type { LiveSessionSnapshot, SessionManifest } from "@orange-replay/shared/types";
 import { PlayerEmitter } from "./emitter.ts";
 import { DEAD_CLICK_RESULT_WINDOW_MS, detectDeadClicks, type DeadClick } from "./friction.ts";
 import { ReplayOverlay } from "./overlay.ts";
@@ -27,6 +27,8 @@ import type {
 import { DecodeWorkerHost } from "./worker-host.ts";
 import { isReplayDataError } from "./worker-core.ts";
 import { ReplayAssetStore } from "./replay-assets.ts";
+import { listReplayTabs, timelineForReplayTab, type ReplayTab } from "./tabs.ts";
+import { applyLiveIndexToSnapshot } from "./live-metadata.ts";
 
 const DEFAULT_SPEED = 1;
 const MIN_SPEED = 0.1;
@@ -41,11 +43,13 @@ export class OrangePlayer {
   private readonly surface: ReplaySurface;
   private readonly eventStore: ReplayEventStore;
   private readonly assetStore: ReplayAssetStore;
-  private readonly assetLoadPromise: Promise<void>;
   private readonly segmentLoader: RecordedSegmentLoader;
   private readonly liveController: LiveFollowController;
   private readonly abortController = new AbortController();
   private manifest: SessionManifest | undefined;
+  private liveSnapshot: LiveSessionSnapshot | undefined;
+  private selectedTab: string | undefined;
+  private tabReviewAbort: AbortController | undefined;
   private timeline: PlayerTimeline | undefined;
   private readyPromise: Promise<SessionManifest>;
   private currentMs = 0;
@@ -71,16 +75,18 @@ export class OrangePlayer {
   private readonly deadClicksByTime = new Map<number, DeadClick>();
 
   constructor(container: HTMLElement, options: OrangePlayerOptions) {
+    this.selectedTab = options.replayTab;
     this.speed = cleanSpeed(options.speed);
     this.skipInactivity = options.skipInactivity === true;
     this.worker = new DecodeWorkerHost(options.worker);
     this.assetStore = new ReplayAssetStore(options.api, options, this.abortController.signal);
-    this.assetLoadPromise = this.assetStore.load().catch(() => undefined);
+    const replayAssetsReady = this.assetStore.load().catch(() => undefined);
     this.eventStore = new ReplayEventStore(this.assetStore.rewriteUrl);
     this.segmentLoader = new RecordedSegmentLoader({
       request: options,
       signal: this.abortController.signal,
       worker: this.worker,
+      replayAssetsReady,
       isDestroyed: () => this.destroyed,
       isFollowing: () => this.following,
       onSegmentLoaded: (loaded) => this.handleRecordedSegmentLoaded(loaded),
@@ -120,6 +126,86 @@ export class OrangePlayer {
 
   ready(): Promise<SessionManifest> {
     return this.readyPromise;
+  }
+
+  getTabs(): ReplayTab[] {
+    if (this.following && this.liveSnapshot !== undefined) {
+      return listReplayTabs({
+        timeline: this.liveSnapshot.timeline,
+        segments: [...this.liveController.replaySegments],
+      });
+    }
+    return this.segmentLoader.replayTabs;
+  }
+
+  getSelectedTab(): string | undefined {
+    return this.selectedTab ?? this.eventStore.replayTab ?? this.segmentLoader.replayTab;
+  }
+
+  /** Switch one replay surface; background tabs stay compressed. */
+  async selectTab(tab: string, timeMs = this.currentMs): Promise<void> {
+    this.tabReviewAbort?.abort();
+    const operation = ++this.playbackOperation;
+    await this.readyPromise;
+    if (!this.isCurrentPlaybackOperation(operation)) return;
+    const target = this.getTabs().find((item) => item.id === tab);
+    if (target === undefined) throw new Error("This tab is not part of the recording.");
+    if (!this.following && !this.reviewingLiveHistory && target.firstSnapshotAt === undefined)
+      throw new Error("This tab has no saved replay snapshot yet.");
+    if (this.getSelectedTab() === tab) {
+      if (!this.following) await this.seek(timeMs);
+      return;
+    }
+
+    const wasFollowing = this.following;
+    const shouldResume = this.playing || this.playRequested;
+    let reviewHistory: LiveReviewHistory | undefined;
+    if (this.reviewingLiveHistory) {
+      this.tabReviewAbort = new AbortController();
+      reviewHistory = await this.liveController.readTabHistory(
+        tab,
+        AbortSignal.any([this.tabReviewAbort.signal, this.abortController.signal]),
+      );
+      if (!this.isCurrentPlaybackOperation(operation)) return;
+      if (
+        !reviewHistory.tailEvents.some((event) => event.type === 2) &&
+        !reviewHistory.segments.some((segment) =>
+          segment.checkpoints?.some((checkpoint) => checkpoint.tab === tab),
+        )
+      )
+        throw new Error("This tab has no replay snapshot available yet. Try again shortly.");
+    }
+    this.stopPlayback();
+    if (wasFollowing) this.liveController.stopFollowing();
+    this.selectedTab = tab;
+    this.segmentLoader.selectTab(tab);
+    this.liveController.selectTab(tab);
+    this.eventStore.resetRecordedEvents(tab);
+    this.surface.destroyReplay();
+    this.overlay.reset();
+    this.deadClicksByTime.clear();
+    this.recordedCheckpoint = undefined;
+    this.recordedReplayNeedsResetAfterLive = false;
+    this.liveReviewTailEvents = [];
+    this.liveReviewTailLoaded = false;
+    this.timeline = buildTimeline(timelineForReplayTab(this.manifest!.timeline, tab), {
+      startedAt: this.manifest!.startedAt,
+      durationMs: this.manifest!.durationMs,
+    });
+    this.emitter.emit("timeline", this.timeline);
+    this.emitTabs();
+    if (reviewHistory !== undefined) {
+      this.eventStore.add(reviewHistory.tailEvents);
+      this.startLiveHistoryReview(this.manifest!, reviewHistory);
+    }
+    if (wasFollowing) {
+      this.following = false;
+      this.follow();
+      return;
+    }
+    // A tab opened later cannot render a moment before its first snapshot.
+    await this.seek(Math.max(timeMs, (target.firstSnapshotAt ?? 0) - this.manifest!.startedAt));
+    if (this.selectedTab === tab && shouldResume) await this.play();
   }
 
   async play(): Promise<void> {
@@ -213,6 +299,7 @@ export class OrangePlayer {
   }
 
   follow(): void {
+    this.tabReviewAbort?.abort();
     this.liveReviewManifest = undefined;
     if (this.following) {
       return;
@@ -301,6 +388,9 @@ export class OrangePlayer {
 
     const wasFollowing = this.following;
     const wasReviewingLiveHistory = this.reviewingLiveHistory;
+    this.tabReviewAbort?.abort();
+    this.selectedTab = this.getSelectedTab();
+    if (this.selectedTab !== undefined) this.segmentLoader.selectTab(this.selectedTab);
     this.liveReviewManifest = undefined;
     this.liveReviewWaitStarted = false;
     this.reviewingLiveHistory = false;
@@ -311,7 +401,7 @@ export class OrangePlayer {
     this.readyPromise = Promise.resolve(manifest);
     this.segmentLoader.useManifest(manifest);
     this.recordedCheckpoint = this.segmentLoader.segmentWindowAt(this.currentMs)?.checkpoint;
-    this.timeline = buildTimeline(manifest.timeline, {
+    this.timeline = buildTimeline(timelineForReplayTab(manifest.timeline, this.getSelectedTab()), {
       startedAt: manifest.startedAt,
       durationMs: manifest.durationMs,
     });
@@ -319,6 +409,7 @@ export class OrangePlayer {
     this.overlay.setSessionStart(manifest.startedAt);
     this.emitter.emit("timeline", this.timeline);
     this.emitter.emit("ready", manifest);
+    this.emitTabs();
     this.emitProgress();
 
     if (!wasFollowing) {
@@ -329,6 +420,7 @@ export class OrangePlayer {
     this.following = false;
     this.liveRebuildAfterKeyframe = false;
     this.liveController.stopFollowing();
+    this.emitTabs();
     this.emitter.emit("live_finalized", manifest);
 
     if (!this.surface.hasReplayer && manifest.segments.length > 0) {
@@ -372,6 +464,8 @@ export class OrangePlayer {
   }
 
   private startLiveHistoryReview(manifest: SessionManifest, history: LiveReviewHistory): void {
+    this.selectedTab = this.getSelectedTab();
+    if (this.selectedTab !== undefined) this.segmentLoader.selectTab(this.selectedTab);
     this.playbackOperation += 1;
     this.stopPlayback();
     this.following = false;
@@ -403,15 +497,19 @@ export class OrangePlayer {
     this.liveReviewTailLoaded = history.segments.length === 0;
     this.recordedReplayNeedsResetAfterLive = history.segments.length > 0;
     this.recordedCheckpoint = undefined;
-    this.timeline = buildTimeline(reviewManifest.timeline, {
-      startedAt: reviewManifest.startedAt,
-      durationMs: reviewManifest.durationMs,
-    });
+    this.timeline = buildTimeline(
+      timelineForReplayTab(reviewManifest.timeline, this.getSelectedTab()),
+      {
+        startedAt: reviewManifest.startedAt,
+        durationMs: reviewManifest.durationMs,
+      },
+    );
     this.currentMs = clamp(this.currentMs, 0, reviewManifest.durationMs);
     this.overlay.setSessionStart(reviewManifest.startedAt);
     this.refreshFrictionTimeline();
     this.rebuildReplayer();
     this.emitter.emit("ready", reviewManifest);
+    this.emitTabs();
     this.emitProgress();
   }
 
@@ -428,18 +526,20 @@ export class OrangePlayer {
       this.eventStore.resetRecordedEvents(
         initialWindow?.checkpoint?.tab ?? this.segmentLoader.replayTab,
       );
-      this.timeline = buildTimeline(manifest.timeline, {
-        startedAt: manifest.startedAt,
-        durationMs: manifest.durationMs,
-      });
+      this.timeline = buildTimeline(
+        timelineForReplayTab(manifest.timeline, this.getSelectedTab()),
+        {
+          startedAt: manifest.startedAt,
+          durationMs: manifest.durationMs,
+        },
+      );
       this.overlay.setSessionStart(manifest.startedAt);
       this.emitter.emit("timeline", this.timeline);
       this.emitter.emit("ready", manifest);
+      this.emitTabs();
 
       if (manifest.segments.length > 0) {
-        void this.assetLoadPromise.then(() => {
-          this.prefetchSegment(0, "Could not prefetch the first replay segment.");
-        });
+        this.prefetchSegment(0, "Could not prefetch the first replay segment.");
       }
 
       return manifest;
@@ -456,7 +556,6 @@ export class OrangePlayer {
     if (window === undefined || window.activeIndex < 0) {
       return;
     }
-    await this.assetLoadPromise;
     if (this.destroyed) return;
 
     if (this.recordedReplayNeedsResetAfterLive) {
@@ -513,6 +612,7 @@ export class OrangePlayer {
       this.rebuildReplayer();
     }
     this.maybeAdvanceRecordedCheckpoint();
+    this.emitTabs();
   }
   private addReplayEvents(
     events: readonly ReplayEvent[],
@@ -551,9 +651,13 @@ export class OrangePlayer {
           this.deadClicksByTime.delete(timestamp);
         }
       }
-      for (const deadClick of detectDeadClicks(events, manifest.timeline, {
-        minimumClickTimestamp,
-      })) {
+      for (const deadClick of detectDeadClicks(
+        events,
+        timelineForReplayTab(manifest.timeline, this.getSelectedTab()),
+        {
+          minimumClickTimestamp,
+        },
+      )) {
         this.deadClicksByTime.set(deadClick.t, deadClick);
       }
     }
@@ -675,22 +779,11 @@ export class OrangePlayer {
       return;
     }
 
-    void this.assetLoadPromise
-      .then(async () => {
-        if (
-          this.destroyed ||
-          this.segmentLoader.hasLoaded(index) ||
-          this.segmentLoader.isLoading(index)
-        ) {
-          return;
-        }
-        await this.segmentLoader.loadSegment(index);
-      })
-      .catch((error) => {
-        if (!this.destroyed) {
-          this.emitError(errorMessage, error, "warning");
-        }
-      });
+    void this.segmentLoader.loadSegment(index).catch((error) => {
+      if (!this.destroyed) {
+        this.emitError(errorMessage, error, "warning");
+      }
+    });
   }
 
   private handleReplayerFinish(): void {
@@ -803,6 +896,10 @@ export class OrangePlayer {
         this.finishLive(event.manifest);
         return;
       case "index":
+        if (this.liveSnapshot !== undefined) {
+          this.liveSnapshot = applyLiveIndexToSnapshot(this.liveSnapshot, event.index);
+          this.emitTabs();
+        }
         this.emitter.emit("live_index", event.index);
         return;
       case "keyframe_overflow":
@@ -820,12 +917,18 @@ export class OrangePlayer {
         this.resetReplayEventsForLiveKeyframe();
         return;
       case "snapshot":
+        this.liveSnapshot = event.snapshot;
+        this.emitTabs();
         this.emitter.emit("live_snapshot", event.snapshot);
         return;
       case "waiting":
         this.emitWaitingKeyframe();
         return;
     }
+  }
+
+  private emitTabs(): void {
+    this.emitter.emit("tabs", { tabs: this.getTabs(), selectedTab: this.getSelectedTab() });
   }
 
   private handleLiveEvents(acceptedEvents: readonly ReplayEvent[]): void {
@@ -841,6 +944,7 @@ export class OrangePlayer {
     }
 
     this.moveToLiveEdge(addedEvents);
+    this.emitTabs();
   }
 
   private resetReplayEventsForLiveKeyframe(): void {

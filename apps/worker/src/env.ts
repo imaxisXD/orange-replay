@@ -1,7 +1,11 @@
 // Binding surface for the combined Worker. Owned by the Phase 0 seed —
 // tasks extend behavior in their own modules, not here, unless their PLAN.md
 // scope says otherwise.
-import type { FinalizeMessage, WorkerQueueMessage } from "@orange-replay/shared";
+import type {
+  FinalizeMessage,
+  ReplayAssetCaptureMessage,
+  WorkerQueueMessage,
+} from "@orange-replay/shared";
 import { setWideEventVersion } from "@orange-replay/shared";
 import type { PresenceRegistry } from "./do/presence-registry.ts";
 import type { SessionRecorder } from "./do/session-recorder.ts";
@@ -27,6 +31,9 @@ export interface Env {
   CONFIG: KVNamespace;
   IDX_00: D1Database;
   FINALIZE_QUEUE: Queue<WorkerQueueMessage>;
+  REPLAY_ASSET_QUEUE: Queue<ReplayAssetCaptureMessage>;
+  /** Must match the separate styling queue consumer, including custom self-host names. */
+  REPLAY_ASSET_QUEUE_NAME: string;
   /** Structured Cloudflare Pipelines stream. Optional for local/self-host compatibility. */
   ANALYTICS_STREAM?: AnalyticsStreamBinding;
   /** Separate v2 deletion stream. It must never share the v1 structured stream. */

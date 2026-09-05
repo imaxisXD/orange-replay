@@ -21,6 +21,7 @@ interface StyleSheetAdopter {
 export class StylesheetManager {
   private mutationCb: mutationCallBack;
   private adoptedStyleSheetCb: adoptedStyleSheetCallback;
+  private shouldRecord?: (link: HTMLLinkElement, nodeId: number) => boolean;
   private adopters = new Map<StyleSheetHost, StyleSheetAdopter>();
   private adoptersBySheet = new Map<CSSStyleSheet, Set<StyleSheetHost>>();
   public styleMirror = new StyleSheetMirror();
@@ -28,12 +29,15 @@ export class StylesheetManager {
   constructor(options: {
     mutationCb: mutationCallBack;
     adoptedStyleSheetCb: adoptedStyleSheetCallback;
+    shouldRecord?: (link: HTMLLinkElement, nodeId: number) => boolean;
   }) {
     this.mutationCb = options.mutationCb;
     this.adoptedStyleSheetCb = options.adoptedStyleSheetCb;
+    this.shouldRecord = options.shouldRecord;
   }
 
-  public attachLinkElement(_linkElement: HTMLLinkElement, childSn: serializedNodeWithId) {
+  public attachLinkElement(linkElement: HTMLLinkElement, childSn: serializedNodeWithId) {
+    if (this.shouldRecord?.(linkElement, childSn.id) === false) return;
     if ("_cssText" in (childSn as elementNode).attributes)
       this.mutationCb({
         adds: [],

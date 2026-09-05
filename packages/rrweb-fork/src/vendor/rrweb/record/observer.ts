@@ -212,6 +212,22 @@ function initMouseInteractionObserver({
 
   const handlers: listenerHandler[] = [];
   let currentPointerType: PointerTypes | null = null;
+  // Recording needs the forward event-name map. Keep the public rrweb enum
+  // for configurable callers; the SDK does not need its reverse numeric map.
+  const interactionTypes = isOrangeReplaySdk
+    ? ({
+        MouseUp: 0,
+        MouseDown: 1,
+        Click: 2,
+        ContextMenu: 3,
+        DblClick: 4,
+        Focus: 5,
+        Blur: 6,
+        TouchStart: 7,
+        TouchEnd: 9,
+        TouchCancel: 10,
+      } as Record<keyof typeof MouseInteractions, number>)
+    : MouseInteractions;
   const getHandler = (eventKey: keyof typeof MouseInteractions) => {
     return (event: MouseEvent | TouchEvent | PointerEvent) => {
       const target = getEventTarget(event) as Node;
@@ -233,10 +249,10 @@ function initMouseInteractionObserver({
             break;
         }
         if (pointerType === PointerTypes.Touch) {
-          if (MouseInteractions[eventKey] === MouseInteractions.MouseDown) {
+          if (interactionTypes[eventKey] === MouseInteractions.MouseDown) {
             // we are actually listening on 'pointerdown'
             thisEventKey = "TouchStart";
-          } else if (MouseInteractions[eventKey] === MouseInteractions.MouseUp) {
+          } else if (interactionTypes[eventKey] === MouseInteractions.MouseUp) {
             // we are actually listening on 'pointerup'
             thisEventKey = "TouchEnd";
           }
@@ -255,7 +271,7 @@ function initMouseInteractionObserver({
           // don't output redundant info
           pointerType = null;
         }
-      } else if (MouseInteractions[eventKey] === MouseInteractions.Click) {
+      } else if (interactionTypes[eventKey] === MouseInteractions.Click) {
         pointerType = currentPointerType;
         currentPointerType = null; // cleanup as we've used it
       }
@@ -266,7 +282,7 @@ function initMouseInteractionObserver({
       const id = mirror.getId(target);
       const { clientX, clientY } = e;
       callbackWrapper(mouseInteractionCb)({
-        type: MouseInteractions[thisEventKey],
+        type: interactionTypes[thisEventKey],
         id,
         x: clientX,
         y: clientY,
@@ -274,15 +290,17 @@ function initMouseInteractionObserver({
       });
     };
   };
-  Object.keys(MouseInteractions)
+  Object.keys(interactionTypes)
     .filter(
-      (key) => Number.isNaN(Number(key)) && !key.endsWith("_Departed") && disableMap[key] !== false,
+      (key) =>
+        isOrangeReplaySdk ||
+        (Number.isNaN(Number(key)) && !key.endsWith("_Departed") && disableMap[key] !== false),
     )
     .forEach((eventKey: keyof typeof MouseInteractions) => {
       let eventName = toLowerCase(eventKey);
       const handler = getHandler(eventKey);
       if (window.PointerEvent) {
-        switch (MouseInteractions[eventKey]) {
+        switch (interactionTypes[eventKey]) {
           case MouseInteractions.MouseDown:
           case MouseInteractions.MouseUp:
             eventName = eventName.replace("mouse", "pointer") as unknown as typeof eventName;

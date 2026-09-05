@@ -6,6 +6,7 @@ import {
   type SessionManifest,
   type StatsBreakdownRow,
   startWideEvent,
+  summarizeDomMasking,
 } from "@orange-replay/shared";
 import { safePublicEntryPath } from "@orange-replay/shared/analytics-privacy";
 import { sessionManifestSchema } from "@orange-replay/shared/schemas";
@@ -111,6 +112,11 @@ export async function readPublicPageData(
       publicUrl: publicPageUrl(origin.origin, project.publicId),
       projectName: project.projectName,
       generatedAt: Date.now(),
+      analyticsStatus:
+        statsRead.analyticsState === "stale"
+          ? "stale"
+          : (statsRead.analyticsDelivery?.state ??
+            (statsRead.analyticsState === "fresh" ? "unknown" : "current")),
       analytics: {
         sessions: stats.sessions.value,
         averageDurationMs: stats.duration.average.value,
@@ -155,11 +161,17 @@ export async function getPublicManifest(
     sessionId: publicReplayId,
     orgId: "public",
     websiteIds: undefined,
+    domMasking: undefined,
+    domMaskingSummary: summarizeDomMasking(manifest.domMasking),
     segments: manifest.segments.map((segment) => ({
       ...segment,
       key: `${sessionPrefix(publicId, publicReplayId)}/${segment.key.split("/").at(-1) ?? ""}`,
     })),
-    timeline: manifest.timeline.map((event) => ({ t: event.t, k: event.k })),
+    timeline: manifest.timeline.map((event) => ({
+      t: event.t,
+      k: event.k,
+      ...(event.tab === undefined ? {} : { tab: event.tab }),
+    })),
     enc: undefined,
     attrs: {
       country: manifest.attrs.country,

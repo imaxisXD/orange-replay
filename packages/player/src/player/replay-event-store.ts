@@ -21,6 +21,10 @@ export class ReplayEventStore {
     return this.storedEvents;
   }
 
+  get replayTab(): string | undefined {
+    return this.activeReplayTab;
+  }
+
   add(events: readonly ReplayEvent[]): ReplayEvent[] {
     if (events.length === 0) {
       return [];

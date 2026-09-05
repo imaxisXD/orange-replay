@@ -18,6 +18,7 @@ export type TimelineDot = "blue" | "danger" | "amber" | "teal" | "hollow" | "dim
 export interface TimelineSidebarOptions {
   startedAt: number;
   durationMs: number;
+  selectedTab?: string;
 }
 
 export interface TimelineSidebarRow {
@@ -28,6 +29,7 @@ export interface TimelineSidebarRow {
   detail?: string;
   offsetMs: number;
   offsetLabel: string;
+  tab?: string;
 }
 
 export interface JourneyBreadcrumb {
@@ -90,7 +92,7 @@ export function mapTimelineSidebarRows(
       // drowns out clicks and errors. The SDK throttles scrolls to one per
       // 2s, so the deepest point of the run is the fact worth surfacing.
       let deepestDepth = scrollDepth(event);
-      while (displayable[index + 1]?.k === "scroll") {
+      while (displayable[index + 1]?.k === "scroll" && displayable[index + 1]?.tab === event.tab) {
         index += 1;
         const nextDepth = scrollDepth(displayable[index]);
         if (nextDepth !== undefined && (deepestDepth === undefined || nextDepth > deepestDepth)) {
@@ -106,11 +108,18 @@ export function mapTimelineSidebarRows(
         ...(deepestDepth === undefined ? {} : { detail: `${deepestDepth}% depth` }),
         offsetMs,
         offsetLabel: formatOffsetTime(offsetMs),
+        ...(event.tab === undefined ? {} : { tab: event.tab }),
       });
       continue;
     }
 
-    const deadClick = event.k === "click" ? deadClickByTime.get(event.t) : undefined;
+    const deadClick =
+      event.k === "click" &&
+      (event.tab === undefined ||
+        options.selectedTab === undefined ||
+        event.tab === options.selectedTab)
+        ? deadClickByTime.get(event.t)
+        : undefined;
     if (deadClick !== undefined) {
       rows.push({
         id: `dead-click-${event.t}-${rows.length}`,
@@ -120,6 +129,7 @@ export function mapTimelineSidebarRows(
         detail: shortSelector(deadClick.detail),
         offsetMs,
         offsetLabel: formatOffsetTime(offsetMs),
+        ...(event.tab === undefined ? {} : { tab: event.tab }),
       });
       continue;
     }
@@ -133,6 +143,7 @@ export function mapTimelineSidebarRows(
       ...(content.detail !== undefined ? { detail: content.detail } : {}),
       offsetMs,
       offsetLabel: formatOffsetTime(offsetMs),
+      ...(event.tab === undefined ? {} : { tab: event.tab }),
     });
   }
 

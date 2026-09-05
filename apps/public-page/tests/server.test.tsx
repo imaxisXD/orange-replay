@@ -5,6 +5,21 @@ import { makePublicPageQueryClient, publicPageErrorMessage } from "../src/query.
 import { renderPublicPage } from "../src/server.tsx";
 
 describe("public page server rendering", () => {
+  it.each([
+    [undefined, "Analytics delivery status is unavailable."],
+    ["pending", "Analytics are still arriving. Recent sessions may not appear yet."],
+    ["stale", "Saved analytics are shown. Recent sessions or changes may not appear yet."],
+    ["current", "Analytics delivery is current."],
+  ] as const)(
+    "shows %s delivery independently from page generation time",
+    async (analyticsStatus, copy) => {
+      const stream = await renderPublicPage({ ...pageData("Store"), analyticsStatus });
+      const html = await new Response(stream).text();
+      expect(html).toContain(copy);
+      expect(html).toContain("Page loaded");
+      expect(html).not.toContain("Updated ");
+    },
+  );
   it("uses a new query client for every server request", () => {
     expect(makePublicPageQueryClient()).not.toBe(makePublicPageQueryClient());
   });

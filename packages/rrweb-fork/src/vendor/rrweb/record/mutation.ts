@@ -172,9 +172,9 @@ export default class MutationBuffer {
 
   private mutationCb: observerParam["mutationCb"];
   private blockClass: observerParam["blockClass"];
-  private blockSelector: observerParam["blockSelector"];
+  private blockedElementSelector: observerParam["blockSelector"];
   private maskTextClass: observerParam["maskTextClass"];
-  private maskTextSelector: observerParam["maskTextSelector"];
+  private textMaskSelector: observerParam["maskTextSelector"];
   private inlineStylesheet: observerParam["inlineStylesheet"];
   private maskInputOptions: observerParam["maskInputOptions"];
   private maskTextFn: observerParam["maskTextFn"];
@@ -197,37 +197,31 @@ export default class MutationBuffer {
   private unattachedDoc: HTMLDocument;
 
   public init(options: MutationBufferParam) {
-    (
-      [
-        "mutationCb",
-        "blockClass",
-        "blockSelector",
-        "maskTextClass",
-        "maskTextSelector",
-        "inlineStylesheet",
-        "maskInputOptions",
-        "maskTextFn",
-        "maskInputFn",
-        "keepIframeSrcFn",
-        "recordCanvas",
-        "inlineImages",
-        "slimDOMOptions",
-        "dataURLOptions",
-        "doc",
-        "mirror",
-        "iframeManager",
-        "stylesheetManager",
-        "shadowDomManager",
-        "canvasManager",
-        "imageManager",
-        "mutationObservedCb",
-        "largeMutationCb",
-        "processedNodeManager",
-      ] as const
-    ).forEach((key) => {
-      // just a type trick, the runtime result is correct
-      this[key] = options[key] as never;
-    });
+    // Static copies preserve the option order and let the SDK compact private names.
+    this.mutationCb = options.mutationCb;
+    this.blockClass = options.blockClass;
+    this.blockedElementSelector = options.blockSelector;
+    this.maskTextClass = options.maskTextClass;
+    this.textMaskSelector = options.maskTextSelector;
+    this.inlineStylesheet = options.inlineStylesheet;
+    this.maskInputOptions = options.maskInputOptions;
+    this.maskTextFn = options.maskTextFn;
+    this.maskInputFn = options.maskInputFn;
+    this.keepIframeSrcFn = options.keepIframeSrcFn;
+    this.recordCanvas = options.recordCanvas;
+    this.inlineImages = options.inlineImages;
+    this.slimDOMOptions = options.slimDOMOptions;
+    this.dataURLOptions = options.dataURLOptions;
+    this.doc = options.doc;
+    this.mirror = options.mirror;
+    this.iframeManager = options.iframeManager;
+    this.stylesheetManager = options.stylesheetManager;
+    this.shadowDomManager = options.shadowDomManager;
+    this.canvasManager = options.canvasManager;
+    this.imageManager = options.imageManager;
+    this.mutationObservedCb = options.mutationObservedCb;
+    this.largeMutationCb = options.largeMutationCb;
+    this.processedNodeManager = options.processedNodeManager;
   }
 
   public freeze() {
@@ -327,9 +321,9 @@ export default class MutationBuffer {
         doc: this.doc,
         mirror: this.mirror,
         blockClass: this.blockClass,
-        blockSelector: this.blockSelector,
+        blockSelector: this.blockedElementSelector,
         maskTextClass: this.maskTextClass,
-        maskTextSelector: this.maskTextSelector,
+        maskTextSelector: this.textMaskSelector,
         skipChild: true,
         newlyAddedElement: true,
         inlineStylesheet: this.inlineStylesheet,
@@ -346,7 +340,7 @@ export default class MutationBuffer {
           this.imageManager.trackImage(currentN);
           if (
             isSerializedIframe(currentN, this.mirror) &&
-            !isBlocked(currentN, this.blockClass, this.blockSelector, true)
+            !isBlocked(currentN, this.blockClass, this.blockedElementSelector, true)
           ) {
             this.iframeManager.addIframe(currentN as HTMLIFrameElement);
           }
@@ -571,7 +565,7 @@ export default class MutationBuffer {
         const value = dom.textContent(m.target);
 
         if (
-          !isBlocked(m.target, this.blockClass, this.blockSelector, true) &&
+          !isBlocked(m.target, this.blockClass, this.blockedElementSelector, true) &&
           value !== m.oldValue
         ) {
           this.texts.push({
@@ -579,7 +573,7 @@ export default class MutationBuffer {
               needMaskingText(
                 m.target,
                 this.maskTextClass,
-                this.maskTextSelector,
+                this.textMaskSelector,
                 true, // checkAncestors
               ) && value
                 ? !isOrangeReplaySdk && this.maskTextFn
@@ -609,7 +603,7 @@ export default class MutationBuffer {
           });
         }
         if (
-          isBlocked(m.target, this.blockClass, this.blockSelector, true) ||
+          isBlocked(m.target, this.blockClass, this.blockedElementSelector, true) ||
           value === m.oldValue
         ) {
           return;
@@ -720,7 +714,7 @@ export default class MutationBuffer {
         /**
          * Parent is blocked, ignore all child mutations
          */
-        if (isBlocked(m.target, this.blockClass, this.blockSelector, true)) return;
+        if (isBlocked(m.target, this.blockClass, this.blockedElementSelector, true)) return;
 
         if ((m.target as Element).tagName === "TEXTAREA") {
           // children would be ignored in genAdds as they aren't in the mirror
@@ -735,7 +729,7 @@ export default class MutationBuffer {
             ? this.mirror.getId(dom.host(m.target))
             : this.mirror.getId(m.target);
           if (
-            isBlocked(m.target, this.blockClass, this.blockSelector, false) ||
+            isBlocked(m.target, this.blockClass, this.blockedElementSelector, false) ||
             isIgnored(n, this.mirror, this.slimDOMOptions) ||
             !isSerialized(n, this.mirror)
           ) {
@@ -808,7 +802,7 @@ export default class MutationBuffer {
 
     // if this node is blocked `serializeNode` will turn it into a placeholder element
     // but we have to remove it's children otherwise they will be added as placeholders too
-    if (!isBlocked(n, this.blockClass, this.blockSelector, false)) {
+    if (!isBlocked(n, this.blockClass, this.blockedElementSelector, false)) {
       dom.childNodes(n).forEach((childN) => this.genAdds(childN));
       if (hasShadowRoot(n)) {
         // eslint-disable-next-line @typescript-eslint/no-non-null-assertion

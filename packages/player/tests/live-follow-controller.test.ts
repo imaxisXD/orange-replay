@@ -17,6 +17,88 @@ afterEach(() => {
 });
 
 describe("LiveFollowController", () => {
+  it("reads another tab's pending history without decoding or displaying the background tab", async () => {
+    const visibleEvents = vi.fn();
+    let closed = false;
+    const events = [
+      {
+        type: EventType.FullSnapshot,
+        timestamp: 1100,
+        data: { node: { id: 1, type: 0, childNodes: [] }, initialOffset: { left: 0, top: 0 } },
+      },
+    ] as ReplayEvent[];
+    class TabHistorySocket {
+      onopen: (() => void) | null = null;
+      onmessage: ((event: { data: unknown }) => void) | null = null;
+      onclose: ((event: { code: number }) => void) | null = null;
+      constructor() {
+        queueMicrotask(() => {
+          this.onopen?.();
+          this.onmessage?.({
+            data: JSON.stringify({
+              type: "hello",
+              sessionId: "session",
+              startedAt: 1000,
+              segments: [],
+              pendingBatches: 2,
+              snapshot: {
+                startedAt: 1000,
+                endedAt: 1200,
+                durationMs: 200,
+                timeline: [],
+                counts: { batches: 2, events: 0, clicks: 0, errors: 0, rages: 0, navs: 0 },
+              },
+            }),
+          });
+          for (const tab of ["tab-a", "tab-b"])
+            this.onmessage?.({
+              data: encodeIngestBody(
+                { v: 1, s: "session", tab, seq: 0, t0: 1100, t1: 1100, e: [] },
+                new TextEncoder().encode(JSON.stringify(events)),
+              ).buffer,
+            });
+        });
+      }
+      close() {
+        closed = true;
+        this.onclose?.({ code: 1000 });
+      }
+    }
+    vi.stubGlobal("WebSocket", TabHistorySocket);
+    const decode = vi.fn(async () => ({ events, decodedBytes: 100 }));
+    const controller = new LiveFollowController({
+      request: {
+        api: {
+          fetch: async () => Response.json({ ticket: "tab-ticket", expiresAt: Date.now() + 60000 }),
+        },
+        projectId: "project",
+        sessionId: "session",
+      },
+      signal: new AbortController().signal,
+      worker: { decodeBatchWithStats: decode } as unknown as DecodeWorkerHost,
+      host: { acceptsReplayTab: () => true, onEvent: visibleEvents },
+    });
+    const result = await controller.readTabHistory("tab-b", new AbortController().signal);
+    expect(result).toEqual({ segments: [], tailEvents: events });
+    expect(decode).toHaveBeenCalledOnce();
+    expect(visibleEvents).not.toHaveBeenCalled();
+    expect(closed).toBe(true);
+  });
+
+  it("releases a canceled tab history read while its ticket request is stalled", async () => {
+    const abort = new AbortController();
+    const request = vi.fn(() => new Promise<Response>(() => {}));
+    const controller = new LiveFollowController({
+      request: { api: { fetch: request }, projectId: "project", sessionId: "session" },
+      signal: new AbortController().signal,
+      worker: {} as DecodeWorkerHost,
+      host: makeHost([]),
+    });
+    const reading = controller.readTabHistory("tab-b", abort.signal);
+    await waitFor(() => request.mock.calls.length === 1);
+    abort.abort();
+    await expect(reading).resolves.toEqual({ segments: [], tailEvents: [] });
+  });
   it("counts only the retained replay tab against the active byte budget", () => {
     expect(
       retainedDecodedBytesForTab(
@@ -592,10 +674,12 @@ describe("LiveFollowController", () => {
         new Uint8Array(),
       );
       sockets[0]?.onmessage?.({ data: frame.buffer });
+      // Hold one real decode in flight before filling the encoded queue. A
+      // replaced connection now discards queued frames before starting decode.
+      if (seq === 0) await waitFor(() => releaseFirstDecode !== undefined);
     }
 
     expect(errors).toContain("Live replay arrived faster than it could be decoded.");
-    await waitFor(() => releaseFirstDecode !== undefined);
     releaseFirstDecode?.();
     await controller.stopAndTakeReviewHistory();
   });

@@ -2,6 +2,7 @@ export * from "./activity-hist.ts";
 export * from "./account-contract.ts";
 export * from "./analytics-privacy.ts";
 export * from "./constants.ts";
+export * from "./dom-masking.ts";
 export * from "./insights.ts";
 export * from "./logger.ts";
 export * from "./project-contract.ts";

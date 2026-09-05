@@ -1,7 +1,158 @@
+import { readFileSync } from "node:fs";
+import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { readWarehouseSnapshot } from "../src/analytics/runtime.ts";
 
 describe("analytics warehouse runtime gate", () => {
+  it("reads the real SQL gates in one database request and keeps deletion state above an old pin", async () => {
+    const sqlite = new DatabaseSync(":memory:");
+    try {
+      sqlite.exec(
+        readFileSync(
+          new URL("../migrations/0009_analytics_warehouse.sql", import.meta.url),
+          "utf8",
+        ),
+      );
+      sqlite.exec(`
+        INSERT INTO analytics_warehouse_state (project_id, verified_sequence)
+        VALUES ('project_1', 12);
+        INSERT INTO analytics_backfill_completions
+          (project_id, source_session_count, source_cutoff_ms, required_sequence, report_id, completed_at)
+        VALUES ('project_1', 2, 1, 4, 'report_1', 1);
+        INSERT INTO analytics_deletion_jobs
+          (project_id, session_id, requested_at, delete_reason, deletion_export_sequence)
+        VALUES ('project_1', 'verified', 1, 'privacy', 11),
+               ('other_project', 'pending', 1, 'privacy', NULL);
+      `);
+      sqlite
+        .prepare(`INSERT INTO analytics_deletion_jobs
+        (project_id, session_id, requested_at, delete_reason)
+        VALUES ('project_1', 'future', ?, 'retention')`)
+        .run(Date.now() + 60_000);
+      const first = vi.fn(
+        async (sql: string, bindings: SQLInputValue[]) =>
+          sqlite.prepare(sql).get(...bindings) ?? null,
+      );
+      const batch = vi.fn(async (statements: { sql: string; bindings: SQLInputValue[] }[]) => {
+        sqlite.exec("BEGIN");
+        try {
+          return statements.map(({ sql, bindings }) => ({
+            results: sqlite.prepare(sql).all(...bindings),
+          }));
+        } finally {
+          sqlite.exec("ROLLBACK");
+        }
+      });
+      const db = {
+        batch,
+        prepare(sql: string) {
+          return {
+            bind(...bindings: SQLInputValue[]) {
+              return { sql, bindings, first: () => first(sql, bindings) };
+            },
+          };
+        },
+      } as unknown as Parameters<typeof readWarehouseSnapshot>[0];
+
+      await expect(readWarehouseSnapshot(db, "project_1", 8)).resolves.toEqual({
+        deletionTableVersion: "v1",
+        ok: true,
+        privacyVersion: 11,
+        version: 8,
+        analyticsDelivery: {
+          state: "current",
+          pendingExports: 0,
+          oldestPendingAt: null,
+          checkedAt: expect.any(Number),
+        },
+      });
+      expect(batch).toHaveBeenCalledTimes(1);
+      expect(batch.mock.calls[0]?.[0]).toHaveLength(5);
+      expect(first).not.toHaveBeenCalled();
+
+      sqlite.exec(
+        `UPDATE analytics_deletion_jobs SET requested_at = 1 WHERE session_id = 'future'`,
+      );
+      await expect(readWarehouseSnapshot(db, "project_1", 8)).resolves.toEqual({
+        error: "analytics_deletion_pending",
+        ok: false,
+        status: 503,
+      });
+      sqlite.exec(`INSERT INTO analytics_export_outbox
+        (export_id, project_id, session_id, record_kind, payload_json, created_at, quarantined_at)
+        VALUES ('failed_export', 'project_1', 'session', 'session', '{}', 1, 1)`);
+      await expect(readWarehouseSnapshot(db, "project_1", 99, "v2")).resolves.toEqual({
+        error: "analytics_export_quarantined",
+        ok: false,
+        status: 503,
+      });
+      expect(batch).toHaveBeenCalledTimes(3);
+      expect(first).not.toHaveBeenCalled();
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("counts sent and unsent exports beyond the current watermark, without aging an idle project", async () => {
+    const sqlite = new DatabaseSync(":memory:");
+    try {
+      sqlite.exec(
+        readFileSync(
+          new URL("../migrations/0009_analytics_warehouse.sql", import.meta.url),
+          "utf8",
+        ),
+      );
+      sqlite.exec(`
+        INSERT INTO analytics_warehouse_state (project_id, verified_sequence, verified_at)
+        VALUES ('project_1', 12, 1);
+        INSERT INTO analytics_backfill_completions
+          (project_id, source_session_count, source_cutoff_ms, required_sequence, report_id, completed_at)
+        VALUES ('project_1', 1, 1, 4, 'report_1', 1), ('empty', 0, 1, 0, 'empty_report', 1);
+        INSERT INTO analytics_export_outbox
+          (export_sequence, export_id, project_id, session_id, record_kind, payload_json, created_at, sent_at)
+        VALUES (8, 'verified', 'project_1', 's1', 'session', '{}', 1, 2),
+               (13, 'sent', 'project_1', 's2', 'session', '{}', 100, 101),
+               (15, 'other', 'project_2', 's3', 'session', '{}', 5, NULL),
+               (20, 'unsent', 'project_1', 's4', 'event', '{}', 200, NULL);
+      `);
+      const queries: string[] = [];
+      const db = {
+        prepare(sql: string) {
+          queries.push(sql);
+          return { bind: (...bindings: SQLInputValue[]) => ({ sql, bindings }) };
+        },
+        async batch(statements: { sql: string; bindings: SQLInputValue[] }[]) {
+          return statements.map(({ sql, bindings }) => ({
+            results: sqlite.prepare(sql).all(...bindings),
+          }));
+        },
+      } as unknown as Parameters<typeof readWarehouseSnapshot>[0];
+
+      expect(await readWarehouseSnapshot(db, "project_1", 8)).toMatchObject({
+        version: 8,
+        analyticsDelivery: { state: "pending", pendingExports: 2, oldestPendingAt: 100 },
+      });
+      const plan = sqlite.prepare(`EXPLAIN QUERY PLAN ${queries[0]}`).all("project_1");
+      expect(
+        plan.some((row) =>
+          String(row["detail"]).includes("idx_analytics_export_outbox_project_sequence"),
+        ),
+      ).toBe(true);
+
+      sqlite.exec("UPDATE analytics_warehouse_state SET verified_sequence = 20");
+      expect(await readWarehouseSnapshot(db, "project_1", 8)).toMatchObject({
+        version: 8,
+        analyticsDelivery: { state: "current", pendingExports: 0, oldestPendingAt: null },
+      });
+      expect(await readWarehouseSnapshot(db, "empty")).toMatchObject({
+        version: 0,
+        analyticsDelivery: { state: "current", pendingExports: 0, oldestPendingAt: null },
+      });
+    } finally {
+      sqlite.close();
+    }
+  });
+
   it("refuses warehouse reads when some rows are verified but backfill is not complete", async () => {
     const db = makeDatabase({
       backfillCompleted: false,
@@ -221,5 +372,13 @@ function makeDatabase(options: {
     })),
   }));
 
-  return { prepare } as unknown as Parameters<typeof readWarehouseSnapshot>[0];
+  const batch = vi.fn(async (statements: { first(): Promise<unknown> }[]) =>
+    Promise.all(
+      statements.map(async (statement) => {
+        const row = await statement.first();
+        return { results: row === null ? [] : [row] };
+      }),
+    ),
+  );
+  return { prepare, batch } as unknown as Parameters<typeof readWarehouseSnapshot>[0];
 }

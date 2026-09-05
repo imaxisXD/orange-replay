@@ -1,5 +1,6 @@
 import {
   batchIndexSchema,
+  appliedDomMaskingSchema,
   cleanAnalyticsMetadataString,
   MAX_CHECKPOINTS_PER_BATCH,
   type BatchIndex,
@@ -68,6 +69,7 @@ export function sanitizeBatchIndexEvents(index: BatchIndex): {
     ...safeCheckpoints,
     ...optionalIndexUrl(index.u),
     ...optionalIndexEncoding(index.enc),
+    appliedDomMasking: appliedDomMaskingSchema.safeParse(index.appliedDomMasking).data,
   };
   const parsed = batchIndexSchema.safeParse(cleanIndex);
 
@@ -80,6 +82,7 @@ export function sanitizeBatchIndexEvents(index: BatchIndex): {
           checkpointTimestamps: undefined,
           u: undefined,
           enc: undefined,
+          appliedDomMasking: cleanIndex.appliedDomMasking,
           ...safeCheckpoints,
         },
     eventsDropped,

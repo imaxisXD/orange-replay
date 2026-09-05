@@ -37,9 +37,9 @@ const OVERSIZED_CATCH_UP_BYTES = SDK_BUFFER_CAP_BYTES / 32;
 export class WorkerSink implements Sink {
   private readonly config: RecorderConfig;
   private readonly session: SessionManager;
-  private readonly window: Window;
+  private readonly pageWindow: Window;
   private readonly workerHost: WorkerHost;
-  private readonly transport: Transport;
+  private readonly batchTransport: Transport;
   private readonly onCheckpointRequested: (required?: boolean) => void;
   private readonly onWorkerUnavailable?: (code: SdkHealthCode) => void;
   private readonly encoder = new TextEncoder();
@@ -75,7 +75,7 @@ export class WorkerSink implements Sink {
   constructor(options: WorkerSinkOptions) {
     this.config = options.config;
     this.session = options.session;
-    this.window = options.window;
+    this.pageWindow = options.window;
     this.onCheckpointRequested = options.onCheckpointRequested;
     this.onWorkerUnavailable = options.onWorkerUnavailable;
     this.currentUrl = scrubUrl(options.window.location.href, options.config.allowUrlParams);
@@ -100,7 +100,7 @@ export class WorkerSink implements Sink {
       });
     workerHostReady = true;
     if (workerUnavailable || !this.isAvailable()) this.stopped = true;
-    this.transport =
+    this.batchTransport =
       options.transport ??
       new Transport({
         config: options.config,
@@ -111,9 +111,9 @@ export class WorkerSink implements Sink {
   start(): void {
     if (this.stopped) return;
     this.scheduleTimer();
-    this.window.document.addEventListener("visibilitychange", this.onVisibilityChange, true);
-    this.window.addEventListener("pagehide", this.onPageHide, true);
-    this.window.addEventListener("pageshow", this.onPageShow, true);
+    this.pageWindow.document.addEventListener("visibilitychange", this.onVisibilityChange, true);
+    this.pageWindow.addEventListener("pagehide", this.onPageHide, true);
+    this.pageWindow.addEventListener("pageshow", this.onPageShow, true);
   }
 
   addRrwebEvent(event: eventWithTime): void {
@@ -256,9 +256,9 @@ export class WorkerSink implements Sink {
 
     this.stopped = true;
     this.clearTimer();
-    this.window.document.removeEventListener("visibilitychange", this.onVisibilityChange, true);
-    this.window.removeEventListener("pagehide", this.onPageHide, true);
-    this.window.removeEventListener("pageshow", this.onPageShow, true);
+    this.pageWindow.document.removeEventListener("visibilitychange", this.onVisibilityChange, true);
+    this.pageWindow.removeEventListener("pagehide", this.onPageHide, true);
+    this.pageWindow.removeEventListener("pageshow", this.onPageShow, true);
     await this.flushing;
     await this.flushInternal("manual");
     this.workerHost.stop();
@@ -360,6 +360,7 @@ export class WorkerSink implements Sink {
 
     const seq = this.session.nextSeq();
     const index = buildBatchIndex({
+      appliedDomMasking: this.config.appliedDomMasking,
       session: this.session,
       seq,
       currentUrl: this.currentUrl,
@@ -393,7 +394,7 @@ export class WorkerSink implements Sink {
       if (hasOversizedSnapshot) this.oversizedSnapshotBytes = 0;
 
       this.backpressure.addPendingBytes(body.byteLength);
-      const result = await this.transport
+      const result = await this.batchTransport
         .sendBatch({
           body,
           index,
@@ -467,6 +468,7 @@ export class WorkerSink implements Sink {
         // events remain available here, so build one bounded keepalive body
         // instead of silently losing the in-flight baseline.
         const finalBatch = buildPagehideBatch({
+          appliedDomMasking: this.config.appliedDomMasking,
           encoder: this.encoder,
           session: this.session,
           currentUrl: this.currentUrl,
@@ -525,6 +527,7 @@ export class WorkerSink implements Sink {
 
     const seq = this.session.nextSeq();
     const finalBatch = buildPagehideBatch({
+      appliedDomMasking: this.config.appliedDomMasking,
       encoder: this.encoder,
       session: this.session,
       currentUrl: this.currentUrl,
@@ -581,7 +584,7 @@ export class WorkerSink implements Sink {
     this.backpressure.addPendingBytes(batch.body.byteLength);
     // Unload transport is keepalive-only because sendBeacon cannot carry the
     // auth/session headers required by ingest.
-    const queued = this.transport.queueBatchSync(
+    const queued = this.batchTransport.queueBatchSync(
       {
         body: batch.body,
         index: batch.index,
@@ -664,9 +667,9 @@ export class WorkerSink implements Sink {
 
   private discardPipeline(): void {
     this.clearTimer();
-    this.window.document.removeEventListener("visibilitychange", this.onVisibilityChange, true);
-    this.window.removeEventListener("pagehide", this.onPageHide, true);
-    this.window.removeEventListener("pageshow", this.onPageShow, true);
+    this.pageWindow.document.removeEventListener("visibilitychange", this.onVisibilityChange, true);
+    this.pageWindow.removeEventListener("pagehide", this.onPageHide, true);
+    this.pageWindow.removeEventListener("pageshow", this.onPageShow, true);
     this.clearPipelineBuffers();
   }
 
@@ -759,8 +762,8 @@ export class WorkerSink implements Sink {
       this.flushPendingWorkerEvents();
     };
 
-    if (typeof this.window.queueMicrotask === "function") {
-      this.window.queueMicrotask(run);
+    if (typeof this.pageWindow.queueMicrotask === "function") {
+      this.pageWindow.queueMicrotask(run);
       return;
     }
 
@@ -780,20 +783,20 @@ export class WorkerSink implements Sink {
 
   private scheduleTimer(): void {
     this.clearTimer();
-    this.timerId = this.window.setTimeout(() => {
+    this.timerId = this.pageWindow.setTimeout(() => {
       void this.flushInternal("timer");
     }, this.batcher.getFlushMs());
   }
 
   private clearTimer(): void {
     if (this.timerId !== undefined) {
-      this.window.clearTimeout(this.timerId);
+      this.pageWindow.clearTimeout(this.timerId);
       this.timerId = undefined;
     }
   }
 
   private readonly onVisibilityChange = (): void => {
-    if (this.window.document.visibilityState === "hidden") {
+    if (this.pageWindow.document.visibilityState === "hidden") {
       void this.flushInternal("visibility");
     }
   };

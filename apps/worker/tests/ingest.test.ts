@@ -91,6 +91,7 @@ describe("ingest route", () => {
       recorderUrl: expect.stringMatching(/\/or-recorder(?:\.[a-f0-9]{16})?\.js$/),
       projectId: config.projectId,
       sessionScope: config.projectId,
+      domMaskingVersion: 1,
       sampleRate: 0.25,
       maskPolicyVersion: 4,
       maskRules: [{ selector: ".private", action: "block" }],

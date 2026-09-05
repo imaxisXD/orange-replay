@@ -1,13 +1,12 @@
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { build, minify } from "vite";
+import { build } from "vite";
 import { minify as minifyWithTerser } from "terser";
 import ts from "typescript";
 
 const packageDir = fileURLToPath(new URL("..", import.meta.url));
 const distDir = resolve(packageDir, "dist");
-const workerEntryPath = resolve(packageDir, "src/pipeline/worker-entry.ts");
 const rrwebTypesPath = resolve(packageDir, "../rrweb-fork/src/vendor/rrweb-types/index.ts");
 // These names are private to the built recorder. Keep public API, DOM, and
 // replay wire names (for example, nextId) out of this list.
@@ -74,30 +73,26 @@ const privateBrowserProperty = new RegExp(
     removers movedMap isRemovedNode setObserver droppedSet getMeta queueImage loadListener tail addNode
     onClick attributeMap forgetNode processMutation resetObservers drain previous maxBodyBytes
     reuseIdsFrom stopTouchListeners styleDiff _unchangedStyles onIframeLoad finalQueued
+    mutationCb stylesheetManager iframeManager shadowDomManager imageManager holdFlushes
+    stopped processedNodeManager canvasManager mutationObservedCb largeMutationCb
+    slimDOMOptions dataURLOptions maskInputOptions keepIframeSrcFn recordCanvas inlineImages
+    inlineStylesheet blockClass maskTextClass shouldRecordIframe
+    shouldRecord maskInputFn preserveWhiteSpace headTitleMutations
+    mirror config needBlock maskTextFn onStylesheetLoad onIframeReady onSerialize
+    shouldFlush setProjectId cookieDomain recordDOM
+    worker session eventCount
+    pageWindow batchTransport
+    pendingFlushes capturedEvents capturedIndexEvents
+    blockedElementSelector textMaskSelector
+    flushIntervalMs
+    WorkerCtor createObjectUrl
+    isCheckout sampling freezePage cookieMode
   `
     .trim()
     .split(/\s+/)
     .join("|")})$`,
 );
 const rrwebNumericEnums = parseNumericEnums(await readFile(rrwebTypesPath, "utf8"));
-const { makeWorkerEntrySource } = await import(workerEntryPath);
-const compactWorker = await minify("orange-replay-worker.js", makeWorkerEntrySource(), {
-  module: false,
-  compress: true,
-  mangle: true,
-  codegen: { removeWhitespace: true, legalComments: "none" },
-});
-if (compactWorker.errors.length > 0) throw new Error("Could not compact the recorder worker.");
-const optimizedWorker = await minifyWithTerser(compactWorker.code, {
-  ecma: 2022,
-  module: true,
-  compress: { passes: 3, toplevel: true },
-  mangle: { toplevel: true },
-  format: { comments: false },
-});
-if (optimizedWorker.code === undefined) throw new Error("Could not optimize the recorder worker.");
-const compactWorkerSource = optimizedWorker.code;
-
 await rm(distDir, { recursive: true, force: true });
 
 const commonBuild = {
@@ -143,18 +138,7 @@ async function buildRecorderBundle(format, fileName, autoInit) {
       // in the customer SDK.
       __ORANGE_REPLAY_INCLUDE_CROSS_ORIGIN_IFRAMES__: "false",
     },
-    plugins: [
-      inlineRrwebNumericEnums(),
-      {
-        name: "orange-replay-worker-source",
-        transform(_source, id) {
-          if (id !== workerEntryPath) return;
-          return `export function makeWorkerEntrySource(){return ${JSON.stringify(
-            compactWorkerSource,
-          )}}`;
-        },
-      },
-    ],
+    plugins: [inlineRrwebNumericEnums()],
     build: {
       ...commonBuild,
       lib: {
@@ -175,12 +159,14 @@ async function buildRecorderBundle(format, fileName, autoInit) {
 
   const outputPath = resolve(distDir, fileName);
   let output = await readFile(outputPath, "utf8");
-  for (let pass = 0; pass < 2; pass += 1) {
+  for (let pass = 0; pass < 1; pass += 1) {
     const compacted = await minifyWithTerser(output, {
       ecma: 2022,
       module: format === "es",
-      compress: { passes: 3 },
-      mangle: { properties: { regex: privateBrowserProperty, keep_quoted: true } },
+      compress: { passes: 3, keep_fargs: false },
+      // The allowlist contains only recorder-owned names, including a few
+      // generic names Terser otherwise reserves for unrelated browser APIs.
+      mangle: { properties: { regex: privateBrowserProperty, keep_quoted: true, builtins: true } },
       format: { comments: false },
     });
     if (compacted.code === undefined) throw new Error(`Could not compact ${fileName}.`);

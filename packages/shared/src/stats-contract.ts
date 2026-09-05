@@ -19,6 +19,26 @@ export const analyticsStateSchema = sharedSchema(
   v.picklist(["fresh", "stale", "compare", "d1_rollback", "d1_residency"]),
 );
 
+export const analyticsViewSchema = sharedSchema(v.picklist(["latest", "pinned"]));
+
+export const analyticsDeliverySchema = sharedSchema(
+  v.pipe(
+    v.object({
+      state: v.picklist(["current", "pending"]),
+      pendingExports: wholeNumberSchema,
+      oldestPendingAt: v.nullable(wholeNumberSchema),
+      checkedAt: wholeNumberSchema,
+    }),
+    v.check(
+      (delivery) =>
+        delivery.state === "current"
+          ? delivery.pendingExports === 0 && delivery.oldestPendingAt === null
+          : delivery.pendingExports > 0 && delivery.oldestPendingAt !== null,
+      "Analytics delivery must describe the waiting updates.",
+    ),
+  ),
+);
+
 export const filteredNumberSchema = sharedSchema(
   v.object({
     value: finiteNumberSchema,
@@ -91,6 +111,8 @@ const finalizedProjectStatsObjectSchema = v.object({
 const analyticsMetadataShape = {
   warehouseVersion: v.optional(wholeNumberSchema),
   analyticsState: v.optional(analyticsStateSchema),
+  analyticsDelivery: v.optional(analyticsDeliverySchema),
+  analyticsView: v.optional(analyticsViewSchema),
 } as const;
 
 export const finalizedProjectStatsSchema = sharedSchema(
@@ -121,18 +143,30 @@ export const projectStatsResponseSchema = sharedSchema(
   v.pipe(
     v.object({
       ...finalizedProjectStatsObjectSchema.entries,
-      liveNow: filteredNumberSchema,
+      liveNow: filteredOptionalNumberSchema,
+      liveNowState: v.optional(v.picklist(["available", "unavailable"])),
       ...analyticsMetadataShape,
     }),
     schemaCheck((stats, context) => {
       validateFinalizedStatsDoorways(stats, context);
       requireSameFilter(context, ["liveNow", "filter"], stats.filter, stats.liveNow.filter);
+      if (
+        (stats.liveNowState === "available" && stats.liveNow.value === null) ||
+        (stats.liveNowState === "unavailable" && stats.liveNow.value !== null)
+      ) {
+        context.addIssue({
+          message: "An unavailable live count must have no value.",
+          path: ["liveNow", "value"],
+        });
+      }
       validateAnalyticsMetadata(stats, context);
     }),
   ),
 );
 
 export type AnalyticsState = v.InferOutput<typeof analyticsStateSchema>;
+export type AnalyticsView = v.InferOutput<typeof analyticsViewSchema>;
+export type AnalyticsDelivery = v.InferOutput<typeof analyticsDeliverySchema>;
 export type FilteredNumber = v.InferOutput<typeof filteredNumberSchema>;
 export type FilteredOptionalNumber = v.InferOutput<typeof filteredOptionalNumberSchema>;
 export type StatsBreakdownRow = v.InferOutput<typeof statsBreakdownRowSchema>;

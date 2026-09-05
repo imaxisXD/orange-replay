@@ -11,6 +11,7 @@ import { InlineSink, WorkerSink } from "./sink.ts";
 import { discardLoaderPreBuffer, Sidecar } from "./sidecar.ts";
 import type { InitOptions, OrangeReplayHandle } from "./types.ts";
 import { resolveInitOptions } from "./types.ts";
+import { captureDomMasking } from "./dom-masking.ts";
 
 export type { InitOptions, OrangeReplayHandle, RecorderConfig } from "./types.ts";
 export type { LoaderSnippetConfig } from "./loader.ts";
@@ -66,6 +67,7 @@ export function init(options: InitOptions): OrangeReplayHandle {
           return;
         }
         assertSafePrivacySelectors(config, document);
+        config.appliedDomMasking = await captureDomMasking(config, localConfig);
 
         let checkpointSnapshots: CheckpointSnapshotLimiter | undefined;
         let workerFailedBeforeStart = false;

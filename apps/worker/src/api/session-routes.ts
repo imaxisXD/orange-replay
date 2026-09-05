@@ -46,6 +46,10 @@ export async function listSessions(
     ...result.value,
     ...(result.warehouseVersion === undefined ? {} : { warehouseVersion: result.warehouseVersion }),
     analyticsState: result.analyticsState,
+    ...(result.analyticsDelivery === undefined
+      ? {}
+      : { analyticsDelivery: result.analyticsDelivery }),
+    ...(result.analyticsView === undefined ? {} : { analyticsView: result.analyticsView }),
   } satisfies ListSessionsResponse;
   return jsonResponse(response);
 }

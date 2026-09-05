@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { createContext, Script } from "node:vm";
+import { CompressionStream } from "node:stream/web";
+import { gunzipSync } from "node:zlib";
 import { makeWorkerEntrySource } from "../src/pipeline/worker-entry.ts";
 import type { eventWithTime } from "@orange-replay/rrweb-fork";
 
@@ -159,11 +161,72 @@ describe("worker entry", () => {
     ]);
   });
 
-  it("serializes a deeply nested snapshot without recursive JSON stringify", async () => {
+  it.each([false, true])(
+    "releases snapshot scratch memory and preserves queued snapshots (gzip: %s)",
+    async (gzip) => {
+      const scope = makeScope();
+      const context = runWorkerEntry(scope, gzip ? CompressionStream : undefined, true);
+      const expectedEvents = [];
+
+      for (const timestamp of [20, 30]) {
+        const children = Array.from({ length: 1_024 }, (_, index) => ({
+          type: 2,
+          id: index + 2,
+          tagName: "article",
+          attributes: { title: `${timestamp}-${index}-${"x".repeat(gzip ? 1_000 : 300)}` },
+          childNodes: [],
+        }));
+        const root = { type: 0, id: 1, childNodes: [] };
+        const event = {
+          type: 2,
+          timestamp,
+          data: { node: null, initialOffset: { top: 0, left: 0 } },
+        };
+        scope.onmessage?.({ data: ["s", event] } as MessageEvent<unknown>);
+        scope.onmessage?.({ data: ["n", [root], [0]] } as MessageEvent<unknown>);
+        for (let start = 0; start < children.length; start += 128) {
+          const nodes = children.slice(start, start + 128);
+          scope.onmessage?.({
+            data: ["n", nodes, nodes.map(() => 1)],
+          } as MessageEvent<unknown>);
+        }
+        scope.onmessage?.({ data: ["e"] } as MessageEvent<unknown>);
+        expectedEvents.push({
+          ...event,
+          data: { ...event.data, node: { ...root, childNodes: children } },
+        });
+
+        // The completed snapshot belongs to the queue now. The worker must
+        // not retain a second root to its raw JSON after that queue drains.
+        expect(new Script("self.readScratch().chunks").runInContext(context)).toBe(0);
+      }
+
+      scope.onmessage?.({ data: ["f", 11] } as MessageEvent<unknown>);
+      await vi.waitFor(() => expect(scope.postMessage).toHaveBeenCalledOnce());
+      const message = scope.postMessage.mock.calls[0]?.[0] as [
+        string,
+        number,
+        ArrayBuffer,
+        boolean,
+        number,
+      ];
+      const payload = gzip ? gunzipSync(new Uint8Array(message[2])) : message[2];
+      expect(JSON.parse(decoder.decode(payload))).toEqual(expectedEvents);
+      expect(message[3]).toBe(!gzip);
+      expect(message[4]).toBe(0);
+      expect(new Script("self.readScratch()").runInContext(context)).toEqual({
+        events: 0,
+        chunks: 0,
+      });
+    },
+  );
+
+  it("serializes a playable nested snapshot through chunks", async () => {
     vi.stubGlobal("CompressionStream", undefined);
     const scope = makeScope();
     runWorkerEntry(scope);
-    const nodeCount = 12_000;
+    // The player's JSON limit includes the event wrapper and child arrays.
+    const nodeCount = 62;
 
     scope.onmessage?.({
       data: [
@@ -213,25 +276,40 @@ describe("worker entry", () => {
   });
 });
 
-function runWorkerEntry(scope: TestWorkerScope): void {
-  const script = new Script(makeWorkerEntrySource());
-  script.runInContext(
-    createContext({
-      self: scope,
-      TextEncoder,
-      Response,
-      Blob,
-      Uint8Array,
-      ArrayBuffer,
-      JSON,
-      Error,
-      Number,
-      Math,
-      Promise,
-      Map,
-      Array,
-    }),
-  );
+function runWorkerEntry(
+  scope: TestWorkerScope,
+  compressionStream?: typeof CompressionStream,
+  inspectScratch = false,
+) {
+  let source = makeWorkerEntrySource();
+  if (inspectScratch) {
+    // The worker now owns its state inside a self-contained factory. Add a
+    // test-only observer within that scope; nothing is exposed in the bundle.
+    expect(source).toContain("let snapshotValues = 0;");
+    source = source.replace(
+      "let snapshotValues = 0;",
+      "let snapshotValues = 0; self.readScratch = () => ({events: events.length, chunks: treeChunks.length});",
+    );
+  }
+  const script = new Script(source);
+  const context = createContext({
+    self: scope,
+    TextEncoder,
+    Response,
+    Blob,
+    Uint8Array,
+    ArrayBuffer,
+    JSON,
+    Error,
+    Number,
+    Math,
+    Promise,
+    Map,
+    Array,
+    CompressionStream: compressionStream,
+  });
+  script.runInContext(context);
+  return context;
 }
 
 function makeScope(): TestWorkerScope {

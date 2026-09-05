@@ -1,16 +1,15 @@
 import { MAX_DECODED_BATCH_EVENTS, validateReplayEvents } from "./replay-event-validation.ts";
 import type { ReplayEvent } from "./types.ts";
+import { REPLAY_DATA_LIMITS } from "@orange-replay/shared/constants";
 
 export interface DecodedReplayEvents {
   events: ReplayEvent[];
   decodedBytes: number;
 }
 
-export const MAX_DECODED_BATCH_BYTES = 16 * 1024 * 1024;
+export const MAX_DECODED_BATCH_BYTES = REPLAY_DATA_LIMITS.bytes;
 export { MAX_DECODED_BATCH_EVENTS };
 export const MAX_REPLAY_JSON_TRAILING_WHITESPACE_CHARS = 4096;
-const MIN_DECODED_BATCH_BYTES = 1024 * 1024;
-const MAX_DECODED_EXPANSION_RATIO = 32;
 const textDecoder = new TextDecoder("utf-8", { fatal: true });
 
 export async function decodeBatchBytes(payload: Uint8Array): Promise<ReplayEvent[]> {
@@ -19,7 +18,7 @@ export async function decodeBatchBytes(payload: Uint8Array): Promise<ReplayEvent
 
 export async function decodeBatchWithStats(payload: Uint8Array): Promise<DecodedReplayEvents> {
   const plainBytes = await gunzipOrPlain(payload);
-  assertDecodedSize(payload, plainBytes.byteLength);
+  assertDecodedSize(plainBytes.byteLength);
   const text = textDecoder.decode(plainBytes);
   assertJsonTrailingWhitespace(text);
   const parsed = JSON.parse(text) as unknown;
@@ -38,26 +37,30 @@ async function gunzipOrPlain(payload: Uint8Array): Promise<Uint8Array> {
   try {
     const body = new Response(payload as unknown as BodyInit).body;
     if (body === null) return payload;
-    return await readDecodedStream(body.pipeThrough(new DecompressionStream("gzip")), payload);
+    return await readDecodedStream(body.pipeThrough(new DecompressionStream("gzip")));
   } catch (error) {
     if (isDecodeLimitError(error)) throw error;
     return payload;
   }
 }
 
-async function readDecodedStream(
-  stream: ReadableStream<Uint8Array>,
-  compressedPayload: Uint8Array,
-): Promise<Uint8Array> {
+async function readDecodedStream(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
   const reader = stream.getReader();
   const chunks: Uint8Array[] = [];
   let totalBytes = 0;
-  for (;;) {
-    const read = await reader.read();
-    if (read.done) break;
-    totalBytes += read.value.byteLength;
-    assertDecodedSize(compressedPayload, totalBytes);
-    chunks.push(read.value);
+  try {
+    for (;;) {
+      const read = await reader.read();
+      if (read.done) break;
+      totalBytes += read.value.byteLength;
+      assertDecodedSize(totalBytes);
+      chunks.push(read.value);
+    }
+  } catch (error) {
+    await reader.cancel().catch(() => undefined);
+    throw error;
+  } finally {
+    reader.releaseLock();
   }
   const decoded = new Uint8Array(totalBytes);
   let offset = 0;
@@ -68,18 +71,11 @@ async function readDecodedStream(
   return decoded;
 }
 
-function assertDecodedSize(compressedPayload: Uint8Array, decodedBytes: number): void {
-  if (decodedBytes <= decodedByteLimit(compressedPayload)) return;
+function assertDecodedSize(decodedBytes: number): void {
+  if (decodedBytes <= MAX_DECODED_BATCH_BYTES) return;
   const error = new Error("Replay batch is too large after decoding.");
   error.name = "ReplayDecodeLimitError";
   throw error;
-}
-
-function decodedByteLimit(payload: Uint8Array): number {
-  return Math.min(
-    MAX_DECODED_BATCH_BYTES,
-    Math.max(MIN_DECODED_BATCH_BYTES, payload.byteLength * MAX_DECODED_EXPANSION_RATIO),
-  );
 }
 
 function isDecodeLimitError(error: unknown): boolean {

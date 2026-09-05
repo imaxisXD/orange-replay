@@ -26,7 +26,12 @@ export function buildTemplateWrangler(source) {
   );
   // A fresh self-host install applies every D1 migration before its first
   // deploy, so it can enable accepted-byte reservations immediately.
-  appendObject(lines, "vars", { ACCEPTED_USAGE_RESERVATIONS: "1" });
+  appendObject(lines, "vars", {
+    ACCEPTED_USAGE_RESERVATIONS: "1",
+    ...(source.vars?.REPLAY_ASSET_QUEUE_NAME
+      ? { REPLAY_ASSET_QUEUE_NAME: source.vars.REPLAY_ASSET_QUEUE_NAME }
+      : {}),
+  });
   appendAssets(lines, source.env?.production?.assets);
 
   appendDurableObjects(lines, source.durable_objects);

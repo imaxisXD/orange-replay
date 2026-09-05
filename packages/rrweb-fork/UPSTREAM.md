@@ -22,7 +22,7 @@
 - rrweb plugins for console, network, canvas WebRTC, and sequential id.
 - rrweb-snapshot rebuild/replay utilities and PostCSS replay helpers.
 - Tests, fixtures, benchmarks, docs, build scripts, and package manager files from upstream.
-- Canvas recording internals that require the inline worker and `base64-arraybuffer`. The record package hard-imports the canvas manager, so this fork keeps a no-op local canvas manager for now and does not ship canvas capture.
+- Upstream canvas recording internals that require the inline worker and `base64-arraybuffer`. The fork uses its own bounded pixel-frame capture for the SDK's opt-in canvas setting.
 
 ## Local changes
 
@@ -30,12 +30,14 @@
 - Rewrote upstream package import specifiers for `@rrweb/types`, `@rrweb/utils`, `rrweb-snapshot`, and `rrdom` to local vendored paths so root workspace tests can load the fork without extra aliases.
 - Added a capture-only `src/vendor/rrweb-snapshot/index.ts` so snapshot recording does not pull rebuild/replay helpers into the fork.
 - Added `src/vendor/rrdom-stub.ts` and `src/vendor/rrweb/replay.ts` type stubs for replay-only type references left in upstream shared files.
-- Replaced upstream `record/observers/canvas/canvas-manager.ts` with a no-op capture-only stub. This keeps DOM recording working while excluding canvas capture code from this task.
+- Replaced upstream `record/observers/canvas/canvas-manager.ts` with bounded, deduplicated image-frame capture. Canvas capture stays opt-in; recorded images and canvas frames do not require replaying canvas API calls.
 - Added a small `jsdom` test dependency to this package only because rrweb's recorder expects browser DOM APIs such as `DOMTokenList.prototype`.
 - This package exports TypeScript source directly from `./src/index.ts`, matching the in-repo SDK import path. The package build script is intentionally a no-op and `pack.dts` is disabled because `vp pack`/`tsgo` hung on the vendored rrweb tree in an earlier run. Declaration output is not required for this private workspace package.
-- This package relaxes TypeScript strictness only for the fork: `strict`, `noUnusedLocals`, and `noUncheckedIndexedAccess` are disabled in `packages/rrweb-fork/tsconfig.json`. `skipLibCheck` stays enabled. The reason is upstream vendored code is not authored to this repo's stricter package flags.
+- This package relaxes TypeScript strictness only for the fork: `strict`, `noUnusedLocals`, and `noUncheckedIndexedAccess` are disabled in `packages/rrweb-fork/tsconfig.json`. `strictNullChecks` is explicitly enabled so null-aware lint rules and callback types remain checked. `skipLibCheck` stays enabled. The reason for the remaining relaxed flags is upstream vendored code is not authored to this repo's stricter package flags.
 - This package uses TypeScript `moduleResolution: "bundler"` because upstream rrweb source uses browser-bundler style extensionless imports.
 - Vite Plus lint ignores `src/vendor/**` for this package, and the root workspace lint config also ignores `packages/rrweb-fork/src/vendor/**` because root `vp check` is the workspace lint entry point. The vendored files were formatted by Oxfmt and are compiled through the package entry/build path.
+- The SDK build defines `__ORANGE_REPLAY_SDK_PROFILE__` and uses its own chunked child and iframe traversal. Keep the generic recursive serializer and iframe load fallback behind that profile boundary. Delayed stylesheet updates in the SDK serialize only the link's attributes; the normal traversal and mutation observer own its children. The general-purpose snapshot exports retain recursive behavior.
+- Delayed stylesheet serialization retains the link's original node ID after the temporary snapshot mirror is released. Stylesheet callbacks survive unrelated iframe snapshots; a new full checkpoint invalidates prior full-snapshot callbacks. The shared publisher rejects stopped recordings and invalid current owners for both snapshot and incremental links. Preserve these changes during resync; the focused stylesheet tests and built-SDK-to-player browser suite cover the contract.
 
 ## Resync procedure
 

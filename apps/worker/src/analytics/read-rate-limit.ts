@@ -38,14 +38,13 @@ WHERE analytics_read_budget.window_start < excluded.window_start
 RETURNING request_count AS requestCount`;
 
 /**
- * Applies both a per-person and per-project budget before an analytics read.
+ * Applies per-person and per-project limits before checking cached analytics.
  * Raw user, IP, and project identifiers never leave the Worker in limiter keys.
  */
 export async function checkAnalyticsReadRateLimit(
   env: AnalyticsReadRateLimitEnv,
   actorIdentity: string | null,
   projectId: string,
-  now = Date.now(),
 ): Promise<AnalyticsReadRateLimitResult> {
   if (isDevTestMode(env)) return { allowed: true };
 
@@ -68,8 +67,19 @@ export async function checkAnalyticsReadRateLimit(
     });
     if (!project.success) return { allowed: false, scope: "project" };
 
-    if (!usesWarehouseReads(env.ANALYTICS_READ_BACKEND)) return { allowed: true };
+    return { allowed: true };
+  } catch {
+    return { allowed: false, scope: "configuration" };
+  }
+}
 
+/** Reserve shared capacity only when a read will actually query the warehouse. */
+export async function checkWarehouseReadCapacity(
+  env: AnalyticsReadRateLimitEnv,
+  now = Date.now(),
+): Promise<AnalyticsReadRateLimitResult> {
+  if (isDevTestMode(env)) return { allowed: true };
+  try {
     const locationLimiter = env.ANALYTICS_GLOBAL_RATE_LIMITER;
     if (locationLimiter === undefined || env.IDX_00 === undefined) {
       return { allowed: false, scope: "configuration" };
@@ -93,10 +103,6 @@ async function consumeGlobalWarehouseBudget(database: D1Database, now: number): 
     .bind(windowStart, ANALYTICS_GLOBAL_REQUESTS_PER_MINUTE)
     .first<{ requestCount: number }>();
   return row !== null;
-}
-
-function usesWarehouseReads(backend: string | undefined): boolean {
-  return backend === "compare" || backend === "r2_sql";
 }
 
 async function sha256Hex(value: string): Promise<string> {

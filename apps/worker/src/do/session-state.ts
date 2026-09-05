@@ -1,4 +1,9 @@
-import type { EdgeAttrs } from "@orange-replay/shared";
+import {
+  addDomMaskingBatch,
+  domMaskingSchema,
+  type DomMasking,
+  type EdgeAttrs,
+} from "@orange-replay/shared";
 import * as v from "valibot";
 import type { AppendArgs } from "./contract.ts";
 import {
@@ -38,6 +43,7 @@ export interface SessionState {
   lastPresencePingAt?: number;
   checkpointRequested?: boolean;
   finalizingAt?: number;
+  domMasking?: DomMasking;
 }
 
 const SESSION_STATE_FORMAT = 1;
@@ -97,6 +103,7 @@ const currentSessionStateSchema = v.object({
   quickBacks: wholeNumberSchema,
   pageTabs: v.pipe(v.array(pageTabSchema), v.maxLength(MAX_TRACKED_PAGE_TABS)),
   finalizingAt: v.optional(timestampSchema),
+  domMasking: v.optional(domMaskingSchema),
 });
 const storedSessionStateEnvelopeSchema = v.object({
   stateFormat: v.literal(SESSION_STATE_FORMAT),
@@ -111,9 +118,11 @@ const legacySessionStateSchema = v.object({
   quickBacks: v.optional(v.unknown()),
   pageTabs: v.optional(v.unknown()),
   finalizingAt: v.optional(v.unknown()),
+  domMasking: v.optional(v.unknown()),
 });
 
 type NormalizedSessionStateKey =
+  | "domMasking"
   | "websiteIds"
   | "totalEventBytes"
   | "analyticsVersion"
@@ -181,9 +190,11 @@ export function normalizeSessionState(state: NormalizableSessionState): SessionS
     quickBacks: rawQuickBacks,
     pageTabs: rawPageTabs,
     finalizingAt: rawFinalizingAt,
+    domMasking: rawDomMasking,
     ...stableState
   } = state;
   const websiteIds = normalizeWebsiteIds(rawWebsiteIds);
+  const domMasking = domMaskingSchema.safeParse(rawDomMasking);
   const normalized: SessionState = {
     ...stableState,
     ...(websiteIds === undefined ? {} : { websiteIds }),
@@ -192,6 +203,7 @@ export function normalizeSessionState(state: NormalizableSessionState): SessionS
     pageCount: nonnegativeWholeNumber(rawPageCount),
     quickBacks: nonnegativeWholeNumber(rawQuickBacks),
     pageTabs: normalizePageTabs(rawPageTabs),
+    ...(domMasking.success ? { domMasking: domMasking.data } : {}),
   };
 
   if (
@@ -215,6 +227,11 @@ export function updateStateWithBatch(
   state.bufferedBytes += args.payload.byteLength;
   state.totalPayloadBytes += args.payload.byteLength;
   state.totalEventBytes += eventBytes;
+  state.domMasking = addDomMaskingBatch(
+    state.domMasking,
+    clampedIndex.appliedDomMasking,
+    state.batchCount,
+  );
   state.batchCount += 1;
   state.flags = (state.flags | args.flags) >>> 0;
   if (args.websiteId !== undefined && !(state.websiteIds ?? []).includes(args.websiteId)) {

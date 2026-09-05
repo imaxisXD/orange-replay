@@ -1,6 +1,11 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
-import { FLAG_UNCOMPRESSED, HDR_FLAGS, HDR_SEQ } from "@orange-replay/shared/constants";
+import {
+  FLAG_UNCOMPRESSED,
+  HDR_FLAGS,
+  HDR_SEQ,
+  MAX_COMPRESSED_BATCH_BYTES,
+} from "@orange-replay/shared/constants";
 import { decodeIngestBody } from "@orange-replay/shared/wire";
 import { CheckpointSnapshotLimiter } from "../src/checkpoint.ts";
 import { InlineSink } from "../src/sink.ts";
@@ -42,6 +47,49 @@ afterEach(() => {
 });
 
 describe("InlineSink", () => {
+  it("stops before sending an oversized baseline or its later mutations", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const fetchMock = vi.fn<typeof fetch>();
+    const sink = new InlineSink({
+      config,
+      session: makeSession(["session-one", "tab-one"]),
+      window,
+      fetch: fetchMock,
+      onCheckpointRequested: vi.fn(),
+    });
+    sink.addRrwebEvent({
+      type: EventType.FullSnapshot,
+      timestamp: 10,
+      data: {
+        node: {
+          type: 0,
+          id: 1,
+          childNodes: [{ type: 3, id: 2, textContent: "x".repeat(MAX_COMPRESSED_BATCH_BYTES) }],
+        },
+        initialOffset: { left: 0, top: 0 },
+      },
+    });
+    await sink.flush("manual");
+    sink.addRrwebEvent({
+      type: EventType.IncrementalSnapshot,
+      timestamp: 11,
+      data: {
+        source: 0,
+        adds: [],
+        removes: [],
+        attributes: [],
+        texts: [{ id: 2, value: "later" }],
+      },
+    });
+    await sink.flush("manual");
+
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn.mock.calls[0]?.[1]).toMatchObject({
+      message: "Replay batch is too large to send.",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("encodes a valid uncompressed ingest batch", async () => {
     const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {

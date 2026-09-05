@@ -1,4 +1,6 @@
 import type { eventWithTime } from "@orange-replay/rrweb-fork";
+import { MAX_COMPRESSED_BATCH_BYTES, REPLAY_DATA_LIMITS } from "@orange-replay/shared/constants";
+import { countReplayValues, type ReplayValueCounter } from "@orange-replay/shared/replay-limits";
 
 export interface WorkerBatchResult {
   payload: Uint8Array;
@@ -6,78 +8,81 @@ export interface WorkerBatchResult {
   droppedEventCount?: number;
 }
 
-const encoder = new TextEncoder();
-
-export async function serializeAndCompressBatch(
-  events: readonly eventWithTime[],
-): Promise<WorkerBatchResult> {
-  const serialized = stringifyReplayEvents(events);
-  const plainBytes = encoder.encode(serialized.json);
-
-  if (typeof CompressionStream !== "function") {
-    return {
-      payload: plainBytes,
-      uncompressed: true,
-      droppedEventCount: serialized.droppedEventCount,
-    };
-  }
-
-  try {
-    const body = new Response(plainBytes).body;
-    if (body === null) {
-      return {
-        payload: plainBytes,
-        uncompressed: true,
-        droppedEventCount: serialized.droppedEventCount,
-      };
-    }
-
-    const compressed = await new Response(
-      body.pipeThrough(new CompressionStream("gzip")),
-    ).arrayBuffer();
-    return {
-      payload: new Uint8Array(compressed),
-      uncompressed: false,
-      droppedEventCount: serialized.droppedEventCount,
-    };
-  } catch {
-    return {
-      payload: plainBytes,
-      uncompressed: true,
-      droppedEventCount: serialized.droppedEventCount,
-    };
-  }
+export interface SerializedSnapshot {
+  $: string[];
+  values: number;
 }
 
-function stringifyReplayEvents(events: readonly eventWithTime[]): {
-  json: string;
-  droppedEventCount: number;
-} {
-  try {
-    return { json: JSON.stringify(events), droppedEventCount: 0 };
-  } catch {
-    const keptEvents: eventWithTime[] = [];
-    let droppedEventCount = 0;
+const batchLimits = [
+  REPLAY_DATA_LIMITS.bytes,
+  REPLAY_DATA_LIMITS.events,
+  REPLAY_DATA_LIMITS.values,
+  MAX_COMPRESSED_BATCH_BYTES,
+] as const;
 
+// Keep the factory self-contained. Explicit inline capture and the Blob worker
+// share the same serializer and resource checks without shipping two copies.
+function createBatchSerializer(
+  countValues: ReplayValueCounter,
+  maxBytes: number,
+  maxEvents: number,
+  maxValues: number,
+  maxPayloadBytes: number,
+) {
+  return async function serializeAndCompressBatch(
+    events: readonly (eventWithTime | SerializedSnapshot)[],
+    compress = true,
+    dropInvalidEvents = true,
+  ): Promise<WorkerBatchResult> {
+    const chunks = ["["];
+    let droppedEventCount = 0;
+    let values = 0;
     for (const event of events) {
+      const snapshot = event as SerializedSnapshot;
+      if (Array.isArray(snapshot.$)) {
+        values += snapshot.values;
+        if (chunks.length > 1) chunks.push(",");
+        chunks.push(...snapshot.$);
+        continue;
+      }
+      let json: string;
       try {
-        JSON.stringify(event);
-        keptEvents.push(event);
-      } catch {
+        json = JSON.stringify(event);
+      } catch (error) {
+        // Missing DOM baselines would leave later mutations without their nodes.
+        const replayEvent = event as eventWithTime;
+        if (!dropInvalidEvents || replayEvent.type === 2 || replayEvent.type === 3) throw error;
         droppedEventCount += 1;
+        continue;
+      }
+      values += countValues(event);
+      if (chunks.length > 1) chunks.push(",");
+      chunks.push(json);
+    }
+    if (values > maxValues) throw new Error("Replay batch is too complex.");
+    if (events.length - droppedEventCount > maxEvents)
+      throw new Error("Replay batch has too many events.");
+    chunks.push("]");
+    const blob = new Blob(chunks);
+    if (blob.size > maxBytes) throw new Error("Replay batch is too large after decoding.");
+
+    let compressed: ArrayBuffer | undefined;
+    if (compress && typeof CompressionStream === "function") {
+      try {
+        compressed = await new Response(
+          blob.stream().pipeThrough(new CompressionStream("gzip")),
+        ).arrayBuffer();
+      } catch {
+        // Older browsers may expose the API without a working gzip stream.
       }
     }
-
-    try {
-      return {
-        json: JSON.stringify(keptEvents),
-        droppedEventCount,
-      };
-    } catch {
-      return {
-        json: "[]",
-        droppedEventCount: events.length,
-      };
-    }
-  }
+    const payload = new Uint8Array(compressed ?? (await blob.arrayBuffer()));
+    if (payload.byteLength > maxPayloadBytes) throw new Error("Replay batch is too large to send.");
+    return { payload, uncompressed: compressed === undefined, droppedEventCount };
+  };
 }
+
+export const serializeAndCompressBatch = createBatchSerializer(countReplayValues, ...batchLimits);
+export const REPLAY_BATCH_SERIALIZER_SOURCE = `
+const serializeAndCompressBatch = (${createBatchSerializer.toString()})(countReplayValues, ${batchLimits.join(",")});
+`;

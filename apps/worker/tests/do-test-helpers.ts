@@ -50,6 +50,7 @@ export interface AppendInput {
   events?: BatchIndex["e"];
   checkpointTimestamps?: number[];
   attrs?: Record<string, string | number>;
+  appliedDomMasking?: BatchIndex["appliedDomMasking"];
 }
 
 export interface DebugBody {
@@ -114,6 +115,7 @@ async function sendAppend(input: AppendInput): Promise<Response> {
     t1: input.t1 ?? input.t0 + 50,
     u: input.url ?? `/page-${input.seq}`,
     e: input.events ?? [{ t: input.t0 + 1, k: "custom", d: `batch-${input.seq}` }],
+    appliedDomMasking: input.appliedDomMasking,
     ...(input.checkpointTimestamps === undefined
       ? {}
       : { checkpointTimestamps: input.checkpointTimestamps }),
@@ -176,6 +178,36 @@ export async function seedDeletionMarker(projectId: string, sessionId: string): 
     body: JSON.stringify({ projectId, sessionId }),
   });
 
+  expect(response.status).toBe(200);
+}
+
+export async function readFinalizationJobForTest(
+  projectId: string,
+  sessionId: string,
+): Promise<Record<string, unknown> | null> {
+  const response = await worker.fetch(
+    `/__test/do/finalization-job?projectId=${encodeURIComponent(projectId)}&sessionId=${encodeURIComponent(sessionId)}`,
+  );
+  expect(response.status).toBe(200);
+  return ((await response.json()) as { job: Record<string, unknown> | null }).job;
+}
+
+export async function removeAlarmForTest(projectId: string, sessionId: string): Promise<void> {
+  const response = await worker.fetch("/__test/do/remove-alarm", {
+    method: "POST",
+    body: JSON.stringify({ projectId, sessionId }),
+  });
+  expect(response.status).toBe(200);
+}
+
+export async function repairFinalizationForTest(
+  projectId: string,
+  sessionId: string,
+): Promise<void> {
+  const response = await worker.fetch("/__test/do/repair-finalization", {
+    method: "POST",
+    body: JSON.stringify({ projectId, sessionId }),
+  });
   expect(response.status).toBe(200);
 }
 
@@ -278,6 +310,10 @@ export async function readR2Bytes(key: string): Promise<Uint8Array> {
 
   expect(response.status).toBe(200);
   return new Uint8Array(await response.arrayBuffer());
+}
+
+export async function readR2Status(key: string): Promise<number> {
+  return (await worker.fetch(`/__test/do/r2?key=${encodeURIComponent(key)}`)).status;
 }
 
 export async function waitForR2Bytes(key: string): Promise<Uint8Array> {

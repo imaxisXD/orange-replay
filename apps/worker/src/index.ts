@@ -9,6 +9,7 @@ import { isDashboardAppRoute, serveDashboardAppShell } from "./app-shell.ts";
 import { handleFinalizeBatch } from "./consumer/queue.ts";
 import { sweepProjectKeyCache } from "./consumer/key-cache-sweeper.ts";
 import { sweepExpiredSessions } from "./consumer/sweeper.ts";
+import { repairSessionFinalizations } from "./consumer/finalization-recovery.ts";
 import { isDevTestMode, setWorkerLoggerVersion, type Env, type WorkerQueueMessage } from "./env.ts";
 import { handleIngest, handleRecorderConfig } from "./ingest/handler.ts";
 import { handleSdkHealth } from "./ingest/sdk-health.ts";
@@ -88,7 +89,13 @@ export default {
       );
       return;
     }
-    ctx.waitUntil(Promise.all([maintainAnalyticsWarehouse(env), sweepProjectKeyCache(env)]));
+    ctx.waitUntil(
+      Promise.all([
+        maintainAnalyticsWarehouse(env),
+        sweepProjectKeyCache(env),
+        repairSessionFinalizations(env),
+      ]),
+    );
   },
 } satisfies ExportedHandler<Env, WorkerQueueMessage>;
 

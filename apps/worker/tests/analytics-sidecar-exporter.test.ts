@@ -179,7 +179,7 @@ describe("complete analytics sidecar delivery", () => {
     }
   });
 
-  it("still throws when Pipeline delivery or R2 reading fails", async () => {
+  it("stops on Pipeline failure but defers a failed sidecar read", async () => {
     const pipelineStore = new OneRowStore(completeSessionRow(1));
     await expect(
       drainAnalyticsExports(
@@ -208,7 +208,7 @@ describe("complete analytics sidecar delivery", () => {
           },
         },
       }),
-    ).rejects.toThrow("could not read its analytics sidecar: R2 is unavailable");
+    ).resolves.toMatchObject({ selected: 1, failed: 1, sent: 0 });
     expect(readStore.row.lastError).toContain("R2 is unavailable");
   });
 
@@ -225,7 +225,7 @@ describe("complete analytics sidecar delivery", () => {
         sidecarReadTimeoutMs: 5,
         sidecarReader: fixedSidecarReader(hangingBody),
       }),
-    ).rejects.toThrow("analytics sidecar stream read timed out after 5 milliseconds");
+    ).resolves.toMatchObject({ selected: 1, failed: 1, sent: 0 });
     expect(store.row.sentAt).toBeNull();
     expect(store.row.lastError).toContain("timed out");
   });
@@ -276,12 +276,18 @@ describe("complete analytics sidecar delivery", () => {
 
     await expect(
       drainAnalyticsExports(store, pipeline, { now: 10, sidecarReader: reader }),
-    ).rejects.toThrow("could not save sidecar progress: progress write stopped");
+    ).resolves.toMatchObject({ selected: 1, failed: 1, sent: 0 });
+    expect(store.row.lastError).toContain(
+      "could not save sidecar progress: progress write stopped",
+    );
     expect(store.row.quarantinedAt).toBeNull();
     expect(store.row.sidecarEventOffset).toBe(0);
 
     await expect(
       drainAnalyticsExports(store, pipeline, { now: 20, sidecarReader: reader }),
+    ).resolves.toMatchObject({ selected: 0, sent: 0 });
+    await expect(
+      drainAnalyticsExports(store, pipeline, { now: 300_010, sidecarReader: reader }),
     ).resolves.toMatchObject({ sent: 1 });
     const clickRecords = accepted
       .flat()
@@ -340,13 +346,17 @@ class OneRowStore implements AnalyticsOutboxStore {
   readonly row: AnalyticsOutboxRow;
   failNextMarkSent = false;
   failNextSaveProgress = false;
+  retryAt = 0;
 
   constructor(row: AnalyticsOutboxRow) {
     this.row = row;
   }
 
-  async listPending(limit: number): Promise<AnalyticsOutboxRow[]> {
-    return this.row.sentAt === null && this.row.quarantinedAt === null && limit > 0
+  async listPending(limit: number, now = Date.now()): Promise<AnalyticsOutboxRow[]> {
+    return this.row.sentAt === null &&
+      this.row.quarantinedAt === null &&
+      limit > 0 &&
+      now >= this.retryAt
       ? [this.row]
       : [];
   }
@@ -367,10 +377,15 @@ class OneRowStore implements AnalyticsOutboxStore {
     }
   }
 
-  async markFailed(exportSequences: readonly number[], error: string): Promise<void> {
+  async markFailed(
+    exportSequences: readonly number[],
+    error: string,
+    retryAt: number,
+  ): Promise<void> {
     if (exportSequences.includes(this.row.exportSequence)) {
       this.row.attemptCount += 1;
       this.row.lastError = error;
+      this.retryAt = retryAt;
     }
   }
 

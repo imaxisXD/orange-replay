@@ -2,6 +2,17 @@ import { startWideEvent } from "@orange-replay/shared";
 import type { WideEventOutcome } from "@orange-replay/shared";
 import { DurableObject } from "cloudflare:workers";
 import { usageMonthFromStartedAt } from "../consumer/helpers.ts";
+import { deleteSessionObjects } from "../consumer/sweeper.ts";
+import {
+  FINALIZATION_REPAIR_DELAY_MS,
+  finalizationReceiptHash,
+  markFinalizationReady,
+  readFinalizationJob,
+  registerSessionFinalization,
+  type FinalizationRegistration,
+  type FinalizationRepairRequest,
+  type FinalizationRepairResult,
+} from "../consumer/finalization-recovery.ts";
 import type { Env } from "../env.ts";
 import {
   acceptedUsageReservationsEnabled,
@@ -61,6 +72,8 @@ interface DebugState {
   firstRequestId?: string;
   websiteIds?: string[];
   tombstonePurgeAt?: number;
+  finalizationRegistered: boolean;
+  hasFinalizationReceipt: boolean;
 }
 
 export type { TestSeedBatchesArgs } from "./session-recorder-store.ts";
@@ -77,6 +90,9 @@ export class SessionRecorder extends DurableObject<Env> {
   private activeFinalize: Promise<void> | null = null;
   private readonly appendRateLimit: AppendRateLimitState = { windowStartedAt: 0, count: 0 };
   private schemaReady = false;
+  private finalizationRegistered = false;
+  private finalizationCancelled = false;
+  private registrationInFlight: Promise<void> | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -106,6 +122,8 @@ export class SessionRecorder extends DurableObject<Env> {
       },
       acceptedUsageReservationsEnabled: acceptedUsageReservationsEnabled(env),
       reserveAcceptedUsage: (state, bytes) => this.reserveAcceptedUsage(state, bytes, "finalize"),
+      markFinalizationReady: (message) =>
+        markFinalizationReady(shardDb(env, message.shard), message, ctx.id.toString()),
       markPresenceFinalizing: (projectId, sessionId, requestId, finalizingAt) =>
         this.markPresenceFinalizing(projectId, sessionId, requestId, finalizingAt),
       finalizeViewers: (manifest) => this.liveHub.finalizeViewers(manifest),
@@ -122,6 +140,8 @@ export class SessionRecorder extends DurableObject<Env> {
         const stored = this.store.loadStoredState();
         this.sessionState = stored.state;
         this.finalizedTombstone = stored.tombstone;
+        this.finalizationRegistered = this.store.finalizationIsRegistered();
+        this.finalizationCancelled = this.store.finalizationIsCancelled();
       }
       await this.alarms.load();
       if (this.sessionState !== null && this.finalizedTombstone === null) {
@@ -140,6 +160,169 @@ export class SessionRecorder extends DurableObject<Env> {
     return "pong";
   }
 
+  /** Internal RPC only. The namespace binding and stored object id identify this job. */
+  async repairFinalization(request: FinalizationRepairRequest): Promise<FinalizationRepairResult> {
+    const event = startWideEvent(
+      "worker",
+      "do.finalization_repair",
+      this.sessionState?.firstRequestId ?? this.finalizedTombstone?.firstRequestId,
+    );
+    try {
+      const result = await this.repairFinalizationNow(request);
+      event.set({ complete: result.complete, next_attempt_at: result.nextAttemptAt });
+      return result;
+    } catch (error) {
+      event.fail(error);
+      throw error;
+    } finally {
+      event.set({
+        project_id: request.projectId,
+        session_id: request.sessionId,
+        shard: request.shard,
+      });
+      event.emit();
+    }
+  }
+
+  private async repairFinalizationNow(
+    request: FinalizationRepairRequest,
+  ): Promise<FinalizationRepairResult> {
+    const db = shardDb(this.env, request.shard);
+    const job = await readFinalizationJob(db, request);
+    const nextAttemptAt = Date.now() + FINALIZATION_REPAIR_DELAY_MS;
+    if (job === null) return { complete: this.sessionState === null, nextAttemptAt };
+    if (job.object_id !== this.ctx.id.toString())
+      throw new Error("The recovery record belongs to another session.");
+    this.ensureSchema();
+
+    if (job.delete_analytics === 1) {
+      this.store.cancelFinalization();
+      this.finalizationCancelled = true;
+      for (const socket of this.ctx.getWebSockets()) socket.close(1000, "Recording deleted.");
+      // Stop admission first, then wait for any already-started R2 writes.
+      // Deleting objects before those writes settle could recreate erased data.
+      await this.activeFinalize?.catch(() => undefined);
+      await this.activeFlush?.catch(() => undefined);
+      const deletion = await deleteSessionObjects(
+        this.env.RECORDINGS,
+        {
+          projectId: job.project_id,
+          sessionId: job.session_id,
+          startedAt: job.started_at,
+          deleteReason: "delete_requested",
+          requiresWarehouseTombstone: 1,
+          keepAnalyticsSidecar: 0,
+        },
+        1,
+      );
+      if (deletion.complete) {
+        await sendPresenceSessionRequest(this.env, "/remove", job.session_id, {
+          projectId: job.project_id,
+          sessionId: job.session_id,
+        });
+        await db
+          .prepare("DELETE FROM accepted_usage_sessions WHERE project_id = ? AND session_id = ?")
+          .bind(job.project_id, job.session_id)
+          .run();
+        await this.ctx.storage.deleteAll();
+        this.sessionState = null;
+        this.finalizedTombstone = null;
+        this.schemaReady = false;
+        this.finalizationRegistered = false;
+      }
+      return { complete: deletion.complete, nextAttemptAt };
+    }
+
+    const state = this.sessionState;
+    if (state !== null) {
+      await this.ensureFinalizationRegistered(state);
+      const timing = resolveSessionTiming(devTestRoutesFlag(this.env), this.env.TEST_TIMINGS);
+      if (state.finalizingAt !== undefined || Date.now() - state.lastActivity >= timing.closeMs) {
+        await this.finalize();
+      } else {
+        const desiredAt = nextAlarmAfterAlarm({
+          lastActivity: state.lastActivity,
+          pendingBatches: this.store.pendingBatchCount(),
+          timing,
+        });
+        await this.alarms.schedule(desiredAt, timing.flushTailMs);
+        return { complete: false, nextAttemptAt: state.lastActivity + timing.closeMs };
+      }
+    } else {
+      const receipt = this.store.readFinalizationReceipt();
+      if (receipt !== null) {
+        await markFinalizationReady(db, receipt, this.ctx.id.toString());
+        await this.env.FINALIZE_QUEUE.send(receipt, { contentType: "json" });
+      } else if (!this.store.finalizationIsComplete()) {
+        throw new Error("The saved session finalization receipt is missing.");
+      }
+    }
+
+    if (job.expires_at !== null && (job.expires_at <= Date.now() || job.delete_analytics === 0)) {
+      const pending =
+        job.state !== "indexed" ||
+        (await db
+          .prepare(`SELECT 1 AS pending FROM analytics_export_outbox
+        WHERE project_id = ? AND session_id = ? AND record_kind = 'session' AND sent_at IS NULL LIMIT 1`)
+          .bind(job.project_id, job.session_id)
+          .first()) !== null;
+      const deletion = await deleteSessionObjects(
+        this.env.RECORDINGS,
+        {
+          projectId: job.project_id,
+          sessionId: job.session_id,
+          startedAt: job.started_at,
+          deleteReason: "recording_retention_expired",
+          requiresWarehouseTombstone: 1,
+          keepAnalyticsSidecar: pending && job.analytics_sidecar_key !== null ? 1 : 0,
+        },
+        1,
+      );
+      return { complete: deletion.complete && this.store.finalizationIsComplete(), nextAttemptAt };
+    }
+    return { complete: this.store.finalizationIsComplete(), nextAttemptAt };
+  }
+
+  async acknowledgeFinalization(
+    request: FinalizationRepairRequest & { receiptHash: string },
+  ): Promise<void> {
+    const event = startWideEvent(
+      "worker",
+      "do.finalization_ack",
+      this.finalizedTombstone?.firstRequestId,
+    );
+    try {
+      await this.acknowledgeFinalizationNow(request);
+    } catch (error) {
+      event.fail(error);
+      throw error;
+    } finally {
+      event.set({ project_id: request.projectId, session_id: request.sessionId });
+      event.emit();
+    }
+  }
+
+  private async acknowledgeFinalizationNow(
+    request: FinalizationRepairRequest & { receiptHash: string },
+  ): Promise<void> {
+    const job = await readFinalizationJob(shardDb(this.env, request.shard), request);
+    if (job === null || job.delete_analytics === 1) return;
+    if (
+      job.object_id !== this.ctx.id.toString() ||
+      job.state !== "indexed" ||
+      job.receipt_hash !== request.receiptHash
+    ) {
+      throw new Error("The session index has not confirmed this finalization receipt.");
+    }
+    this.ensureSchema();
+    const receipt = this.store.readFinalizationReceipt();
+    if (receipt === null && this.store.finalizationIsComplete()) return;
+    if (receipt === null || (await finalizationReceiptHash(receipt)) !== request.receiptHash) {
+      throw new Error("The session finalization receipt does not match its acknowledgement.");
+    }
+    this.store.completeFinalizationReceipt();
+  }
+
   private buildLiveSnapshot() {
     const state = this.sessionState;
     if (state === null) {
@@ -156,6 +339,7 @@ export class SessionRecorder extends DurableObject<Env> {
       endedAt: state.lastActivity,
       durationMs: Math.max(0, state.lastActivity - state.startedAt),
       timeline: timelineData.timeline,
+      ...(state.domMasking === undefined ? {} : { domMasking: state.domMasking }),
       counts: {
         batches: state.batchCount,
         ...timelineData.counts,
@@ -217,7 +401,7 @@ export class SessionRecorder extends DurableObject<Env> {
       };
 
       const lifecycle = this.lifecycle();
-      if (sessionIsClosed(lifecycle)) {
+      if (this.finalizationCancelled || sessionIsClosed(lifecycle)) {
         result = closedResult();
         return result;
       }
@@ -395,6 +579,8 @@ export class SessionRecorder extends DurableObject<Env> {
       hasState: this.sessionState !== null,
       schemaReady: this.schemaReady,
       finalized: this.finalizedTombstone !== null,
+      finalizationRegistered: this.finalizationRegistered,
+      hasFinalizationReceipt: this.schemaReady && this.store.readFinalizationReceipt() !== null,
       bufferedBytes: this.sessionState?.bufferedBytes ?? 0,
       pendingBatches: this.schemaReady ? this.store.pendingBatchCount() : 0,
       segmentCount:
@@ -449,6 +635,11 @@ export class SessionRecorder extends DurableObject<Env> {
     await this.alarm();
   }
 
+  async removeAlarmForTest(): Promise<void> {
+    await this.ctx.storage.deleteAlarm();
+    this.alarms.onAlarmFired();
+  }
+
   override async alarm(alarmInfo?: AlarmInvocationInfo): Promise<void> {
     const event = startWideEvent(
       "worker",
@@ -465,6 +656,38 @@ export class SessionRecorder extends DurableObject<Env> {
       this.alarms.onAlarmFired();
       const lifecycle = this.lifecycle();
       if (lifecycle.status === "finalized") {
+        const receipt = this.store.readFinalizationReceipt();
+        const identity =
+          receipt ??
+          (lifecycle.tombstone.projectId !== undefined &&
+          lifecycle.tombstone.sessionId !== undefined
+            ? {
+                projectId: lifecycle.tombstone.projectId,
+                sessionId: lifecycle.tombstone.sessionId,
+                shard: 0,
+              }
+            : null);
+        if (identity !== null) {
+          const job = await readFinalizationJob(shardDb(this.env, identity.shard), identity);
+          if (job !== null) {
+            const repair = await this.repairFinalization(identity);
+            if (!repair.complete) {
+              await this.alarms.schedulePurge(Date.now() + FINALIZATION_REPAIR_DELAY_MS);
+              return;
+            }
+            await shardDb(this.env, identity.shard)
+              .prepare(
+                "DELETE FROM session_finalization_jobs WHERE project_id = ? AND session_id = ? AND object_id = ?",
+              )
+              .bind(identity.projectId, identity.sessionId, this.ctx.id.toString())
+              .run();
+            if (!this.schemaReady) return;
+          } else if (receipt !== null) {
+            throw new Error(
+              "The session recovery record is missing while its receipt is still pending.",
+            );
+          }
+        }
         const purgeAt = lifecycle.tombstone.purgeAt;
         if (Date.now() >= purgeAt) {
           alarmKind = "purge_tombstone";
@@ -472,6 +695,7 @@ export class SessionRecorder extends DurableObject<Env> {
           this.sessionState = null;
           this.finalizedTombstone = null;
           this.schemaReady = false;
+          this.finalizationRegistered = false;
           return;
         }
 
@@ -483,6 +707,7 @@ export class SessionRecorder extends DurableObject<Env> {
         return;
       }
       const state = lifecycle.state;
+      await this.ensureFinalizationRegistered(state);
       projectId = state.projectId;
       orgId = state.orgId;
       sessionId = state.sessionId;
@@ -529,6 +754,11 @@ export class SessionRecorder extends DurableObject<Env> {
       }
     } catch (err) {
       event.fail(err);
+      // Automatic alarm retries are finite. Keep a future wakeup as well as
+      // the independent D1 repair record; constructor alarm handling stays unchanged.
+      await this.alarms
+        .schedulePurge(Date.now() + FINALIZATION_REPAIR_DELAY_MS)
+        .catch(() => undefined);
       throw err;
     } finally {
       event.set({
@@ -544,6 +774,9 @@ export class SessionRecorder extends DurableObject<Env> {
   }
 
   override async fetch(request: Request): Promise<Response> {
+    if (this.sessionState !== null && !this.finalizationRegistered) {
+      await this.ensureFinalizationRegistered(this.sessionState);
+    }
     return await this.liveHub.fetch(request);
   }
 
@@ -620,7 +853,7 @@ export class SessionRecorder extends DurableObject<Env> {
 
   private async flushSegmentNow(reason: SegmentFlushReason): Promise<SegmentFlushResult | null> {
     const state = this.sessionState;
-    if (state === null) {
+    if (state === null || this.finalizationCancelled) {
       return null;
     }
     return await this.segmentWriter.flushSegment(state, reason);
@@ -636,6 +869,8 @@ export class SessionRecorder extends DurableObject<Env> {
     ];
     if (acceptedUsageReservationsEnabled(this.env)) {
       operations.push(this.reserveCurrentAcceptedUsage(state, "append", verifyStoredBytes));
+    } else {
+      operations.push(this.ensureFinalizationRegistered(state));
     }
 
     const results = await Promise.allSettled(operations);
@@ -643,6 +878,8 @@ export class SessionRecorder extends DurableObject<Env> {
       (result): result is PromiseRejectedResult => result.status === "rejected",
     );
     if (failure !== undefined) throw failure.reason;
+    if (this.finalizationCancelled)
+      throw new Error("The recording was deleted before this batch was accepted.");
   }
 
   private async reserveCurrentAcceptedUsage(
@@ -666,7 +903,8 @@ export class SessionRecorder extends DurableObject<Env> {
     bytes: number,
     source: "append" | "finalize",
   ): Promise<void> {
-    await reserveAcceptedUsageInD1(shardDb(this.env, state.shard), {
+    const db = shardDb(this.env, state.shard);
+    const reservation = {
       projectId: state.projectId,
       sessionId: state.sessionId,
       orgId: state.orgId,
@@ -674,7 +912,57 @@ export class SessionRecorder extends DurableObject<Env> {
       bytes,
       updatedAt: Date.now(),
       source,
-    });
+    };
+    if (!this.finalizationRegistered && this.registrationInFlight === null) {
+      await this.runFinalizationRegistration(() =>
+        reserveAcceptedUsageInD1(db, {
+          ...reservation,
+          finalizationRegistration: this.finalizationRegistration(state),
+        }),
+      );
+      return;
+    }
+    if (this.registrationInFlight !== null) await this.registrationInFlight;
+    await reserveAcceptedUsageInD1(db, reservation);
+  }
+
+  private finalizationRegistration(state: SessionState): FinalizationRegistration {
+    return {
+      projectId: state.projectId,
+      sessionId: state.sessionId,
+      orgId: state.orgId,
+      objectId: this.ctx.id.toString(),
+      shard: state.shard,
+      retentionDays: state.retentionDays,
+      startedAt: state.startedAt,
+      now: Date.now(),
+    };
+  }
+
+  private rememberFinalizationRegistration(): void {
+    this.store.markFinalizationRegistered();
+    this.finalizationRegistered = true;
+  }
+
+  private async ensureFinalizationRegistered(state: SessionState): Promise<void> {
+    await this.runFinalizationRegistration(() =>
+      registerSessionFinalization(
+        shardDb(this.env, state.shard),
+        this.finalizationRegistration(state),
+      ),
+    );
+  }
+
+  private async runFinalizationRegistration(operation: () => Promise<void>): Promise<void> {
+    if (this.finalizationRegistered) return;
+    if (this.registrationInFlight !== null) return await this.registrationInFlight;
+    const pending = operation().then(() => this.rememberFinalizationRegistration());
+    this.registrationInFlight = pending;
+    try {
+      await pending;
+    } finally {
+      if (this.registrationInFlight === pending) this.registrationInFlight = null;
+    }
   }
 
   private async finalize(): Promise<void> {
@@ -688,8 +976,9 @@ export class SessionRecorder extends DurableObject<Env> {
     }
 
     beginFinalizing(lifecycle.state, (updated) => this.persistSessionState(updated));
-
-    const finalize = this.finalizeNow();
+    // Own the complete operation before any awaited preflight can let an
+    // alarm or repair request start another writer for this recording.
+    const finalize = this.finalizeWithRecovery(lifecycle.state);
     this.activeFinalize = finalize;
     try {
       await finalize;
@@ -698,6 +987,17 @@ export class SessionRecorder extends DurableObject<Env> {
         this.activeFinalize = null;
       }
     }
+  }
+
+  private async finalizeWithRecovery(state: SessionState): Promise<void> {
+    await this.ensureFinalizationRegistered(state);
+    const job = await readFinalizationJob(shardDb(this.env, state.shard), state);
+    if (job?.delete_analytics === 1 || this.finalizationCancelled) {
+      this.store.cancelFinalization();
+      this.finalizationCancelled = true;
+      throw new Error("The recording was deleted before finalization.");
+    }
+    await this.finalizeNow();
   }
 
   private async finalizeNow(): Promise<void> {

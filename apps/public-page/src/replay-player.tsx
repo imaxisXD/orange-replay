@@ -1,5 +1,6 @@
 import type { PublicPageRecording } from "@orange-replay/shared";
-import { OrangePlayer } from "@orange-replay/player";
+import { OrangePlayer, type ReplayTab } from "@orange-replay/player";
+import { domMaskingDescription, summarizeDomMasking } from "@orange-replay/shared/dom-masking";
 import { useEffect, useRef, useState } from "react";
 
 interface ReplayPlayerProperties {
@@ -17,6 +18,12 @@ export default function ReplayPlayer({ publicId, recording }: ReplayPlayerProper
   const [currentMs, setCurrentMs] = useState(0);
   const [durationMs, setDurationMs] = useState(recording.durationMs);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [tabs, setTabs] = useState<ReplayTab[]>([]);
+  const [selectedTab, setSelectedTab] = useState<string | undefined>();
+  const [masking, setMasking] = useState(() =>
+    domMaskingDescription(summarizeDomMasking(undefined)),
+  );
+  const playingRef = useRef(false);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -46,6 +53,15 @@ export default function ReplayPlayer({ publicId, recording }: ReplayPlayerProper
       player.on("ready", (manifest) => {
         setDurationMs(manifest.durationMs);
         setReplayState("paused");
+        setMasking(
+          domMaskingDescription(
+            manifest.domMaskingSummary ?? summarizeDomMasking(manifest.domMasking),
+          ),
+        );
+      }),
+      player.on("tabs", (state) => {
+        setTabs(state.tabs);
+        setSelectedTab(state.selectedTab);
       }),
       player.on("progress", (progress) => {
         setCurrentMs(progress.currentMs);
@@ -53,10 +69,19 @@ export default function ReplayPlayer({ publicId, recording }: ReplayPlayerProper
       }),
       player.on("buffering", ({ buffering }) => {
         setReplayState((current) =>
-          buffering ? "buffering" : current === "buffering" ? "playing" : current,
+          buffering
+            ? "buffering"
+            : current === "buffering"
+              ? playingRef.current
+                ? "playing"
+                : "paused"
+              : current,
         );
       }),
-      player.on("ended", () => setReplayState("ended")),
+      player.on("ended", () => {
+        playingRef.current = false;
+        setReplayState("ended");
+      }),
       player.on("error", (error) => {
         if (error.severity === "warning" || error.severity === "recovering") return;
         setReplayState("error");
@@ -67,6 +92,7 @@ export default function ReplayPlayer({ publicId, recording }: ReplayPlayerProper
     return () => {
       for (const stop of stopListening) stop();
       player.destroy();
+      playingRef.current = false;
       playerRef.current = null;
     };
   }, [publicId, recording.replayId]);
@@ -76,14 +102,25 @@ export default function ReplayPlayer({ publicId, recording }: ReplayPlayerProper
     if (player === null || replayState === "loading" || replayState === "error") return;
     if (replayState === "playing" || replayState === "buffering") {
       player.pause();
+      playingRef.current = false;
       setReplayState("paused");
       return;
     }
     setReplayState("playing");
+    playingRef.current = true;
     try {
       await player.play();
     } catch {
+      playingRef.current = false;
       setReplayState("error");
+      setErrorMessage(replayErrorMessage);
+    }
+  };
+
+  const selectTab = async (tab: string) => {
+    try {
+      await playerRef.current?.selectTab(tab);
+    } catch {
       setErrorMessage(replayErrorMessage);
     }
   };
@@ -102,6 +139,23 @@ export default function ReplayPlayer({ publicId, recording }: ReplayPlayerProper
 
   return (
     <div className="public-player">
+      {tabs.length > 1 && (
+        <label className="public-player-tabs">
+          Replay tab
+          <select
+            aria-label="Replay tab"
+            value={selectedTab ?? tabs[0]!.id}
+            onChange={(event) => void selectTab(event.currentTarget.value)}
+          >
+            {tabs.map((tab) => (
+              <option key={tab.id} value={tab.id} disabled={tab.firstSnapshotAt === undefined}>
+                {tab.label}
+                {tab.firstSnapshotAt === undefined ? " · Replay unavailable" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <div className="public-player-stage" ref={containerRef} />
       <div className="public-player-controls">
         <button className="watch-button" type="button" onClick={() => void togglePlayback()}>
@@ -127,6 +181,7 @@ export default function ReplayPlayer({ publicId, recording }: ReplayPlayerProper
         </span>
       </div>
       {errorMessage !== null ? <p className="player-error">{errorMessage}</p> : null}
+      <p className="public-player-masking">{masking}</p>
     </div>
   );
 }

@@ -21,6 +21,158 @@ afterEach(() => {
 });
 
 describe("analytics last-good cache", () => {
+  it.each(["stats", "sessions"] as const)(
+    "refreshes %s delivery metadata on cache hits and preserves a requested snapshot",
+    async (route) => {
+      installCache();
+      vi.spyOn(Date, "now").mockReturnValue(100_001_000);
+      const state = warehouseState();
+      const env = warehouseEnv(state);
+      const ctx = testContext();
+      const fetchWarehouse = vi.fn(async () =>
+        r2SqlResponse([route === "stats" ? statsRow("project_1") : sessionRow("project_1")]),
+      );
+      vi.stubGlobal("fetch", fetchWarehouse);
+      const read = (query = "") => {
+        const url = new URL(`https://replay.test/api/v1/projects/project_1/${route}${query}`);
+        return route === "stats"
+          ? getProjectStats(
+              url,
+              env,
+              ctx.value,
+              "project_1",
+              "delivery",
+              startWideEvent("test", route),
+            )
+          : listSessions(
+              url,
+              env,
+              "project_1",
+              "session",
+              "delivery",
+              startWideEvent("test", route),
+              ctx.value,
+            );
+      };
+
+      const legacy = await (await read()).json();
+      expect(legacy).not.toHaveProperty("analyticsDelivery");
+      await ctx.finish();
+      state.pendingExports = 2;
+      state.oldestPendingAt = 99_401_000;
+      expect(await (await read()).json()).toMatchObject({
+        analyticsState: "fresh",
+        analyticsView: "latest",
+        warehouseVersion: 12,
+        analyticsDelivery: {
+          state: "pending",
+          pendingExports: 2,
+          oldestPendingAt: 99_401_000,
+          checkedAt: 100_001_000,
+        },
+      });
+      expect(fetchWarehouse).toHaveBeenCalledOnce();
+      state.verifiedSequence = 13;
+      expect(await (await read("?warehouse_version=12")).json()).toMatchObject({
+        analyticsState: "fresh",
+        analyticsView: "pinned",
+        warehouseVersion: 12,
+        analyticsDelivery: { state: "pending", pendingExports: 2 },
+      });
+      expect(fetchWarehouse).toHaveBeenCalledOnce();
+      state.pendingExports = 0;
+      state.oldestPendingAt = null;
+      expect(await (await read("?warehouse_version=12")).json()).toMatchObject({
+        analyticsView: "pinned",
+        warehouseVersion: 12,
+        analyticsDelivery: { state: "current", pendingExports: 0, oldestPendingAt: null },
+      });
+    },
+  );
+
+  it("keeps historical stats available when live presence fails and never returns a zero live count", async () => {
+    installCache();
+    const state = warehouseState();
+    const env = warehouseEnv(state);
+    const ctx = testContext();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => r2SqlResponse([statsRow("project_1")])),
+    );
+    state.presenceUnavailable = true;
+    const response = await getProjectStats(
+      new URL("https://replay.test/api/v1/projects/project_1/stats"),
+      env,
+      ctx.value,
+      "project_1",
+      "presence",
+      startWideEvent("test", "stats"),
+    );
+    expect(response.status).toBe(200);
+    const stats = projectStatsResponseSchema.parse(await response.json());
+    expect(stats.sessions.value).toBeGreaterThan(0);
+    expect(stats.liveNow).toEqual({ value: null, filter: stats.filter });
+    expect(stats.liveNowState).toBe("unavailable");
+    await ctx.finish();
+  });
+  it.each(["stats", "sessions"] as const)(
+    "serves cached %s without warehouse capacity and uses stale data when a new query is denied",
+    async (route) => {
+      installCache();
+      vi.spyOn(Date, "now").mockReturnValue(100_001_000);
+      const state = warehouseState();
+      const env = warehouseEnv(state);
+      const ctx = testContext();
+      const fetchWarehouse = vi.fn(async () =>
+        r2SqlResponse([route === "stats" ? statsRow("project_1") : sessionRow("project_1")]),
+      );
+      vi.stubGlobal("fetch", fetchWarehouse);
+      const read = (query = "") => {
+        const url = new URL(`https://replay.test/api/v1/projects/project_1/${route}${query}`);
+        return route === "stats"
+          ? getProjectStats(
+              url,
+              env,
+              ctx.value,
+              "project_1",
+              "capacity",
+              startWideEvent("test", route),
+            )
+          : listSessions(
+              url,
+              env,
+              "project_1",
+              "session",
+              "capacity",
+              startWideEvent("test", route),
+              ctx.value,
+            );
+      };
+
+      expect((await read()).status).toBe(200);
+      await ctx.finish();
+      expect(state.warehouseRequests).toBe(1);
+
+      state.warehouseCapacity = false;
+      const current = await read();
+      expect(current.status).toBe(200);
+      expect(await current.json()).toMatchObject({ analyticsState: "fresh", warehouseVersion: 12 });
+      expect(state.warehouseRequests).toBe(1);
+
+      state.verifiedSequence = 13;
+      const stale = await read();
+      expect(stale.status).toBe(200);
+      expect(await stale.json()).toMatchObject({ analyticsState: "stale", warehouseVersion: 12 });
+      expect(state.warehouseRequests).toBe(2);
+      expect(fetchWarehouse).toHaveBeenCalledOnce();
+
+      const unavailable = await read("?country=DE");
+      expect(unavailable.status).toBe(503);
+      expect(await unavailable.json()).toEqual({ error: "analytics_unavailable" });
+      expect(fetchWarehouse).toHaveBeenCalledOnce();
+    },
+  );
+
   it("adds the shared date bound before a direct R2 SQL API read", async () => {
     installCache();
     vi.spyOn(Date, "now").mockReturnValue(100_001_000);
@@ -552,6 +704,11 @@ interface WarehouseState {
   pendingDeletion: boolean;
   privacyVersion: number;
   verifiedSequence: number;
+  warehouseCapacity?: boolean;
+  warehouseRequests?: number;
+  pendingExports?: number;
+  oldestPendingAt?: number | null;
+  presenceUnavailable?: boolean;
 }
 
 function warehouseState(): WarehouseState {
@@ -562,16 +719,29 @@ function warehouseEnv(state: WarehouseState): Env {
   return {
     ANALYTICS_EXPORT_ENABLED: "1",
     ANALYTICS_READ_BACKEND: "r2_sql",
+    ANALYTICS_GLOBAL_RATE_LIMITER: { limit: vi.fn(async () => ({ success: true })) },
     ANALYTICS_STREAM: { async send() {} },
     R2_SQL_ACCOUNT_ID: "account_1",
     R2_SQL_BUCKET: "analytics_bucket",
     R2_SQL_TOKEN: "reader_token",
     IDX_00: {
+      async batch(statements: { first(): Promise<unknown> }[]) {
+        return Promise.all(
+          statements.map(async (statement) => {
+            const row = await statement.first();
+            return { results: row === null ? [] : [row] };
+          }),
+        );
+      },
       prepare(sql: string) {
         return {
           bind() {
             return {
               async first() {
+                if (sql.includes("INSERT INTO analytics_read_budget")) {
+                  state.warehouseRequests = (state.warehouseRequests ?? 0) + 1;
+                  return state.warehouseCapacity === false ? null : { requestCount: 1 };
+                }
                 if (sql.includes("FROM projects")) return { jurisdiction: null };
                 if (sql.includes("MAX(j.deletion_export_sequence)")) {
                   return { privacy_version: state.privacyVersion };
@@ -589,7 +759,11 @@ function warehouseEnv(state: WarehouseState): Env {
                   };
                 }
                 if (sql.includes("analytics_warehouse_state")) {
-                  return { verified_sequence: state.verifiedSequence };
+                  return {
+                    verified_sequence: state.verifiedSequence,
+                    pending_exports: state.pendingExports,
+                    oldest_pending_at: state.oldestPendingAt,
+                  };
                 }
                 throw new Error("The analytics cache test received an unknown D1 query");
               },
@@ -602,6 +776,7 @@ function warehouseEnv(state: WarehouseState): Env {
       getByName() {
         return {
           async fetch() {
+            if (state.presenceUnavailable === true) throw new Error("Presence is unavailable.");
             return Response.json({ sessions: [] });
           },
         };

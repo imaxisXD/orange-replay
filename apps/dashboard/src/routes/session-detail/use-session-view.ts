@@ -152,5 +152,6 @@ function mergeLiveSnapshot(
     durationMs: snapshot.durationMs,
     timeline: snapshot.timeline,
     counts: snapshot.counts,
+    domMasking: snapshot.domMasking,
   };
 }

@@ -278,6 +278,7 @@ function record<T = eventWithTime>(options: recordOptions<T> = {}): listenerHand
   let fullSnapshotRunning = false;
   let queuedSnapshotCheckout: boolean | undefined;
   let snapshotGeneration = 0;
+  let fullSnapshotGeneration = 0;
   let snapshotQueueOverflow = false;
   let topologyRevision = 0;
   let privacyRevision = 0;
@@ -528,6 +529,13 @@ function record<T = eventWithTime>(options: recordOptions<T> = {}): listenerHand
   const stylesheetManager = new StylesheetManager({
     mutationCb: wrappedMutationEmit,
     adoptedStyleSheetCb: wrappedAdoptedStyleSheetEmit,
+    shouldRecord: (linkElement, nodeId): boolean =>
+      !stopped &&
+      linkElement.isConnected &&
+      iframeManager.isCurrentDocument(linkElement.ownerDocument) &&
+      mirror.isActiveNode(linkElement) &&
+      mirror.getId(linkElement) === nodeId &&
+      !isBlocked(linkElement, blockClass, blockSelector, true),
   });
 
   const iframeManager = new IframeManager({
@@ -972,6 +980,7 @@ function record<T = eventWithTime>(options: recordOptions<T> = {}): listenerHand
     generation: number,
     snapshotTimestamp: number,
     iframeLoads: PendingIframeLoad[],
+    stylesheetGeneration = fullSnapshotGeneration,
   ): SnapshotOptions => ({
     mirror: candidateMirror,
     reuseIdsFrom: mirror,
@@ -1015,7 +1024,9 @@ function record<T = eventWithTime>(options: recordOptions<T> = {}): listenerHand
     },
     onIframeReady: (iframeDocument) => iframeManager.snapshotLoadedIframe(iframeDocument),
     onStylesheetLoad: (linkElement, childSnapshot) => {
-      if (generation !== snapshotGeneration || stopped) return;
+      // An independent iframe snapshot does not replace the page's links.
+      // A full checkpoint does, so only its current callbacks can publish CSS.
+      if (stylesheetGeneration !== fullSnapshotGeneration) return;
       stylesheetManager.attachLinkElement(linkElement, childSnapshot);
     },
     keepIframeSrcFn,
@@ -1051,6 +1062,7 @@ function record<T = eventWithTime>(options: recordOptions<T> = {}): listenerHand
       mirrorResetNeeded = false;
     }
     const generation = ++snapshotGeneration;
+    fullSnapshotGeneration += 1;
     const candidateMirror = createMirror();
     let committed = false;
     let snapshotStarted = false;

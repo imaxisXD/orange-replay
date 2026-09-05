@@ -1,5 +1,10 @@
-import { MAX_MANIFEST_SEGMENTS } from "@orange-replay/shared";
-import type { EdgeAttrs, SegmentCheckpoint, SegmentRef } from "@orange-replay/shared";
+import { finalizeMessageSchema, MAX_MANIFEST_SEGMENTS } from "@orange-replay/shared";
+import type {
+  EdgeAttrs,
+  FinalizeMessage,
+  SegmentCheckpoint,
+  SegmentRef,
+} from "@orange-replay/shared";
 import { clampIndexForStorage } from "./session-budgets.ts";
 import {
   createFreshState,
@@ -208,6 +213,13 @@ export class SessionRecorderStore {
       CREATE TABLE IF NOT EXISTS used_live_tickets (
         nonce TEXT PRIMARY KEY,
         expires_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS finalization_recovery (
+        id INTEGER PRIMARY KEY CHECK (id=1),
+        registered INTEGER NOT NULL DEFAULT 0,
+        receipt TEXT,
+        completed INTEGER NOT NULL DEFAULT 0,
+        cancelled INTEGER NOT NULL DEFAULT 0
       );
     `);
   }
@@ -645,6 +657,72 @@ export class SessionRecorderStore {
         }
       },
     };
+  }
+
+  finalizationIsRegistered(): boolean {
+    return (
+      this.sql
+        .exec<{ registered: number }>("SELECT registered FROM finalization_recovery WHERE id = 1")
+        .toArray()[0]?.registered === 1
+    );
+  }
+
+  markFinalizationRegistered(): void {
+    this.sql.exec(
+      "INSERT INTO finalization_recovery (id, registered) VALUES (1, 1) ON CONFLICT(id) DO UPDATE SET registered = 1",
+    );
+  }
+
+  readFinalizationReceipt(): FinalizeMessage | null {
+    const row = this.sql
+      .exec<{ receipt: string | null }>("SELECT receipt FROM finalization_recovery WHERE id = 1")
+      .toArray()[0];
+    if (row?.receipt == null) return null;
+    const stored: unknown = JSON.parse(row.receipt);
+    if (
+      typeof stored !== "object" ||
+      stored === null ||
+      !("receiptFormat" in stored) ||
+      stored.receiptFormat !== 1 ||
+      !("message" in stored)
+    ) {
+      throw new Error("The saved session finalization receipt format is not supported.");
+    }
+    return finalizeMessageSchema.parse(stored.message);
+  }
+
+  saveFinalizationReceipt(message: FinalizeMessage): void {
+    // This row deliberately survives replacing the recording with a tombstone.
+    this.sql.exec(
+      "UPDATE finalization_recovery SET receipt = ? WHERE id = 1 AND receipt IS NULL AND completed = 0",
+      JSON.stringify({ receiptFormat: 1, message: finalizeMessageSchema.parse(message) }),
+    );
+  }
+
+  completeFinalizationReceipt(): void {
+    this.sql.exec("UPDATE finalization_recovery SET receipt = NULL, completed = 1 WHERE id = 1");
+  }
+
+  finalizationIsComplete(): boolean {
+    return (
+      this.sql
+        .exec<{ completed: number }>("SELECT completed FROM finalization_recovery WHERE id = 1")
+        .toArray()[0]?.completed === 1
+    );
+  }
+
+  cancelFinalization(): void {
+    this.sql.exec(
+      "INSERT INTO finalization_recovery (id, cancelled) VALUES (1, 1) ON CONFLICT(id) DO UPDATE SET cancelled = 1",
+    );
+  }
+
+  finalizationIsCancelled(): boolean {
+    return (
+      this.sql
+        .exec<{ cancelled: number }>("SELECT cancelled FROM finalization_recovery WHERE id = 1")
+        .toArray()[0]?.cancelled === 1
+    );
   }
 
   replaceStateWithTombstone(tombstone: FinalizedTombstone): void {

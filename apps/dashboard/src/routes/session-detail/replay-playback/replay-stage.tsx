@@ -27,7 +27,7 @@ export function ReplayStage({
   return (
     <div
       aria-busy={!ready || buffering || waitingForKeyframe}
-      className="relative aspect-video min-h-90 overflow-hidden bg-background"
+      className="relative aspect-video min-h-90 w-full overflow-hidden bg-background"
       data-testid="replay-stage"
     >
       <div ref={containerRef} className="absolute inset-0 overflow-hidden" />

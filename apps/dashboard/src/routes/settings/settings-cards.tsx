@@ -153,7 +153,7 @@ export function MaskingCard({
 
   return (
     <SettingsCard
-      body="Custom rules run after the default input masking policy."
+      body="Input values are masked by default. Page text is masked only where selected rules apply. Changes apply when a page starts recording again; existing recordings keep their captured content."
       className="flex flex-col gap-2 p-4"
       right={
         <Badge color="gray" size="sm">

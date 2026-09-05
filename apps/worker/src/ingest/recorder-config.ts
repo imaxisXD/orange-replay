@@ -83,6 +83,7 @@ export async function handleRecorderConfig(
     }
 
     const recorderConfig: RecorderProjectConfig = {
+      domMaskingVersion: 1,
       recorderUrl: await recorderAssetUrl(request, env),
       projectId: config.projectId,
       sessionScope: config.projectId,

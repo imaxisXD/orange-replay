@@ -13,10 +13,98 @@ import {
   readUsageLedger,
   runAlarmForTest,
   seedDeletionMarker,
+  readFinalizationJobForTest,
+  removeAlarmForTest,
+  repairFinalizationForTest,
+  seedBatches,
+  flush,
+  readR2Status,
   waitForR2Bytes,
 } from "./do-test-helpers.ts";
 
 describe("SessionRecorder Durable Object", () => {
+  it("registers acknowledged bytes once and recovers after losing its alarm", async () => {
+    const projectId = "project-recovery-registry";
+    const sessionId = "session-recovery-registry";
+    const input = {
+      projectId,
+      sessionId,
+      tab: "tab-a",
+      seq: 0,
+      payload: bytes("durable-recovery"),
+      t0: Date.now(),
+    };
+    await append(input);
+    const first = await readFinalizationJobForTest(projectId, sessionId);
+    expect(first).toMatchObject({
+      state: "recording",
+      project_id: projectId,
+      session_id: sessionId,
+    });
+    expect(first?.object_id).toMatch(/^[a-f0-9]{64}$/);
+    await append(input);
+    expect(await readFinalizationJobForTest(projectId, sessionId)).toEqual(first);
+
+    await markFinalizingForTest(projectId, sessionId);
+    await removeAlarmForTest(projectId, sessionId);
+    expect((await readDebug(projectId, sessionId)).alarmAt).toBeNull();
+    await repairFinalizationForTest(projectId, sessionId);
+    expect(await readR2Bytes(manifestKey(projectId, sessionId))).not.toHaveLength(0);
+    expect(await readDebug(projectId, sessionId)).toMatchObject({
+      hasState: false,
+      finalized: true,
+    });
+  });
+
+  it("erases an unindexed recording through its recovery record without resurrection", async () => {
+    const projectId = "project-recovery-delete";
+    const sessionId = "session-recovery-delete";
+    const input = {
+      projectId,
+      sessionId,
+      tab: "tab-a",
+      seq: 0,
+      payload: bytes("erase-before-index"),
+      t0: Date.now(),
+    };
+    await append(input);
+    await flush(projectId, sessionId);
+    expect(await readR2Bytes(segmentKey(projectId, sessionId, 1))).not.toHaveLength(0);
+    await removeAlarmForTest(projectId, sessionId);
+    await seedDeletionMarker(projectId, sessionId);
+    await repairFinalizationForTest(projectId, sessionId);
+    expect(await readFinalizationJobForTest(projectId, sessionId)).toBeNull();
+    expect(await readDebug(projectId, sessionId)).toMatchObject({
+      hasState: false,
+      finalized: false,
+    });
+    expect((await append(input)).closed).toBe(true);
+    expect(await readUsageLedger(projectId, sessionId)).toBeNull();
+    expect(await readR2Status(segmentKey(projectId, sessionId, 1))).toBe(404);
+  });
+
+  it("adopts stored recording state from before the recovery registry existed", async () => {
+    const projectId = "project-recovery-adopt";
+    const sessionId = "session-recovery-adopt";
+    await seedBatches({
+      projectId,
+      sessionId,
+      tab: "tab-old",
+      startSeq: 0,
+      count: 1,
+      payloadBytes: 100,
+      t0: Date.now(),
+    });
+    expect(await readFinalizationJobForTest(projectId, sessionId)).toBeNull();
+    await markFinalizingForTest(projectId, sessionId);
+    await runAlarmForTest(projectId, sessionId);
+    expect(await readDebug(projectId, sessionId)).toMatchObject({
+      finalizationRegistered: true,
+      finalized: true,
+    });
+    expect(await readR2Bytes(manifestKey(projectId, sessionId))).not.toHaveLength(0);
+  });
+
   it("finishes an alarm recovery after D1 indexed but before the tombstone was stored", async () => {
     const projectId = "project-alarm-indexed";
     const sessionId = "session-alarm-indexed";

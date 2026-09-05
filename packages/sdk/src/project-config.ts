@@ -78,6 +78,8 @@ export function mergeRecorderProjectConfig(
     websiteId: remoteConfig.websiteId,
     sampleRate: Math.min(localConfig.sampleRate, remoteConfig.sampleRate),
     maskPolicyVersion: remoteConfig.maskPolicyVersion,
+    domMaskingVersion: remoteConfig.domMaskingVersion,
+    configVersion: remoteConfig.version,
     capture: { ...remoteConfig.capture },
     maskTextSelector: mergeSelectors(localConfig.maskTextSelector, selectors.mask),
     blockSelector: mergeSelectors(localConfig.blockSelector, selectors.block),
@@ -121,6 +123,7 @@ export function parseRecorderProjectConfig(value: unknown): RecorderProjectConfi
 
   return {
     projectId,
+    ...(value["domMaskingVersion"] === 1 ? { domMaskingVersion: 1 as const } : {}),
     sessionScope,
     sessionCookieDomain,
     websiteId,

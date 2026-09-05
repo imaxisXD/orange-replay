@@ -7,7 +7,11 @@ import {
   shardDb,
   type Env,
 } from "../env.ts";
-import { drainAnalyticsExports, reconcileAnalyticsExports } from "./exporter.ts";
+import {
+  AnalyticsPipelineError,
+  drainAnalyticsExports,
+  reconcileAnalyticsExports,
+} from "./exporter.ts";
 import { queueDeletionExportsFromJournal } from "./erasure-lifecycle.ts";
 import {
   type AnalyticsDeletionV2Record,
@@ -16,6 +20,7 @@ import {
 } from "./deletion-v2.ts";
 import {
   releaseAnalyticsLease,
+  deferAnalyticsDelivery,
   renewAnalyticsLease,
   reserveAnalyticsSendWindow,
   tryAcquireAnalyticsLease,
@@ -186,6 +191,14 @@ export async function maintainAnalyticsWarehouse(env: Env): Promise<void> {
   } catch (error) {
     outcome = "server_error";
     wideEvent.fail(error);
+    if (error instanceof AnalyticsPipelineError && leaseDb !== null && leaseOwner !== null) {
+      try {
+        await deferAnalyticsDelivery(leaseDb, leaseOwner);
+        wideEvent.set({ analytics_delivery_backoff: true });
+      } catch (backoffError) {
+        wideEvent.set({ analytics_delivery_backoff_error: safeLeaseError(backoffError) });
+      }
+    }
     throw error;
   } finally {
     if (leaseDb !== null && leaseOwner !== null) {

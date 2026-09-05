@@ -1,5 +1,5 @@
 import type { eventWithTime } from "@orange-replay/rrweb-fork";
-import type { WorkerBatchResult } from "../pipeline/worker-core.ts";
+import { serializeAndCompressBatch, type WorkerBatchResult } from "../pipeline/worker-core.ts";
 import type { WorkerEvent, WorkerHost } from "../pipeline/worker-host.ts";
 import type { InlineSinkOptions } from "./contracts.ts";
 import { WorkerSink } from "./worker-sink.ts";
@@ -18,26 +18,21 @@ export class InlineSink extends WorkerSink {
 }
 
 class InlineEventSerializer {
-  private readonly encoder = new TextEncoder();
-  private readonly events: eventWithTime[] = [];
+  private readonly capturedEvents: eventWithTime[] = [];
 
   public addEvents(events: readonly WorkerEvent[]): void {
-    for (const [event] of events) this.events.push(event);
+    for (const [event] of events) this.capturedEvents.push(event);
   }
 
   public async flushBatch(options: { eventCount?: number } = {}): Promise<WorkerBatchResult> {
-    const requested = options.eventCount ?? this.events.length;
-    const eventCount = Math.max(0, Math.min(this.events.length, Math.floor(requested)));
-    const events = this.events.splice(0, eventCount);
-    return {
-      payload: this.encoder.encode(JSON.stringify(events)),
-      uncompressed: true,
-      droppedEventCount: 0,
-    };
+    const requested = options.eventCount ?? this.capturedEvents.length;
+    const eventCount = Math.max(0, Math.min(this.capturedEvents.length, Math.floor(requested)));
+    const events = this.capturedEvents.splice(0, eventCount);
+    return serializeAndCompressBatch(events, false, false);
   }
 
   public reset(): void {
-    this.events.splice(0);
+    this.capturedEvents.splice(0);
   }
 
   public stop(): void {

@@ -19,7 +19,11 @@ vp exec --filter @orange-replay/worker -- wrangler r2 bucket create orange-repla
 vp exec --filter @orange-replay/worker -- wrangler kv namespace create CONFIG
 vp exec --filter @orange-replay/worker -- wrangler queues create or-session-finalized-prod
 vp exec --filter @orange-replay/worker -- wrangler queues create or-dlq-prod
+vp exec --filter @orange-replay/worker -- wrangler queues create or-replay-assets-prod
+vp exec --filter @orange-replay/worker -- wrangler queues create or-replay-assets-dlq-prod
 ```
+
+Existing installations must create both replay-asset queues before deploying the architecture recovery update, including through an automatic build. The deploy script applies additive D1 migrations 0028 and 0029 before the Worker update. Keep the existing finalization queue while older styling messages drain through its forwarding path. See `docs/self-host.md` for reader/SDK order, rollback, and older orphan-inventory limits.
 
 Copy the printed D1 and KV ids into the current shell. Set the exact public Worker origin too. Use the real `workers.dev` origin only until the custom domain is attached.
 

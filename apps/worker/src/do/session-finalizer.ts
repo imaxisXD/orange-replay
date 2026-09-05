@@ -51,7 +51,12 @@ export interface SessionFinalizerDependencies {
   finalizeQueue: Queue<WorkerQueueMessage>;
   store: Pick<
     SessionRecorderStore,
-    "segmentRowsForManifest" | "storedEventRows" | "finalPageBatches" | "replaceStateWithTombstone"
+    | "segmentRowsForManifest"
+    | "storedEventRows"
+    | "finalPageBatches"
+    | "replaceStateWithTombstone"
+    | "readFinalizationReceipt"
+    | "saveFinalizationReceipt"
   >;
   segmentWriter: Pick<
     SessionSegmentWriter,
@@ -61,6 +66,7 @@ export interface SessionFinalizerDependencies {
   flushPendingBatches: () => Promise<void>;
   acceptedUsageReservationsEnabled: boolean;
   reserveAcceptedUsage: (state: SessionState, bytes: number) => Promise<void>;
+  markFinalizationReady: (message: FinalizeMessage) => Promise<void>;
   markPresenceFinalizing: (
     projectId: string,
     sessionId: string,
@@ -90,6 +96,12 @@ export class SessionFinalizer {
   async finalize(metrics: SessionFinalizeMetrics): Promise<void> {
     const stateBeforeFlush = this.dependencies.getSessionState();
     if (stateBeforeFlush === null) {
+      return;
+    }
+
+    const receipt = this.dependencies.store.readFinalizationReceipt();
+    if (receipt !== null) {
+      await this.deliverReceipt(receipt, stateBeforeFlush);
       return;
     }
 
@@ -126,6 +138,10 @@ export class SessionFinalizer {
       timelineRows,
       state.startedAt,
       state.lastActivity,
+      // An already published legacy sidecar used session-wide click detection.
+      // Preserve its exact bytes across this upgrade's partial-finalize window.
+      existingManifest !== null &&
+        !existingManifest.timeline.some((event) => event.tab !== undefined),
     );
     analyticsWorkTruncated ||= timelineRows.truncated;
     const derived = timelineData.insights;
@@ -242,12 +258,18 @@ export class SessionFinalizer {
       await this.writeAnalyticsSidecar(sidecarKey, derived.rageEvents);
     }
 
-    await this.dependencies.finalizeQueue.send(message, { contentType: "json" });
+    this.dependencies.store.saveFinalizationReceipt(message);
+    await this.deliverReceipt(message, state);
     // A final sweep closes any socket accepted just before finalizing started.
     this.dependencies.finalizeViewers(manifest);
+  }
 
+  private async deliverReceipt(message: FinalizeMessage, state: SessionState): Promise<void> {
+    await this.dependencies.markFinalizationReady(message);
+    // Queue consumption can begin before send() returns. Persist the closed
+    // state first so an early index acknowledgement cannot erase our last receipt.
     const finalizedAt = Date.now();
-    const purgeAt = finalizedAt + state.retentionDays * 86_400_000;
+    const purgeAt = message.endedAt + message.retentionDays * 86_400_000;
     const tombstone: FinalizedTombstone = {
       finalized: true,
       finalizedAt,
@@ -260,6 +282,7 @@ export class SessionFinalizer {
     this.dependencies.store.replaceStateWithTombstone(tombstone);
     this.dependencies.rememberTombstone(tombstone);
     await this.dependencies.alarms.schedulePurge(purgeAt);
+    await this.dependencies.finalizeQueue.send(message, { contentType: "json" });
   }
 
   private async readExistingManifest(

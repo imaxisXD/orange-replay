@@ -13,6 +13,7 @@ import {
 } from "../analytics/erasure-lifecycle.ts";
 import { analyticsExportEnabled, setWorkerLoggerVersion, shardDb, type Env } from "../env.ts";
 import { chunkList } from "./helpers.ts";
+import { readFinalizationJob } from "./finalization-recovery.ts";
 
 const SESSION_SELECT_LIMIT = 200;
 const R2_DELETE_LIMIT = 1_000;
@@ -61,6 +62,23 @@ export async function sweepExpiredSessions(env: Env): Promise<void> {
       const safelyDeleted: ExpiredSessionRow[] = [];
       for (const row of rows) {
         try {
+          const job = await readFinalizationJob(db, { ...row, shard: 0 });
+          if (job !== null) {
+            const repair = await env.SESSION.get(
+              env.SESSION.idFromString(job.object_id),
+            ).repairFinalization({
+              projectId: row.projectId,
+              sessionId: row.sessionId,
+              shard: job.shard,
+            });
+            if (!repair.complete) continue;
+            await db
+              .prepare(
+                "DELETE FROM session_finalization_jobs WHERE project_id = ? AND session_id = ?",
+              )
+              .bind(row.projectId, row.sessionId)
+              .run();
+          }
           const deletion = await deleteSessionObjects(env.RECORDINGS, row);
           totals.objectsDeleted += deletion.objectsDeleted;
           if (deletion.complete) safelyDeleted.push(row);
@@ -242,9 +260,10 @@ export async function selectExpiredSessions(
   return result.results;
 }
 
-async function deleteSessionObjects(
+export async function deleteSessionObjects(
   bucket: R2Bucket,
   row: ExpiredSessionRow,
+  maxPages = Number.POSITIVE_INFINITY,
 ): Promise<{ complete: boolean; objectsDeleted: number }> {
   if (!isValidPathId(row.projectId) || !isValidPathId(row.sessionId)) {
     throw new Error("The session has an invalid storage id, so its data was not deleted.");
@@ -254,10 +273,13 @@ async function deleteSessionObjects(
   let cursor: string | undefined;
   let objectsDeleted = 0;
   let keptSidecar = false;
+  let pages = 0;
+  let morePages = false;
   const sidecarKey = analyticsSidecarKey(row.projectId, row.sessionId);
 
   for (;;) {
     const listed = await bucket.list({ prefix, cursor, limit: R2_DELETE_LIMIT });
+    pages += 1;
     const keys = listed.objects.flatMap((object) => {
       if (row.keepAnalyticsSidecar === 1 && object.key === sidecarKey) {
         keptSidecar = true;
@@ -274,13 +296,17 @@ async function deleteSessionObjects(
     }
 
     if (!listed.truncated) break;
+    if (pages >= maxPages) {
+      morePages = true;
+      break;
+    }
     cursor = listed.cursor;
   }
 
-  if (row.keepAnalyticsSidecar === 1 && !keptSidecar) {
+  if (row.keepAnalyticsSidecar === 1 && !keptSidecar && !morePages) {
     throw new Error("The pending analytics sidecar is missing, so cleanup was paused.");
   }
-  return { complete: !keptSidecar, objectsDeleted };
+  return { complete: !keptSidecar && !morePages, objectsDeleted };
 }
 
 export async function markRowsForDeletion(

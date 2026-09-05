@@ -166,8 +166,8 @@ export function useSessionsPanelData({
     void headsQuery.refetch();
   }, [headTrackingScope, headsQuery.refetch, includeSessionHeads, warehouseVersion]);
 
-  // Once D1 has exact details, check R2 after each head poll. The exact page
-  // keeps its own cursor; this only lets it replace the bridge row when ready.
+  // Only refresh for exact heads that can join these warehouse pages. Heads
+  // already present, or newer than the fixed date range, need no page refresh.
   useEffect(() => {
     const updatedAt = headsQuery.dataUpdatedAt;
     const previousUpdatedAt =
@@ -176,14 +176,29 @@ export function useSessionsPanelData({
         : 0;
     if (updatedAt === 0 || updatedAt <= previousUpdatedAt) return;
     lastWarehouseRefresh.current = { scope: headTrackingScope, updatedAt };
-    if (
-      document.visibilityState === "hidden" ||
-      !heads.some((session) => session.details_state === "exact")
-    ) {
+    if (document.visibilityState === "hidden") return;
+    const warehouseSessionIds = new Set(warehouseSessions.map((session) => session.session_id));
+    const hasMissingExactSession = heads.some(
+      (session) =>
+        session.details_state === "exact" &&
+        !warehouseSessionIds.has(session.session_id) &&
+        (filter.from === undefined || session.started_at >= filter.from) &&
+        (filter.to === undefined || session.started_at <= filter.to),
+    );
+    if (!hasMissingExactSession) {
       return;
     }
-    void sessionsQuery.refetch();
-  }, [headTrackingScope, heads, headsQuery.dataUpdatedAt, sessionsQuery.refetch]);
+    // A slow refresh may span several head polls; let it finish its page chain.
+    void sessionsQuery.refetch({ cancelRefetch: false });
+  }, [
+    filter.from,
+    filter.to,
+    headTrackingScope,
+    heads,
+    headsQuery.dataUpdatedAt,
+    sessionsQuery.refetch,
+    warehouseSessions,
+  ]);
 
   const nextBefore = sessionsQuery.data?.pages.at(-1)?.nextBefore ?? null;
   const waitingForFirstRows =
@@ -202,6 +217,20 @@ export function useSessionsPanelData({
   return {
     analyticsAreStale:
       hasStaleAnalytics(sessionPages) || countriesQuery.data?.analyticsState === "stale",
+    analyticsStatus:
+      sessionPages[0] === undefined
+        ? undefined
+        : {
+            analyticsState:
+              hasStaleAnalytics(sessionPages) || countriesQuery.data?.analyticsState === "stale"
+                ? ("stale" as const)
+                : sessionPages[0].analyticsState,
+            analyticsDelivery: sessionPages[0].analyticsDelivery,
+            analyticsView:
+              searchFilter.warehouse_version === undefined
+                ? sessionPages[0].analyticsView
+                : ("pinned" as const),
+          },
     countries: countriesQuery.data?.breakdowns.country ?? [],
     countryQueryFailed: countriesQuery.isError,
     countryQueryPending: countriesQuery.isPending,

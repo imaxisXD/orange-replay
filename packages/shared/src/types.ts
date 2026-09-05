@@ -11,6 +11,8 @@ export type IndexEventKind =
 export interface IndexEvent {
   t: number;
   k: IndexEventKind;
+  /** Replay tab identity. Older recordings may not have it. Never display as a label. */
+  tab?: string;
   d?: string;
   m?: Record<string, string | number>;
 }
@@ -26,6 +28,36 @@ export interface BatchIndex {
   checkpointTimestamps?: number[];
   u?: string;
   enc?: { k: string };
+  appliedDomMasking?: AppliedDomMasking;
+}
+
+/** Capture settings reported by the SDK, not proof that every payload is private. */
+export interface AppliedDomMasking {
+  v: 1;
+  defaultsVersion: 1;
+  inputs: "all";
+  text: "selected";
+  localRules: { text: boolean; block: boolean; ignore: boolean };
+  remoteConfigVersion?: number;
+  remoteMaskPolicyVersion?: number;
+  rulesFingerprint?: string;
+  canvas: boolean;
+}
+
+export interface DomMasking {
+  v: 1;
+  policies: { policy: AppliedDomMasking; batches: number }[];
+  unknownBatches: number;
+  overflowBatches: number;
+  canvasCaptured?: boolean;
+}
+
+export interface DomMaskingSummary {
+  coverage: "complete" | "partial" | "unknown";
+  policyCount: number;
+  canvas: boolean;
+  inputs?: "all";
+  text?: "selected";
 }
 
 export interface EdgeAttrs {
@@ -68,6 +100,7 @@ export interface LiveSessionSnapshot {
   durationMs: number;
   timeline: IndexEvent[];
   counts: SessionCounts;
+  domMasking?: DomMasking;
 }
 
 export interface LiveHelloMessage {
@@ -107,6 +140,8 @@ export interface SessionManifest {
   counts: SessionCounts;
   bytes: number;
   flags: number;
+  domMasking?: DomMasking;
+  domMaskingSummary?: DomMaskingSummary;
   enc?: { k: string };
   attrs: EdgeAttrs & { entryUrl?: string; urlCount?: number; pageCount?: number };
 }
@@ -159,6 +194,8 @@ export interface StoredProjectConfig extends ProjectConfig {
 
 /** Public capture settings returned to the browser recorder before capture starts. */
 export interface RecorderProjectConfig {
+  /** The ingest reader accepts applied DOM masking metadata. */
+  domMaskingVersion?: 1;
   /** Content-hashed recorder bundle served by the ingest origin. */
   recorderUrl?: string;
   /** Stable public project id used to build dashboard session links. */
@@ -236,6 +273,7 @@ export interface PublicPageData {
   publicUrl: string;
   projectName: string;
   generatedAt: number;
+  analyticsStatus?: "current" | "pending" | "stale" | "unknown";
   analytics: PublicPageAnalytics;
   recordings: PublicPageRecording[];
 }

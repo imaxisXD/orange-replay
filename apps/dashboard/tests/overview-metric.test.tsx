@@ -20,6 +20,7 @@ vi.mock("../src/routes/overview/overview-doorways", () => ({
 }));
 
 import { MetricPercentage, OverviewSummary } from "../src/routes/overview/overview-content";
+import { validProjectStatsResponse } from "../../../packages/shared/tests/response-contract-fixtures.ts";
 
 describe("Overview metric typography", () => {
   it("keeps the percentage symbol inside the same number flow as its value", () => {
@@ -49,7 +50,7 @@ describe("Overview metric typography", () => {
     root.unmount();
   });
 
-  it("initializes every Overview card with zero", () => {
+  it("initializes recorded metrics while keeping the live count unknown", () => {
     const container = document.createElement("div");
     const root = createRoot(container);
 
@@ -60,7 +61,8 @@ describe("Overview metric typography", () => {
     expect(metricValues(container, "Sessions")).toEqual([0]);
     expect(metricValues(container, "Average session length")).toEqual([0, 0]);
     expect(metricValues(container, "Pages per session")).toEqual([0]);
-    expect(metricValues(container, "Live now")).toEqual([0]);
+    expect(metricValues(container, "Live now")).toEqual([]);
+    expect(container.textContent).toContain("Waiting for live count");
     expect(metricValues(container, "Rage clicks")).toEqual([0]);
     expect(metricValues(container, "Quick returns")).toEqual([0]);
     expect(metricValues(container, "Interaction time")).toEqual([0, 0]);
@@ -69,10 +71,47 @@ describe("Overview metric typography", () => {
 
     root.unmount();
   });
+
+  it("shows an unavailable live count while keeping historical metric doorways", () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    flushSync(() =>
+      root.render(
+        <OverviewSummary
+          filter={{}}
+          isDemo
+          projectId="project-1"
+          stats={{
+            ...validProjectStatsResponse,
+            liveNow: { value: null, filter: validProjectStatsResponse.filter },
+            liveNowState: "unavailable",
+          }}
+        />,
+      ),
+    );
+    expect(metricValues(container, "Live now")).toEqual([]);
+    expect(container.querySelector("[aria-label='Live count unavailable']")?.textContent).toBe("—");
+    expect(container.textContent).toContain("Live count temporarily unavailable");
+    expect(metricValues(container, "Sessions")).toEqual([validProjectStatsResponse.sessions.value]);
+    root.unmount();
+  });
 });
 
-function MetricDoorway({ label, value }: { label: string; value: ReactNode }) {
-  return <div data-overview-metric={label}>{value}</div>;
+function MetricDoorway({
+  detail,
+  label,
+  value,
+}: {
+  detail: string;
+  label: string;
+  value: ReactNode;
+}) {
+  return (
+    <div data-overview-metric={label}>
+      {value}
+      <span>{detail}</span>
+    </div>
+  );
 }
 
 function metricValues(container: HTMLElement, label: string): number[] {

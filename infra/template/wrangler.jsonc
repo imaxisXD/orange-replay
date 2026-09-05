@@ -12,6 +12,7 @@
   },
   "vars": {
     "ACCEPTED_USAGE_RESERVATIONS": "1",
+    "REPLAY_ASSET_QUEUE_NAME": "or-replay-assets",
   },
   "assets": {
     "directory": "../../apps/dashboard/dist",
@@ -139,6 +140,8 @@
     "producers": [
       // # created by setup docs: run `wrangler queues create or-session-finalized`.
       { "binding": "FINALIZE_QUEUE", "queue": "or-session-finalized" },
+      // # created by setup docs: run `wrangler queues create or-replay-assets`.
+      { "binding": "REPLAY_ASSET_QUEUE", "queue": "or-replay-assets" },
     ],
     "consumers": [
       // # created by setup docs: run `wrangler queues create or-dlq` for the dead-letter queue.
@@ -148,6 +151,15 @@
         "max_batch_timeout": 5,
         "max_retries": 10,
         "dead_letter_queue": "or-dlq",
+      },
+      // # created by setup docs: run `wrangler queues create or-replay-assets-dlq` for the dead-letter queue.
+      {
+        "queue": "or-replay-assets",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 10,
+        "max_concurrency": 5,
+        "dead_letter_queue": "or-replay-assets-dlq",
       },
     ],
   },

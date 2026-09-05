@@ -1,5 +1,9 @@
 import { isValidPathId, parseRecordingObjectKey } from "../query/session-query.ts";
-import type { Env } from "../env.ts";
+import { shardDb, type Env } from "../env.ts";
+import {
+  readFinalizationJob,
+  repairSessionFinalizations,
+} from "../consumer/finalization-recovery.ts";
 import type { AppendArgs, AppendResult } from "../do/contract.ts";
 import {
   listProjectPresence,
@@ -27,6 +31,35 @@ export async function handleDoTestRoutes(
   _ctx: ExecutionContext,
 ): Promise<Response> {
   const url = new URL(request.url);
+
+  if (request.method === "POST" && url.pathname === "/__test/do/remove-alarm") {
+    const body = (await request.json()) as SessionRequestBody;
+    if (!hasValidSessionIds(body)) return Response.json({ error: "invalid_id" }, { status: 400 });
+    await sessionStub(env, body.projectId, body.sessionId).removeAlarmForTest();
+    return Response.json({ ok: true });
+  }
+
+  if (request.method === "POST" && url.pathname === "/__test/do/repair-finalization") {
+    const body = (await request.json()) as SessionRequestBody;
+    if (!hasValidSessionIds(body)) return Response.json({ error: "invalid_id" }, { status: 400 });
+    await shardDb(env, 0)
+      .prepare(
+        "UPDATE session_finalization_jobs SET next_attempt_at = 0, attempts = 20 WHERE project_id = ? AND session_id = ?",
+      )
+      .bind(body.projectId, body.sessionId)
+      .run();
+    await repairSessionFinalizations(env);
+    return Response.json({ ok: true });
+  }
+
+  if (request.method === "GET" && url.pathname === "/__test/do/finalization-job") {
+    const ids = readSessionIds(
+      url.searchParams.get("projectId"),
+      url.searchParams.get("sessionId"),
+    );
+    if (!ids.ok) return Response.json({ error: "missing_id" }, { status: 400 });
+    return Response.json({ job: await readFinalizationJob(shardDb(env, 0), { ...ids, shard: 0 }) });
+  }
 
   if (request.method === "POST" && url.pathname === "/__test/do/append") {
     const body = (await request.json()) as TestAppendBody;

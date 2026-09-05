@@ -4,6 +4,7 @@ import type { PlayerApiInput, ReplayAssetMapEntry, SessionRequest } from "./type
 
 const MAX_PLAYER_ASSET_BYTES = 20 * 1024 * 1024;
 const MAX_STYLESHEET_DEPTH = 8;
+const MAX_ASSET_WAIT_MS = 5_000;
 
 export class ReplayAssetStore {
   private readonly api: PlayerApiInput;
@@ -11,6 +12,8 @@ export class ReplayAssetStore {
   private readonly signal: AbortSignal;
   private readonly objectUrls = new Set<string>();
   private readonly rootUrls = new Map<string, string>();
+  private loadAbort: AbortController | undefined;
+  private destroyed = false;
 
   constructor(api: PlayerApiInput, request: SessionRequest, signal: AbortSignal) {
     this.api = api;
@@ -21,13 +24,32 @@ export class ReplayAssetStore {
   readonly rewriteUrl: ReplayCssUrlRewriter = (url) => this.rootUrls.get(url);
 
   async load(): Promise<void> {
+    if (this.destroyed || this.signal.aborted) return;
+    const controller = new AbortController();
+    this.loadAbort = controller;
+    const abort = () => controller.abort();
+    this.signal.addEventListener("abort", abort, { once: true });
+    const timeout = setTimeout(abort, MAX_ASSET_WAIT_MS);
+    try {
+      await this.loadUntilDeadline(controller.signal);
+    } finally {
+      clearTimeout(timeout);
+      this.signal.removeEventListener("abort", abort);
+      this.loadAbort = undefined;
+    }
+  }
+
+  private async loadUntilDeadline(signal: AbortSignal): Promise<void> {
     let map;
     try {
-      map = await loadReplayAssetMap(this.api, { ...this.request, signal: this.signal });
+      map = await stopWaitingOnAbort(
+        loadReplayAssetMap(this.api, { ...this.request, signal }),
+        signal,
+      );
     } catch {
       return;
     }
-    if (map === null || this.signal.aborted) return;
+    if (map == null || this.destroyed || this.signal.aborted) return;
 
     const unique = new Map<string, ReplayAssetMapEntry>();
     let totalBytes = 0;
@@ -39,20 +61,22 @@ export class ReplayAssetStore {
     }
 
     const bytesByHash = new Map<string, Uint8Array>();
-    await runWithConcurrency([...unique.values()], 6, async (entry) => {
+    const downloads = runWithConcurrency([...unique.values()], 6, async (entry) => {
+      if (signal.aborted) return;
       try {
         const bytes = await fetchReplayAssetBytes(this.api, {
           ...this.request,
           assetHash: entry.assetHash,
           bytes: entry.bytes,
-          signal: this.signal,
+          signal,
         });
-        bytesByHash.set(entry.assetHash, bytes);
+        if (!signal.aborted) bytesByHash.set(entry.assetHash, bytes);
       } catch {
         /* one missing public asset must not stop the replay */
       }
     });
-    if (this.signal.aborted) return;
+    await stopWaitingOnAbort(downloads, signal);
+    if (this.destroyed || this.signal.aborted) return;
 
     const urlByHash = new Map<string, string>();
     for (const entry of unique.values()) {
@@ -104,6 +128,8 @@ export class ReplayAssetStore {
   }
 
   destroy(): void {
+    this.destroyed = true;
+    this.loadAbort?.abort();
     for (const url of this.objectUrls) URL.revokeObjectURL(url);
     this.objectUrls.clear();
     this.rootUrls.clear();
@@ -114,6 +140,27 @@ export class ReplayAssetStore {
     this.objectUrls.add(url);
     return url;
   }
+}
+
+function stopWaitingOnAbort<T>(work: Promise<T>, signal: AbortSignal): Promise<T | undefined> {
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      signal.removeEventListener("abort", abort);
+      resolve(undefined);
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) abort();
+    void work.then(
+      (value) => {
+        signal.removeEventListener("abort", abort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", abort);
+        reject(error);
+      },
+    );
+  });
 }
 
 function dependencyMaps(entries: readonly ReplayAssetMapEntry[]): Map<string, Map<string, string>> {

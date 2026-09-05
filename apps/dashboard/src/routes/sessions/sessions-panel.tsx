@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { AnalyticsStaleAlert } from "@/components/analytics-stale-alert";
+import { AnalyticsStaleAlert, AnalyticsStatusNotice } from "@/components/analytics-stale-alert";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { filterChips, pageLocalLensCount, removeFilterKey } from "@/lib/filter-chips";
@@ -220,7 +220,14 @@ export function SessionsPanel({ isDemo, projectId }: { isDemo: boolean; projectI
         onRemove={(key) => replaceFilter(removeFilterKey(filter, key))}
       />
 
-      {data.analyticsAreStale && <AnalyticsStaleAlert />}
+      {data.analyticsStatus !== undefined ? (
+        <AnalyticsStatusNotice
+          {...data.analyticsStatus}
+          onShowLatest={() => replaceFilter(searchFilter)}
+        />
+      ) : data.analyticsAreStale ? (
+        <AnalyticsStaleAlert />
+      ) : null}
 
       <RecentlyWatchedNotice onUndo={markUnwatched} session={recentlyWatched} />
 

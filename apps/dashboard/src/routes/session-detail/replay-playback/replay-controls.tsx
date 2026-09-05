@@ -35,7 +35,7 @@ export function ReplayControls({
     <ScrollArea
       className="border-t border-dashed border-dash"
       orientation="horizontal"
-      viewportClassName="scroll-fade-x"
+      viewportClassName="h-auto scroll-fade-x"
     >
       <div className="flex min-w-full w-max items-center gap-3.5 px-4 py-3.25">
         {!isFollowing && (

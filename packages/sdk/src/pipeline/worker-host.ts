@@ -56,7 +56,7 @@ export class WorkerHost {
   private readonly now: () => number;
   private readonly yieldToMain: () => Promise<void>;
   private readonly onUnavailable?: () => void;
-  private readonly pending = new Map<number, PendingFlush>();
+  private readonly pendingFlushes = new Map<number, PendingFlush>();
   private worker: Worker | undefined;
   private objectUrl: string | undefined;
   private nextId = 1;
@@ -136,17 +136,17 @@ export class WorkerHost {
 
     const result = new Promise<WorkerBatchResult>((resolve, reject) => {
       const timeoutId = setTimeout(() => {
-        const pending = this.pending.get(id);
+        const pending = this.pendingFlushes.get(id);
         if (pending === undefined) {
           return;
         }
 
-        this.pending.delete(id);
+        this.pendingFlushes.delete(id);
         this.disableWorker();
         this.reportUnavailable(true);
         pending.reject(markSdkInternalError(new Error("Orange Replay worker timed out.")));
       }, this.flushTimeoutMs);
-      this.pending.set(id, { resolve, reject, version, timeoutId });
+      this.pendingFlushes.set(id, { resolve, reject, version, timeoutId });
     });
 
     this.worker.postMessage(["f", id, eventCount]);
@@ -337,12 +337,12 @@ export class WorkerHost {
     }
 
     const [, id, payload, uncompressed, droppedEventCount, error] = message;
-    const pending = this.pending.get(id);
+    const pending = this.pendingFlushes.get(id);
     if (pending === undefined || pending.version !== this.transferVersion) {
       return;
     }
 
-    this.pending.delete(id);
+    this.pendingFlushes.delete(id);
     clearTimeout(pending.timeoutId);
 
     if (error !== undefined) {
@@ -368,17 +368,17 @@ export class WorkerHost {
   }
 
   private rejectPending(error: unknown): void {
-    for (const pending of this.pending.values()) {
+    for (const pending of this.pendingFlushes.values()) {
       clearTimeout(pending.timeoutId);
       pending.reject(markSdkInternalError(error));
     }
-    this.pending.clear();
+    this.pendingFlushes.clear();
   }
 
   private handleWorkerFailure(error: unknown): void {
     this.disableWorker();
-    const pendingEntries = [...this.pending.values()];
-    this.pending.clear();
+    const pendingEntries = [...this.pendingFlushes.values()];
+    this.pendingFlushes.clear();
 
     for (const pending of pendingEntries) {
       clearTimeout(pending.timeoutId);
