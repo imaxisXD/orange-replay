@@ -1,6 +1,6 @@
 # Self-host Orange Replay
 
-This guide is for running the canonical combined Worker from this repo in your own Cloudflare account. It is manual today: no real resources are created by this repo, and the Deploy button is deferred until the public template repo is published.
+This guide is for running the canonical combined Worker from this repo in your own Cloudflare account. Setup is manual; Wrangler creates the configured queues during deployment. The Deploy button is deferred until the public template repo is published.
 
 ## What you get
 
@@ -16,9 +16,12 @@ This guide is for running the canonical combined Worker from this repo in your o
 ## Prerequisites
 
 - A Cloudflare account.
-- Wrangler installed and logged in:
+- Node 22.18 or newer and the repo's pinned Wrangler **4.129.0**. Run these from the repo root so the later `wrangler` commands use that version:
 
 ```sh
+vp install --frozen-lockfile
+export PATH="$PWD/apps/worker/node_modules/.bin:$PATH"
+wrangler --version
 wrangler login
 ```
 
@@ -40,10 +43,6 @@ cd infra/template
 wrangler d1 create orange-replay-idx-00
 wrangler r2 bucket create orange-replay-recordings
 wrangler kv namespace create CONFIG
-wrangler queues create or-session-finalized
-wrangler queues create or-dlq
-wrangler queues create or-replay-assets
-wrangler queues create or-replay-assets-dlq
 ```
 
 The template expects these bindings:
@@ -63,7 +62,9 @@ The template expects these bindings:
 | `or-replay-assets`            | Queue consumer      | `or-replay-assets`           |
 | `or-replay-assets-dlq`        | Dead-letter queue   | `or-replay-assets-dlq`       |
 
-Styling downloads use a separate queue so a slow website cannot hold up finalized recordings. When upgrading, create both styling queues before deploying the new Worker. Existing styling jobs in the old finalization queue are forwarded safely. If you rename the styling queue, update its producer, consumer, and `REPLAY_ASSET_QUEUE_NAME` together.
+Wrangler's [automatic provisioning](https://developers.cloudflare.com/workers/wrangler/configuration/#automatic-provisioning) creates missing producer queues with these exact names and reuses existing queues. Deploying connects the consumers and creates missing dead-letter queues. Keep provisioning enabled and give your deployment token permission to create and update Queues. Consumer-only queues without matching producer bindings must already exist. If provisioning is disabled or an older Wrangler is used, create all four named queues with `wrangler queues create` before deploying.
+
+Styling downloads use a separate queue so a slow website cannot hold up finalized recordings. Existing styling jobs in the old finalization queue are forwarded safely. If you rename the styling queue, update its producer, consumer, and `REPLAY_ASSET_QUEUE_NAME` together.
 
 Durable Object classes are declared in `wrangler.jsonc`; Wrangler creates their namespaces during deploy.
 
@@ -139,7 +140,7 @@ Set `ingestUrl` to your deployed Worker URL or custom domain. Set `key` to the r
 
 ## Upgrade
 
-For the architecture recovery update, create `or-replay-assets` and `or-replay-assets-dlq` before deploying the Worker. Apply migrations `0028_session_finalization_jobs.sql` and `0029_analytics_export_retry.sql` before running the new Worker. Hosted production uses the corresponding `-prod` queue names in `apps/worker/wrangler.jsonc`.
+For the architecture recovery update, use the pinned Wrangler so deployment creates `or-replay-assets` and `or-replay-assets-dlq` if missing. Apply migrations `0028_session_finalization_jobs.sql` and `0029_analytics_export_retry.sql` before running the new Worker. Hosted production uses the corresponding `-prod` queue names in `apps/worker/wrangler.jsonc`.
 
 Publish the compatible Worker and player before publishing the new SDK. The SDK sends masking evidence only when recorder config advertises `domMaskingVersion: 1`; older configs keep recording without that optional evidence. Keep the old finalization queue while existing styling messages drain through its forwarding path.
 

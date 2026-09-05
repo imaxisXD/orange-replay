@@ -41,7 +41,7 @@ catalog:
   valibot: 1.4.2
   vite: npm:@voidzero-dev/vite-plus-core@0.2.2
   vite-plus: 0.2.2
-  wrangler: ^4.110.0
+  wrangler: 4.129.0
 overrides:
   vite: "catalog:"
 peerDependencyRules:

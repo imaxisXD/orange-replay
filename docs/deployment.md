@@ -17,13 +17,11 @@ export PATH="$HOME/.vite-plus/bin:$PATH"
 vp exec --filter @orange-replay/worker -- wrangler d1 create orange-replay-idx-00-prod
 vp exec --filter @orange-replay/worker -- wrangler r2 bucket create orange-replay-recordings-prod
 vp exec --filter @orange-replay/worker -- wrangler kv namespace create CONFIG
-vp exec --filter @orange-replay/worker -- wrangler queues create or-session-finalized-prod
-vp exec --filter @orange-replay/worker -- wrangler queues create or-dlq-prod
-vp exec --filter @orange-replay/worker -- wrangler queues create or-replay-assets-prod
-vp exec --filter @orange-replay/worker -- wrangler queues create or-replay-assets-dlq-prod
 ```
 
-Existing installations must create both replay-asset queues before deploying the architecture recovery update, including through an automatic build. The deploy script applies additive D1 migrations 0028 and 0029 before the Worker update. Keep the existing finalization queue while older styling messages drain through its forwarding path. See `docs/self-host.md` for reader/SDK order, rollback, and older orphan-inventory limits.
+The repo pins Wrangler to **4.129.0**. Its [automatic provisioning](https://developers.cloudflare.com/workers/wrangler/configuration/#automatic-provisioning) creates missing producer queues using the exact configured names and reuses existing queues. This works during both the D1 fallback version upload and the production deploy. The deploy connects each consumer and creates its missing [dead-letter queue](https://developers.cloudflare.com/queues/configuration/configure-queues/#consumer-worker-configuration). Keep provisioning enabled and give the deployment token permission to create and update Queues. A consumer-only queue without a matching producer binding must already exist.
+
+Keep the queue names in `apps/worker/wrangler.jsonc`; no manual queue creation is needed for this repo's producer/consumer pairs. If provisioning is disabled or an older Wrangler is used, create all four named queues with `wrangler queues create` before deploying. The deploy script applies additive D1 migrations 0028 and 0029 before the Worker update. Keep the existing finalization queue while older styling messages drain through its forwarding path. See `docs/self-host.md` for reader/SDK order, rollback, and older orphan-inventory limits.
 
 Copy the printed D1 and KV ids into the current shell. Set the exact public Worker origin too. Use the real `workers.dev` origin only until the custom domain is attached.
 

@@ -138,13 +138,13 @@
   ],
   "queues": {
     "producers": [
-      // # created by setup docs: run `wrangler queues create or-session-finalized`.
+      // Wrangler 4.129.0 creates or-session-finalized if missing, or reuses it.
       { "binding": "FINALIZE_QUEUE", "queue": "or-session-finalized" },
-      // # created by setup docs: run `wrangler queues create or-replay-assets`.
+      // Wrangler 4.129.0 creates or-replay-assets if missing, or reuses it.
       { "binding": "REPLAY_ASSET_QUEUE", "queue": "or-replay-assets" },
     ],
     "consumers": [
-      // # created by setup docs: run `wrangler queues create or-dlq` for the dead-letter queue.
+      // Deploying the consumer creates or-dlq if missing.
       {
         "queue": "or-session-finalized",
         "max_batch_size": 100,
@@ -152,7 +152,7 @@
         "max_retries": 10,
         "dead_letter_queue": "or-dlq",
       },
-      // # created by setup docs: run `wrangler queues create or-replay-assets-dlq` for the dead-letter queue.
+      // Deploying the consumer creates or-replay-assets-dlq if missing.
       {
         "queue": "or-replay-assets",
         "max_batch_size": 1,

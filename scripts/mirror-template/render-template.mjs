@@ -223,7 +223,7 @@ function appendQueues(lines, queues) {
   lines.push('    "producers": [');
   for (const producer of producers) {
     lines.push(
-      `      // # created by setup docs: run \`wrangler queues create ${String(producer.queue)}\`.`,
+      `      // Wrangler 4.129.0 creates ${String(producer.queue)} if missing, or reuses it.`,
     );
     lines.push(`      ${inlineObject(producer)},`);
   }
@@ -232,9 +232,7 @@ function appendQueues(lines, queues) {
   for (const consumer of consumers) {
     const deadLetter = consumer.dead_letter_queue;
     if (typeof deadLetter === "string" && deadLetter.length > 0) {
-      lines.push(
-        `      // # created by setup docs: run \`wrangler queues create ${deadLetter}\` for the dead-letter queue.`,
-      );
+      lines.push(`      // Deploying the consumer creates ${deadLetter} if missing.`);
     }
     lines.push("      {");
     const entries = Object.entries(consumer);
