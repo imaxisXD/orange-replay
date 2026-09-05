@@ -33,6 +33,7 @@ export function ReplayControls({
 
   return (
     <ScrollArea
+      data-testid="replay-controls"
       className="border-t border-dashed border-dash"
       orientation="horizontal"
       viewportClassName="h-auto scroll-fade-x"

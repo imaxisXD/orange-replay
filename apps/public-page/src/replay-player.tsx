@@ -20,9 +20,7 @@ export default function ReplayPlayer({ publicId, recording }: ReplayPlayerProper
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [tabs, setTabs] = useState<ReplayTab[]>([]);
   const [selectedTab, setSelectedTab] = useState<string | undefined>();
-  const [masking, setMasking] = useState(() =>
-    domMaskingDescription(summarizeDomMasking(undefined)),
-  );
+  const [masking, setMasking] = useState<string | null>(null);
   const playingRef = useRef(false);
 
   useEffect(() => {
@@ -139,6 +137,15 @@ export default function ReplayPlayer({ publicId, recording }: ReplayPlayerProper
 
   return (
     <div className="public-player">
+      {masking !== null && (
+        <section className="public-session-information" aria-label="Session information">
+          <h3>Session information</h3>
+          <details>
+            <summary>Masking details</summary>
+            <p className="public-player-masking">{masking}</p>
+          </details>
+        </section>
+      )}
       {tabs.length > 1 && (
         <label className="public-player-tabs">
           Replay tab
@@ -181,7 +188,6 @@ export default function ReplayPlayer({ publicId, recording }: ReplayPlayerProper
         </span>
       </div>
       {errorMessage !== null ? <p className="player-error">{errorMessage}</p> : null}
-      <p className="public-player-masking">{masking}</p>
     </div>
   );
 }

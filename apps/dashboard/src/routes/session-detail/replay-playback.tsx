@@ -20,7 +20,6 @@ import { ReplayControls } from "./replay-playback/replay-controls";
 import { ReplayStage } from "./replay-playback/replay-stage";
 import { TimelineSidebar } from "./replay-playback/timeline-sidebar";
 import { ReplayTabs } from "./replay-playback/replay-tabs";
-import { MaskingDetails } from "./replay-playback/masking-details";
 import {
   useReplayPlayer,
   type ReplayPlayerOptions,
@@ -109,9 +108,9 @@ export function ReplayWorkspace(props: ReplayWorkspaceProps) {
         firstErrorSeekMs={staticPlaybackData.firstErrorSeekMs}
         player={player}
         rageMarkers={staticPlaybackData.rageMarkers}
-        manifest={props.manifest}
       />
       <TimelineSidebar
+        manifest={props.manifest}
         disabled={player.values.isFollowing}
         onSeek={seekFromTimeline}
         rows={deadClickData.rows}
@@ -133,7 +132,6 @@ function ReplayPlayerCard({
   firstErrorSeekMs,
   player,
   rageMarkers,
-  manifest,
 }: {
   activityBuckets: ActivityBucket[];
   breadcrumbs: JourneyBreadcrumb[];
@@ -142,7 +140,6 @@ function ReplayPlayerCard({
   firstErrorSeekMs: number | null;
   player: ReplayPlayerState;
   rageMarkers: RageMarker[];
-  manifest: SessionManifest;
 }) {
   return (
     <section className="lit overflow-hidden rounded-lg">
@@ -166,7 +163,6 @@ function ReplayPlayerCard({
         player={player}
         rageMarkers={rageMarkers}
       />
-      <MaskingDetails manifest={manifest} />
     </section>
   );
 }

@@ -20,11 +20,16 @@ describe("timeline sidebar rendering", () => {
       offsetLabel: "0:01",
     } as TimelineSidebarRow;
     const rows = [row];
+    const manifest = { sessionId: "session" };
     const onSeek = vi.fn();
     const container = document.createElement("div");
     const root = createRoot(container);
 
-    flushSync(() => root.render(<TimelineSidebar disabled={false} onSeek={onSeek} rows={rows} />));
+    flushSync(() =>
+      root.render(
+        <TimelineSidebar manifest={manifest} disabled={false} onSeek={onSeek} rows={rows} />,
+      ),
+    );
     const rowElement = container.querySelector<HTMLElement>('[data-slot="timeline-event-row"]');
     const scrollViewport = rowElement?.parentElement;
 
@@ -33,11 +38,17 @@ describe("timeline sidebar rendering", () => {
     expect(scrollViewport?.className).not.toContain("px-1");
     const readsAfterFirstRender = rowReads;
 
-    flushSync(() => root.render(<TimelineSidebar disabled={false} onSeek={onSeek} rows={rows} />));
+    flushSync(() =>
+      root.render(
+        <TimelineSidebar manifest={manifest} disabled={false} onSeek={onSeek} rows={rows} />,
+      ),
+    );
     expect(rowReads).toBe(readsAfterFirstRender);
 
     flushSync(() =>
-      root.render(<TimelineSidebar disabled={false} onSeek={onSeek} rows={[...rows]} />),
+      root.render(
+        <TimelineSidebar manifest={manifest} disabled={false} onSeek={onSeek} rows={[...rows]} />,
+      ),
     );
     expect(rowReads).toBeGreaterThan(readsAfterFirstRender);
 

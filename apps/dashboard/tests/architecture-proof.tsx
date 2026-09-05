@@ -68,13 +68,15 @@ export async function mountArchitectureProof(
           ) : surface === "settings" ? (
             <MaskingProof />
           ) : (
-            <ReplayWorkspace
-              manifest={manifest}
-              isDemo={surface === "demo"}
-              mode="recorded"
-              projectId="project"
-              sessionId="session"
-            />
+            <div className="flex flex-col gap-3">
+              <ReplayWorkspace
+                manifest={manifest}
+                isDemo={surface === "demo"}
+                mode="recorded"
+                projectId="project"
+                sessionId="session"
+              />
+            </div>
           )}
         </main>
       </ShapeProvider>

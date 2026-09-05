@@ -85,6 +85,12 @@ for (const format of ["iife", "esm"]) {
           const { index, payload } = decodeIngestBody(body);
           // Normal worker transport must retain its compressed wire contract.
           expect(flags).toBe(0);
+          expect(index.appliedDomMasking).toMatchObject({
+            inputs: "all",
+            text: "selected",
+            canvas: captureCanvas,
+            rulesFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+          });
           batches.push({
             body: Array.from(body),
             flags,

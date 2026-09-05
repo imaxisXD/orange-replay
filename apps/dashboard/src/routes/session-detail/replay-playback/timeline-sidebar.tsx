@@ -1,4 +1,6 @@
 import { memo } from "react";
+import type { SessionManifest } from "@orange-replay/shared/types";
+import { MaskingDetails } from "./masking-details";
 import { DataPanelAside, DataPanelBody, DataPanelHeader } from "@/components/ui/data-panel";
 import type { SidebarEventKind, TimelineDot, TimelineSidebarRow } from "@/lib/replay-timeline";
 import { ScrollArea } from "../../../components/ui/scroll-area";
@@ -14,17 +16,26 @@ import {
 
 export const TimelineSidebar = memo(function TimelineSidebar({
   disabled,
+  manifest,
   onSeek,
   rows,
   tabLabels,
 }: {
   disabled: boolean;
+  manifest: Pick<SessionManifest, "sessionId" | "domMasking" | "domMaskingSummary">;
   onSeek: (timeMs: number, tab?: string) => void;
   rows: TimelineSidebarRow[];
   tabLabels?: ReadonlyMap<string, string>;
 }) {
   return (
-    <DataPanelAside className="h-full min-h-0 px-4 py-4 max-lg:max-h-90">
+    <DataPanelAside className="h-full min-h-0 px-4 py-4 lg:[contain:size]">
+      <section
+        aria-label="Session information"
+        className="mb-4 shrink-0 border-b border-dashed border-dash pb-3"
+      >
+        <h2 className="text-[13px] font-semibold leading-tight">Session information</h2>
+        <MaskingDetails key={manifest.sessionId} manifest={manifest} />
+      </section>
       <DataPanelHeader className="flex items-center justify-between gap-3 border-b-0 px-0 py-0">
         <h2 className="text-[13px] font-semibold leading-tight">Timeline</h2>
         <span className="text-[11.5px] text-dim">
@@ -32,7 +43,7 @@ export const TimelineSidebar = memo(function TimelineSidebar({
         </span>
       </DataPanelHeader>
 
-      <DataPanelBody className="flex flex-col">
+      <DataPanelBody className="flex flex-col max-lg:max-h-60">
         {rows.length === 0 ? (
           <div className="mt-4 flex min-h-35 items-center justify-center rounded-lg border border-dashed border-dash text-[12.5px] text-muted-foreground">
             No events captured in this session.

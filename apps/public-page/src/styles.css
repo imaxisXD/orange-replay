@@ -385,11 +385,32 @@ footer {
   outline-offset: 3px;
 }
 
-.public-player-masking {
-  margin-top: 14px;
+.public-session-information {
+  margin-bottom: 16px;
   color: #a8a59c;
   font-size: 12px;
   line-height: 1.6;
+}
+
+.public-session-information h3 {
+  margin: 0;
+  color: #e9e6df;
+  font-size: 13px;
+}
+
+.public-session-information summary {
+  width: fit-content;
+  padding: 8px 0;
+  cursor: pointer;
+}
+
+.public-session-information summary:focus-visible {
+  outline: 2px solid #f5a623;
+  outline-offset: 3px;
+}
+
+.public-player-masking {
+  margin: 0 0 8px;
 }
 
 .public-player-controls {

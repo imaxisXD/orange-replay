@@ -85,7 +85,8 @@ export function summarizeDomMasking(summary: DomMasking | undefined): DomMasking
 }
 
 export function domMaskingDescription(summary: DomMaskingSummary): string {
-  if (summary.coverage === "unknown") return "Masking details unavailable for this recording.";
+  if (summary.coverage === "unknown")
+    return "This recording has no saved masking report. Its masking settings cannot be confirmed.";
   return [
     "The recorder reports input values masked and text masked by selected rules.",
     summary.policyCount > 1 ? "Masking settings differed across this recording." : "",

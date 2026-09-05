@@ -242,7 +242,7 @@ export function shouldIgnorePlayerKeyTarget(target: EventTarget | null): boolean
     return true;
   }
 
-  return target.closest("button, a, [role='slider']") !== null;
+  return target.closest("button, a, summary, [role='slider']") !== null;
 }
 
 export function formatOffsetTime(valueMs: number): string {

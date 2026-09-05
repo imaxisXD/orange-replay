@@ -222,11 +222,16 @@ describe("keyboard controls", () => {
   it("does not double-handle keys owned by focused controls", () => {
     const button = document.createElement("button");
     const link = document.createElement("a");
+    const summary = document.createElement("summary");
+    const summaryLabel = document.createElement("span");
+    summary.append(summaryLabel);
     const slider = document.createElement("div");
     slider.setAttribute("role", "slider");
 
     expect(getPlayerKeyAction({ key: " ", target: button })).toBeNull();
     expect(getPlayerKeyAction({ key: " ", target: link })).toBeNull();
+    expect(getPlayerKeyAction({ key: " ", target: summary })).toBeNull();
+    expect(getPlayerKeyAction({ key: " ", target: summaryLabel })).toBeNull();
     expect(getPlayerKeyAction({ key: "ArrowRight", target: slider })).toBeNull();
   });
 });

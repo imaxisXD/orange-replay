@@ -39,7 +39,7 @@ describe("recorded masking evidence", () => {
       "Canvas pixels were captured",
     );
     expect(domMaskingDescription(summarizeDomMasking(undefined))).toBe(
-      "Masking details unavailable for this recording.",
+      "This recording has no saved masking report. Its masking settings cannot be confirmed.",
     );
   });
 
