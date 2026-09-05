@@ -663,7 +663,7 @@ export function splitCssText(
           if (splitNorm !== -1) {
             // find the split point in the original text
             let k = Math.floor(splitNorm / normFactor);
-            for (; k > 0 && k < cssText.length; ) {
+            for (; k > 0 && k < cssText.length;) {
               iterCount += 1;
               if (iterCount > 50 * childNodes.length) {
                 // quit for performance purposes

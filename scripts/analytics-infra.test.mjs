@@ -398,7 +398,7 @@ describe("analytics production deploy safety", () => {
     expect(workerPackageJson.scripts["build:deploy"]).toBe(
       "cd ../.. && node scripts/build-deploy.mjs --production",
     );
-    expect(workerNodeVersion).toBe("22.18.0");
+    expect(workerNodeVersion).toBe("22.23.2");
     expect(deployer).toContain('"--keep-vars"');
     expect(deployer).toContain('"--strict"');
     expect(deployer).toContain('"--secrets-file"');

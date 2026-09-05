@@ -31,21 +31,22 @@
     "workspace:link-owner": "node scripts/link-workspace-owner.mjs",
     "ready": "vp check && vp run -r test && vp run -r build",
     "prepare": "vp config",
-    "doctor": "npx react-doctor@latest"
+    "doctor": "vp exec react-doctor"
   },
   "devDependencies": {
     "@babel/core": "catalog:",
     "@rolldown/plugin-babel": "catalog:",
     "@types/babel__core": "catalog:",
     "@types/node": "catalog:",
-    "@typescript/native-preview": "7.0.0-dev.20260704.1",
+    "@typescript/native-preview": "7.0.0-dev.20260707.2",
     "babel-plugin-react-compiler": "catalog:",
+    "happy-dom": "catalog:",
     "react-doctor": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:"
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=22.23.2"
   },
-  "packageManager": "pnpm@11.9.0"
+  "packageManager": "pnpm@11.25.0"
 }

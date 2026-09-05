@@ -1,0 +1,2609 @@
+{
+  "schemaVersion": 1,
+  "checkedAt": "2026-09-05T19:41:30.766662+00:00",
+  "scope": "Analytics container only. Separate from the 11 npm upstream findings.",
+  "image": {
+    "tag": "orange-replay-dependency-check:20260906",
+    "id": "sha256:94cb523c6d13f45dccdba38a7559a56f2c4e2413e831aac576fd1f3802de48e2",
+    "architecture": "linux/amd64"
+  },
+  "method": "Read-only Docker inventory with network disabled; OSV package/version queries; official Debian tracker and selected upstream source/advisory cross-checks. No Spark startup or exploit testing.",
+  "coverage": {
+    "jarFiles": 254,
+    "mavenCoordinates": 454,
+    "pythonDistributions": 3,
+    "pipVendoredCoordinates": 18,
+    "debianBinaryPackages": 130,
+    "debianSourcePackages": 94
+  },
+  "runtime": {
+    "python": "3.12.14",
+    "java": "openjdk version \"17.0.20.1\" 2026-08-18\nOpenJDK Runtime Environment (build 17.0.20.1+1-1-deb12u1-Debian)\nOpenJDK 64-Bit Server VM (build 17.0.20.1+1-1-deb12u1-Debian, mixed mode, sharing)",
+    "pythonPackages": [
+      {
+        "name": "pip",
+        "version": "26.2.1"
+      },
+      {
+        "name": "py4j",
+        "version": "0.10.9.9"
+      },
+      {
+        "name": "pyspark",
+        "version": "3.5.9"
+      }
+    ],
+    "javaSourcePackage": "openjdk-17",
+    "javaSourceVersion": "17.0.20.1+1-1~deb12u1",
+    "pythonPy4jVersion": "0.10.9.9",
+    "sparkBundledJavaPy4jVersion": "0.10.9.7",
+    "py4jNote": "Both are shipped through the official PySpark3.5.9 distribution/dependency resolution; neither package/version matched OSV. No individual JAR replacement."
+  },
+  "keyBundles": {
+    "spark": {
+      "version": "3.5.9",
+      "avro": "1.11.5",
+      "parquet": "1.13.1",
+      "aircompressor": "0.27",
+      "netty": "4.1.96.Final",
+      "hadoop": "3.3.4"
+    },
+    "icebergRuntime": {
+      "version": "1.10.2",
+      "avro": "1.12.1",
+      "parquet": "1.16.0",
+      "aircompressor": "2.0.3",
+      "httpclient5": "5.5",
+      "httpcore5": "5.3.4"
+    },
+    "icebergAwsBundle": {
+      "version": "1.10.2",
+      "awsSdk": "2.33.0",
+      "awsCrt": "0.38.9",
+      "netty": "4.1.124.Final",
+      "apacheHttpclient": "4.5.13"
+    }
+  },
+  "counts": {
+    "mavenAffectedCoordinates": 59,
+    "mavenAdvisoryIds": 112,
+    "mavenAdvisorySeverity": {
+      "HIGH": 50,
+      "MODERATE": 51,
+      "LOW": 7,
+      "CRITICAL": 4
+    },
+    "pythonDistributionAdvisoryIds": 0,
+    "pipVendorRawAdvisoryIds": 3,
+    "debianSourceCveMatches": 172,
+    "debianStatus": {
+      "open": 171,
+      "undetermined": 1
+    },
+    "debianIgnored": 8,
+    "debianPostponed": 39
+  },
+  "pythonDistributionQueries": [
+    {
+      "package": "py4j",
+      "version": "0.10.9.9",
+      "advisories": []
+    },
+    {
+      "package": "pyspark",
+      "version": "3.5.9",
+      "advisories": []
+    },
+    {
+      "package": "pip",
+      "version": "26.2.1",
+      "advisories": []
+    }
+  ],
+  "pipVendorInventory": [
+    {
+      "package": "CacheControl",
+      "version": "0.14.4"
+    },
+    {
+      "package": "distlib",
+      "version": "0.4.2"
+    },
+    {
+      "package": "distro",
+      "version": "1.9.0"
+    },
+    {
+      "package": "msgpack",
+      "version": "1.1.2"
+    },
+    {
+      "package": "packaging",
+      "version": "26.2"
+    },
+    {
+      "package": "platformdirs",
+      "version": "4.10.0"
+    },
+    {
+      "package": "pyproject-hooks",
+      "version": "1.2.0"
+    },
+    {
+      "package": "requests",
+      "version": "2.34.2"
+    },
+    {
+      "package": "certifi",
+      "version": "2026.6.17"
+    },
+    {
+      "package": "idna",
+      "version": "3.18"
+    },
+    {
+      "package": "urllib3",
+      "version": "2.7.0"
+    },
+    {
+      "package": "rich",
+      "version": "14.2.0"
+    },
+    {
+      "package": "pygments",
+      "version": "2.20.0"
+    },
+    {
+      "package": "resolvelib",
+      "version": "1.2.1"
+    },
+    {
+      "package": "setuptools",
+      "version": "70.3.0"
+    },
+    {
+      "package": "tomli",
+      "version": "2.4.1"
+    },
+    {
+      "package": "tomli-w",
+      "version": "1.2.0"
+    },
+    {
+      "package": "truststore",
+      "version": "0.10.4"
+    }
+  ],
+  "pipVendorExclusions": [
+    {
+      "id": "GHSA-6v7p-g79w-8964",
+      "package": "msgpack",
+      "version": "1.1.2",
+      "reason": "The vulnerable C/Cython Unpacker is absent. pip vendors only Python fallback files. The upstream fix changes _unpacker.pyx and unpack_template.h.",
+      "source": "https://github.com/msgpack/msgpack-python/commit/2c56ddb5d0025ed481d962c0f5d62d19dec7476d"
+    },
+    {
+      "id": "GHSA-5rjg-fvgr-3xxf",
+      "package": "setuptools",
+      "version": "70.3.0",
+      "reason": "pip does not vendor the vulnerable setuptools/package_index.py implementation.",
+      "source": "https://github.com/pypa/setuptools/security/advisories/GHSA-5rjg-fvgr-3xxf"
+    },
+    {
+      "id": "GHSA-h35f-9h28-mq5c",
+      "package": "setuptools",
+      "version": "70.3.0",
+      "reason": "pip does not vendor the affected FileList/egg_info implementation. The image is Linux and does not publish source distributions.",
+      "source": "https://github.com/pypa/setuptools/security/advisories/GHSA-h35f-9h28-mq5c"
+    }
+  ],
+  "reachability": [
+    {
+      "packages": [
+        "org.apache.httpcomponents.client5:httpclient5@5.5",
+        "org.apache.httpcomponents.core5:httpcore5@5.3.4"
+      ],
+      "advisories": ["GHSA-hjcp-jmpx-g3qm", "GHSA-hf6x-8p5f-cgmf"],
+      "classification": "active_library_with_conditional_attack_preconditions",
+      "evidence": "purge_pending.build_spark selects Iceberg REST catalog; Iceberg HTTPClient uses classic CloseableHttpClient. A malicious catalog response could exercise these response handling flaws. A hostile response was not tested.",
+      "fixedDependencies": ["httpclient5 5.6.3", "httpcore5 5.4.3"],
+      "officialParentLimit": "Iceberg 1.11.0 still selects httpclient5 5.6.1, below the 5.6.3 fix. No verified parent-only upgrade clears this set.",
+      "sources": [
+        "https://github.com/apache/iceberg/blob/apache-iceberg-1.10.2/core/src/main/java/org/apache/iceberg/rest/HTTPClient.java",
+        "https://github.com/apache/iceberg/blob/apache-iceberg-1.11.0/gradle/libs.versions.toml"
+      ]
+    },
+    {
+      "packages": ["io.airlift:aircompressor@0.27"],
+      "advisories": ["GHSA-vx9q-rhv9-3jvg"],
+      "classification": "present_with_conditional_attack_preconditions",
+      "evidence": "The old Spark JAR remains. The Iceberg reader has a separate relocated aircompressor 2.0.3 copy containing the fix. Reused uncleared output buffers and attacker-crafted Snappy/LZ4 input are required; the old copy was not proven used by the Iceberg deletion path.",
+      "fixedDependencies": ["aircompressor 2.0.3"],
+      "source": "https://github.com/airlift/aircompressor/security/advisories/GHSA-vx9q-rhv9-3jvg"
+    },
+    {
+      "packages": [
+        "org.apache.avro:avro@1.7.7",
+        "org.apache.zookeeper:zookeeper@3.6.3",
+        "org.codehaus.jackson:jackson-mapper-asl@1.9.13",
+        "org.apache.derby:derby@10.14.2.0"
+      ],
+      "advisories": [
+        "GHSA-r7pg-v2c8-mfg3",
+        "GHSA-7286-pgfv-vxvh",
+        "GHSA-c27h-mcmw-48hv",
+        "GHSA-rcjc-c4pj-xxrp"
+      ],
+      "classification": "critical_version_matches_without_proven_purge_exposure",
+      "evidence": "Avro 1.7.7 is relocated inside Hadoop client runtime; the configured Iceberg reader has relocated Avro 1.12.1. This job does not configure ZooKeeper quorum peers, Derby LDAP authentication, or Jackson1 polymorphic deserialization. These requirements were not exercised; class presence alone is not exploit proof."
+    },
+    {
+      "packages": ["iceberg-aws-bundle netty 4.1.124.Final"],
+      "classification": "present_optional_client_path",
+      "evidence": "Iceberg HttpClientProperties defaults synchronous AWS clients to Apache HTTP client; its Netty async client is not the selected default. This does not exclude separate Spark Netty usage.",
+      "source": "https://github.com/apache/iceberg/blob/apache-iceberg-1.10.2/aws/src/main/java/org/apache/iceberg/aws/HttpClientProperties.java"
+    },
+    {
+      "packages": ["Debian source packages"],
+      "classification": "source_package_matches_need_binary_and_feature_triage",
+      "evidence": "The official Bookworm tracker has no fixed Bookworm version for these matched entries. Some involve absent server components or unused APIs; source-package matching alone does not establish binary or application exposure. Example: zlib CVE-2023-45853 is explicitly ignored because minizip is not built."
+    }
+  ],
+  "officialMigrationLimits": [
+    {
+      "candidate": "Spark 4.1.3 + Iceberg 1.11.0",
+      "requiredChanges": [
+        "Use iceberg-spark-runtime-4.1_2.13 and matching AWS bundle 1.11.0.",
+        "Scala 2.12 is unsupported in Spark4; use Scala2.13. Spark4.1.3 requires Java17 or21 and Python3.10+.",
+        "Review ANSI SQL default, table provider selection, partition sizing, timestamp and file-error behavior. Revalidate delete, rewrite, expiry, orphan cleanup and old snapshots."
+      ],
+      "remainingRisk": "Spark4.1.3 still selects Netty4.2.7.Final and libthrift0.16.0; Iceberg1.11.0 still selects HttpClient5.6.1. A major migration is not a complete advisory fix.",
+      "sources": [
+        "https://spark.apache.org/docs/4.1.3/sql-migration-guide.html",
+        "https://spark.apache.org/docs/4.0.0/",
+        "https://github.com/apache/spark/blob/v4.1.3/pom.xml",
+        "https://iceberg.apache.org/multi-engine-support/",
+        "https://pypi.org/project/pyspark/4.1.3/"
+      ]
+    },
+    {
+      "candidate": "Spark4.2",
+      "status": "No official Iceberg4.2 runtime is listed in the current Iceberg support matrix; do not pair the existing3.5 runtime with Spark4.2.",
+      "source": "https://iceberg.apache.org/multi-engine-support/"
+    },
+    {
+      "candidate": "Debian Bookworm fixes",
+      "status": "No compatible fixed Bookworm package exists in the tracker for these matches. Do not mix Debian distributions or replace individual native/JAR libraries to force a clean count.",
+      "source": "https://security-tracker.debian.org/tracker/"
+    }
+  ],
+  "coverageLimits": [
+    "OSV and repository advisories can lag disclosures and may misclassify shaded metadata.",
+    "All254 JAR filenames were mapped using Maven metadata, Spark release dependency metadata or verified Maven Central POMs. Native code or hidden embedded libraries without identifiable version metadata are not exhaustively audited.",
+    "No attacker-controlled sample, exploit, complete loaded-class trace, production endpoint or network exposure validation was performed.",
+    "Debian source matches were cross-checked against the official tracker; per-binary and per-feature reachability remains incomplete.",
+    "The host kernel, Docker daemon and deployed production image are outside this container review.",
+    "No package patches, dependency overrides, individual JAR replacements, image mutations, tests or deployment were performed by this review."
+  ],
+  "mavenInventory": [
+    "com.clearspring.analytics:stream@2.9.6",
+    "com.esotericsoftware:kryo-shaded@4.0.2",
+    "com.esotericsoftware:minlog@1.3.0",
+    "com.esotericsoftware:reflectasm@1.11.3",
+    "com.fasterxml.jackson.core:jackson-annotations@2.12.7",
+    "com.fasterxml.jackson.core:jackson-annotations@2.13.4",
+    "com.fasterxml.jackson.core:jackson-annotations@2.15.2",
+    "com.fasterxml.jackson.core:jackson-annotations@2.19.2",
+    "com.fasterxml.jackson.core:jackson-core@2.12.7",
+    "com.fasterxml.jackson.core:jackson-core@2.13.4",
+    "com.fasterxml.jackson.core:jackson-core@2.15.2",
+    "com.fasterxml.jackson.core:jackson-databind@2.12.7",
+    "com.fasterxml.jackson.core:jackson-databind@2.13.4.2",
+    "com.fasterxml.jackson.core:jackson-databind@2.15.2",
+    "com.fasterxml.jackson.dataformat:jackson-dataformat-yaml@2.15.2",
+    "com.fasterxml.jackson.datatype:jackson-datatype-jsr310@2.15.2",
+    "com.fasterxml.jackson.datatype:jackson-datatype-jsr310@2.21.2",
+    "com.fasterxml.jackson.jaxrs:jackson-jaxrs-base@2.12.7",
+    "com.fasterxml.jackson.jaxrs:jackson-jaxrs-json-provider@2.12.7",
+    "com.fasterxml.jackson.module:jackson-module-jaxb-annotations@2.12.7",
+    "com.fasterxml.jackson.module:jackson-module-scala_2.12@2.15.2",
+    "com.fasterxml.woodstox:woodstox-core@5.3.0",
+    "com.github.joshelser:dropwizard-metrics-hadoop-metrics2-reporter@0.1.2",
+    "com.github.luben:zstd-jni@1.5.5-4",
+    "com.github.stephenc.jcip:jcip-annotations@1.0-1",
+    "com.github.wendykierp:JTransforms@3.1",
+    "com.google.code.findbugs:jsr305@3.0.0",
+    "com.google.code.gson:gson@2.2.4",
+    "com.google.code.gson:gson@2.8.9",
+    "com.google.crypto.tink:tink@1.9.0",
+    "com.google.errorprone:error_prone_annotations@2.10.0",
+    "com.google.errorprone:error_prone_annotations@2.5.1",
+    "com.google.flatbuffers:flatbuffers-java@1.12.0",
+    "com.google.flatbuffers:flatbuffers-java@23.5.26",
+    "com.google.guava:failureaccess@1.0.1",
+    "com.google.guava:failureaccess@1.0.3",
+    "com.google.guava:guava@14.0.1",
+    "com.google.guava:guava@30.1.1-jre",
+    "com.google.guava:guava@33.4.8-jre",
+    "com.google.guava:listenablefuture@9999.0-empty-to-avoid-conflict-with-guava",
+    "com.google.j2objc:j2objc-annotations@1.3",
+    "com.google.protobuf:protobuf-java@3.3.0",
+    "com.google.protobuf:protobuf-java@3.7.1",
+    "com.google.re2j:re2j@1.1",
+    "com.jolbox:bonecp@0.8.0.RELEASE",
+    "com.nimbusds:nimbus-jose-jwt@9.8.1",
+    "com.ning:compress-lzf@1.1.2",
+    "com.squareup.okhttp3:logging-interceptor@3.12.12",
+    "com.squareup.okhttp3:okhttp@3.12.12",
+    "com.squareup.okio:okio@1.17.6",
+    "com.sun.istack:istack-commons-runtime@3.0.8",
+    "com.sun.jersey:jersey-client@1.19",
+    "com.sun.jersey:jersey-core@1.19",
+    "com.sun.jersey:jersey-servlet@1.19",
+    "com.tdunning:json@1.8",
+    "com.thoughtworks.paranamer:paranamer@2.3",
+    "com.thoughtworks.paranamer:paranamer@2.8",
+    "com.twitter:chill-java@0.10.0",
+    "com.twitter:chill_2.12@0.10.0",
+    "com.univocity:univocity-parsers@2.9.1",
+    "com.zaxxer:HikariCP@2.5.1",
+    "commons-beanutils:commons-beanutils@1.9.4",
+    "commons-cli:commons-cli@1.2",
+    "commons-cli:commons-cli@1.5.0",
+    "commons-codec:commons-codec@1.15",
+    "commons-codec:commons-codec@1.16.1",
+    "commons-codec:commons-codec@1.17.1",
+    "commons-collections:commons-collections@3.2.2",
+    "commons-dbcp:commons-dbcp@1.4",
+    "commons-io:commons-io@2.16.1",
+    "commons-io:commons-io@2.8.0",
+    "commons-lang:commons-lang@2.6",
+    "commons-logging:commons-logging@1.1.3",
+    "commons-logging:commons-logging@1.2",
+    "commons-net:commons-net@3.6",
+    "commons-pool:commons-pool@1.5.4",
+    "dev.failsafe:failsafe@3.3.2",
+    "dev.ludovic.netlib:arpack@3.0.3",
+    "dev.ludovic.netlib:blas@3.0.3",
+    "dev.ludovic.netlib:lapack@3.0.3",
+    "dnsjava:dnsjava@2.1.7",
+    "io.airlift:aircompressor@0.27",
+    "io.airlift:aircompressor@2.0.3",
+    "io.dropwizard.metrics:metrics-core@4.2.19",
+    "io.dropwizard.metrics:metrics-graphite@4.2.19",
+    "io.dropwizard.metrics:metrics-jmx@4.2.19",
+    "io.dropwizard.metrics:metrics-json@4.2.19",
+    "io.dropwizard.metrics:metrics-jvm@4.2.19",
+    "io.fabric8:kubernetes-client@6.7.2",
+    "io.fabric8:kubernetes-client-api@6.7.2",
+    "io.fabric8:kubernetes-httpclient-okhttp@6.7.2",
+    "io.fabric8:kubernetes-model-admissionregistration@6.7.2",
+    "io.fabric8:kubernetes-model-apiextensions@6.7.2",
+    "io.fabric8:kubernetes-model-apps@6.7.2",
+    "io.fabric8:kubernetes-model-autoscaling@6.7.2",
+    "io.fabric8:kubernetes-model-batch@6.7.2",
+    "io.fabric8:kubernetes-model-certificates@6.7.2",
+    "io.fabric8:kubernetes-model-common@6.7.2",
+    "io.fabric8:kubernetes-model-coordination@6.7.2",
+    "io.fabric8:kubernetes-model-core@6.7.2",
+    "io.fabric8:kubernetes-model-discovery@6.7.2",
+    "io.fabric8:kubernetes-model-events@6.7.2",
+    "io.fabric8:kubernetes-model-extensions@6.7.2",
+    "io.fabric8:kubernetes-model-flowcontrol@6.7.2",
+    "io.fabric8:kubernetes-model-gatewayapi@6.7.2",
+    "io.fabric8:kubernetes-model-metrics@6.7.2",
+    "io.fabric8:kubernetes-model-networking@6.7.2",
+    "io.fabric8:kubernetes-model-node@6.7.2",
+    "io.fabric8:kubernetes-model-policy@6.7.2",
+    "io.fabric8:kubernetes-model-rbac@6.7.2",
+    "io.fabric8:kubernetes-model-resource@6.7.2",
+    "io.fabric8:kubernetes-model-scheduling@6.7.2",
+    "io.fabric8:kubernetes-model-storageclass@6.7.2",
+    "io.fabric8:zjsonpatch@0.3.0",
+    "io.netty:netty-all@4.1.96.Final",
+    "io.netty:netty-buffer@4.1.124.Final",
+    "io.netty:netty-buffer@4.1.96.Final",
+    "io.netty:netty-buffer@4.2.4.Final",
+    "io.netty:netty-codec@4.1.124.Final",
+    "io.netty:netty-codec@4.1.96.Final",
+    "io.netty:netty-codec-http@4.1.124.Final",
+    "io.netty:netty-codec-http@4.1.96.Final",
+    "io.netty:netty-codec-http2@4.1.124.Final",
+    "io.netty:netty-codec-http2@4.1.96.Final",
+    "io.netty:netty-codec-socks@4.1.96.Final",
+    "io.netty:netty-common@4.1.124.Final",
+    "io.netty:netty-common@4.1.96.Final",
+    "io.netty:netty-common@4.2.4.Final",
+    "io.netty:netty-handler@4.1.124.Final",
+    "io.netty:netty-handler@4.1.96.Final",
+    "io.netty:netty-handler-proxy@4.1.96.Final",
+    "io.netty:netty-resolver@4.1.124.Final",
+    "io.netty:netty-resolver@4.1.96.Final",
+    "io.netty:netty-transport@4.1.124.Final",
+    "io.netty:netty-transport@4.1.96.Final",
+    "io.netty:netty-transport-classes-epoll@4.1.124.Final",
+    "io.netty:netty-transport-classes-epoll@4.1.96.Final",
+    "io.netty:netty-transport-classes-kqueue@4.1.96.Final",
+    "io.netty:netty-transport-native-epoll@4.1.96.Final",
+    "io.netty:netty-transport-native-kqueue@4.1.96.Final",
+    "io.netty:netty-transport-native-unix-common@4.1.124.Final",
+    "io.netty:netty-transport-native-unix-common@4.1.96.Final",
+    "jakarta.activation:jakarta.activation-api@1.2.1",
+    "jakarta.annotation:jakarta.annotation-api@1.3.5",
+    "jakarta.servlet:jakarta.servlet-api@4.0.3",
+    "jakarta.validation:jakarta.validation-api@2.0.2",
+    "jakarta.ws.rs:jakarta.ws.rs-api@2.1.6",
+    "jakarta.xml.bind:jakarta.xml.bind-api@2.3.2",
+    "javax.activation:activation@1.1.1",
+    "javax.jdo:jdo-api@3.0.1",
+    "javax.servlet:javax.servlet-api@3.1.0",
+    "javax.transaction:jta@1.1",
+    "javax.transaction:transaction-api@1.1",
+    "javax.ws.rs:jsr311-api@1.1.1",
+    "javolution:javolution@5.5.1",
+    "jline:jline@2.14.6",
+    "joda-time:joda-time@2.12.5",
+    "net.minidev:accessors-smart@2.4.7",
+    "net.minidev:json-smart@1.3.2",
+    "net.openhft:zero-allocation-hashing@0.27ea0",
+    "net.openhft:zero-allocation-hashing@0.9",
+    "net.razorvine:pickle@1.3",
+    "net.sf.jpam:jpam@1.1",
+    "net.sf.opencsv:opencsv@2.3",
+    "net.sf.py4j:py4j@0.10.9.7",
+    "net.sf.supercsv:super-csv@2.2.0",
+    "net.sourceforge.f2j:arpack_combined_all@0.1",
+    "org.antlr:ST4@4.0.4",
+    "org.antlr:antlr-runtime@3.5.2",
+    "org.antlr:antlr4-runtime@4.9.3",
+    "org.apache.arrow:arrow-format@12.0.1",
+    "org.apache.arrow:arrow-format@15.0.2",
+    "org.apache.arrow:arrow-memory-core@12.0.1",
+    "org.apache.arrow:arrow-memory-core@15.0.2",
+    "org.apache.arrow:arrow-memory-netty@12.0.1",
+    "org.apache.arrow:arrow-memory-netty@15.0.2",
+    "org.apache.arrow:arrow-vector@12.0.1",
+    "org.apache.arrow:arrow-vector@15.0.2",
+    "org.apache.avro:avro@1.11.5",
+    "org.apache.avro:avro@1.12.1",
+    "org.apache.avro:avro@1.7.7",
+    "org.apache.avro:avro-ipc@1.11.5",
+    "org.apache.avro:avro-mapred@1.11.5",
+    "org.apache.commons:commons-collections4@4.4",
+    "org.apache.commons:commons-compress@1.21",
+    "org.apache.commons:commons-compress@1.23.0",
+    "org.apache.commons:commons-configuration2@2.1.1",
+    "org.apache.commons:commons-crypto@1.1.0",
+    "org.apache.commons:commons-lang3@3.12.0",
+    "org.apache.commons:commons-math3@3.1.1",
+    "org.apache.commons:commons-math3@3.6.1",
+    "org.apache.commons:commons-text@1.10.0",
+    "org.apache.commons:commons-text@1.4",
+    "org.apache.curator:curator-client@2.13.0",
+    "org.apache.curator:curator-client@4.2.0",
+    "org.apache.curator:curator-framework@2.13.0",
+    "org.apache.curator:curator-framework@4.2.0",
+    "org.apache.curator:curator-recipes@2.13.0",
+    "org.apache.curator:curator-recipes@4.2.0",
+    "org.apache.datasketches:datasketches-java@3.3.0",
+    "org.apache.datasketches:datasketches-java@6.2.0",
+    "org.apache.datasketches:datasketches-memory@2.1.0",
+    "org.apache.datasketches:datasketches-memory@3.0.2",
+    "org.apache.derby:derby@10.14.2.0",
+    "org.apache.hadoop.thirdparty:hadoop-shaded-guava@1.1.1",
+    "org.apache.hadoop.thirdparty:hadoop-shaded-protobuf_3_7@1.1.1",
+    "org.apache.hadoop:hadoop-annotations@3.3.4",
+    "org.apache.hadoop:hadoop-auth@3.3.4",
+    "org.apache.hadoop:hadoop-client@3.3.4",
+    "org.apache.hadoop:hadoop-client-api@3.3.4",
+    "org.apache.hadoop:hadoop-common@3.3.4",
+    "org.apache.hadoop:hadoop-hdfs-client@3.3.4",
+    "org.apache.hadoop:hadoop-mapreduce-client-common@3.3.4",
+    "org.apache.hadoop:hadoop-mapreduce-client-core@3.3.4",
+    "org.apache.hadoop:hadoop-mapreduce-client-jobclient@3.3.4",
+    "org.apache.hadoop:hadoop-yarn-api@3.3.4",
+    "org.apache.hadoop:hadoop-yarn-client@3.3.4",
+    "org.apache.hadoop:hadoop-yarn-common@3.3.4",
+    "org.apache.hadoop:hadoop-yarn-server-web-proxy@3.3.4",
+    "org.apache.hive.shims:hive-shims-0.23@2.3.9",
+    "org.apache.hive.shims:hive-shims-common@2.3.9",
+    "org.apache.hive.shims:hive-shims-scheduler@2.3.9",
+    "org.apache.hive:hive-beeline@2.3.9",
+    "org.apache.hive:hive-cli@2.3.9",
+    "org.apache.hive:hive-common@2.3.9",
+    "org.apache.hive:hive-exec@2.3.9",
+    "org.apache.hive:hive-jdbc@2.3.9",
+    "org.apache.hive:hive-llap-common@2.3.9",
+    "org.apache.hive:hive-metastore@2.3.9",
+    "org.apache.hive:hive-serde@2.3.9",
+    "org.apache.hive:hive-service-rpc@3.1.3",
+    "org.apache.hive:hive-shims@2.3.9",
+    "org.apache.hive:hive-storage-api@2.8.1",
+    "org.apache.httpcomponents.client5:httpclient5@5.5",
+    "org.apache.httpcomponents.core5:httpcore5@5.3.4",
+    "org.apache.httpcomponents.core5:httpcore5-h2@5.3.4",
+    "org.apache.httpcomponents:httpclient@4.5.13",
+    "org.apache.httpcomponents:httpclient@4.5.14",
+    "org.apache.httpcomponents:httpcore@4.4.13",
+    "org.apache.httpcomponents:httpcore@4.4.16",
+    "org.apache.iceberg:iceberg-aws-bundle@1.10.2",
+    "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12@1.10.2",
+    "org.apache.ivy:ivy@2.5.3",
+    "org.apache.kerby:kerb-admin@1.0.1",
+    "org.apache.kerby:kerb-client@1.0.1",
+    "org.apache.kerby:kerb-common@1.0.1",
+    "org.apache.kerby:kerb-core@1.0.1",
+    "org.apache.kerby:kerb-crypto@1.0.1",
+    "org.apache.kerby:kerb-identity@1.0.1",
+    "org.apache.kerby:kerb-server@1.0.1",
+    "org.apache.kerby:kerb-simplekdc@1.0.1",
+    "org.apache.kerby:kerb-util@1.0.1",
+    "org.apache.kerby:kerby-asn1@1.0.1",
+    "org.apache.kerby:kerby-config@1.0.1",
+    "org.apache.kerby:kerby-pkix@1.0.1",
+    "org.apache.kerby:kerby-util@1.0.1",
+    "org.apache.kerby:kerby-xdr@1.0.1",
+    "org.apache.kerby:token-provider@1.0.1",
+    "org.apache.logging.log4j:log4j-1.2-api@2.20.0",
+    "org.apache.logging.log4j:log4j-api@2.20.0",
+    "org.apache.logging.log4j:log4j-core@2.20.0",
+    "org.apache.logging.log4j:log4j-slf4j2-impl@2.20.0",
+    "org.apache.mesos:mesos@1.4.3",
+    "org.apache.orc:orc-core@1.9.7",
+    "org.apache.orc:orc-core@1.9.8",
+    "org.apache.orc:orc-mapreduce@1.9.8",
+    "org.apache.orc:orc-shims@1.9.7",
+    "org.apache.orc:orc-shims@1.9.8",
+    "org.apache.parquet:parquet-avro@1.16.0",
+    "org.apache.parquet:parquet-column@1.13.1",
+    "org.apache.parquet:parquet-column@1.16.0",
+    "org.apache.parquet:parquet-common@1.13.1",
+    "org.apache.parquet:parquet-common@1.16.0",
+    "org.apache.parquet:parquet-encoding@1.13.1",
+    "org.apache.parquet:parquet-encoding@1.16.0",
+    "org.apache.parquet:parquet-format@2.10.0",
+    "org.apache.parquet:parquet-format-structures@1.13.1",
+    "org.apache.parquet:parquet-format-structures@1.16.0",
+    "org.apache.parquet:parquet-hadoop@1.13.1",
+    "org.apache.parquet:parquet-hadoop@1.16.0",
+    "org.apache.parquet:parquet-jackson@1.13.1",
+    "org.apache.parquet:parquet-jackson@1.16.0",
+    "org.apache.parquet:parquet-variant@1.16.0",
+    "org.apache.spark:spark-catalyst_2.12@3.5.9",
+    "org.apache.spark:spark-common-utils_2.12@3.5.9",
+    "org.apache.spark:spark-core_2.12@3.5.9",
+    "org.apache.spark:spark-graphx_2.12@3.5.9",
+    "org.apache.spark:spark-hive-thriftserver_2.12@3.5.9",
+    "org.apache.spark:spark-hive_2.12@3.5.9",
+    "org.apache.spark:spark-kubernetes_2.12@3.5.9",
+    "org.apache.spark:spark-kvstore_2.12@3.5.9",
+    "org.apache.spark:spark-launcher_2.12@3.5.9",
+    "org.apache.spark:spark-mesos_2.12@3.5.9",
+    "org.apache.spark:spark-mllib-local_2.12@3.5.9",
+    "org.apache.spark:spark-mllib_2.12@3.5.9",
+    "org.apache.spark:spark-network-common_2.12@3.5.9",
+    "org.apache.spark:spark-network-shuffle_2.12@3.5.9",
+    "org.apache.spark:spark-repl_2.12@3.5.9",
+    "org.apache.spark:spark-sketch_2.12@3.5.9",
+    "org.apache.spark:spark-sql-api_2.12@3.5.9",
+    "org.apache.spark:spark-sql_2.12@3.5.9",
+    "org.apache.spark:spark-streaming_2.12@3.5.9",
+    "org.apache.spark:spark-tags_2.12@3.5.9",
+    "org.apache.spark:spark-unsafe_2.12@3.5.9",
+    "org.apache.spark:spark-yarn_2.12@3.5.9",
+    "org.apache.thrift:libfb303@0.9.3",
+    "org.apache.thrift:libthrift@0.12.0",
+    "org.apache.xbean:xbean-asm9-shaded@4.23",
+    "org.apache.yetus:audience-annotations@0.5.0",
+    "org.apache.zookeeper:zookeeper@3.6.3",
+    "org.apache.zookeeper:zookeeper-jute@3.6.3",
+    "org.codehaus.jackson:jackson-core-asl@1.9.13",
+    "org.codehaus.jackson:jackson-mapper-asl@1.9.13",
+    "org.codehaus.janino:commons-compiler@3.1.9",
+    "org.codehaus.janino:janino@3.1.9",
+    "org.codehaus.mojo:animal-sniffer-annotations@1.17",
+    "org.codehaus.woodstox:stax2-api@4.2.1",
+    "org.datanucleus:datanucleus-api-jdo@4.2.4",
+    "org.datanucleus:datanucleus-core@4.1.17",
+    "org.datanucleus:datanucleus-rdbms@4.1.19",
+    "org.datanucleus:javax.jdo@3.2.0-m3",
+    "org.eclipse.collections:eclipse-collections@11.1.0",
+    "org.eclipse.collections:eclipse-collections-api@11.1.0",
+    "org.eclipse.jetty.websocket:websocket-api@9.4.43.v20210629",
+    "org.eclipse.jetty.websocket:websocket-client@9.4.43.v20210629",
+    "org.eclipse.jetty.websocket:websocket-common@9.4.43.v20210629",
+    "org.eclipse.jetty:jetty-client@9.4.43.v20210629",
+    "org.eclipse.jetty:jetty-client@9.4.58.v20250814",
+    "org.eclipse.jetty:jetty-continuation@9.4.58.v20250814",
+    "org.eclipse.jetty:jetty-http@9.4.43.v20210629",
+    "org.eclipse.jetty:jetty-http@9.4.58.v20250814",
+    "org.eclipse.jetty:jetty-io@9.4.43.v20210629",
+    "org.eclipse.jetty:jetty-io@9.4.58.v20250814",
+    "org.eclipse.jetty:jetty-plus@9.4.58.v20250814",
+    "org.eclipse.jetty:jetty-proxy@9.4.58.v20250814",
+    "org.eclipse.jetty:jetty-security@9.4.58.v20250814",
+    "org.eclipse.jetty:jetty-server@9.4.58.v20250814",
+    "org.eclipse.jetty:jetty-servlet@9.4.58.v20250814",
+    "org.eclipse.jetty:jetty-servlets@9.4.58.v20250814",
+    "org.eclipse.jetty:jetty-util@9.4.43.v20210629",
+    "org.eclipse.jetty:jetty-util@9.4.58.v20250814",
+    "org.eclipse.jetty:jetty-util-ajax@9.4.43.v20210629",
+    "org.eclipse.jetty:jetty-webapp@9.4.43.v20210629",
+    "org.eclipse.jetty:jetty-xml@9.4.43.v20210629",
+    "org.eclipse.microprofile.openapi:microprofile-openapi-api@4.1",
+    "org.fusesource.leveldbjni:leveldbjni-all@1.8",
+    "org.glassfish.hk2.external:aopalliance-repackaged@2.6.1",
+    "org.glassfish.hk2.external:jakarta.inject@2.6.1",
+    "org.glassfish.hk2:hk2-api@2.6.1",
+    "org.glassfish.hk2:hk2-locator@2.6.1",
+    "org.glassfish.hk2:hk2-utils@2.6.1",
+    "org.glassfish.hk2:osgi-resource-locator@1.0.3",
+    "org.glassfish.jaxb:jaxb-runtime@2.3.2",
+    "org.glassfish.jersey.containers:jersey-container-servlet@2.47",
+    "org.glassfish.jersey.containers:jersey-container-servlet-core@2.47",
+    "org.glassfish.jersey.core:jersey-client@2.47",
+    "org.glassfish.jersey.core:jersey-common@2.47",
+    "org.glassfish.jersey.core:jersey-server@2.47",
+    "org.glassfish.jersey.inject:jersey-hk2@2.47",
+    "org.javassist:javassist@3.30.2-GA",
+    "org.jctools:jctools-core@3.1.0",
+    "org.jctools:jctools-core@4.0.5",
+    "org.jetbrains:annotations@17.0.0",
+    "org.jline:jline@3.9.0",
+    "org.jline:jline-builtins@3.9.0",
+    "org.jline:jline-reader@3.9.0",
+    "org.jline:jline-remote-ssh@3.9.0",
+    "org.jline:jline-remote-telnet@3.9.0",
+    "org.jline:jline-style@3.9.0",
+    "org.jline:jline-terminal@3.9.0",
+    "org.jline:jline-terminal-jansi@3.9.0",
+    "org.jline:jline-terminal-jna@3.9.0",
+    "org.jodd:jodd-core@3.5.2",
+    "org.jpmml:pmml-model@1.4.8",
+    "org.json4s:json4s-ast_2.12@3.7.0-M11",
+    "org.json4s:json4s-core_2.12@3.7.0-M11",
+    "org.json4s:json4s-jackson_2.12@3.7.0-M11",
+    "org.json4s:json4s-scalap_2.12@3.7.0-M11",
+    "org.locationtech.jts:jts-core@1.20.0",
+    "org.lz4:lz4-java@1.8.0",
+    "org.objenesis:objenesis@3.3",
+    "org.projectnessie.nessie:nessie-client@0.104.5",
+    "org.projectnessie.nessie:nessie-model@0.104.5",
+    "org.roaringbitmap:RoaringBitmap@0.9.45",
+    "org.roaringbitmap:shims@0.9.45",
+    "org.rocksdb:rocksdbjni@8.3.2",
+    "org.scala-lang.modules:scala-collection-compat_2.12@2.7.0",
+    "org.scala-lang.modules:scala-parser-combinators_2.12@2.3.0",
+    "org.scala-lang.modules:scala-xml_2.12@2.1.0",
+    "org.scala-lang:scala-library@2.12.18",
+    "org.scala-lang:scala-reflect@2.12.18",
+    "org.scalanlp:breeze-macros_2.12@2.1.0",
+    "org.scalanlp:breeze_2.12@2.1.0",
+    "org.slf4j:jcl-over-slf4j@2.0.7",
+    "org.slf4j:jul-to-slf4j@2.0.7",
+    "org.slf4j:slf4j-api@2.0.7",
+    "org.snakeyaml:snakeyaml-engine@2.6",
+    "org.spark-project.spark:unused@1.0.0",
+    "org.threeten:threeten-extra@1.7.1",
+    "org.tukaani:xz@1.9",
+    "org.typelevel:algebra_2.12@2.0.1",
+    "org.typelevel:cats-kernel_2.12@2.1.1",
+    "org.typelevel:spire-macros_2.12@0.17.0",
+    "org.typelevel:spire-platform_2.12@0.17.0",
+    "org.typelevel:spire-util_2.12@0.17.0",
+    "org.typelevel:spire_2.12@0.17.0",
+    "org.xerial.snappy:snappy-java@1.1.10.5",
+    "org.yaml:snakeyaml@2.0",
+    "oro:oro@2.0.8",
+    "pl.edu.icm:JLargeArrays@1.5",
+    "software.amazon.awssdk.crt:aws-crt@0.38.9",
+    "software.amazon.awssdk:annotations@2.33.0",
+    "software.amazon.awssdk:apache-client@2.33.0",
+    "software.amazon.awssdk:arns@2.33.0",
+    "software.amazon.awssdk:auth@2.33.0",
+    "software.amazon.awssdk:aws-core@2.33.0",
+    "software.amazon.awssdk:aws-json-protocol@2.33.0",
+    "software.amazon.awssdk:aws-query-protocol@2.33.0",
+    "software.amazon.awssdk:aws-xml-protocol@2.33.0",
+    "software.amazon.awssdk:checksums@2.33.0",
+    "software.amazon.awssdk:checksums-spi@2.33.0",
+    "software.amazon.awssdk:cloudwatch@2.33.0",
+    "software.amazon.awssdk:cloudwatch-metric-publisher@2.33.0",
+    "software.amazon.awssdk:crt-core@2.33.0",
+    "software.amazon.awssdk:dynamodb@2.33.0",
+    "software.amazon.awssdk:endpoints-spi@2.33.0",
+    "software.amazon.awssdk:glue@2.33.0",
+    "software.amazon.awssdk:http-auth@2.33.0",
+    "software.amazon.awssdk:http-auth-aws@2.33.0",
+    "software.amazon.awssdk:http-auth-aws-crt@2.33.0",
+    "software.amazon.awssdk:http-auth-aws-eventstream@2.33.0",
+    "software.amazon.awssdk:http-auth-spi@2.33.0",
+    "software.amazon.awssdk:http-client-spi@2.33.0",
+    "software.amazon.awssdk:iam@2.33.0",
+    "software.amazon.awssdk:identity-spi@2.33.0",
+    "software.amazon.awssdk:json-utils@2.33.0",
+    "software.amazon.awssdk:kms@2.33.0",
+    "software.amazon.awssdk:lakeformation@2.33.0",
+    "software.amazon.awssdk:metrics-spi@2.33.0",
+    "software.amazon.awssdk:netty-nio-client@2.33.0",
+    "software.amazon.awssdk:profiles@2.33.0",
+    "software.amazon.awssdk:protocol-core@2.33.0",
+    "software.amazon.awssdk:regions@2.33.0",
+    "software.amazon.awssdk:retries@2.33.0",
+    "software.amazon.awssdk:retries-spi@2.33.0",
+    "software.amazon.awssdk:s3@2.33.0",
+    "software.amazon.awssdk:s3control@2.33.0",
+    "software.amazon.awssdk:sdk-core@2.33.0",
+    "software.amazon.awssdk:sso@2.33.0",
+    "software.amazon.awssdk:sts@2.33.0",
+    "software.amazon.awssdk:utils@2.33.0",
+    "software.amazon.eventstream:eventstream@1.0.1",
+    "software.amazon.s3.accessgrants:aws-s3-accessgrants-java-plugin@2.3.0",
+    "stax:stax-api@1.0.1"
+  ],
+  "debianSourceInventory": [
+    "acl@2.3.1-3",
+    "adduser@3.134",
+    "alsa-lib@1.2.8-1",
+    "apt@2.6.1",
+    "attr@1:2.5.1-4",
+    "audit@1:3.0.9-1",
+    "avahi@0.8-10+deb12u1",
+    "base-files@12.4+deb12u15",
+    "base-passwd@3.6.1",
+    "bash@5.2.15-2",
+    "brotli@1.0.9-2",
+    "bzip2@1.0.8-5",
+    "ca-certificates@20250419~deb12u1",
+    "ca-certificates-java@20230710~deb12u1",
+    "cdebconf@0.270",
+    "coreutils@9.1-1",
+    "cups@2.4.2-3+deb12u9",
+    "dash@0.5.12-2",
+    "db5.3@5.3.28+dfsg2-1",
+    "dbus@1.14.10-1~deb12u1",
+    "debconf@1.5.82",
+    "debian-archive-keyring@2023.3+deb12u2",
+    "debianutils@5.7-0.5~deb12u1",
+    "diffutils@1:3.8-4",
+    "dpkg@1.21.23",
+    "e2fsprogs@1.47.0-2",
+    "expat@2.5.0-1+deb12u3",
+    "findutils@4.9.0-4",
+    "fontconfig@2.14.1-4",
+    "fonts-dejavu@2.37-6",
+    "freetype@2.12.1+dfsg-5+deb12u4",
+    "gcc-12@12.2.0-14+deb12u1",
+    "gdbm@1.23-3",
+    "glib2.0@2.74.6-2+deb12u9",
+    "glibc@2.36-9+deb12u14",
+    "gmp@2:6.2.1+dfsg1-1.1",
+    "gnupg2@2.2.40-1.1+deb12u2",
+    "gnutls28@3.7.9-2+deb12u7",
+    "graphite2@1.3.14-1+deb12u1",
+    "grep@3.8-5",
+    "gzip@1.12-1",
+    "harfbuzz@6.0.0+dfsg-3",
+    "hostname@3.23+nmu1",
+    "init-system-helpers@1.65.2+deb12u1",
+    "java-common@0.74",
+    "keyutils@1.6.3-2",
+    "krb5@1.20.1-2+deb12u5",
+    "lcms2@2.14-2+deb12u1",
+    "libcap-ng@0.8.3-1",
+    "libcap2@1:2.66-4+deb12u3",
+    "libffi@3.4.4-1",
+    "libgcrypt20@1.10.1-3+deb12u1",
+    "libgpg-error@1.46-1",
+    "libidn2@2.3.3-1",
+    "libjpeg-turbo@1:2.1.5-2",
+    "libmd@1.0.4-2",
+    "libnsl@1.3.0-2",
+    "libpng1.6@1.6.39-2+deb12u5",
+    "libseccomp@2.5.4-1+deb12u1",
+    "libselinux@3.4-1",
+    "libsemanage@3.4-1",
+    "libsepol@3.4-2.1",
+    "libtasn1-6@4.19.0-2+deb12u1",
+    "libtirpc@1.3.3+ds-1",
+    "libunistring@1.0-2",
+    "libxcrypt@1:4.4.33-2",
+    "libzstd@1.5.4+dfsg2-5",
+    "lz4@1.9.4-1",
+    "mawk@1.3.4.20200120-3.1",
+    "ncurses@6.4-4",
+    "netbase@6.4",
+    "nettle@3.8.1-2",
+    "nspr@2:4.35-1",
+    "nss@2:3.87.1-1+deb12u4",
+    "openjdk-17@17.0.20.1+1-1~deb12u1",
+    "openssl@3.0.20-1~deb12u2",
+    "p11-kit@0.24.1-2",
+    "pam@1.5.2-6+deb12u2",
+    "pcre2@10.42-1+deb12u1",
+    "pcsc-lite@1.9.9-2",
+    "perl@5.36.0-7+deb12u3",
+    "readline@8.2-1.3",
+    "sed@4.9-1+deb12u1",
+    "shadow@1:4.13+dfsg1-1+deb12u2",
+    "sqlite3@3.40.1-2+deb12u2",
+    "systemd@252.39-1~deb12u2",
+    "sysvinit@3.06-4",
+    "tar@1.34+dfsg-1.2+deb12u1",
+    "tzdata@2026b-0+deb12u1",
+    "usrmerge@37~deb12u1",
+    "util-linux@2.38.1-5+deb12u3",
+    "xxhash@0.8.1-1",
+    "xz-utils@5.4.1-1+deb12u1",
+    "zlib@1:1.2.13.dfsg-1"
+  ],
+  "mavenVersionMatches": {
+    "com.fasterxml.jackson.core:jackson-core@2.12.7": {
+      "jars": ["hadoop-client-runtime-3.3.4.jar"],
+      "advisories": ["GHSA-h46c-h94j-95f3", "GHSA-r7wm-3cxj-wff9", "GHSA-wf8f-6423-gfxg"]
+    },
+    "com.fasterxml.jackson.core:jackson-core@2.13.4": {
+      "jars": ["parquet-jackson-1.13.1.jar"],
+      "advisories": ["GHSA-h46c-h94j-95f3", "GHSA-r7wm-3cxj-wff9"]
+    },
+    "com.fasterxml.jackson.core:jackson-core@2.15.2": {
+      "jars": ["iceberg-spark-runtime-3.5_2.12-1.10.2.jar", "jackson-core-2.15.2.jar"],
+      "advisories": ["GHSA-72hv-8253-57qq", "GHSA-r7wm-3cxj-wff9"]
+    },
+    "com.fasterxml.jackson.core:jackson-databind@2.12.7": {
+      "jars": ["hadoop-client-runtime-3.3.4.jar"],
+      "advisories": [
+        "GHSA-3wrr-7qpf-2prh",
+        "GHSA-5jmj-h7xm-6q6v",
+        "GHSA-hgj6-7826-r7m5",
+        "GHSA-j3rv-43j4-c7qm",
+        "GHSA-jjjh-jjxp-wpff",
+        "GHSA-rgv9-q543-rqg4",
+        "GHSA-rmj7-2vxq-3g9f"
+      ]
+    },
+    "com.fasterxml.jackson.core:jackson-databind@2.13.4.2": {
+      "jars": ["parquet-jackson-1.13.1.jar"],
+      "advisories": [
+        "GHSA-3wrr-7qpf-2prh",
+        "GHSA-5jmj-h7xm-6q6v",
+        "GHSA-hgj6-7826-r7m5",
+        "GHSA-j3rv-43j4-c7qm",
+        "GHSA-rmj7-2vxq-3g9f"
+      ]
+    },
+    "com.fasterxml.jackson.core:jackson-databind@2.15.2": {
+      "jars": ["iceberg-spark-runtime-3.5_2.12-1.10.2.jar", "jackson-databind-2.15.2.jar"],
+      "advisories": [
+        "GHSA-3pjw-73gf-8qr5",
+        "GHSA-5jmj-h7xm-6q6v",
+        "GHSA-hgj6-7826-r7m5",
+        "GHSA-j3rv-43j4-c7qm",
+        "GHSA-rmj7-2vxq-3g9f"
+      ]
+    },
+    "com.fasterxml.woodstox:woodstox-core@5.3.0": {
+      "jars": ["hadoop-client-runtime-3.3.4.jar"],
+      "advisories": ["GHSA-3f7h-mf4q-vrm4"]
+    },
+    "com.google.code.gson:gson@2.2.4": {
+      "jars": ["gson-2.2.4.jar"],
+      "advisories": ["GHSA-4jrv-ppp4-jm57"]
+    },
+    "com.google.guava:guava@14.0.1": {
+      "jars": ["guava-14.0.1.jar", "spark-network-common_2.12-3.5.9.jar"],
+      "advisories": ["GHSA-5mg8-w23w-74h3", "GHSA-7g45-4rm6-3mm3", "GHSA-mvr2-9pj6-7w5j"]
+    },
+    "com.google.guava:guava@30.1.1-jre": {
+      "jars": ["hadoop-client-runtime-3.3.4.jar", "hadoop-shaded-guava-1.1.1.jar"],
+      "advisories": ["GHSA-5mg8-w23w-74h3", "GHSA-7g45-4rm6-3mm3"]
+    },
+    "com.google.protobuf:protobuf-java@3.3.0": {
+      "jars": ["mesos-1.4.3-shaded-protobuf.jar"],
+      "advisories": [
+        "GHSA-4gg5-vx3j-xwc7",
+        "GHSA-735f-pc8j-v9w8",
+        "GHSA-g5ww-5jh7-63cx",
+        "GHSA-h4h5-3hr4-j3g2",
+        "GHSA-wrvw-hg22-4m67"
+      ]
+    },
+    "com.google.protobuf:protobuf-java@3.7.1": {
+      "jars": ["hadoop-client-runtime-3.3.4.jar"],
+      "advisories": [
+        "GHSA-4gg5-vx3j-xwc7",
+        "GHSA-735f-pc8j-v9w8",
+        "GHSA-g5ww-5jh7-63cx",
+        "GHSA-h4h5-3hr4-j3g2",
+        "GHSA-wrvw-hg22-4m67"
+      ]
+    },
+    "com.nimbusds:nimbus-jose-jwt@9.8.1": {
+      "jars": ["hadoop-client-runtime-3.3.4.jar"],
+      "advisories": ["GHSA-gvpg-vgmx-xg6w", "GHSA-xwmg-2g98-w7v9"]
+    },
+    "com.squareup.okhttp3:okhttp@3.12.12": {
+      "jars": ["okhttp-3.12.12.jar"],
+      "advisories": ["GHSA-3cqm-mf7h-prrj"]
+    },
+    "commons-beanutils:commons-beanutils@1.9.4": {
+      "jars": ["hadoop-client-runtime-3.3.4.jar"],
+      "advisories": ["GHSA-wxr5-93ph-8wr9"]
+    },
+    "commons-io:commons-io@2.8.0": {
+      "jars": ["hadoop-client-runtime-3.3.4.jar"],
+      "advisories": ["GHSA-78wr-2p64-hpwj"]
+    },
+    "commons-lang:commons-lang@2.6": {
+      "jars": ["commons-lang-2.6.jar"],
+      "advisories": ["GHSA-j288-q9x7-2f5v"]
+    },
+    "commons-net:commons-net@3.6": {
+      "jars": ["hadoop-client-runtime-3.3.4.jar"],
+      "advisories": ["GHSA-cgp8-4m63-fhh5"]
+    },
+    "dnsjava:dnsjava@2.1.7": {
+      "jars": ["hadoop-client-runtime-3.3.4.jar"],
+      "advisories": ["GHSA-cfxw-4h78-h7fw"]
+    },
+    "io.airlift:aircompressor@0.27": {
+      "jars": ["aircompressor-0.27.jar"],
+      "advisories": ["GHSA-vx9q-rhv9-3jvg"]
+    },
+    "io.netty:netty-codec@4.1.124.Final": {
+      "jars": ["iceberg-aws-bundle-1.10.2.jar"],
+      "advisories": ["GHSA-3p8m-j85q-pgmj", "GHSA-558v-64gr-wgg4", "GHSA-mj4r-2hfc-f8p6"]
+    },
+    "io.netty:netty-codec@4.1.96.Final": {
+      "jars": ["netty-codec-4.1.96.Final.jar"],
+      "advisories": ["GHSA-3p8m-j85q-pgmj", "GHSA-558v-64gr-wgg4", "GHSA-mj4r-2hfc-f8p6"]
+    },
+    "io.netty:netty-codec-http@4.1.124.Final": {
+      "jars": ["iceberg-aws-bundle-1.10.2.jar"],
+      "advisories": [
+        "GHSA-38f8-5428-x5cv",
+        "GHSA-4mp9-239f-g9hg",
+        "GHSA-57rv-r2g8-2cj3",
+        "GHSA-6cqp-g7gg-8hr5",
+        "GHSA-6jqx-86gh-f27w",
+        "GHSA-84h7-rjj3-6jx4",
+        "GHSA-8c42-7qj2-3j46",
+        "GHSA-f6hv-jmp6-3vwv",
+        "GHSA-fghv-69vj-qj49",
+        "GHSA-gcjf-9mgh-3p7g",
+        "GHSA-hvcg-qmg6-jm4c",
+        "GHSA-jppx-w49h-x2qq",
+        "GHSA-m4cv-j2px-7723",
+        "GHSA-mvh2-crg5-v77c",
+        "GHSA-pwqr-wmgm-9rr8",
+        "GHSA-q4f6-jm68-57ww",
+        "GHSA-v8h7-rr48-vmmv",
+        "GHSA-xxqh-mfjm-7mv9"
+      ]
+    },
+    "io.netty:netty-codec-http@4.1.96.Final": {
+      "jars": ["netty-codec-http-4.1.96.Final.jar"],
+      "advisories": [
+        "GHSA-38f8-5428-x5cv",
+        "GHSA-4mp9-239f-g9hg",
+        "GHSA-57rv-r2g8-2cj3",
+        "GHSA-5jpm-x58v-624v",
+        "GHSA-6cqp-g7gg-8hr5",
+        "GHSA-6jqx-86gh-f27w",
+        "GHSA-84h7-rjj3-6jx4",
+        "GHSA-8c42-7qj2-3j46",
+        "GHSA-f6hv-jmp6-3vwv",
+        "GHSA-fghv-69vj-qj49",
+        "GHSA-gcjf-9mgh-3p7g",
+        "GHSA-hvcg-qmg6-jm4c",
+        "GHSA-jppx-w49h-x2qq",
+        "GHSA-m4cv-j2px-7723",
+        "GHSA-mvh2-crg5-v77c",
+        "GHSA-pwqr-wmgm-9rr8",
+        "GHSA-q4f6-jm68-57ww",
+        "GHSA-v8h7-rr48-vmmv",
+        "GHSA-xxqh-mfjm-7mv9"
+      ]
+    },
+    "io.netty:netty-codec-http2@4.1.124.Final": {
+      "jars": ["iceberg-aws-bundle-1.10.2.jar"],
+      "advisories": [
+        "GHSA-563q-j3cm-6jxm",
+        "GHSA-5x3r-wrvg-rp6q",
+        "GHSA-93wv-jw9v-4972",
+        "GHSA-c2gf-v879-257j",
+        "GHSA-c69g-56f8-xwqj",
+        "GHSA-f6hv-jmp6-3vwv",
+        "GHSA-w9fj-cfpg-grvv"
+      ]
+    },
+    "io.netty:netty-codec-http2@4.1.96.Final": {
+      "jars": ["netty-codec-http2-4.1.96.Final.jar"],
+      "advisories": [
+        "GHSA-563q-j3cm-6jxm",
+        "GHSA-5x3r-wrvg-rp6q",
+        "GHSA-93wv-jw9v-4972",
+        "GHSA-c2gf-v879-257j",
+        "GHSA-c69g-56f8-xwqj",
+        "GHSA-f6hv-jmp6-3vwv",
+        "GHSA-prj3-ccx8-p6x4",
+        "GHSA-w9fj-cfpg-grvv",
+        "GHSA-xpw8-rcwv-8f8p"
+      ]
+    },
+    "io.netty:netty-common@4.1.96.Final": {
+      "jars": ["netty-common-4.1.96.Final.jar"],
+      "advisories": ["GHSA-389x-839f-4rhx", "GHSA-xq3w-v528-46rv"]
+    },
+    "io.netty:netty-handler@4.1.124.Final": {
+      "jars": ["iceberg-aws-bundle-1.10.2.jar"],
+      "advisories": ["GHSA-3qp7-7mw8-wx86", "GHSA-c653-97m9-rcg9", "GHSA-x4gw-5cx5-pgmh"]
+    },
+    "io.netty:netty-handler@4.1.96.Final": {
+      "jars": ["netty-handler-4.1.96.Final.jar"],
+      "advisories": [
+        "GHSA-3qp7-7mw8-wx86",
+        "GHSA-4g8c-wm8x-jfhw",
+        "GHSA-c653-97m9-rcg9",
+        "GHSA-x4gw-5cx5-pgmh"
+      ]
+    },
+    "io.netty:netty-handler-proxy@4.1.96.Final": {
+      "jars": ["netty-handler-proxy-4.1.96.Final.jar"],
+      "advisories": ["GHSA-45q3-82m4-75jr"]
+    },
+    "io.netty:netty-transport-native-epoll@4.1.96.Final": {
+      "jars": [
+        "netty-transport-native-epoll-4.1.96.Final-linux-aarch_64.jar",
+        "netty-transport-native-epoll-4.1.96.Final-linux-x86_64.jar"
+      ],
+      "advisories": ["GHSA-w573-9ffj-6ff9"]
+    },
+    "io.netty:netty-transport-native-kqueue@4.1.96.Final": {
+      "jars": [
+        "netty-transport-native-kqueue-4.1.96.Final-osx-aarch_64.jar",
+        "netty-transport-native-kqueue-4.1.96.Final-osx-x86_64.jar"
+      ],
+      "advisories": ["GHSA-w573-9ffj-6ff9"]
+    },
+    "net.minidev:json-smart@1.3.2": {
+      "jars": ["hadoop-client-runtime-3.3.4.jar"],
+      "advisories": ["GHSA-493p-pfq6-5258", "GHSA-fg2v-w576-w4v3"]
+    },
+    "org.apache.avro:avro@1.7.7": {
+      "jars": ["hadoop-client-runtime-3.3.4.jar"],
+      "advisories": ["GHSA-r7pg-v2c8-mfg3", "GHSA-rhrv-645h-fjfh"]
+    },
+    "org.apache.commons:commons-compress@1.21": {
+      "jars": ["hadoop-client-runtime-3.3.4.jar"],
+      "advisories": ["GHSA-4265-ccf5-phj5", "GHSA-4g9r-vxhx-9pgx"]
+    },
+    "org.apache.commons:commons-compress@1.23.0": {
+      "jars": ["commons-compress-1.23.0.jar"],
+      "advisories": ["GHSA-4265-ccf5-phj5", "GHSA-4g9r-vxhx-9pgx", "GHSA-cgwf-w82q-5jrr"]
+    },
+    "org.apache.commons:commons-configuration2@2.1.1": {
+      "jars": ["hadoop-client-runtime-3.3.4.jar"],
+      "advisories": ["GHSA-9w38-p64v-xpmv", "GHSA-xjp4-hw94-mvp5"]
+    },
+    "org.apache.commons:commons-lang3@3.12.0": {
+      "jars": ["commons-lang3-3.12.0.jar", "hadoop-client-runtime-3.3.4.jar"],
+      "advisories": ["GHSA-j288-q9x7-2f5v"]
+    },
+    "org.apache.derby:derby@10.14.2.0": {
+      "jars": ["derby-10.14.2.0.jar"],
+      "advisories": ["GHSA-rcjc-c4pj-xxrp"]
+    },
+    "org.apache.hadoop:hadoop-common@3.3.4": {
+      "jars": ["hadoop-client-api-3.3.4.jar"],
+      "advisories": ["GHSA-f5fw-25gw-5m92"]
+    },
+    "org.apache.hive:hive-exec@2.3.9": {
+      "jars": ["hive-exec-2.3.9-core.jar"],
+      "advisories": ["GHSA-c476-j253-5rgq"]
+    },
+    "org.apache.hive:hive-llap-common@2.3.9": {
+      "jars": ["hive-llap-common-2.3.9.jar"],
+      "advisories": ["GHSA-p953-3j66-hg45"]
+    },
+    "org.apache.httpcomponents.client5:httpclient5@5.5": {
+      "jars": ["iceberg-spark-runtime-3.5_2.12-1.10.2.jar"],
+      "advisories": ["GHSA-hjcp-jmpx-g3qm"]
+    },
+    "org.apache.httpcomponents.core5:httpcore5@5.3.4": {
+      "jars": ["iceberg-spark-runtime-3.5_2.12-1.10.2.jar"],
+      "advisories": ["GHSA-hf6x-8p5f-cgmf"]
+    },
+    "org.apache.httpcomponents.core5:httpcore5-h2@5.3.4": {
+      "jars": ["iceberg-spark-runtime-3.5_2.12-1.10.2.jar"],
+      "advisories": ["GHSA-v3jc-474w-2wm6"]
+    },
+    "org.apache.logging.log4j:log4j-1.2-api@2.20.0": {
+      "jars": ["log4j-1.2-api-2.20.0.jar"],
+      "advisories": ["GHSA-h383-gmxw-35v2"]
+    },
+    "org.apache.logging.log4j:log4j-api@2.20.0": {
+      "jars": ["log4j-api-2.20.0.jar"],
+      "advisories": ["GHSA-qv9r-c865-cp47"]
+    },
+    "org.apache.logging.log4j:log4j-core@2.20.0": {
+      "jars": ["log4j-core-2.20.0.jar"],
+      "advisories": ["GHSA-3pxv-7cmr-fjr4", "GHSA-6hg6-v5c8-fphq", "GHSA-vc5p-v9hr-52mj"]
+    },
+    "org.apache.mesos:mesos@1.4.3": {
+      "jars": ["mesos-1.4.3-shaded-protobuf.jar"],
+      "advisories": ["GHSA-95q3-pppp-r683"]
+    },
+    "org.apache.thrift:libthrift@0.12.0": {
+      "jars": ["libthrift-0.12.0.jar"],
+      "advisories": [
+        "GHSA-7pwc-h2j2-rjgj",
+        "GHSA-8wv5-x4w7-5gww",
+        "GHSA-g2fg-mr77-6vrm",
+        "GHSA-rj7p-rfgp-852x"
+      ]
+    },
+    "org.apache.zookeeper:zookeeper@3.6.3": {
+      "jars": ["zookeeper-3.6.3.jar"],
+      "advisories": ["GHSA-7286-pgfv-vxvh", "GHSA-r978-9m6m-6gm6"]
+    },
+    "org.codehaus.jackson:jackson-mapper-asl@1.9.13": {
+      "jars": ["jackson-mapper-asl-1.9.13.jar"],
+      "advisories": ["GHSA-c27h-mcmw-48hv", "GHSA-r6j9-8759-g62w"]
+    },
+    "org.eclipse.jetty:jetty-http@9.4.43.v20210629": {
+      "jars": ["hadoop-client-runtime-3.3.4.jar"],
+      "advisories": [
+        "GHSA-355h-qmc2-wpwf",
+        "GHSA-cj7v-27pg-wf7q",
+        "GHSA-hmr7-m48g-48f6",
+        "GHSA-qh8g-58pp-2wxh",
+        "GHSA-wjpw-4j6x-6rwh"
+      ]
+    },
+    "org.eclipse.jetty:jetty-http@9.4.58.v20250814": {
+      "jars": ["spark-core_2.12-3.5.9.jar"],
+      "advisories": ["GHSA-355h-qmc2-wpwf", "GHSA-qh8g-58pp-2wxh"]
+    },
+    "org.eclipse.jetty:jetty-security@9.4.58.v20250814": {
+      "jars": ["spark-core_2.12-3.5.9.jar"],
+      "advisories": ["GHSA-2fvj-hgj9-j2gr"]
+    },
+    "org.eclipse.jetty:jetty-server@9.4.58.v20250814": {
+      "jars": ["spark-core_2.12-3.5.9.jar"],
+      "advisories": ["GHSA-7p3p-8qv8-m2vh"]
+    },
+    "org.eclipse.jetty:jetty-xml@9.4.43.v20210629": {
+      "jars": ["hadoop-client-runtime-3.3.4.jar"],
+      "advisories": ["GHSA-58qw-p7qm-5rvh"]
+    },
+    "org.jline:jline-remote-telnet@3.9.0": {
+      "jars": ["hadoop-client-runtime-3.3.4.jar"],
+      "advisories": ["GHSA-2r2c-cx56-8933", "GHSA-47qp-hqvx-6r3f"]
+    },
+    "org.lz4:lz4-java@1.8.0": {
+      "jars": ["lz4-java-1.8.0.jar"],
+      "advisories": ["GHSA-cmp6-m4wj-q63q", "GHSA-vqf4-7m7x-wgfc", "GHSA-xx22-p4ch-683r"]
+    }
+  },
+  "mavenAdvisoryIndex": {
+    "GHSA-2fvj-hgj9-j2gr": {
+      "severity": "HIGH",
+      "cve": ["CVE-2026-10050"],
+      "source": "https://github.com/jetty/jetty.project/security/advisories/GHSA-2fvj-hgj9-j2gr"
+    },
+    "GHSA-2r2c-cx56-8933": {
+      "severity": "HIGH",
+      "cve": ["CVE-2026-56741"],
+      "source": "https://github.com/jline/jline3/security/advisories/GHSA-2r2c-cx56-8933"
+    },
+    "GHSA-355h-qmc2-wpwf": {
+      "severity": "HIGH",
+      "cve": ["CVE-2026-2332"],
+      "source": "https://github.com/jetty/jetty.project/security/advisories/GHSA-355h-qmc2-wpwf"
+    },
+    "GHSA-389x-839f-4rhx": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2025-25193"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-389x-839f-4rhx"
+    },
+    "GHSA-38f8-5428-x5cv": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2026-42585"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-38f8-5428-x5cv"
+    },
+    "GHSA-3cqm-mf7h-prrj": {
+      "severity": "HIGH",
+      "cve": ["CVE-2021-0341"],
+      "source": "https://github.com/advisories/GHSA-3cqm-mf7h-prrj"
+    },
+    "GHSA-3f7h-mf4q-vrm4": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2022-40152"],
+      "source": "https://github.com/advisories/GHSA-3f7h-mf4q-vrm4"
+    },
+    "GHSA-3p8m-j85q-pgmj": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2025-58057"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-3p8m-j85q-pgmj"
+    },
+    "GHSA-3pjw-73gf-8qr5": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2026-59888"],
+      "source": "https://github.com/FasterXML/jackson-databind/security/advisories/GHSA-3pjw-73gf-8qr5"
+    },
+    "GHSA-3pxv-7cmr-fjr4": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2026-34480"],
+      "source": "https://lists.apache.org/thread/5x0hcnng0chhghp6jgjdp3qmbbhfjzhb"
+    },
+    "GHSA-3qp7-7mw8-wx86": {
+      "severity": "HIGH",
+      "cve": ["CVE-2026-44249"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-3qp7-7mw8-wx86"
+    },
+    "GHSA-3wrr-7qpf-2prh": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2026-50193"],
+      "source": "https://github.com/FasterXML/jackson-databind/security/advisories/GHSA-3wrr-7qpf-2prh"
+    },
+    "GHSA-4265-ccf5-phj5": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2024-26308"],
+      "source": "https://lists.apache.org/thread/ch5yo2d21p7vlqrhll9b17otbyq4npfg"
+    },
+    "GHSA-45q3-82m4-75jr": {
+      "severity": "LOW",
+      "cve": ["CVE-2026-42578"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-45q3-82m4-75jr"
+    },
+    "GHSA-47qp-hqvx-6r3f": {
+      "severity": "HIGH",
+      "cve": ["CVE-2026-56740"],
+      "source": "https://github.com/jline/jline3/security/advisories/GHSA-47qp-hqvx-6r3f"
+    },
+    "GHSA-493p-pfq6-5258": {
+      "severity": "HIGH",
+      "cve": ["CVE-2023-1370"],
+      "source": "https://github.com/advisories/GHSA-493p-pfq6-5258"
+    },
+    "GHSA-4g8c-wm8x-jfhw": {
+      "severity": "HIGH",
+      "cve": ["CVE-2025-24970"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-4g8c-wm8x-jfhw"
+    },
+    "GHSA-4g9r-vxhx-9pgx": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2024-25710"],
+      "source": "https://lists.apache.org/thread/cz8qkcwphy4cx8gltn932ln51cbtq6kf"
+    },
+    "GHSA-4gg5-vx3j-xwc7": {
+      "severity": "HIGH",
+      "cve": ["CVE-2022-3510"],
+      "source": "https://github.com/advisories/GHSA-4gg5-vx3j-xwc7"
+    },
+    "GHSA-4jrv-ppp4-jm57": {
+      "severity": "HIGH",
+      "cve": ["CVE-2022-25647"],
+      "source": "https://github.com/advisories/GHSA-4jrv-ppp4-jm57"
+    },
+    "GHSA-4mp9-239f-g9hg": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2026-59898"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-4mp9-239f-g9hg"
+    },
+    "GHSA-558v-64gr-wgg4": {
+      "severity": "HIGH",
+      "cve": ["CVE-2026-59901"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-558v-64gr-wgg4"
+    },
+    "GHSA-563q-j3cm-6jxm": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2026-50560"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-563q-j3cm-6jxm"
+    },
+    "GHSA-57rv-r2g8-2cj3": {
+      "severity": "HIGH",
+      "cve": ["CVE-2026-42584"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-57rv-r2g8-2cj3"
+    },
+    "GHSA-58qw-p7qm-5rvh": {
+      "severity": "LOW",
+      "cve": [],
+      "source": "https://github.com/eclipse/jetty.project/security/advisories/GHSA-58qw-p7qm-5rvh"
+    },
+    "GHSA-5jmj-h7xm-6q6v": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2026-54515"],
+      "source": "https://github.com/FasterXML/jackson-databind/security/advisories/GHSA-5jmj-h7xm-6q6v"
+    },
+    "GHSA-5jpm-x58v-624v": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2024-29025"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-5jpm-x58v-624v"
+    },
+    "GHSA-5mg8-w23w-74h3": {
+      "severity": "LOW",
+      "cve": ["CVE-2020-8908"],
+      "source": "https://github.com/advisories/GHSA-5mg8-w23w-74h3"
+    },
+    "GHSA-5x3r-wrvg-rp6q": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2026-47244"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-5x3r-wrvg-rp6q"
+    },
+    "GHSA-6cqp-g7gg-8hr5": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2026-56746"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-6cqp-g7gg-8hr5"
+    },
+    "GHSA-6hg6-v5c8-fphq": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2026-34477"],
+      "source": "https://lists.apache.org/thread/lkx8cl46t2bvkcwfcb2pd43ygc097lq4"
+    },
+    "GHSA-6jqx-86gh-f27w": {
+      "severity": "HIGH",
+      "cve": ["CVE-2026-55831"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-6jqx-86gh-f27w"
+    },
+    "GHSA-7286-pgfv-vxvh": {
+      "severity": "CRITICAL",
+      "cve": ["CVE-2023-44981"],
+      "source": "https://lists.apache.org/thread/wf0yrk84dg1942z1o74kd8nycg6pgm5b"
+    },
+    "GHSA-72hv-8253-57qq": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2026-18401"],
+      "source": "https://github.com/FasterXML/jackson-core/security/advisories/GHSA-72hv-8253-57qq"
+    },
+    "GHSA-735f-pc8j-v9w8": {
+      "severity": "HIGH",
+      "cve": ["CVE-2024-7254"],
+      "source": "https://github.com/protocolbuffers/protobuf/security/advisories/GHSA-735f-pc8j-v9w8"
+    },
+    "GHSA-78wr-2p64-hpwj": {
+      "severity": "HIGH",
+      "cve": ["CVE-2024-47554"],
+      "source": "https://lists.apache.org/thread/6ozr91rr9cj5lm0zyhv30bsp317hk5z1"
+    },
+    "GHSA-7g45-4rm6-3mm3": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2023-2976"],
+      "source": "https://github.com/advisories/GHSA-7g45-4rm6-3mm3"
+    },
+    "GHSA-7p3p-8qv8-m2vh": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2026-6790"],
+      "source": "https://github.com/jetty/jetty.project/security/advisories/GHSA-7p3p-8qv8-m2vh"
+    },
+    "GHSA-7pwc-h2j2-rjgj": {
+      "severity": "HIGH",
+      "cve": ["CVE-2026-43869"],
+      "source": "https://lists.apache.org/thread/3hsgl1b69wzq3ry39scqbv2dhyl3j52r"
+    },
+    "GHSA-84h7-rjj3-6jx4": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2025-67735"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-84h7-rjj3-6jx4"
+    },
+    "GHSA-8c42-7qj2-3j46": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2026-59903"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-8c42-7qj2-3j46"
+    },
+    "GHSA-8wv5-x4w7-5gww": {
+      "severity": "HIGH",
+      "cve": ["CVE-2026-43871"],
+      "source": "https://lists.apache.org/thread/7v3jhgwfbmhx42424phydlnzb109g8b9"
+    },
+    "GHSA-93wv-jw9v-4972": {
+      "severity": "HIGH",
+      "cve": ["CVE-2026-56819"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-93wv-jw9v-4972"
+    },
+    "GHSA-95q3-pppp-r683": {
+      "severity": "HIGH",
+      "cve": ["CVE-2018-1330"],
+      "source": "https://github.com/advisories/GHSA-95q3-pppp-r683"
+    },
+    "GHSA-9w38-p64v-xpmv": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2024-29133"],
+      "source": "https://lists.apache.org/thread/ccb9w15bscznh6tnp3wsvrrj9crbszh2"
+    },
+    "GHSA-c27h-mcmw-48hv": {
+      "severity": "CRITICAL",
+      "cve": ["CVE-2019-10202"],
+      "source": "https://github.com/advisories/GHSA-c27h-mcmw-48hv"
+    },
+    "GHSA-c2gf-v879-257j": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2026-48043"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-c2gf-v879-257j"
+    },
+    "GHSA-c476-j253-5rgq": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2024-29869"],
+      "source": "https://lists.apache.org/thread/h27ohpyrqf9w1m3c0tqr7x8jg59rcrv6"
+    },
+    "GHSA-c653-97m9-rcg9": {
+      "severity": "HIGH",
+      "cve": ["CVE-2026-50010"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-c653-97m9-rcg9"
+    },
+    "GHSA-c69g-56f8-xwqj": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2026-59900"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-c69g-56f8-xwqj"
+    },
+    "GHSA-cfxw-4h78-h7fw": {
+      "severity": "HIGH",
+      "cve": ["CVE-2024-25638"],
+      "source": "https://github.com/dnsjava/dnsjava/security/advisories/GHSA-cfxw-4h78-h7fw"
+    },
+    "GHSA-cgp8-4m63-fhh5": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2021-37533"],
+      "source": "https://lists.apache.org/thread/o6yn9r9x6s94v97264hmgol1sf48mvx7"
+    },
+    "GHSA-cgwf-w82q-5jrr": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2023-42503"],
+      "source": "https://lists.apache.org/thread/5xwcyr600mn074vgxq92tjssrchmc93c"
+    },
+    "GHSA-cj7v-27pg-wf7q": {
+      "severity": "LOW",
+      "cve": ["CVE-2022-2047"],
+      "source": "https://github.com/eclipse/jetty.project/security/advisories/GHSA-cj7v-27pg-wf7q"
+    },
+    "GHSA-cmp6-m4wj-q63q": {
+      "severity": "HIGH",
+      "cve": ["CVE-2025-66566"],
+      "source": "https://github.com/yawkat/lz4-java/security/advisories/GHSA-cmp6-m4wj-q63q"
+    },
+    "GHSA-f5fw-25gw-5m92": {
+      "severity": "LOW",
+      "cve": ["CVE-2024-23454"],
+      "source": "https://lists.apache.org/thread/xlo7q8kn4tsjvx059r789oz19hzgfkfs"
+    },
+    "GHSA-f6hv-jmp6-3vwv": {
+      "severity": "HIGH",
+      "cve": ["CVE-2026-42587"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-f6hv-jmp6-3vwv"
+    },
+    "GHSA-fg2v-w576-w4v3": {
+      "severity": "HIGH",
+      "cve": ["CVE-2021-31684"],
+      "source": "https://github.com/advisories/GHSA-fg2v-w576-w4v3"
+    },
+    "GHSA-fghv-69vj-qj49": {
+      "severity": "LOW",
+      "cve": ["CVE-2025-58056"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-fghv-69vj-qj49"
+    },
+    "GHSA-g2fg-mr77-6vrm": {
+      "severity": "HIGH",
+      "cve": ["CVE-2020-13949"],
+      "source": "https://github.com/advisories/GHSA-g2fg-mr77-6vrm"
+    },
+    "GHSA-g5ww-5jh7-63cx": {
+      "severity": "HIGH",
+      "cve": ["CVE-2022-3509"],
+      "source": "https://github.com/advisories/GHSA-g5ww-5jh7-63cx"
+    },
+    "GHSA-gcjf-9mgh-3p7g": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2026-59921"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-gcjf-9mgh-3p7g"
+    },
+    "GHSA-gvpg-vgmx-xg6w": {
+      "severity": "HIGH",
+      "cve": ["CVE-2023-52428"],
+      "source": "https://github.com/advisories/GHSA-gvpg-vgmx-xg6w"
+    },
+    "GHSA-h383-gmxw-35v2": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2026-34479"],
+      "source": "https://lists.apache.org/thread/gd0hp6mj17rn3kj279vgy4p7kd4zz5on"
+    },
+    "GHSA-h46c-h94j-95f3": {
+      "severity": "HIGH",
+      "cve": ["CVE-2025-52999"],
+      "source": "https://github.com/FasterXML/jackson-core/security/advisories/GHSA-h46c-h94j-95f3"
+    },
+    "GHSA-h4h5-3hr4-j3g2": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2022-3171"],
+      "source": "https://github.com/protocolbuffers/protobuf/security/advisories/GHSA-h4h5-3hr4-j3g2"
+    },
+    "GHSA-hf6x-8p5f-cgmf": {
+      "severity": "HIGH",
+      "cve": ["CVE-2026-54399"],
+      "source": "https://lists.apache.org/thread/zmxh1pl2zohov5ntdh4lt85gfrlchgpy"
+    },
+    "GHSA-hgj6-7826-r7m5": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2026-54514"],
+      "source": "https://github.com/FasterXML/jackson-databind/security/advisories/GHSA-hgj6-7826-r7m5"
+    },
+    "GHSA-hjcp-jmpx-g3qm": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2026-64607"],
+      "source": "https://lists.apache.org/thread/qqfzo3fqcdk4l5496vz95ppvl4ty511q"
+    },
+    "GHSA-hmr7-m48g-48f6": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2023-40167"],
+      "source": "https://github.com/eclipse/jetty.project/security/advisories/GHSA-hmr7-m48g-48f6"
+    },
+    "GHSA-hvcg-qmg6-jm4c": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2026-50020"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-hvcg-qmg6-jm4c"
+    },
+    "GHSA-j288-q9x7-2f5v": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2025-48924"],
+      "source": "https://lists.apache.org/thread/bgv0lpswokgol11tloxnjfzdl7yrc1g1"
+    },
+    "GHSA-j3rv-43j4-c7qm": {
+      "severity": "HIGH",
+      "cve": ["CVE-2026-54512"],
+      "source": "https://github.com/FasterXML/jackson-databind/security/advisories/GHSA-j3rv-43j4-c7qm"
+    },
+    "GHSA-jjjh-jjxp-wpff": {
+      "severity": "HIGH",
+      "cve": ["CVE-2022-42003"],
+      "source": "https://github.com/advisories/GHSA-jjjh-jjxp-wpff"
+    },
+    "GHSA-jppx-w49h-x2qq": {
+      "severity": "HIGH",
+      "cve": ["CVE-2026-56745"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-jppx-w49h-x2qq"
+    },
+    "GHSA-m4cv-j2px-7723": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2026-42580"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-m4cv-j2px-7723"
+    },
+    "GHSA-mj4r-2hfc-f8p6": {
+      "severity": "HIGH",
+      "cve": ["CVE-2026-42583"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-mj4r-2hfc-f8p6"
+    },
+    "GHSA-mvh2-crg5-v77c": {
+      "severity": "HIGH",
+      "cve": ["CVE-2026-55833"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-mvh2-crg5-v77c"
+    },
+    "GHSA-mvr2-9pj6-7w5j": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2018-10237"],
+      "source": "https://github.com/advisories/GHSA-mvr2-9pj6-7w5j"
+    },
+    "GHSA-p953-3j66-hg45": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2024-23953"],
+      "source": "https://lists.apache.org/thread/0nloywj49nbtlc6l3c6363qvq7o1ztb7"
+    },
+    "GHSA-prj3-ccx8-p6x4": {
+      "severity": "HIGH",
+      "cve": ["CVE-2025-55163"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-prj3-ccx8-p6x4"
+    },
+    "GHSA-pwqr-wmgm-9rr8": {
+      "severity": "HIGH",
+      "cve": ["CVE-2026-33870"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-pwqr-wmgm-9rr8"
+    },
+    "GHSA-q4f6-jm68-57ww": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2026-59899"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-q4f6-jm68-57ww"
+    },
+    "GHSA-qh8g-58pp-2wxh": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2024-6763"],
+      "source": "https://github.com/jetty/jetty.project/security/advisories/GHSA-qh8g-58pp-2wxh"
+    },
+    "GHSA-qv9r-c865-cp47": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2026-49844"],
+      "source": "https://github.com/advisories/GHSA-qv9r-c865-cp47"
+    },
+    "GHSA-r6j9-8759-g62w": {
+      "severity": "HIGH",
+      "cve": ["CVE-2019-10172"],
+      "source": "https://github.com/advisories/GHSA-r6j9-8759-g62w"
+    },
+    "GHSA-r7pg-v2c8-mfg3": {
+      "severity": "CRITICAL",
+      "cve": ["CVE-2024-47561"],
+      "source": "https://lists.apache.org/thread/c2v7mhqnmq0jmbwxqq3r5jbj1xg43h5x"
+    },
+    "GHSA-r7wm-3cxj-wff9": {
+      "severity": "HIGH",
+      "cve": [],
+      "source": "https://github.com/FasterXML/jackson-core/security/advisories/GHSA-r7wm-3cxj-wff9"
+    },
+    "GHSA-r978-9m6m-6gm6": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2024-23944"],
+      "source": "https://lists.apache.org/thread/96s5nqssj03rznz9hv58txdb2k1lr79k"
+    },
+    "GHSA-rcjc-c4pj-xxrp": {
+      "severity": "CRITICAL",
+      "cve": ["CVE-2022-46337"],
+      "source": "https://lists.apache.org/thread/q23kvvtoohgzwybxpwozmvvk17rp0td3"
+    },
+    "GHSA-rgv9-q543-rqg4": {
+      "severity": "HIGH",
+      "cve": ["CVE-2022-42004"],
+      "source": "https://github.com/advisories/GHSA-rgv9-q543-rqg4"
+    },
+    "GHSA-rhrv-645h-fjfh": {
+      "severity": "HIGH",
+      "cve": ["CVE-2023-39410"],
+      "source": "https://lists.apache.org/thread/q142wj99cwdd0jo5lvdoxzoymlqyjdds"
+    },
+    "GHSA-rj7p-rfgp-852x": {
+      "severity": "HIGH",
+      "cve": ["CVE-2019-0205"],
+      "source": "https://github.com/advisories/GHSA-rj7p-rfgp-852x"
+    },
+    "GHSA-rmj7-2vxq-3g9f": {
+      "severity": "HIGH",
+      "cve": ["CVE-2026-54513"],
+      "source": "https://github.com/FasterXML/jackson-databind/security/advisories/GHSA-rmj7-2vxq-3g9f"
+    },
+    "GHSA-v3jc-474w-2wm6": {
+      "severity": "HIGH",
+      "cve": ["CVE-2026-54428"],
+      "source": "https://lists.apache.org/thread/5zjp8vczvxq19pw2rvhs21q446bhl0sd"
+    },
+    "GHSA-v8h7-rr48-vmmv": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2026-41417"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-v8h7-rr48-vmmv"
+    },
+    "GHSA-vc5p-v9hr-52mj": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2025-68161"],
+      "source": "https://lists.apache.org/thread/xr33kyxq3sl67lwb61ggvm1fzc8k7dvx"
+    },
+    "GHSA-vqf4-7m7x-wgfc": {
+      "severity": "HIGH",
+      "cve": ["CVE-2025-12183"],
+      "source": "https://github.com/advisories/GHSA-vqf4-7m7x-wgfc"
+    },
+    "GHSA-vx9q-rhv9-3jvg": {
+      "severity": "HIGH",
+      "cve": ["CVE-2025-67721"],
+      "source": "https://github.com/airlift/aircompressor/security/advisories/GHSA-vx9q-rhv9-3jvg"
+    },
+    "GHSA-w573-9ffj-6ff9": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2026-45536"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-w573-9ffj-6ff9"
+    },
+    "GHSA-w9fj-cfpg-grvv": {
+      "severity": "HIGH",
+      "cve": ["CVE-2026-33871"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-w9fj-cfpg-grvv"
+    },
+    "GHSA-wf8f-6423-gfxg": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2025-49128"],
+      "source": "https://github.com/FasterXML/jackson-core/security/advisories/GHSA-wf8f-6423-gfxg"
+    },
+    "GHSA-wjpw-4j6x-6rwh": {
+      "severity": "LOW",
+      "cve": ["CVE-2025-11143"],
+      "source": "https://github.com/jetty/jetty.project/security/advisories/GHSA-wjpw-4j6x-6rwh"
+    },
+    "GHSA-wrvw-hg22-4m67": {
+      "severity": "HIGH",
+      "cve": ["CVE-2021-22569"],
+      "source": "https://github.com/protocolbuffers/protobuf/security/advisories/GHSA-wrvw-hg22-4m67"
+    },
+    "GHSA-wxr5-93ph-8wr9": {
+      "severity": "HIGH",
+      "cve": ["CVE-2025-48734"],
+      "source": "https://lists.apache.org/thread/s0hb3jkfj5f3ryx6c57zqtfohb0of1g9"
+    },
+    "GHSA-x4gw-5cx5-pgmh": {
+      "severity": "HIGH",
+      "cve": ["CVE-2026-45416"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-x4gw-5cx5-pgmh"
+    },
+    "GHSA-xjp4-hw94-mvp5": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2024-29131"],
+      "source": "https://lists.apache.org/thread/03nzzzjn4oknyw5y0871tw7ltj0t3r37"
+    },
+    "GHSA-xpw8-rcwv-8f8p": {
+      "severity": "HIGH",
+      "cve": [],
+      "source": "https://github.com/apple/swift-nio-http2/security/advisories/GHSA-qppj-fm5r-hxr3"
+    },
+    "GHSA-xq3w-v528-46rv": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2024-47535"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-xq3w-v528-46rv"
+    },
+    "GHSA-xwmg-2g98-w7v9": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2025-53864"],
+      "source": "https://github.com/advisories/GHSA-xwmg-2g98-w7v9"
+    },
+    "GHSA-xx22-p4ch-683r": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2026-59949"],
+      "source": "https://github.com/yawkat/lz4-java/security/advisories/GHSA-xx22-p4ch-683r"
+    },
+    "GHSA-xxqh-mfjm-7mv9": {
+      "severity": "MODERATE",
+      "cve": ["CVE-2026-42581"],
+      "source": "https://github.com/netty/netty/security/advisories/GHSA-xxqh-mfjm-7mv9"
+    }
+  },
+  "debianVersionMatches": {
+    "acl@2.3.1-3": {
+      "source": "https://security-tracker.debian.org/tracker/source-package/acl",
+      "noFixedBookwormRelease": true,
+      "advisories": {
+        "CVE-2026-54369": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue; libacl acl_*_file() follow symlinks; fix adds new acl_*_at() ABI, not individually backportable"
+        },
+        "CVE-2026-54370": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue; local TOCTOU in recursive setfacl/chacl; fix needs 2.4.0 acl_*_at() ABI + walk_tree rewrite, not individually backportable"
+        }
+      }
+    },
+    "alsa-lib@1.2.8-1": {
+      "source": "https://security-tracker.debian.org/tracker/source-package/alsa-lib",
+      "noFixedBookwormRelease": true,
+      "advisories": {
+        "CVE-2026-25068": {
+          "status": "open",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-56109": {
+          "status": "open"
+        }
+      }
+    },
+    "apt@2.6.1": {
+      "source": "https://security-tracker.debian.org/tracker/source-package/apt",
+      "noFixedBookwormRelease": true,
+      "advisories": {
+        "CVE-2011-3374": {
+          "status": "open"
+        }
+      }
+    },
+    "attr@1:2.5.1-4": {
+      "source": "https://security-tracker.debian.org/tracker/source-package/attr",
+      "noFixedBookwormRelease": true,
+      "advisories": {
+        "CVE-2026-54371": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue; local symlink-traversal in recursive getfattr/setfattr; fix is a complete walk_tree rewrite, high regression risk"
+        }
+      }
+    },
+    "avahi@0.8-10+deb12u1": {
+      "source": "https://security-tracker.debian.org/tracker/source-package/avahi",
+      "noFixedBookwormRelease": true,
+      "advisories": {
+        "CVE-2024-52615": {
+          "status": "open",
+          "reason": "Minor issue; workarounds/mitigation exist by setting enable-wide-area=no"
+        },
+        "CVE-2024-52616": {
+          "status": "open",
+          "reason": "Minor issue; workarounds/mitigation exist by setting enable-wide-area=no"
+        },
+        "CVE-2025-59529": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue, revisit when fixed upstream"
+        },
+        "CVE-2025-68276": {
+          "status": "open",
+          "reason": "Minor issue"
+        },
+        "CVE-2025-68468": {
+          "status": "open",
+          "reason": "Minor issue"
+        },
+        "CVE-2025-68471": {
+          "status": "open",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-24401": {
+          "status": "open",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-34933": {
+          "status": "open",
+          "reason": "Minor issue"
+        }
+      }
+    },
+    "bzip2@1.0.8-5": {
+      "source": "https://security-tracker.debian.org/tracker/source-package/bzip2",
+      "noFixedBookwormRelease": true,
+      "advisories": {
+        "CVE-2026-42250": {
+          "status": "open",
+          "reason": "Minor issue"
+        }
+      }
+    },
+    "coreutils@9.1-1": {
+      "source": "https://security-tracker.debian.org/tracker/source-package/coreutils",
+      "noFixedBookwormRelease": true,
+      "advisories": {
+        "CVE-2016-2781": {
+          "status": "open",
+          "debianDecision": "ignored",
+          "reason": "Minor issue"
+        },
+        "CVE-2017-18018": {
+          "status": "open"
+        },
+        "CVE-2025-5278": {
+          "status": "open"
+        },
+        "CVE-2026-56391": {
+          "status": "open"
+        },
+        "CVE-2026-56392": {
+          "status": "open"
+        }
+      }
+    },
+    "cups@2.4.2-3+deb12u9": {
+      "source": "https://security-tracker.debian.org/tracker/source-package/cups",
+      "noFixedBookwormRelease": true,
+      "advisories": {
+        "CVE-2014-8166": {
+          "status": "open"
+        },
+        "CVE-2025-58436": {
+          "status": "open",
+          "reason": "Minor issue"
+        },
+        "CVE-2025-61915": {
+          "status": "open",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-27447": {
+          "status": "open",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-34978": {
+          "status": "open",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-34979": {
+          "status": "open"
+        },
+        "CVE-2026-34980": {
+          "status": "open"
+        },
+        "CVE-2026-34990": {
+          "status": "open",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-39314": {
+          "status": "open"
+        },
+        "CVE-2026-39316": {
+          "status": "open"
+        },
+        "CVE-2026-41079": {
+          "status": "open"
+        }
+      }
+    },
+    "diffutils@1:3.8-4": {
+      "source": "https://security-tracker.debian.org/tracker/source-package/diffutils",
+      "noFixedBookwormRelease": true,
+      "advisories": {
+        "CVE-2026-53910": {
+          "status": "open"
+        }
+      }
+    },
+    "expat@2.5.0-1+deb12u3": {
+      "source": "https://security-tracker.debian.org/tracker/source-package/expat",
+      "noFixedBookwormRelease": true,
+      "advisories": {
+        "CVE-2023-52426": {
+          "status": "open"
+        },
+        "CVE-2024-28757": {
+          "status": "open"
+        },
+        "CVE-2025-59375": {
+          "status": "open",
+          "debianDecision": "ignored",
+          "reason": "Minor issue"
+        },
+        "CVE-2025-66382": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue, revisit when fixed upstream"
+        },
+        "CVE-2026-24515": {
+          "status": "open",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-25210": {
+          "status": "open",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-32776": {
+          "status": "open",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-32777": {
+          "status": "open",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-32778": {
+          "status": "open",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-41080": {
+          "status": "open",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-45186": {
+          "status": "open"
+        },
+        "CVE-2026-56132": {
+          "status": "open"
+        },
+        "CVE-2026-66046": {
+          "status": "open"
+        }
+      }
+    },
+    "gcc-12@12.2.0-14+deb12u1": {
+      "source": "https://security-tracker.debian.org/tracker/source-package/gcc-12",
+      "noFixedBookwormRelease": true,
+      "advisories": {
+        "CVE-2022-27943": {
+          "status": "open"
+        }
+      }
+    },
+    "glib2.0@2.74.6-2+deb12u9": {
+      "source": "https://security-tracker.debian.org/tracker/source-package/glib2.0",
+      "noFixedBookwormRelease": true,
+      "advisories": {
+        "CVE-2012-0039": {
+          "status": "open"
+        },
+        "CVE-2026-15588": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue; unbounded pre-auth SASL line read in GDBusServer lets an unauthenticated peer exhaust memory; DoS only, the system/session buses run dbus-daemon"
+        },
+        "CVE-2026-16118": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue; 2-byte OOB write parsing the mime magic file in an XDG data dir, needs an attacker-writable XDG data dir; unfixed upstream"
+        },
+        "CVE-2026-58010": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue; GVariant deserialiser 1-byte over-read, reachability-gated"
+        },
+        "CVE-2026-58011": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue; GDateTime 2-byte over-read, reachability-gated"
+        },
+        "CVE-2026-58012": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue; g_regex_replace raw-mode over-read, needs G_REGEX_RAW"
+        },
+        "CVE-2026-58013": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue; GIOChannel custom-terminator over-read, reachability-gated"
+        },
+        "CVE-2026-58014": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue; GKeyFile off-by-one 1-byte OOB, reachability-gated"
+        },
+        "CVE-2026-58015": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue; DBUS_COOKIE_SHA1 client path traversal, needs malicious D-Bus server"
+        },
+        "CVE-2026-58016": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue; GDBus introspection-XML OOB-read DoS; no upstream fix yet"
+        }
+      }
+    },
+    "glibc@2.36-9+deb12u14": {
+      "source": "https://security-tracker.debian.org/tracker/source-package/glibc",
+      "noFixedBookwormRelease": true,
+      "advisories": {
+        "CVE-2010-4756": {
+          "status": "open"
+        },
+        "CVE-2018-20796": {
+          "status": "open"
+        },
+        "CVE-2019-1010022": {
+          "status": "open"
+        },
+        "CVE-2019-1010023": {
+          "status": "open"
+        },
+        "CVE-2019-1010024": {
+          "status": "open"
+        },
+        "CVE-2019-1010025": {
+          "status": "open"
+        },
+        "CVE-2019-9192": {
+          "status": "open"
+        },
+        "CVE-2026-18374": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-19499": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-19542": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-5435": {
+          "status": "open",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-5450": {
+          "status": "open",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-5928": {
+          "status": "open",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-6238": {
+          "status": "open",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-6368": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-6791": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-77117": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-80489": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue"
+        }
+      }
+    },
+    "gnupg2@2.2.40-1.1+deb12u2": {
+      "source": "https://security-tracker.debian.org/tracker/source-package/gnupg2",
+      "noFixedBookwormRelease": true,
+      "advisories": {
+        "CVE-2022-3219": {
+          "status": "open"
+        },
+        "CVE-2025-30258": {
+          "status": "open",
+          "reason": "Minor issue"
+        },
+        "CVE-2025-68972": {
+          "status": "open",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-57062": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue"
+        }
+      }
+    },
+    "gnutls28@3.7.9-2+deb12u7": {
+      "source": "https://security-tracker.debian.org/tracker/source-package/gnutls28",
+      "noFixedBookwormRelease": true,
+      "advisories": {
+        "CVE-2011-3389": {
+          "status": "open"
+        }
+      }
+    },
+    "gzip@1.12-1": {
+      "source": "https://security-tracker.debian.org/tracker/source-package/gzip",
+      "noFixedBookwormRelease": true,
+      "advisories": {
+        "CVE-2026-41991": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-41992": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue"
+        }
+      }
+    },
+    "harfbuzz@6.0.0+dfsg-3": {
+      "source": "https://security-tracker.debian.org/tracker/source-package/harfbuzz",
+      "noFixedBookwormRelease": true,
+      "advisories": {
+        "CVE-2023-25193": {
+          "status": "open",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-22693": {
+          "status": "open",
+          "reason": "Minor issue"
+        }
+      }
+    },
+    "krb5@1.20.1-2+deb12u5": {
+      "source": "https://security-tracker.debian.org/tracker/source-package/krb5",
+      "noFixedBookwormRelease": true,
+      "advisories": {
+        "CVE-2018-5709": {
+          "status": "open"
+        },
+        "CVE-2024-26458": {
+          "status": "open"
+        },
+        "CVE-2024-26461": {
+          "status": "open"
+        },
+        "CVE-2026-11850": {
+          "status": "open"
+        }
+      }
+    },
+    "lcms2@2.14-2+deb12u1": {
+      "source": "https://security-tracker.debian.org/tracker/source-package/lcms2",
+      "noFixedBookwormRelease": true,
+      "advisories": {
+        "CVE-2025-29070": {
+          "status": "open"
+        }
+      }
+    },
+    "libgcrypt20@1.10.1-3+deb12u1": {
+      "source": "https://security-tracker.debian.org/tracker/source-package/libgcrypt20",
+      "noFixedBookwormRelease": true,
+      "advisories": {
+        "CVE-2018-6829": {
+          "status": "open"
+        },
+        "CVE-2024-2236": {
+          "status": "open"
+        }
+      }
+    },
+    "libpng1.6@1.6.39-2+deb12u5": {
+      "source": "https://security-tracker.debian.org/tracker/source-package/libpng1.6",
+      "noFixedBookwormRelease": true,
+      "advisories": {
+        "CVE-2021-4214": {
+          "status": "open"
+        },
+        "CVE-2025-28162": {
+          "status": "open",
+          "reason": "Minor issue"
+        },
+        "CVE-2025-28164": {
+          "status": "open"
+        },
+        "CVE-2026-3713": {
+          "status": "open"
+        }
+      }
+    },
+    "libtasn1-6@4.19.0-2+deb12u1": {
+      "source": "https://security-tracker.debian.org/tracker/source-package/libtasn1-6",
+      "noFixedBookwormRelease": true,
+      "advisories": {
+        "CVE-2025-13151": {
+          "status": "open",
+          "reason": "Minor issue"
+        }
+      }
+    },
+    "ncurses@6.4-4": {
+      "source": "https://security-tracker.debian.org/tracker/source-package/ncurses",
+      "noFixedBookwormRelease": true,
+      "advisories": {
+        "CVE-2023-50495": {
+          "status": "open",
+          "reason": "Minor issue"
+        },
+        "CVE-2025-6141": {
+          "status": "open",
+          "reason": "Minor issue"
+        },
+        "CVE-2025-69720": {
+          "status": "open",
+          "reason": "Minor issue"
+        }
+      }
+    },
+    "nss@2:3.87.1-1+deb12u4": {
+      "source": "https://security-tracker.debian.org/tracker/source-package/nss",
+      "noFixedBookwormRelease": true,
+      "advisories": {
+        "CVE-2017-11695": {
+          "status": "open"
+        },
+        "CVE-2017-11696": {
+          "status": "open"
+        },
+        "CVE-2017-11697": {
+          "status": "open"
+        },
+        "CVE-2017-11698": {
+          "status": "open"
+        },
+        "CVE-2023-5388": {
+          "status": "open",
+          "debianDecision": "ignored",
+          "reason": "Minor issue, too intrusive to backport"
+        },
+        "CVE-2023-6135": {
+          "status": "open",
+          "debianDecision": "ignored",
+          "reason": "Minor issue, too intrusive to backport"
+        },
+        "CVE-2024-7531": {
+          "status": "open",
+          "debianDecision": "ignored",
+          "reason": "Minor issue"
+        }
+      }
+    },
+    "openssl@3.0.20-1~deb12u2": {
+      "source": "https://security-tracker.debian.org/tracker/source-package/openssl",
+      "noFixedBookwormRelease": true,
+      "advisories": {
+        "CVE-2025-27587": {
+          "status": "open"
+        },
+        "CVE-2026-42767": {
+          "status": "open",
+          "reason": "Minor issue; can be fixed in next update"
+        },
+        "CVE-2026-54874": {
+          "status": "open"
+        },
+        "CVE-2026-63072": {
+          "status": "open"
+        },
+        "CVE-2026-63074": {
+          "status": "open"
+        },
+        "CVE-2026-63076": {
+          "status": "open"
+        },
+        "CVE-2026-75803": {
+          "status": "open"
+        }
+      }
+    },
+    "p11-kit@0.24.1-2": {
+      "source": "https://security-tracker.debian.org/tracker/source-package/p11-kit",
+      "noFixedBookwormRelease": true,
+      "advisories": {
+        "CVE-2026-13757": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-18938": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue"
+        }
+      }
+    },
+    "pam@1.5.2-6+deb12u2": {
+      "source": "https://security-tracker.debian.org/tracker/source-package/pam",
+      "noFixedBookwormRelease": true,
+      "advisories": {
+        "CVE-2024-10041": {
+          "status": "open",
+          "debianDecision": "ignored",
+          "reason": "Minor issue; requires src:apparmor changes, cf #1110326"
+        },
+        "CVE-2025-8941": {
+          "status": "undetermined"
+        },
+        "CVE-2026-54411": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue"
+        }
+      }
+    },
+    "perl@5.36.0-7+deb12u3": {
+      "source": "https://security-tracker.debian.org/tracker/source-package/perl",
+      "noFixedBookwormRelease": true,
+      "advisories": {
+        "CVE-2011-4116": {
+          "status": "open"
+        },
+        "CVE-2023-31486": {
+          "status": "open"
+        },
+        "CVE-2025-15649": {
+          "status": "open"
+        },
+        "CVE-2026-12087": {
+          "status": "open"
+        },
+        "CVE-2026-13221": {
+          "status": "open"
+        },
+        "CVE-2026-15534": {
+          "status": "open"
+        },
+        "CVE-2026-19487": {
+          "status": "open"
+        },
+        "CVE-2026-42496": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue; wait for regressions upstream sorted out"
+        },
+        "CVE-2026-42497": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue; wait for regressions upstream sorted out"
+        },
+        "CVE-2026-48959": {
+          "status": "open"
+        },
+        "CVE-2026-48961": {
+          "status": "open"
+        },
+        "CVE-2026-48962": {
+          "status": "open"
+        },
+        "CVE-2026-57432": {
+          "status": "open"
+        },
+        "CVE-2026-57433": {
+          "status": "open"
+        },
+        "CVE-2026-7010": {
+          "status": "open"
+        },
+        "CVE-2026-7017": {
+          "status": "open"
+        },
+        "CVE-2026-8376": {
+          "status": "open",
+          "reason": "Minor issue; can be fixed in point release"
+        },
+        "CVE-2026-9538": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue; wait for regressions upstream sorted out"
+        }
+      }
+    },
+    "shadow@1:4.13+dfsg1-1+deb12u2": {
+      "source": "https://security-tracker.debian.org/tracker/source-package/shadow",
+      "noFixedBookwormRelease": true,
+      "advisories": {
+        "CVE-2007-5686": {
+          "status": "open"
+        },
+        "CVE-2024-56433": {
+          "status": "open",
+          "reason": "Minor issue"
+        }
+      }
+    },
+    "sqlite3@3.40.1-2+deb12u2": {
+      "source": "https://security-tracker.debian.org/tracker/source-package/sqlite3",
+      "noFixedBookwormRelease": true,
+      "advisories": {
+        "CVE-2021-45346": {
+          "status": "open"
+        },
+        "CVE-2025-29088": {
+          "status": "open"
+        },
+        "CVE-2025-70873": {
+          "status": "open"
+        },
+        "CVE-2025-7458": {
+          "status": "open",
+          "reason": "Minor issue"
+        },
+        "CVE-2025-7709": {
+          "status": "open",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-11822": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-11824": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-39113": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-50812": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue, DoS"
+        },
+        "CVE-2026-50813": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue, OOB read"
+        }
+      }
+    },
+    "systemd@252.39-1~deb12u2": {
+      "source": "https://security-tracker.debian.org/tracker/source-package/systemd",
+      "noFixedBookwormRelease": true,
+      "advisories": {
+        "CVE-2013-4392": {
+          "status": "open"
+        },
+        "CVE-2023-31437": {
+          "status": "open"
+        },
+        "CVE-2023-31438": {
+          "status": "open"
+        },
+        "CVE-2023-31439": {
+          "status": "open"
+        },
+        "CVE-2026-15059": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-16742": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-40228": {
+          "status": "open",
+          "reason": "Minor issue"
+        }
+      }
+    },
+    "tar@1.34+dfsg-1.2+deb12u1": {
+      "source": "https://security-tracker.debian.org/tracker/source-package/tar",
+      "noFixedBookwormRelease": true,
+      "advisories": {
+        "CVE-2005-2541": {
+          "status": "open"
+        },
+        "CVE-2026-18477": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-18508": {
+          "status": "open",
+          "debianDecision": "postponed",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-5704": {
+          "status": "open",
+          "reason": "Minor issue"
+        }
+      }
+    },
+    "util-linux@2.38.1-5+deb12u3": {
+      "source": "https://security-tracker.debian.org/tracker/source-package/util-linux",
+      "noFixedBookwormRelease": true,
+      "advisories": {
+        "CVE-2022-0563": {
+          "status": "open"
+        },
+        "CVE-2025-14104": {
+          "status": "open"
+        },
+        "CVE-2026-13595": {
+          "status": "open"
+        },
+        "CVE-2026-27456": {
+          "status": "open",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-3184": {
+          "status": "open",
+          "debianDecision": "ignored",
+          "reason": "login not build from src:util-linux; only taken over in 2.40.2-3"
+        },
+        "CVE-2026-53613": {
+          "status": "open"
+        },
+        "CVE-2026-53615": {
+          "status": "open"
+        },
+        "CVE-2026-76642": {
+          "status": "open"
+        },
+        "CVE-2026-78408": {
+          "status": "open"
+        },
+        "CVE-2026-78409": {
+          "status": "open"
+        },
+        "CVE-2026-78410": {
+          "status": "open"
+        }
+      }
+    },
+    "zlib@1:1.2.13.dfsg-1": {
+      "source": "https://security-tracker.debian.org/tracker/source-package/zlib",
+      "noFixedBookwormRelease": true,
+      "advisories": {
+        "CVE-2023-45853": {
+          "status": "open",
+          "debianDecision": "ignored",
+          "reason": "contrib/minizip not built and src:zlib not producing binary packages"
+        },
+        "CVE-2026-27171": {
+          "status": "open",
+          "reason": "Minor issue"
+        },
+        "CVE-2026-85091": {
+          "status": "open"
+        }
+      }
+    }
+  }
+}

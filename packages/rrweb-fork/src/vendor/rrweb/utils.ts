@@ -384,7 +384,7 @@ export function uniqueTextMutations(mutations: textMutation[]): textMutation[] {
   const idSet = new Set<number>();
   const uniqueMutations: textMutation[] = [];
 
-  for (let i = mutations.length; i--; ) {
+  for (let i = mutations.length; i--;) {
     const mutation = mutations[i];
     if (!idSet.has(mutation.id)) {
       uniqueMutations.push(mutation);

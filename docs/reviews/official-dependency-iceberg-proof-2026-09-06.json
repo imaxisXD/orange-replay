@@ -1,0 +1,42 @@
+{
+  "event": "analytics.local_iceberg_purge_fixture",
+  "fixture": "orange-replay-local-iceberg-purge-v1",
+  "warehouse": "file:///warehouse",
+  "state": "verified",
+  "seed_runtime": {
+    "python": "3.12.13",
+    "spark": "3.5.8",
+    "iceberg": "Apache Iceberg 1.6.1 (commit 8e9d59d299be42b0bca9461457cd1e95dbaad086)",
+    "java": "17.0.20"
+  },
+  "runtime": {
+    "python": "3.12.14",
+    "spark": "3.5.9",
+    "iceberg": "Apache Iceberg 1.10.2 (commit 57396d628cb9f92e121f9c2919398475393f0a3a)",
+    "java": "17.0.20.1"
+  },
+  "checks": [
+    {
+      "delete_mode": "merge-on-read",
+      "original_data_files_removed": 2,
+      "late_data_files_removed": 1,
+      "table_format": 2,
+      "missing_tombstone_denied": true,
+      "retained_rows_and_tombstones_unchanged": true,
+      "second_zero_check_created_no_snapshot": true,
+      "late_event_rows_found_before": 1,
+      "late_empty_session_snapshots": 1
+    },
+    {
+      "delete_mode": "copy-on-write",
+      "original_data_files_removed": 2,
+      "late_data_files_removed": 1,
+      "table_format": 2,
+      "missing_tombstone_denied": true,
+      "retained_rows_and_tombstones_unchanged": true,
+      "second_zero_check_created_no_snapshot": true,
+      "late_event_rows_found_before": 1,
+      "late_empty_session_snapshots": 1
+    }
+  ]
+}

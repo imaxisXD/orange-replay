@@ -22,7 +22,7 @@ How this document is used:
 
 ## Definition of Done (every task)
 
-1. `vp check` and `vp test` green from repo root (`export PATH="$HOME/.vite-plus/bin:$PATH"`).
+1. `vp check` and `vp test` green from repo root (use the PATH configured by the Vite+ installer).
 2. Scope respected (only the task's file budget touched; verify with `git status` — never trust an agent's report without checking the disk).
 3. For UI tasks: screenshot comparison against `design-final.html` (boot the app, judge each element per `docs/design-language.md`).
 4. End-to-end review completed per `docs/code-review.md`: trace backend changes into every frontend consumer, enumerate shared call sites and affected states, and directly verify visible text and interactions.
@@ -40,6 +40,8 @@ Judging under flattering conditions hides geometry bugs. The T3.5 replay embed w
 ## Status ledger
 
 ### Current local tooling and audit work
+
+- [x] Official dependency audit and upgrade candidate (2026-09-06, verified in this commit) — checked all **56 direct npm package names**, the full lock and the analytics container; upgraded **32 direct names** using official releases, plus Node 22.23.2, pnpm 11.25.0, Python 3.12.14, pip 26.2.1, Spark 3.5.9 and matched Iceberg 1.10.2 JARs. No new override, package patch or release-age bypass. All **21 original npm audit findings** clear; **11 upstream Cloudflare-tool advisories** and bundled container findings remain. `vp check` has zero warnings/errors; **1,750 tests / 225 files**, all **8 builds**, **27 Chromium cases**, **8 unmocked app route/layout checks**, **34-table** schema check, template mirror and SDK hard budgets pass. The old Iceberg 1.6.1 warehouse passes physical deletion, retained-data and late-arrival checks under 1.10.2 in both modes. Happy DOM 20.12+ and Iceberg 1.11 are held for upstream regressions; major framework migrations remain separate. A pre-existing asynchronous canvas ordering defect was reproduced in both published rrweb versions and remains documented. The candidate is locally verified; production Cloudflare catalog/credential checks and a rollout were not performed. Review and full inventories: `docs/reviews/official-dependency-upgrades-2026-09-06.md`. Unrelated original-checkout work is preserved and its port-8899 server restored.
 
 - [x] Replay controls height and masking details (2026-09-06, verified in this commit) — desktop timelines scroll within player height. Masking reports are now collapsed under Session information, outside playback controls; public details wait for loading. Keyboard shortcuts respect disclosure controls. Mobile event lists stay bounded while expanded reports remain readable. `vp check`, **1,766 tests / 227 files**, **21 UI browser cases**, and dashboard/public builds pass; the prior **6 built SDK cases** verified masking evidence. Review: `docs/reviews/replay-controls-masking-2026-09-05.md`. No deployment or recovery of historical evidence.
 

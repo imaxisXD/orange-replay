@@ -12,10 +12,11 @@ Orange Replay is session replay built natively on Cloudflare: compressed capture
 
 ## Quickstart
 
+Install [Vite+](https://viteplus.dev/guide/) and open a new terminal so `vp` is on your PATH. The installer configures the correct location for both new and existing installations.
+
 ```sh
 git clone <repo-url>
 cd orange-replay
-export PATH="$HOME/.vite-plus/bin:$PATH"
 vp install
 
 vp run dev
@@ -31,7 +32,6 @@ otherwise it uses `apps/worker/.env.example`.
 For the demo site:
 
 ```sh
-export PATH="$HOME/.vite-plus/bin:$PATH"
 cd fixtures/demo-site
 vp dev
 ```

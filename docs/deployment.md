@@ -7,13 +7,11 @@ Orange Replay has two environments only:
   `/demo`, Worker APIs, bindings, and hot reload.
 - **Prod**: real Cloudflare resources in the `production` Wrangler environment.
 
-There is no staging environment. Run these commands from the repo root after `vp install`.
+There is no staging environment. Install [Vite+](https://viteplus.dev/guide/), open a new terminal, and run these commands from the repo root after `vp install`. Use the PATH configured by the installer; Vite+ 0.3 uses a different location for fresh installations. Cloudflare builds use the pinned Node 22.23.2 release in `apps/worker/.node-version`.
 
 ## 1. Create Production Resources And Config
 
 ```sh
-export PATH="$HOME/.vite-plus/bin:$PATH"
-
 vp exec --filter @orange-replay/worker -- wrangler d1 create orange-replay-idx-00-prod
 vp exec --filter @orange-replay/worker -- wrangler r2 bucket create orange-replay-recordings-prod
 vp exec --filter @orange-replay/worker -- wrangler kv namespace create CONFIG

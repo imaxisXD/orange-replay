@@ -196,27 +196,24 @@ describe("WorkerSink pagehide final flush", () => {
   });
 
   it("does not serialize excluded images while shrinking an oversized sidecar", () => {
-    const events = Array.from(
-      { length: 100 },
-      (_, index): eventWithTime => ({
-        type: EventType.IncrementalSnapshot,
-        timestamp: index + 1,
-        data: {
-          source: IncrementalSource.Mutation,
-          adds: [],
-          removes: [],
-          texts: [],
-          attributes: [
-            {
-              id: 1,
-              attributes: {
-                src: `data:image/png;base64,${"x".repeat(index === 99 ? 1_000_000 : 100)}`,
-              },
+    const events = Array.from({ length: 100 }, (_, index): eventWithTime => ({
+      type: EventType.IncrementalSnapshot,
+      timestamp: index + 1,
+      data: {
+        source: IncrementalSource.Mutation,
+        adds: [],
+        removes: [],
+        texts: [],
+        attributes: [
+          {
+            id: 1,
+            attributes: {
+              src: `data:image/png;base64,${"x".repeat(index === 99 ? 1_000_000 : 100)}`,
             },
-          ],
-        },
-      }),
-    );
+          },
+        ],
+      },
+    }));
     const indexEvents = Array.from({ length: 100 }, (_, index) => ({
       t: index + 1,
       k: "custom" as const,

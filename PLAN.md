@@ -8,7 +8,7 @@ Operating document for the orchestrated build. ARCHITECTURE.md is the design aut
 - **Cloudflare**: the original build was local-first. On 2026-07-13 the user explicitly approved the real analytics cutover, production backfill, remote verification, and browser E2E. That approval is limited to the analytics resources and code in `docs/specs/f4-r2-analytics-cutover.md`; unrelated unfinished hosted-auth work must not be deployed with it.
 - **Dashboard auth**: **Better Auth + GitHub OAuth** in hosted, self-hosted, and local installs, with no email/password or shared-token fallback. D1-backed workspace membership controls project access and key management; missing or partial auth configuration fails closed. The anonymous read-only `/demo` remains separate (ARCHITECTURE §6 and `docs/specs/hosted-auth-better-auth.md`).
 - **rrweb**: fork immediately — vendored in-repo at a pinned upstream tag, capture-side only.
-- **Toolchain**: Vite Plus (`vp` 0.2.2) — `vp install` / `vp check` / `vp test` / `vp build`. Oxlint + Oxfmt, Vitest.
+- **Toolchain**: Vite Plus (`vp` 0.3.0) — `vp install` / `vp check` / `vp test` / `vp build`. Oxlint + Oxfmt, Vitest.
 - **UI**: React + Tailwind + shadcn with the **Fluid Functionalism registry** (`npx shadcn@latest add @fluid/<component>`). Never hand-roll a component the registry provides. Hard review criterion.
 - **Logging**: wide events (canonical log lines) — one structured JSON event per unit of work per service. Contract below.
 - **Not chosen yet (user decision, flagged)**: OSS license.

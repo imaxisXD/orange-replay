@@ -91,15 +91,13 @@ function rageEventsFromClicks(clicks: readonly TabClickPoint[]): IndexEvent[] {
   }
   return [...tabs]
     .flatMap(([tab, tabClicks]) =>
-      detectRageClickBursts(tabClicks).map(
-        (burst): IndexEvent => ({
-          t: burst.timeMs,
-          k: "rage",
-          ...(tab === undefined ? {} : { tab }),
-          d: "Rage click burst",
-          m: { x: burst.x, y: burst.y, clicks: burst.clickCount },
-        }),
-      ),
+      detectRageClickBursts(tabClicks).map((burst): IndexEvent => ({
+        t: burst.timeMs,
+        k: "rage",
+        ...(tab === undefined ? {} : { tab }),
+        d: "Rage click burst",
+        m: { x: burst.x, y: burst.y, clicks: burst.clickCount },
+      })),
     )
     .toSorted((left, right) => left.t - right.t);
 }

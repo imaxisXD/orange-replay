@@ -1,4 +1,4 @@
-FROM python:3.12.13-slim-bookworm@sha256:8a7e7cc04fd3e2bd787f7f24e22d5d119aa590d429b50c95dfe12b3abe52f48b
+FROM python:3.12.14-slim-bookworm@sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
@@ -7,7 +7,8 @@ RUN apt-get update \
     && apt-get upgrade --yes \
     && apt-get install --yes --no-install-recommends ca-certificates openjdk-17-jre-headless \
     && rm -rf /var/lib/apt/lists/* \
-    && python -m pip install --disable-pip-version-check --no-cache-dir pyspark==3.5.8 \
+    && python -m pip install --disable-pip-version-check --no-cache-dir --upgrade pip==26.2.1 \
+    && python -m pip install --disable-pip-version-check --no-cache-dir pyspark==3.5.9 \
     && groupadd --gid 10001 analytics-purge \
     && useradd --create-home --uid 10001 --gid 10001 analytics-purge
 

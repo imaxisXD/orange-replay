@@ -241,7 +241,7 @@ export function _isBlockedElement(
         return true;
       }
     } else {
-      for (let eIndex = element.classList.length; eIndex--; ) {
+      for (let eIndex = element.classList.length; eIndex--;) {
         const className = element.classList[eIndex];
         blockClass.lastIndex = 0;
         if (blockClass.test(className)) {
@@ -266,7 +266,7 @@ export function classMatchesRegex(
 ): boolean {
   let element = closestPrivacyElement(node);
   while (element !== null) {
-    for (let eIndex = element.classList.length; eIndex--; ) {
+    for (let eIndex = element.classList.length; eIndex--;) {
       const className = element.classList[eIndex];
       regex.lastIndex = 0;
       if (regex.test(className)) return true;
