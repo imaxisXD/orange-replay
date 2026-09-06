@@ -1,0 +1,21 @@
+{
+  "name": "Orange Replay",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "user": "node",
+  "install": "./.cursor/install.sh",
+  "terminals": [
+    {
+      "name": "dev",
+      "command": "./.cursor/start-dev.sh",
+      "description": "Integrated Cloudflare Worker + dashboard dev server on port 8787"
+    }
+  ],
+  "ports": [
+    {
+      "name": "app",
+      "port": 8787
+    }
+  ]
+}
